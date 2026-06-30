@@ -4,1422 +4,1133 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Lyneo ERP</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css"/>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  :root{
-    --blue:#1565C0;--blue-light:#E3F2FD;--blue-mid:#1976D2;
-    --navy:#0D2137;--navy-mid:#1a3550;
-    --green:#2E7D32;--green-light:#E8F5E9;
-    --orange:#E65100;--orange-light:#FFF3E0;
-    --red:#C62828;--red-light:#FFEBEE;
-    --gray-0:#fff;--gray-1:#F8FAFB;--gray-2:#F1F4F7;--gray-3:#E2E8EF;
-    --gray-4:#B0BEC5;--gray-5:#78909C;--gray-6:#455A64;--gray-7:#263238;
-    --radius:8px;--shadow:0 1px 3px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.06);
-    --shadow-md:0 4px 12px rgba(0,0,0,.12);
-  }
-  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--gray-1);color:var(--gray-7);font-size:14px;line-height:1.5}
-  #root{display:flex;min-height:100vh}
-
-  /* SIDEBAR */
-  .sidebar{width:220px;min-height:100vh;background:var(--navy);display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:100}
-  .sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
-  .sidebar-logo img{height:36px;object-fit:contain}
-  .sidebar-logo span{display:block;font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.08em;margin-top:4px;text-transform:uppercase}
-  .sidebar-nav{flex:1;padding:12px 0;overflow-y:auto}
-  .nav-section{padding:8px 16px 4px;font-size:10px;color:rgba(255,255,255,.3);letter-spacing:.1em;text-transform:uppercase;font-weight:600}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;color:rgba(255,255,255,.65);cursor:pointer;transition:all .15s;font-size:13px;border-left:3px solid transparent}
-  .nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
-  .nav-item.active{background:rgba(21,101,192,.35);color:#fff;border-left-color:var(--blue-mid)}
-  .nav-item i{font-size:17px;width:20px;text-align:center}
-  .sidebar-user{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.5)}
-  .sidebar-user strong{display:block;color:rgba(255,255,255,.85);font-size:13px}
-
-  /* MAIN */
-  .main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
-  .topbar{background:#fff;border-bottom:1px solid var(--gray-3);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
-  .topbar-title{font-size:16px;font-weight:600;color:var(--gray-7)}
-  .topbar-actions{display:flex;gap:8px;align-items:center}
-  .page{padding:24px;flex:1}
-
-  /* CARDS */
-  .card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-3);box-shadow:var(--shadow)}
-  .card-header{padding:16px 20px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between}
-  .card-header h2{font-size:15px;font-weight:600}
-  .card-body{padding:20px}
-
-  /* STATS */
-  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px}
-  .stat-card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-3);padding:16px 18px;box-shadow:var(--shadow)}
-  .stat-label{font-size:11px;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:6px}
-  .stat-value{font-size:26px;font-weight:700;color:var(--gray-7);line-height:1}
-  .stat-sub{font-size:12px;color:var(--gray-5);margin-top:4px}
-  .stat-card.blue .stat-value{color:var(--blue)}
-  .stat-card.green .stat-value{color:var(--green)}
-  .stat-card.orange .stat-value{color:var(--orange)}
-  .stat-card.red .stat-value{color:var(--red)}
-
-  /* BUTTONS */
-  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);border:1px solid transparent;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;line-height:1.3;white-space:nowrap}
-  .btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
-  .btn-primary:hover{background:var(--blue-mid)}
-  .btn-secondary{background:#fff;color:var(--gray-7);border-color:var(--gray-3)}
-  .btn-secondary:hover{background:var(--gray-2);border-color:var(--gray-4)}
-  .btn-danger{background:var(--red-light);color:var(--red);border-color:#FFCDD2}
-  .btn-danger:hover{background:#FFCDD2}
-  .btn-success{background:var(--green-light);color:var(--green);border-color:#C8E6C9}
-  .btn-success:hover{background:#C8E6C9}
-  .btn-sm{padding:4px 10px;font-size:12px}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
-  .btn i{font-size:15px}
-
-  /* BADGE STATUT */
-  .badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-  .badge-brouillon{background:#F3E5F5;color:#7B1FA2}
-  .badge-envoyee{background:#E3F2FD;color:#1565C0}
-  .badge-rec_partielle{background:#FFF3E0;color:#E65100}
-  .badge-rec_totale{background:#E8F5E9;color:#2E7D32}
-  .badge-facturee{background:#E8EAF6;color:#283593}
-  .badge-payee{background:#E8F5E9;color:#1B5E20}
-  .badge-annulee{background:#FFEBEE;color:#C62828}
-  .badge-actif{background:#E8F5E9;color:#2E7D32}
-  .badge-pause{background:#FFF3E0;color:#E65100}
-  .badge-termine{background:var(--gray-2);color:var(--gray-6)}
-  .badge-recue{background:#E3F2FD;color:#1565C0}
-  .badge-validee{background:#E8F5E9;color:#2E7D32}
-  .badge-litige{background:#FFEBEE;color:#C62828}
-
-  /* TABLE */
-  .table-wrap{overflow-x:auto}
-  table{width:100%;border-collapse:collapse}
-  th{text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--gray-3);white-space:nowrap;background:var(--gray-1)}
-  td{padding:11px 14px;border-bottom:1px solid var(--gray-2);vertical-align:middle;font-size:13px}
-  tr:last-child td{border-bottom:none}
-  tr:hover td{background:var(--gray-1)}
-  .td-actions{display:flex;gap:6px;align-items:center}
-
-  /* FORM */
-  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
-  .form-group{display:flex;flex-direction:column;gap:5px}
-  .form-group.full{grid-column:1/-1}
-  label{font-size:12px;font-weight:600;color:var(--gray-6);text-transform:uppercase;letter-spacing:.04em}
-  input,select,textarea{padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px;color:var(--gray-7);background:#fff;transition:border .15s;font-family:inherit;width:100%}
-  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,.1)}
-  textarea{resize:vertical;min-height:80px}
-  .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-3)}
-
-  /* MODAL */
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
-  .modal{background:#fff;border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-md)}
-  .modal-lg{max-width:900px}
-  .modal-header{padding:18px 20px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:10}
-  .modal-header h3{font-size:16px;font-weight:600}
-  .modal-body{padding:20px}
-  .modal-close{background:none;border:none;cursor:pointer;color:var(--gray-5);padding:4px;border-radius:4px;display:flex}
-  .modal-close:hover{color:var(--gray-7);background:var(--gray-2)}
-
-  /* LIGNES PO */
-  .lignes-table{width:100%;border-collapse:collapse;margin-top:12px}
-  .lignes-table th{background:var(--gray-1);padding:8px 10px;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--gray-3)}
-  .lignes-table td{padding:6px 8px;border-bottom:1px solid var(--gray-2);vertical-align:middle}
-  .lignes-table input,.lignes-table select{padding:5px 8px;font-size:13px;width:100%}
-  .lignes-table .col-desc{min-width:180px}
-  .lignes-table .col-ref{width:100px}
-  .lignes-table .col-qty{width:80px}
-  .lignes-table .col-unit{width:80px}
-  .lignes-table .col-pu{width:100px}
-  .lignes-table .col-tva{width:70px}
-  .lignes-table .col-total{width:100px;text-align:right;font-weight:600;color:var(--blue)}
-  .lignes-table .col-del{width:36px;text-align:center}
-  .totaux{margin-top:12px;display:flex;justify-content:flex-end}
-  .totaux-box{background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:14px 20px;min-width:240px}
-  .totaux-row{display:flex;justify-content:space-between;gap:24px;padding:3px 0;font-size:13px}
-  .totaux-row.total{border-top:1px solid var(--gray-3);margin-top:6px;padding-top:8px;font-weight:700;font-size:15px;color:var(--blue)}
-
-  /* EMPTY STATE */
-  .empty{text-align:center;padding:48px 24px;color:var(--gray-4)}
-  .empty i{font-size:48px;margin-bottom:12px;display:block}
-  .empty p{font-size:14px;margin-bottom:16px}
-
-  /* ALERT */
-  .alert{padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-  .alert-info{background:var(--blue-light);color:#0D47A1;border:1px solid #BBDEFB}
-  .alert-success{background:var(--green-light);color:#1B5E20;border:1px solid #C8E6C9}
-  .alert-error{background:var(--red-light);color:var(--red);border:1px solid #FFCDD2}
-
-  /* LOGIN */
-  .login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy);flex-direction:column;gap:0}
-  .login-card{background:#fff;border-radius:12px;padding:40px;width:100%;max-width:380px;box-shadow:var(--shadow-md)}
-  .login-logo{text-align:center;margin-bottom:28px}
-  .login-logo img{height:52px;object-fit:contain}
-  .login-logo p{color:var(--gray-5);font-size:13px;margin-top:8px}
-
-  /* MISC */
-  .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-  .page-header h1{font-size:20px;font-weight:700;color:var(--gray-7)}
-  .flex{display:flex}.gap-8{gap:8px}.items-center{align-items:center}
-  .text-right{text-align:right}
-  .text-muted{color:var(--gray-5)}
-  .text-sm{font-size:12px}
-  .fw-600{font-weight:600}
-  .mt-12{margin-top:12px}
-  .mb-12{margin-bottom:12px}
-  .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-
-  /* PO DETAIL */
-  .po-info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
-  .po-info-item label{font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:2px}
-  .po-info-item span{font-size:14px;color:var(--gray-7)}
-
-  /* SEARCH */
-  .search-box{position:relative;flex:1;max-width:280px}
-  .search-box input{padding-left:32px}
-  .search-box i{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-4);font-size:15px}
-
-  /* TABS */
-  .tabs{display:flex;gap:0;border-bottom:1px solid var(--gray-3);margin-bottom:20px}
-  .tab{padding:10px 18px;font-size:13px;font-weight:500;color:var(--gray-5);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;margin-bottom:-1px}
-  .tab:hover{color:var(--gray-7)}
-  .tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
-
-  @media(max-width:768px){
-    .sidebar{transform:translateX(-100%)}
-    .main{margin-left:0}
-    .stats-grid{grid-template-columns:repeat(2,1fr)}
-    .po-info-grid{grid-template-columns:1fr 1fr}
-  }
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#1565C0;--blue-light:#E3F2FD;--blue-mid:#1976D2;
+  --navy:#0D2137;--green:#2E7D32;--green-light:#E8F5E9;
+  --orange:#E65100;--orange-light:#FFF3E0;
+  --red:#C62828;--red-light:#FFEBEE;
+  --gray-1:#F8FAFB;--gray-2:#F1F4F7;--gray-3:#E2E8EF;
+  --gray-4:#B0BEC5;--gray-5:#78909C;--gray-6:#455A64;--gray-7:#263238;
+  --radius:8px;--shadow:0 1px 3px rgba(0,0,0,.10);--shadow-md:0 4px 12px rgba(0,0,0,.12);
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--gray-1);color:var(--gray-7);font-size:14px;line-height:1.5}
+.hidden{display:none!important}
+/* SIDEBAR */
+.sidebar{width:220px;min-height:100vh;background:var(--navy);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+.sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+.logo-text{font-size:24px;font-weight:800;color:#fff;letter-spacing:-1px}
+.logo-sub{font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.sidebar-nav{flex:1;padding:12px 0;overflow-y:auto}
+.nav-section{padding:8px 16px 4px;font-size:10px;color:rgba(255,255,255,.3);letter-spacing:.1em;text-transform:uppercase;font-weight:600}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;color:rgba(255,255,255,.65);cursor:pointer;transition:all .15s;font-size:13px;border-left:3px solid transparent}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:rgba(21,101,192,.35);color:#fff;border-left-color:var(--blue-mid)}
+.nav-item i{font-size:17px;width:20px;text-align:center}
+.sidebar-user{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.5)}
+.sidebar-user strong{display:block;color:rgba(255,255,255,.85);font-size:13px;margin-bottom:2px}
+/* LAYOUT */
+.app-layout{display:flex;min-height:100vh}
+.main{margin-left:220px;flex:1;display:flex;flex-direction:column}
+.topbar{background:#fff;border-bottom:1px solid var(--gray-3);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar-title{font-size:16px;font-weight:600}
+.page{padding:24px;flex:1}
+/* CARDS */
+.card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-3);box-shadow:var(--shadow);margin-bottom:20px}
+.card-header{padding:14px 20px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between}
+.card-header h2{font-size:15px;font-weight:600}
+.card-body{padding:20px}
+/* STATS */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.stat-card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-3);padding:16px 18px;cursor:pointer;transition:box-shadow .15s}
+.stat-card:hover{box-shadow:var(--shadow-md)}
+.stat-label{font-size:11px;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:6px}
+.stat-value{font-size:28px;font-weight:700;line-height:1}
+.stat-sub{font-size:12px;color:var(--gray-5);margin-top:4px}
+.stat-blue .stat-value{color:var(--blue)}
+.stat-orange .stat-value{color:var(--orange)}
+.stat-red .stat-value{color:var(--red)}
+.stat-green .stat-value{color:var(--green)}
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);border:1px solid transparent;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;line-height:1.3;white-space:nowrap;font-family:inherit}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-primary:hover{background:var(--blue-mid)}
+.btn-secondary{background:#fff;color:var(--gray-7);border-color:var(--gray-3)}
+.btn-secondary:hover{background:var(--gray-2)}
+.btn-danger{background:var(--red-light);color:var(--red);border-color:#FFCDD2}
+.btn-success{background:var(--green-light);color:var(--green);border-color:#C8E6C9}
+.btn-warning{background:var(--orange-light);color:var(--orange);border-color:#FFE0B2}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+/* BADGE */
+.badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.badge-brouillon{background:#F3E5F5;color:#7B1FA2}
+.badge-envoyee{background:#E3F2FD;color:#1565C0}
+.badge-rec_partielle{background:#FFF3E0;color:#E65100}
+.badge-rec_totale{background:#E8F5E9;color:#2E7D32}
+.badge-facturee{background:#E8EAF6;color:#283593}
+.badge-payee{background:#E8F5E9;color:#1B5E20}
+.badge-annulee{background:#FFEBEE;color:#C62828}
+.badge-actif{background:#E8F5E9;color:#2E7D32}
+.badge-pause{background:#FFF3E0;color:#E65100}
+.badge-termine{background:var(--gray-2);color:var(--gray-6)}
+.badge-recue{background:#E3F2FD;color:#1565C0}
+.badge-validee{background:#E8F5E9;color:#2E7D32}
+.badge-litige{background:#FFEBEE;color:#C62828}
+.badge-oui{background:#E8F5E9;color:#2E7D32}
+.badge-non{background:#FFEBEE;color:#C62828}
+/* TABLE */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--gray-3);white-space:nowrap;background:var(--gray-1)}
+td{padding:11px 14px;border-bottom:1px solid var(--gray-2);vertical-align:middle;font-size:13px}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--gray-1)}
+.td-actions{display:flex;gap:6px;align-items:center}
+/* FORM */
+.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.form-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group.full{grid-column:1/-1}
+label.field-label{font-size:12px;font-weight:600;color:var(--gray-6);text-transform:uppercase;letter-spacing:.04em}
+input,select,textarea{padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px;color:var(--gray-7);background:#fff;transition:border .15s;font-family:inherit;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,.1)}
+textarea{resize:vertical;min-height:80px}
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-md)}
+.modal-lg{max-width:960px}
+.modal-header{padding:18px 20px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:10}
+.modal-header h3{font-size:16px;font-weight:600}
+.modal-body{padding:20px}
+.modal-close{background:none;border:none;cursor:pointer;color:var(--gray-5);padding:4px;border-radius:4px;display:flex;font-size:20px}
+.modal-close:hover{color:var(--gray-7);background:var(--gray-2)}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-3)}
+/* PAGE HEADER */
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px}
+.page-header h1{font-size:20px;font-weight:700}
+.page-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+/* SEARCH */
+.search-wrap{position:relative}
+.search-wrap input{padding-left:32px;min-width:220px}
+.search-wrap i{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-4);font-size:15px;pointer-events:none}
+/* ALERT */
+.alert{padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.alert-info{background:var(--blue-light);color:#0D47A1;border:1px solid #BBDEFB}
+.alert-warning{background:var(--orange-light);color:#BF360C;border:1px solid #FFCC80}
+/* EMPTY */
+.empty{text-align:center;padding:48px 24px;color:var(--gray-4)}
+.empty i{font-size:48px;margin-bottom:12px;display:block}
+.empty p{font-size:14px;margin-bottom:16px}
+/* LOGIN */
+.login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy)}
+.login-card{background:#fff;border-radius:12px;padding:40px;width:100%;max-width:380px;box-shadow:var(--shadow-md)}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo .big-logo{font-size:36px;font-weight:800;color:var(--navy);letter-spacing:-2px}
+.login-logo p{color:var(--gray-5);font-size:13px;margin-top:6px}
+/* LIGNES PO */
+.lignes-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+.lignes-table th{background:var(--gray-1);padding:8px 8px;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);text-align:left}
+.lignes-table td{padding:5px 6px;border-bottom:1px solid var(--gray-2);vertical-align:middle}
+.lignes-table input,.lignes-table select{padding:5px 7px;font-size:13px}
+/* TOTAUX */
+.totaux{display:flex;justify-content:flex-end;margin-top:12px}
+.totaux-box{background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:14px 20px;min-width:260px}
+.totaux-row{display:flex;justify-content:space-between;gap:24px;padding:3px 0;font-size:13px}
+.totaux-row.ttc{border-top:2px solid var(--gray-3);margin-top:8px;padding-top:8px;font-weight:700;font-size:16px;color:var(--blue)}
+/* TOAST */
+.toast{position:fixed;bottom:24px;right:24px;z-index:999;color:#fff;padding:12px 20px;border-radius:var(--radius);box-shadow:var(--shadow-md);font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px;max-width:360px;animation:slideIn .2s ease}
+.toast-success{background:var(--green)}
+.toast-error{background:var(--red)}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+/* PO DETAIL INFO */
+.info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.info-item label{font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;display:block;margin-bottom:2px}
+.info-item span{font-size:14px}
+.flex{display:flex}.gap-8{gap:8px}.items-center{align-items:center}
+.text-blue{color:var(--blue)}.fw-600{font-weight:600}.text-muted{color:var(--gray-5)}.text-sm{font-size:12px}
+.mt-16{margin-top:16px}.mb-8{margin-bottom:8px}
+.section-title{font-size:13px;font-weight:600;margin:16px 0 8px;display:flex;align-items:center;gap:6px}
 </style>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
-const { useState, useEffect, useCallback, useRef } = React;
 
-// ─── SUPABASE ────────────────────────────────────────────────
+<div id="login-page" class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="big-logo">LYNEO</div>
+      <p>ERP — Espace de gestion<br><small style="color:#aaa">Luxembourg</small></p>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="field-label">Adresse email</label>
+      <input type="email" id="login-email" placeholder="votre@email.com" value="admin@lyneo.lu"/>
+    </div>
+    <div class="form-group" style="margin-bottom:20px">
+      <label class="field-label">Mot de passe</label>
+      <input type="password" id="login-password" placeholder="••••••••" value="lyneo2026"/>
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:10px" onclick="doLogin()">
+      <i class="ti ti-login"></i> Se connecter
+    </button>
+    <p style="text-align:center;margin-top:14px;font-size:12px;color:var(--gray-4)">Mot de passe par défaut : lyneo2026</p>
+    <div id="login-error" class="alert alert-warning hidden" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<div id="app-layout" class="app-layout hidden">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-text">LYNEO</div>
+      <div class="logo-sub">ERP v1.0 — Luxembourg</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Principal</div>
+      <div class="nav-item active" onclick="navigate('dashboard')" id="nav-dashboard"><i class="ti ti-dashboard"></i> Tableau de bord</div>
+      <div class="nav-section">Achats</div>
+      <div class="nav-item" onclick="navigate('pos')" id="nav-pos"><i class="ti ti-shopping-cart"></i> Bons de commande</div>
+      <div class="nav-item" onclick="navigate('receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> Réceptions (BL)</div>
+      <div class="nav-item" onclick="navigate('factures')" id="nav-factures"><i class="ti ti-file-invoice"></i> Factures</div>
+      <div class="nav-section">Référentiels</div>
+      <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
+      <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
+      <div id="nav-admin-section" class="hidden">
+        <div class="nav-section">Administration</div>
+        <div class="nav-item" onclick="navigate('utilisateurs')" id="nav-utilisateurs"><i class="ti ti-user-cog"></i> Utilisateurs</div>
+      </div>
+    </nav>
+    <div class="sidebar-user">
+      <strong id="sidebar-username">—</strong>
+      <span id="sidebar-role">—</span>
+      <div style="margin-top:8px">
+        <button class="btn btn-secondary btn-sm" onclick="doLogout()"><i class="ti ti-logout"></i> Déconnexion</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Tableau de bord</div>
+      <div style="font-size:12px;color:var(--gray-5)"><i class="ti ti-map-pin" style="font-size:13px;margin-right:4px"></i>Luxembourg</div>
+    </div>
+    <div class="page" id="page-content"></div>
+  </div>
+</div>
+
+<div id="modal-container"></div>
+<div id="toast-container"></div>
+
+<script>
+// ── CONFIG SUPABASE ──────────────────────────────────────────
 const SUPA_URL = 'https://ognucvqfatdhkyvrdhha.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nbnVjdnFmYXRkaGt5dnJkaGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjUxOTIsImV4cCI6MjA5ODI0MTE5Mn0.eeAUCXqTafM0Sfjocz7TTup9RdT12CJ_bSKZaiOlfGg';
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-// ─── UTILS ───────────────────────────────────────────────────
-const fmt = (n) => new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR'}).format(n||0);
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+// ── ÉTAT GLOBAL ──────────────────────────────────────────────
+let currentUser = null;
+let currentPage = 'dashboard';
+
+// ── UTILS ────────────────────────────────────────────────────
+const fmt = n => new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR'}).format(n||0);
+const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 const today = () => new Date().toISOString().split('T')[0];
+const el = id => document.getElementById(id);
+const qs = sel => document.querySelector(sel);
+
+function badge(statut, map) {
+  const s = map[statut] || {label:statut,cls:''};
+  return `<span class="badge badge-${statut}">${s.label}</span>`;
+}
 
 const STATUT_PO = {
-  brouillon:{label:'Brouillon',cls:'badge-brouillon'},
-  envoyee:{label:'Envoyée',cls:'badge-envoyee'},
-  rec_partielle:{label:'Réc. partielle',cls:'badge-rec_partielle'},
-  rec_totale:{label:'Réc. totale',cls:'badge-rec_totale'},
-  facturee:{label:'Facturée',cls:'badge-facturee'},
-  payee:{label:'Payée',cls:'badge-payee'},
-  annulee:{label:'Annulée',cls:'badge-annulee'},
+  brouillon:'Brouillon', envoyee:'Envoyée', rec_partielle:'Réc. partielle',
+  rec_totale:'Réc. totale', facturee:'Facturée', payee:'Payée', annulee:'Annulée'
 };
+const STATUT_CH = {actif:'Actif', pause:'En pause', termine:'Terminé'};
+const STATUT_FA = {recue:'Reçue', validee:'Validée', payee:'Payée', litige:'Litige'};
 
-const STATUT_CHANTIER = {
-  actif:{label:'Actif',cls:'badge-actif'},
-  pause:{label:'En pause',cls:'badge-pause'},
-  termine:{label:'Terminé',cls:'badge-termine'},
-};
+function bPO(s){ return `<span class="badge badge-${s}">${STATUT_PO[s]||s}</span>`; }
+function bCH(s){ return `<span class="badge badge-${s}">${STATUT_CH[s]||s}</span>`; }
+function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
 
-const STATUT_FACTURE = {
-  recue:{label:'Reçue',cls:'badge-recue'},
-  validee:{label:'Validée',cls:'badge-validee'},
-  payee:{label:'Payée',cls:'badge-payee'},
-  litige:{label:'Litige',cls:'badge-litige'},
-};
-
-function Badge({statut, map}){
-  const s = map[statut] || {label:statut,cls:''};
-  return <span className={`badge ${s.cls}`}>{s.label}</span>;
+function showToast(msg, type='success') {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.innerHTML = `<i class="ti ti-${type==='error'?'alert-circle':'circle-check'}"></i>${msg}`;
+  el('toast-container').appendChild(t);
+  setTimeout(()=>t.remove(), 3500);
 }
 
-// ─── LOGO ────────────────────────────────────────────────────
-const LOGO_URL = '/logo.png';
-
-// ─── PDF GENERATOR ───────────────────────────────────────────
-function generatePO_PDF(po, lignes, fournisseur, chantier){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({unit:'mm',format:'a4'});
-  const W=210, margin=18;
-  let y=18;
-
-  // Header band
-  doc.setFillColor(13,33,55);
-  doc.rect(0,0,W,28,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(18); doc.setFont('helvetica','bold');
-  doc.text('LYNEO',margin,17);
-  doc.setFontSize(8); doc.setFont('helvetica','normal');
-  doc.text('Électricité — Luxembourg',margin,23);
-  doc.setFontSize(14); doc.setFont('helvetica','bold');
-  doc.text('BON DE COMMANDE',W-margin,17,{align:'right'});
-  doc.setFontSize(9); doc.setFont('helvetica','normal');
-  doc.text(po.numero,W-margin,23,{align:'right'});
-
-  y=38;
-  doc.setTextColor(30,30,30);
-
-  // Two columns: fournisseur | PO info
-  doc.setFillColor(241,244,247);
-  doc.roundedRect(margin,y,80,36,2,2,'F');
-  doc.roundedRect(W-margin-80,y,80,36,2,2,'F');
-
-  doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(100,100,120);
-  doc.text('FOURNISSEUR',margin+4,y+6);
-  doc.text('DÉTAILS COMMANDE',W-margin-76,y+6);
-
-  doc.setFont('helvetica','normal'); doc.setTextColor(30,30,30); doc.setFontSize(9);
-  doc.text(fournisseur?.nom||'—',margin+4,y+13);
-  doc.text(fournisseur?.adresse||'',margin+4,y+19);
-  doc.text((fournisseur?.code_postal||'')+' '+(fournisseur?.ville||''),margin+4,y+25);
-  if(fournisseur?.numero_tva) doc.text('TVA: '+fournisseur.numero_tva,margin+4,y+31);
-
-  const col2x=W-margin-76;
-  doc.text('N° commande:',col2x,y+13); doc.setFont('helvetica','bold'); doc.text(po.numero,col2x+40,y+13);
-  doc.setFont('helvetica','normal');
-  doc.text('Date:',col2x,y+19); doc.text(fmtDate(po.date_creation),col2x+40,y+19);
-  doc.text('Livraison souhaitée:',col2x,y+25); doc.text(fmtDate(po.date_livraison_souhaitee),col2x+40,y+25);
-  doc.text('Chantier:',col2x,y+31); doc.setFont('helvetica','bold'); doc.text(chantier?.nom||'—',col2x+40,y+31);
-
-  y+=44;
-
-  // Table header
-  doc.setFillColor(13,33,55);
-  doc.rect(margin,y,W-2*margin,8,'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont('helvetica','bold');
-  const cols=[margin+2,margin+72,margin+98,margin+114,margin+126,margin+144,W-margin-2];
-  doc.text('Description',cols[0],y+5.5);
-  doc.text('Réf.',cols[1],y+5.5);
-  doc.text('Qté',cols[2],y+5.5);
-  doc.text('Unité',cols[3],y+5.5);
-  doc.text('P.U. HT',cols[4],y+5.5);
-  doc.text('TVA',cols[5],y+5.5);
-  doc.text('Total HT',cols[6],y+5.5,{align:'right'});
-  y+=8;
-
-  doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  let fill=false;
-  (lignes||[]).forEach(l=>{
-    if(fill){doc.setFillColor(248,250,251);doc.rect(margin,y,W-2*margin,7,'F');}
-    fill=!fill;
-    doc.text(l.description||'',cols[0],y+5,{maxWidth:68});
-    doc.text(l.reference_article||'',cols[1],y+5);
-    doc.text(String(l.quantite),cols[2],y+5);
-    doc.text(l.unite||'u',cols[3],y+5);
-    doc.text(fmt(l.prix_unitaire_ht),cols[4],y+5);
-    doc.text((l.taux_tva||17)+'%',cols[5],y+5);
-    doc.text(fmt(l.total_ht),cols[6],y+5,{align:'right'});
-    y+=7;
-    if(y>270){doc.addPage();y=20;}
+function showModal(html) {
+  el('modal-container').innerHTML = html;
+  el('modal-container').querySelector('.modal-overlay').addEventListener('click', function(e){
+    if(e.target === this) closeModal();
   });
+}
+function closeModal(){ el('modal-container').innerHTML = ''; }
 
-  doc.setDrawColor(200,210,220);
-  doc.line(margin,y,W-margin,y);
-  y+=6;
-
-  // Totaux
-  const bx=W-margin-68, tw=66;
-  const totRows=[
-    ['Total HT',fmt(po.total_ht)],
-    ['Total TVA',fmt(po.total_tva)],
-    ['TOTAL TTC',fmt(po.total_ttc)],
-  ];
-  totRows.forEach((r,i)=>{
-    if(i===2){
-      doc.setFillColor(13,33,55);doc.roundedRect(bx-2,y-1,tw+4,9,1,1,'F');
-      doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);
-    } else {
-      doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(80,80,80);
-    }
-    doc.text(r[0],bx,y+5.5);
-    doc.text(r[1],bx+tw,y+5.5,{align:'right'});
-    y+=9;
-  });
-
-  // Observations
-  if(po.observations){
-    y+=6;
-    doc.setFontSize(8);doc.setTextColor(80,80,80);doc.setFont('helvetica','bold');
-    doc.text('Observations:',margin,y);
-    doc.setFont('helvetica','normal');y+=5;
-    const lines=doc.splitTextToSize(po.observations,W-2*margin);
-    doc.text(lines,margin,y);
-    y+=lines.length*4+4;
-  }
-
-  // Conditions paiement
-  y+=4;
-  doc.setFillColor(241,244,247);doc.roundedRect(margin,y,W-2*margin,12,2,2,'F');
-  doc.setFontSize(8);doc.setTextColor(80,80,80);doc.setFont('helvetica','normal');
-  doc.text('Conditions de paiement: '+(fournisseur?.conditions_paiement||'30 jours')+'   |   Merci de mentionner notre référence '+po.numero+' sur votre facture.',margin+4,y+7);
-
-  // Footer
-  doc.setFillColor(13,33,55);doc.rect(0,287,W,10,'F');
-  doc.setFontSize(7);doc.setTextColor(180,190,200);
-  doc.text('LYNEO SARL — Luxembourg  |  Document généré le '+new Date().toLocaleDateString('fr-FR'),W/2,293,{align:'center'});
-
-  doc.save(po.numero+'.pdf');
+// ── AUTH ─────────────────────────────────────────────────────
+async function doLogin() {
+  const email = el('login-email').value.trim();
+  const pass = el('login-password').value;
+  if(!email||!pass){ showLoginError('Remplissez tous les champs'); return; }
+  const {data,error} = await sb.from('utilisateurs').select('*').eq('email',email).eq('actif',true).single();
+  if(error||!data){ showLoginError('Email introuvable ou compte inactif'); return; }
+  if(pass !== 'lyneo2026'){ showLoginError('Mot de passe incorrect'); return; }
+  currentUser = data;
+  sessionStorage.setItem('lyneo_user', JSON.stringify(data));
+  initApp();
 }
 
-// ─── CONTEXT ─────────────────────────────────────────────────
-const AppCtx = React.createContext(null);
+function showLoginError(msg){
+  const e = el('login-error');
+  e.classList.remove('hidden');
+  e.textContent = msg;
+}
 
-// ─── APP ─────────────────────────────────────────────────────
-function App(){
-  const [user,setUser]=useState(null);
-  const [loading,setLoading]=useState(true);
-  const [page,setPage]=useState('dashboard');
-  const [toast,setToast]=useState(null);
+function doLogout(){
+  sessionStorage.removeItem('lyneo_user');
+  currentUser = null;
+  el('login-page').classList.remove('hidden');
+  el('app-layout').classList.add('hidden');
+}
 
-  useEffect(()=>{
-    const stored=localStorage.getItem('lyneo_user');
-    if(stored) setUser(JSON.parse(stored));
-    setLoading(false);
-  },[]);
+function initApp(){
+  el('login-page').classList.add('hidden');
+  el('app-layout').classList.remove('hidden');
+  el('sidebar-username').textContent = currentUser.prenom+' '+currentUser.nom;
+  el('sidebar-role').textContent = {admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'}[currentUser.role]||currentUser.role;
+  if(currentUser.role==='admin') el('nav-admin-section').classList.remove('hidden');
+  navigate('dashboard');
+}
 
-  const showToast=(msg,type='success')=>{
-    setToast({msg,type});
-    setTimeout(()=>setToast(null),3200);
-  };
+// ── NAVIGATION ───────────────────────────────────────────────
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions',factures:'Factures',utilisateurs:'Utilisateurs'};
 
-  const logout=()=>{
-    localStorage.removeItem('lyneo_user');
-    setUser(null);setPage('dashboard');
-  };
+function navigate(page){
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const nav = el('nav-'+page);
+  if(nav) nav.classList.add('active');
+  el('topbar-title').textContent = PAGE_TITLES[page]||'';
+  const pages = {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs};
+  if(pages[page]) pages[page]();
+}
 
-  if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh'}}><div className="spinner" style={{borderTopColor:'var(--blue)',border:'3px solid var(--gray-3)',borderTopColor:'var(--blue)',width:32,height:32}}></div></div>;
-  if(!user) return <AppCtx.Provider value={{showToast}}><LoginPage onLogin={(u)=>{setUser(u);localStorage.setItem('lyneo_user',JSON.stringify(u));}} /></AppCtx.Provider>;
+// ── DASHBOARD ────────────────────────────────────────────────
+async function renderDashboard(){
+  el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:40px;text-align:center"><i class="ti ti-loader" style="font-size:32px"></i><p style="margin-top:8px">Chargement...</p></div>';
+  const [pos, bls, facs, chants, recentPos] = await Promise.all([
+    sb.from('purchase_orders').select('id,statut,total_ttc'),
+    sb.from('bons_livraison').select('id,statut_reception'),
+    sb.from('factures').select('id,statut,montant_ttc'),
+    sb.from('chantiers').select('id,statut'),
+    sb.from('purchase_orders').select('id,numero,statut,total_ttc,date_creation,chantiers(nom),fournisseurs(nom)').order('created_at',{ascending:false}).limit(8)
+  ]);
+  const posD = pos.data||[], facsD = facs.data||[];
+  const posEnCours = posD.filter(p=>!['payee','annulee'].includes(p.statut)).length;
+  const blsAttente = (bls.data||[]).filter(b=>b.statut_reception==='partiel').length;
+  const facsPayer = facsD.filter(f=>['recue','validee'].includes(f.statut)).length;
+  const chantiersActifs = (chants.data||[]).filter(c=>c.statut==='actif').length;
+  const montantEnCours = posD.filter(p=>['envoyee','rec_partielle','rec_totale'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
+  const montantFacs = facsD.filter(f=>f.statut==='validee').reduce((a,b)=>a+(b.montant_ttc||0),0);
+  const recs = recentPos.data||[];
 
-  return (
-    <AppCtx.Provider value={{user,showToast,setPage}}>
-      <div id="app" style={{display:'flex',minHeight:'100vh'}}>
-        <Sidebar page={page} setPage={setPage} user={user} logout={logout}/>
-        <div className="main">
-          <Topbar page={page} user={user}/>
-          <div className="page">
-            {page==='dashboard' && <Dashboard setPage={setPage}/>}
-            {page==='chantiers' && <Chantiers/>}
-            {page==='fournisseurs' && <Fournisseurs/>}
-            {page==='pos' && <PurchaseOrders/>}
-            {page==='receptions' && <Receptions/>}
-            {page==='factures' && <Factures/>}
-            {page==='utilisateurs' && user.role==='admin' && <Utilisateurs/>}
-          </div>
-        </div>
-        {toast && (
-          <div style={{position:'fixed',bottom:24,right:24,zIndex:999,background:toast.type==='error'?'var(--red)':'var(--green)',color:'#fff',padding:'12px 20px',borderRadius:var_radius,boxShadow:'var(--shadow-md)',fontSize:13,fontWeight:500,display:'flex',alignItems:'center',gap:8,maxWidth:360}}>
-            <i className={`ti ti-${toast.type==='error'?'alert-circle':'circle-check'}`}></i>
-            {toast.msg}
-          </div>
-        )}
+  el('page-content').innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card stat-blue" onclick="navigate('pos')">
+        <div class="stat-label"><i class="ti ti-shopping-cart"></i> Commandes en cours</div>
+        <div class="stat-value">${posEnCours}</div>
+        <div class="stat-sub">${fmt(montantEnCours)} engagés</div>
       </div>
-    </AppCtx.Provider>
-  );
-}
-
-const var_radius='8px';
-
-// ─── LOGIN ───────────────────────────────────────────────────
-function LoginPage({onLogin}){
-  const {showToast}=React.useContext(AppCtx);
-  const [email,setEmail]=useState('');
-  const [password,setPassword]=useState('');
-  const [loading,setLoading]=useState(false);
-
-  const handle=async(e)=>{
-    e.preventDefault();
-    setLoading(true);
-    const {data,error}=await sb.from('utilisateurs').select('*').eq('email',email).eq('actif',true).single();
-    if(error||!data){showToast('Email introuvable ou compte inactif','error');setLoading(false);return;}
-    // Simple password check — in production use Supabase Auth
-    if(password!=='lyneo2026'){showToast('Mot de passe incorrect','error');setLoading(false);return;}
-    onLogin(data);
-  };
-
-  return(
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-logo">
-          <img src="https://i.imgur.com/placeholder.png" alt="Lyneo" style={{background:'var(--navy)',padding:'8px 16px',borderRadius:8,height:48}}
-            onError={e=>{e.target.style.display='none'}}/>
-          <div style={{fontSize:28,fontWeight:800,color:'var(--navy)',letterSpacing:'-1px',marginTop:8}}>LYNEO</div>
-          <p>ERP — Espace de gestion</p>
-        </div>
-        <form onSubmit={handle}>
-          <div className="form-group" style={{marginBottom:12}}>
-            <label>Adresse email</label>
-            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="votre@email.com" required/>
-          </div>
-          <div className="form-group" style={{marginBottom:20}}>
-            <label>Mot de passe</label>
-            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required/>
-          </div>
-          <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',padding:'10px'}} disabled={loading}>
-            {loading?<><span className="spinner"></span> Connexion...</>:<><i className="ti ti-login"></i> Se connecter</>}
-          </button>
-        </form>
-        <p style={{textAlign:'center',marginTop:16,fontSize:12,color:'var(--gray-4)'}}>Mot de passe par défaut : lyneo2026</p>
+      <div class="stat-card stat-orange" onclick="navigate('receptions')">
+        <div class="stat-label"><i class="ti ti-truck-delivery"></i> BL en attente</div>
+        <div class="stat-value">${blsAttente}</div>
+        <div class="stat-sub">Réceptions partielles</div>
+      </div>
+      <div class="stat-card stat-red" onclick="navigate('factures')">
+        <div class="stat-label"><i class="ti ti-file-invoice"></i> Factures à payer</div>
+        <div class="stat-value">${facsPayer}</div>
+        <div class="stat-sub">${fmt(montantFacs)}</div>
+      </div>
+      <div class="stat-card stat-green" onclick="navigate('chantiers')">
+        <div class="stat-label"><i class="ti ti-building-factory-2"></i> Chantiers actifs</div>
+        <div class="stat-value">${chantiersActifs}</div>
+        <div class="stat-sub">En cours</div>
       </div>
     </div>
-  );
-}
-
-// ─── SIDEBAR ─────────────────────────────────────────────────
-function Sidebar({page,setPage,user,logout}){
-  const nav=(p)=>(<div className={`nav-item${page===p?' active':''}`} onClick={()=>setPage(p)});
-  return(
-    <div className="sidebar">
-      <div className="sidebar-logo">
-        <div style={{fontSize:22,fontWeight:800,color:'#fff',letterSpacing:'-1px'}}>LYNEO</div>
-        <span>ERP v1.0</span>
-      </div>
-      <nav className="sidebar-nav">
-        <div className="nav-section">Principal</div>
-        <div className={`nav-item${page==='dashboard'?' active':''}`} onClick={()=>setPage('dashboard')}>
-          <i className="ti ti-dashboard"></i> Tableau de bord
-        </div>
-        <div className="nav-section">Achats</div>
-        <div className={`nav-item${page==='pos'?' active':''}`} onClick={()=>setPage('pos')}>
-          <i className="ti ti-shopping-cart"></i> Bons de commande
-        </div>
-        <div className={`nav-item${page==='receptions'?' active':''}`} onClick={()=>setPage('receptions')}>
-          <i className="ti ti-truck-delivery"></i> Réceptions (BL)
-        </div>
-        <div className={`nav-item${page==='factures'?' active':''}`} onClick={()=>setPage('factures')}>
-          <i className="ti ti-file-invoice"></i> Factures
-        </div>
-        <div className="nav-section">Référentiels</div>
-        <div className={`nav-item${page==='chantiers'?' active':''}`} onClick={()=>setPage('chantiers')}>
-          <i className="ti ti-building-factory-2"></i> Chantiers
-        </div>
-        <div className={`nav-item${page==='fournisseurs'?' active':''}`} onClick={()=>setPage('fournisseurs')}>
-          <i className="ti ti-users"></i> Fournisseurs
-        </div>
-        {user?.role==='admin' && <>
-          <div className="nav-section">Administration</div>
-          <div className={`nav-item${page==='utilisateurs'?' active':''}`} onClick={()=>setPage('utilisateurs')}>
-            <i className="ti ti-user-cog"></i> Utilisateurs
-          </div>
-        </>}
-      </nav>
-      <div className="sidebar-user">
-        <strong>{user?.prenom} {user?.nom}</strong>
-        {user?.role}
-        <div style={{marginTop:8}}>
-          <button onClick={logout} className="btn btn-secondary btn-sm" style={{fontSize:11}}>
-            <i className="ti ti-logout"></i> Déconnexion
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── TOPBAR ──────────────────────────────────────────────────
-const PAGE_TITLES={dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions',factures:'Factures',utilisateurs:'Utilisateurs'};
-function Topbar({page,user}){
-  return(
-    <div className="topbar">
-      <div className="topbar-title">{PAGE_TITLES[page]||''}</div>
-      <div className="topbar-actions">
-        <span style={{fontSize:12,color:'var(--gray-5)'}}>
-          <i className="ti ti-map-pin" style={{fontSize:13,marginRight:4}}></i>Luxembourg
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── DASHBOARD ───────────────────────────────────────────────
-function Dashboard({setPage}){
-  const [stats,setStats]=useState({pos:0,bls:0,factures:0,chantiers:0,montant_en_cours:0,factures_a_payer:0});
-  const [recent_pos,setRecentPos]=useState([]);
-
-  useEffect(()=>{
-    Promise.all([
-      sb.from('purchase_orders').select('id,statut,total_ttc'),
-      sb.from('bons_livraison').select('id,po_id,statut_reception'),
-      sb.from('factures').select('id,statut,montant_ttc'),
-      sb.from('chantiers').select('id,statut'),
-      sb.from('purchase_orders').select('*,chantiers(nom),fournisseurs(nom)').order('created_at',{ascending:false}).limit(6),
-    ]).then(([pos,bls,facs,chants,rpos])=>{
-      const posData=pos.data||[];
-      const facsData=facs.data||[];
-      setStats({
-        pos:posData.filter(p=>!['payee','annulee'].includes(p.statut)).length,
-        bls:(bls.data||[]).filter(b=>b.statut_reception==='partiel').length,
-        factures:facsData.filter(f=>f.statut==='recue'||f.statut==='validee').length,
-        chantiers:(chants.data||[]).filter(c=>c.statut==='actif').length,
-        montant_en_cours:posData.filter(p=>['envoyee','rec_partielle','rec_totale'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0),
-        factures_a_payer:facsData.filter(f=>f.statut==='validee').reduce((a,b)=>a+(b.montant_ttc||0),0),
-      });
-      setRecentPos(rpos.data||[]);
-    });
-  },[]);
-
-  return(<>
-    <div className="stats-grid">
-      <div className="stat-card blue" onClick={()=>setPage('pos')} style={{cursor:'pointer'}}>
-        <div className="stat-label"><i className="ti ti-shopping-cart"></i> Commandes en cours</div>
-        <div className="stat-value">{stats.pos}</div>
-        <div className="stat-sub">{fmt(stats.montant_en_cours)} engagés</div>
-      </div>
-      <div className="stat-card orange" onClick={()=>setPage('receptions')} style={{cursor:'pointer'}}>
-        <div className="stat-label"><i className="ti ti-truck-delivery"></i> BL en attente</div>
-        <div className="stat-value">{stats.bls}</div>
-        <div className="stat-sub">Réceptions partielles</div>
-      </div>
-      <div className="stat-card red" onClick={()=>setPage('factures')} style={{cursor:'pointer'}}>
-        <div className="stat-label"><i className="ti ti-file-invoice"></i> Factures à payer</div>
-        <div className="stat-value">{stats.factures}</div>
-        <div className="stat-sub">{fmt(stats.factures_a_payer)}</div>
-      </div>
-      <div className="stat-card green" onClick={()=>setPage('chantiers')} style={{cursor:'pointer'}}>
-        <div className="stat-label"><i className="ti ti-building-factory-2"></i> Chantiers actifs</div>
-        <div className="stat-value">{stats.chantiers}</div>
-        <div className="stat-sub">En cours</div>
-      </div>
-    </div>
-    <div className="card">
-      <div className="card-header"><h2>Dernières commandes</h2><button className="btn btn-secondary btn-sm" onClick={()=>setPage('pos')}><i className="ti ti-arrow-right"></i> Voir tout</button></div>
-      <div className="table-wrap">
+    <div class="card">
+      <div class="card-header"><h2>Dernières commandes</h2><button class="btn btn-secondary btn-sm" onclick="navigate('pos')"><i class="ti ti-arrow-right"></i> Voir tout</button></div>
+      <div class="table-wrap">
         <table>
-          <thead><tr><th>N° PO</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead>
+          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead>
           <tbody>
-            {recent_pos.length===0&&<tr><td colSpan={6}><div className="empty"><i className="ti ti-shopping-cart"></i><p>Aucune commande</p></div></td></tr>}
-            {recent_pos.map(p=>(
-              <tr key={p.id}>
-                <td><strong style={{color:'var(--blue)'}}>{p.numero}</strong></td>
-                <td>{p.fournisseurs?.nom||'—'}</td>
-                <td>{p.chantiers?.nom||'—'}</td>
-                <td>{fmtDate(p.date_creation)}</td>
-                <td><strong>{fmt(p.total_ttc)}</strong></td>
-                <td><Badge statut={p.statut} map={STATUT_PO}/></td>
-              </tr>
-            ))}
+            ${recs.length===0 ? `<tr><td colspan="6"><div class="empty"><i class="ti ti-shopping-cart"></i><p>Aucune commande</p></div></td></tr>` :
+            recs.map(r=>`<tr>
+              <td><strong class="text-blue">${r.numero}</strong></td>
+              <td>${r.fournisseurs?.nom||'—'}</td>
+              <td>${r.chantiers?.nom||'—'}</td>
+              <td>${fmtDate(r.date_creation)}</td>
+              <td><strong>${fmt(r.total_ttc)}</strong></td>
+              <td>${bPO(r.statut)}</td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
-    </div>
-  </>);
+    </div>`;
 }
 
-// ─── CHANTIERS ───────────────────────────────────────────────
-function Chantiers(){
-  const {showToast}=React.useContext(AppCtx);
-  const [items,setItems]=useState([]);
-  const [modal,setModal]=useState(false);
-  const [editing,setEditing]=useState(null);
-  const [search,setSearch]=useState('');
-  const [form,setForm]=useState({nom:'',client:'',adresse:'',chef_chantier:'',date_debut:today(),date_fin_prevue:'',statut:'actif',observations:''});
-
-  const load=async()=>{
-    const {data}=await sb.from('chantiers').select('*').order('created_at',{ascending:false});
-    setItems(data||[]);
-  };
-  useEffect(()=>{load();},[]);
-
-  const openNew=()=>{setEditing(null);setForm({nom:'',client:'',adresse:'',chef_chantier:'',date_debut:today(),date_fin_prevue:'',statut:'actif',observations:''});setModal(true);};
-  const openEdit=(r)=>{setEditing(r);setForm(r);setModal(true);};
-
-  const save=async()=>{
-    if(!form.nom||!form.client){showToast('Nom et client obligatoires','error');return;}
-    if(editing){
-      const {error}=await sb.from('chantiers').update({...form}).eq('id',editing.id);
-      if(error){showToast('Erreur: '+error.message,'error');return;}
-      showToast('Chantier mis à jour');
-    } else {
-      const {data:fn}=await sb.rpc('generate_chantier_number');
-      const {error}=await sb.from('chantiers').insert({...form,numero:fn});
-      if(error){showToast('Erreur: '+error.message,'error');return;}
-      showToast('Chantier créé — '+fn);
-    }
-    setModal(false);load();
-  };
-
-  const filtered=items.filter(i=>
-    i.nom.toLowerCase().includes(search.toLowerCase())||
-    i.client.toLowerCase().includes(search.toLowerCase())||
-    i.numero?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  return(<>
-    <div className="page-header">
+// ── CHANTIERS ────────────────────────────────────────────────
+let _chantiers = [];
+async function renderChantiers(search=''){
+  if(!search) {
+    const {data} = await sb.from('chantiers').select('*').order('created_at',{ascending:false});
+    _chantiers = data||[];
+  }
+  const items = search ? _chantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : _chantiers;
+  el('page-content').innerHTML = `
+    <div class="page-header">
       <h1>Chantiers</h1>
-      <div className="flex gap-8">
-        <div className="search-box"><i className="ti ti-search"></i><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher..."/></div>
-        <button className="btn btn-primary" onClick={openNew}><i className="ti ti-plus"></i> Nouveau chantier</button>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${search}"/></div>
+        <button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button>
       </div>
     </div>
-    <div className="card">
-      <div className="table-wrap">
+    <div class="card">
+      <div class="table-wrap">
         <table>
           <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            {filtered.length===0&&<tr><td colSpan={8}><div className="empty"><i className="ti ti-building-factory-2"></i><p>Aucun chantier trouvé</p></div></td></tr>}
-            {filtered.map(r=>(
-              <tr key={r.id}>
-                <td><strong style={{color:'var(--blue)'}}>{r.numero}</strong></td>
-                <td><strong>{r.nom}</strong></td>
-                <td>{r.client}</td>
-                <td>{r.chef_chantier||'—'}</td>
-                <td>{fmtDate(r.date_debut)}</td>
-                <td>{fmtDate(r.date_fin_prevue)}</td>
-                <td><Badge statut={r.statut} map={STATUT_CHANTIER}/></td>
-                <td><div className="td-actions">
-                  <button className="btn btn-secondary btn-sm" onClick={()=>openEdit(r)}><i className="ti ti-edit"></i></button>
-                </div></td>
-              </tr>
-            ))}
+            ${items.length===0 ? `<tr><td colspan="8"><div class="empty"><i class="ti ti-building-factory-2"></i><p>Aucun chantier</p></div></td></tr>` :
+            items.map(r=>`<tr>
+              <td><strong class="text-blue">${r.numero}</strong></td>
+              <td><strong>${r.nom}</strong></td>
+              <td>${r.client}</td>
+              <td>${r.chef_chantier||'—'}</td>
+              <td>${fmtDate(r.date_debut)}</td>
+              <td>${fmtDate(r.date_fin_prevue)}</td>
+              <td>${bCH(r.statut)}</td>
+              <td><button class="btn btn-secondary btn-sm" onclick='openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
-    </div>
-    {modal&&<Modal title={editing?'Modifier chantier':'Nouveau chantier'} onClose={()=>setModal(false)} onSave={save}>
-      <div className="form-grid">
-        <div className="form-group"><label>Nom du chantier *</label><input value={form.nom} onChange={e=>setForm({...form,nom:e.target.value})} placeholder="Ex: Rénovation électrique Batiment A"/></div>
-        <div className="form-group"><label>Client *</label><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})} placeholder="Nom du client"/></div>
-        <div className="form-group full"><label>Adresse chantier</label><input value={form.adresse||''} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="Adresse complète"/></div>
-        <div className="form-group"><label>Chef de chantier</label><input value={form.chef_chantier||''} onChange={e=>setForm({...form,chef_chantier:e.target.value})} placeholder="Responsable"/></div>
-        <div className="form-group"><label>Statut</label>
-          <select value={form.statut} onChange={e=>setForm({...form,statut:e.target.value})}>
-            <option value="actif">Actif</option><option value="pause">En pause</option><option value="termine">Terminé</option>
-          </select>
-        </div>
-        <div className="form-group"><label>Date de début</label><input type="date" value={form.date_debut||''} onChange={e=>setForm({...form,date_debut:e.target.value})}/></div>
-        <div className="form-group"><label>Date de fin prévue</label><input type="date" value={form.date_fin_prevue||''} onChange={e=>setForm({...form,date_fin_prevue:e.target.value})}/></div>
-        <div className="form-group full"><label>Observations</label><textarea value={form.observations||''} onChange={e=>setForm({...form,observations:e.target.value})} placeholder="Notes internes..."/></div>
-      </div>
-    </Modal>}
-  </>);
+    </div>`;
 }
 
-// ─── FOURNISSEURS ────────────────────────────────────────────
-function Fournisseurs(){
-  const {showToast}=React.useContext(AppCtx);
-  const [items,setItems]=useState([]);
-  const [modal,setModal]=useState(false);
-  const [editing,setEditing]=useState(null);
-  const [search,setSearch]=useState('');
-  const empty={nom:'',email:'',telephone:'',adresse:'',code_postal:'',ville:'',pays:'Luxembourg',numero_tva:'',conditions_paiement:'30 jours',actif:true};
-  const [form,setForm]=useState(empty);
+function openChantierModal(r=null){
+  const isEdit = !!r;
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${isEdit?'Modifier chantier':'Nouveau chantier'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="Ex: Rénovation Bâtiment A"/></div>
+        <div class="form-group"><label class="field-label">Client *</label><input id="ch-client" value="${r?.client||''}" placeholder="Nom du client"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
+        <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
+        <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
+          <option value="actif" ${r?.statut==='actif'?'selected':''}>Actif</option>
+          <option value="pause" ${r?.statut==='pause'?'selected':''}>En pause</option>
+          <option value="termine" ${r?.statut==='termine'?'selected':''}>Terminé</option>
+        </select></div>
+        <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
+        <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveChantier('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
+    </div>
+  </div></div>`);
+}
 
-  const load=async()=>{const {data}=await sb.from('fournisseurs').select('*').order('nom');setItems(data||[]);};
-  useEffect(()=>{load();},[]);
+async function saveChantier(id){
+  const nom = el('ch-nom').value.trim();
+  const client = el('ch-client').value.trim();
+  if(!nom||!client){ showToast('Nom et client obligatoires','error'); return; }
+  const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value};
+  if(id){
+    await sb.from('chantiers').update(data).eq('id',id);
+    showToast('Chantier mis à jour');
+  } else {
+    const {data:num} = await sb.rpc('generate_chantier_number');
+    await sb.from('chantiers').insert({...data,numero:num});
+    showToast('Chantier créé — '+num);
+  }
+  closeModal(); renderChantiers();
+}
 
-  const openNew=()=>{setEditing(null);setForm(empty);setModal(true);};
-  const openEdit=(r)=>{setEditing(r);setForm(r);setModal(true);};
-
-  const save=async()=>{
-    if(!form.nom){showToast('Nom obligatoire','error');return;}
-    if(editing){
-      await sb.from('fournisseurs').update({...form}).eq('id',editing.id);
-      showToast('Fournisseur mis à jour');
-    } else {
-      await sb.from('fournisseurs').insert({...form});
-      showToast('Fournisseur créé');
-    }
-    setModal(false);load();
-  };
-
-  const filtered=items.filter(i=>i.nom.toLowerCase().includes(search.toLowerCase())||(i.email||'').toLowerCase().includes(search.toLowerCase()));
-
-  return(<>
-    <div className="page-header">
+// ── FOURNISSEURS ─────────────────────────────────────────────
+let _fournisseurs = [];
+async function renderFournisseurs(search=''){
+  if(!search){
+    const {data} = await sb.from('fournisseurs').select('*').order('nom');
+    _fournisseurs = data||[];
+  }
+  const items = search ? _fournisseurs.filter(i=>(i.nom+(i.email||'')).toLowerCase().includes(search.toLowerCase())) : _fournisseurs;
+  el('page-content').innerHTML = `
+    <div class="page-header">
       <h1>Fournisseurs</h1>
-      <div className="flex gap-8">
-        <div className="search-box"><i className="ti ti-search"></i><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher..."/></div>
-        <button className="btn btn-primary" onClick={openNew}><i className="ti ti-plus"></i> Nouveau fournisseur</button>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFournisseurs(this.value)" value="${search}"/></div>
+        <button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>
       </div>
     </div>
-    <div className="card">
-      <div className="table-wrap">
+    <div class="card">
+      <div class="table-wrap">
         <table>
-          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions paiement</th><th>Actif</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
-            {filtered.length===0&&<tr><td colSpan={8}><div className="empty"><i className="ti ti-users"></i><p>Aucun fournisseur</p></div></td></tr>}
-            {filtered.map(r=>(
-              <tr key={r.id}>
-                <td><strong>{r.nom}</strong></td>
-                <td><a href={`mailto:${r.email}`} style={{color:'var(--blue)'}}>{r.email||'—'}</a></td>
-                <td>{r.telephone||'—'}</td>
-                <td>{r.ville||'—'} {r.pays!=='Luxembourg'?`(${r.pays})`:''}</td>
-                <td>{r.numero_tva||'—'}</td>
-                <td>{r.conditions_paiement||'—'}</td>
-                <td><span className={`badge ${r.actif?'badge-actif':'badge-annulee'}`}>{r.actif?'Oui':'Non'}</span></td>
-                <td><button className="btn btn-secondary btn-sm" onClick={()=>openEdit(r)}><i className="ti ti-edit"></i></button></td>
-              </tr>
-            ))}
+            ${items.length===0 ? `<tr><td colspan="8"><div class="empty"><i class="ti ti-users"></i><p>Aucun fournisseur</p></div></td></tr>` :
+            items.map(r=>`<tr>
+              <td><strong>${r.nom}</strong></td>
+              <td>${r.email?`<a href="mailto:${r.email}" style="color:var(--blue)">${r.email}</a>`:'—'}</td>
+              <td>${r.telephone||'—'}</td>
+              <td>${r.ville||'—'}</td>
+              <td>${r.numero_tva||'—'}</td>
+              <td>${r.conditions_paiement||'—'}</td>
+              <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Oui':'Non'}</span></td>
+              <td><button class="btn btn-secondary btn-sm" onclick='openFourModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
-    </div>
-    {modal&&<Modal title={editing?'Modifier fournisseur':'Nouveau fournisseur'} onClose={()=>setModal(false)} onSave={save}>
-      <div className="form-grid">
-        <div className="form-group"><label>Nom *</label><input value={form.nom} onChange={e=>setForm({...form,nom:e.target.value})} placeholder="Nom de la société"/></div>
-        <div className="form-group"><label>Email</label><input type="email" value={form.email||''} onChange={e=>setForm({...form,email:e.target.value})} placeholder="contact@fournisseur.com"/></div>
-        <div className="form-group"><label>Téléphone</label><input value={form.telephone||''} onChange={e=>setForm({...form,telephone:e.target.value})} placeholder="+352 ..."/></div>
-        <div className="form-group"><label>N° TVA</label><input value={form.numero_tva||''} onChange={e=>setForm({...form,numero_tva:e.target.value})} placeholder="LU12345678"/></div>
-        <div className="form-group full"><label>Adresse</label><input value={form.adresse||''} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="Rue et numéro"/></div>
-        <div className="form-group"><label>Code postal</label><input value={form.code_postal||''} onChange={e=>setForm({...form,code_postal:e.target.value})} placeholder="L-1234"/></div>
-        <div className="form-group"><label>Ville</label><input value={form.ville||''} onChange={e=>setForm({...form,ville:e.target.value})} placeholder="Luxembourg"/></div>
-        <div className="form-group"><label>Pays</label><input value={form.pays||''} onChange={e=>setForm({...form,pays:e.target.value})} placeholder="Luxembourg"/></div>
-        <div className="form-group"><label>Conditions de paiement</label>
-          <select value={form.conditions_paiement||'30 jours'} onChange={e=>setForm({...form,conditions_paiement:e.target.value})}>
-            <option>Immédiat</option><option>15 jours</option><option>30 jours</option><option>45 jours</option><option>60 jours</option>
-          </select>
-        </div>
-        <div className="form-group"><label>Actif</label>
-          <select value={form.actif?'1':'0'} onChange={e=>setForm({...form,actif:e.target.value==='1'})}>
-            <option value="1">Oui</option><option value="0">Non</option>
-          </select>
-        </div>
-      </div>
-    </Modal>}
-  </>);
+    </div>`;
 }
 
-// ─── PURCHASE ORDERS ─────────────────────────────────────────
-function PurchaseOrders(){
-  const {showToast,user}=React.useContext(AppCtx);
-  const [items,setItems]=useState([]);
-  const [chantiers,setChantiers]=useState([]);
-  const [fournisseurs,setFournisseurs]=useState([]);
-  const [modal,setModal]=useState(false);
-  const [detailModal,setDetailModal]=useState(null);
-  const [search,setSearch]=useState('');
-  const [filterStatut,setFilterStatut]=useState('');
-  const [form,setForm]=useState({chantier_id:'',fournisseur_id:'',date_livraison_souhaitee:'',observations:''});
-  const [lignes,setLignes]=useState([{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}]);
-  const [sending,setSending]=useState(false);
-
-  const load=async()=>{
-    const [pos,chants,fours]=await Promise.all([
-      sb.from('purchase_orders').select('*,chantiers(nom,client),fournisseurs(nom,email)').order('created_at',{ascending:false}),
-      sb.from('chantiers').select('*').eq('statut','actif'),
-      sb.from('fournisseurs').select('*').eq('actif',true).order('nom'),
-    ]);
-    setItems(pos.data||[]);setChantiers(chants.data||[]);setFournisseurs(fours.data||[]);
-  };
-  useEffect(()=>{load();},[]);
-
-  const openNew=()=>{
-    setForm({chantier_id:'',fournisseur_id:'',date_livraison_souhaitee:'',observations:''});
-    setLignes([{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}]);
-    setModal(true);
-  };
-
-  const addLigne=()=>setLignes([...lignes,{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}]);
-  const updLigne=(i,k,v)=>{const l=[...lignes];l[i]={...l[i],[k]:v};setLignes(l);};
-  const delLigne=(i)=>setLignes(lignes.filter((_,idx)=>idx!==i));
-
-  const totalHT=lignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA=lignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
-
-  const save=async()=>{
-    if(!form.chantier_id||!form.fournisseur_id){showToast('Chantier et fournisseur obligatoires','error');return;}
-    if(lignes.some(l=>!l.description)){showToast('Toutes les lignes doivent avoir une description','error');return;}
-    const {data:num}=await sb.rpc('generate_po_number');
-    const {data:po,error}=await sb.from('purchase_orders').insert({
-      ...form,numero:num,cree_par:user.id,
-    }).select().single();
-    if(error){showToast('Erreur: '+error.message,'error');return;}
-    await sb.from('lignes_po').insert(lignes.map((l,i)=>({...l,po_id:po.id,ordre:i+1,quantite:parseFloat(l.quantite),prix_unitaire_ht:parseFloat(l.prix_unitaire_ht),taux_tva:parseFloat(l.taux_tva)})));
-    showToast('Commande créée — '+num);
-    setModal(false);load();
-  };
-
-  const openDetail=async(po)=>{
-    const {data:lignes_po}=await sb.from('lignes_po').select('*').eq('po_id',po.id).order('ordre');
-    const {data:bls}=await sb.from('bons_livraison').select('*,utilisateurs(nom,prenom)').eq('po_id',po.id).order('date_reception');
-    const {data:facs}=await sb.from('factures').select('*').eq('po_id',po.id);
-    const four=fournisseurs.find(f=>f.id===po.fournisseur_id);
-    const chant=chantiers.find(c=>c.id===po.chantier_id)||{nom:po.chantiers?.nom||'—',client:po.chantiers?.client||'—'};
-    setDetailModal({po,lignes:lignes_po||[],bls:bls||[],factures:facs||[],fournisseur:four,chantier:chant});
-  };
-
-  const sendPO=async(po)=>{
-    setSending(true);
-    await sb.from('purchase_orders').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',po.id);
-    showToast('Commande marquée comme envoyée. Téléchargez le PDF pour l\'envoyer au fournisseur.');
-    setSending(false);load();
-    if(detailModal) setDetailModal({...detailModal,po:{...detailModal.po,statut:'envoyee'}});
-  };
-
-  const downloadPDF=()=>{
-    if(!detailModal) return;
-    generatePO_PDF(detailModal.po,detailModal.lignes,detailModal.fournisseur,detailModal.chantier);
-  };
-
-  const filtered=items.filter(i=>{
-    const q=search.toLowerCase();
-    const match=(i.numero||'').toLowerCase().includes(q)||(i.chantiers?.nom||'').toLowerCase().includes(q)||(i.fournisseurs?.nom||'').toLowerCase().includes(q);
-    return match && (!filterStatut||i.statut===filterStatut);
-  });
-
-  return(<>
-    <div className="page-header">
-      <h1>Bons de commande</h1>
-      <div className="flex gap-8">
-        <div className="search-box"><i className="ti ti-search"></i><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="N° PO, chantier, fournisseur..."/></div>
-        <select value={filterStatut} onChange={e=>setFilterStatut(e.target.value)} style={{padding:'7px 10px',borderRadius:'var(--radius)',border:'1px solid var(--gray-3)',fontSize:13}}>
-          <option value="">Tous les statuts</option>
-          {Object.entries(STATUT_PO).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <button className="btn btn-primary" onClick={openNew}><i className="ti ti-plus"></i> Nouvelle commande</button>
+function openFourModal(r=null){
+  const isEdit = !!r;
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${isEdit?'Modifier fournisseur':'Nouveau fournisseur'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${r?.nom||''}" placeholder="Nom de la société"/></div>
+        <div class="form-group"><label class="field-label">Email</label><input type="email" id="f-email" value="${r?.email||''}" placeholder="contact@fournisseur.com"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="f-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
+        <div class="form-group"><label class="field-label">N° TVA</label><input id="f-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="f-adresse" value="${r?.adresse||''}" placeholder="Rue et numéro"/></div>
+        <div class="form-group"><label class="field-label">Code postal</label><input id="f-cp" value="${r?.code_postal||''}" placeholder="L-1234"/></div>
+        <div class="form-group"><label class="field-label">Ville</label><input id="f-ville" value="${r?.ville||''}" placeholder="Luxembourg"/></div>
+        <div class="form-group"><label class="field-label">Pays</label><input id="f-pays" value="${r?.pays||'Luxembourg'}"/></div>
+        <div class="form-group"><label class="field-label">Conditions paiement</label>
+          <select id="f-cond">
+            ${['Immédiat','15 jours','30 jours','45 jours','60 jours'].map(c=>`<option ${(r?.conditions_paiement||'30 jours')===c?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Actif</label>
+          <select id="f-actif">
+            <option value="1" ${r?.actif!==false?'selected':''}>Oui</option>
+            <option value="0" ${r?.actif===false?'selected':''}>Non</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveFour('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
-    <div className="card">
-      <div className="table-wrap">
+  </div></div>`);
+}
+
+async function saveFour(id){
+  const nom = el('f-nom').value.trim();
+  if(!nom){ showToast('Nom obligatoire','error'); return; }
+  const data = {nom,email:el('f-email').value,telephone:el('f-tel').value,numero_tva:el('f-tva').value,adresse:el('f-adresse').value,code_postal:el('f-cp').value,ville:el('f-ville').value,pays:el('f-pays').value,conditions_paiement:el('f-cond').value,actif:el('f-actif').value==='1'};
+  if(id) await sb.from('fournisseurs').update(data).eq('id',id);
+  else await sb.from('fournisseurs').insert(data);
+  showToast(id?'Fournisseur mis à jour':'Fournisseur créé');
+  closeModal(); renderFournisseurs();
+}
+
+// ── PURCHASE ORDERS ──────────────────────────────────────────
+let _pos = [], _chantiersActive = [], _foursActive = [];
+let poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
+
+async function renderPOS(search='', filterStatut=''){
+  const [posR, chantsR, foursR] = await Promise.all([
+    sb.from('purchase_orders').select('*,chantiers(nom,client),fournisseurs(nom,email)').order('created_at',{ascending:false}),
+    sb.from('chantiers').select('*').eq('statut','actif'),
+    sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
+  ]);
+  _pos = posR.data||[]; _chantiersActive = chantsR.data||[]; _foursActive = foursR.data||[];
+  const q = search.toLowerCase();
+  const items = _pos.filter(i=>{
+    const match = !q || (i.numero+i.chantiers?.nom+i.fournisseurs?.nom).toLowerCase().includes(q);
+    const st = !filterStatut || i.statut===filterStatut;
+    return match && st;
+  });
+  const statusOpts = Object.entries(STATUT_PO).map(([k,v])=>`<option value="${k}" ${filterStatut===k?'selected':''}>${v}</option>`).join('');
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <h1>Bons de commande</h1>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="N° PO, chantier, fournisseur..." oninput="renderPOS(this.value,document.getElementById('po-filter-statut').value)" value="${search}"/></div>
+        <select id="po-filter-statut" onchange="renderPOS(document.querySelector('.search-wrap input').value,this.value)" style="padding:7px 10px;border-radius:var(--radius);border:1px solid var(--gray-3);font-size:13px">
+          <option value="">Tous les statuts</option>${statusOpts}
+        </select>
+        <button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Nouvelle commande</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
         <table>
           <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Livraison souhaitée</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            {filtered.length===0&&<tr><td colSpan={9}><div className="empty"><i className="ti ti-shopping-cart"></i><p>Aucune commande</p><button className="btn btn-primary" onClick={openNew}><i className="ti ti-plus"></i> Créer une commande</button></div></td></tr>}
-            {filtered.map(r=>(
-              <tr key={r.id} style={{cursor:'pointer'}} onClick={()=>openDetail(r)}>
-                <td><strong style={{color:'var(--blue)'}}>{r.numero}</strong></td>
-                <td>{r.fournisseurs?.nom||'—'}</td>
-                <td>{r.chantiers?.nom||'—'}</td>
-                <td>{fmtDate(r.date_creation)}</td>
-                <td>{fmtDate(r.date_livraison_souhaitee)}</td>
-                <td>{fmt(r.total_ht)}</td>
-                <td><strong>{fmt(r.total_ttc)}</strong></td>
-                <td><Badge statut={r.statut} map={STATUT_PO}/></td>
-                <td onClick={e=>e.stopPropagation()}>
-                  <div className="td-actions">
-                    <button className="btn btn-secondary btn-sm" onClick={()=>openDetail(r)}><i className="ti ti-eye"></i></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            ${items.length===0 ? `<tr><td colspan="9"><div class="empty"><i class="ti ti-shopping-cart"></i><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>` :
+            items.map(r=>`<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
+              <td><strong class="text-blue">${r.numero}</strong></td>
+              <td>${r.fournisseurs?.nom||'—'}</td>
+              <td>${r.chantiers?.nom||'—'}</td>
+              <td>${fmtDate(r.date_creation)}</td>
+              <td>${fmtDate(r.date_livraison_souhaitee)}</td>
+              <td>${fmt(r.total_ht)}</td>
+              <td><strong>${fmt(r.total_ttc)}</strong></td>
+              <td>${bPO(r.statut)}</td>
+              <td onclick="event.stopPropagation()"><button class="btn btn-secondary btn-sm" onclick="openPODetail('${r.id}')"><i class="ti ti-eye"></i></button></td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
-    </div>
-
-    {/* MODAL NOUVELLE PO */}
-    {modal&&<div className="modal-overlay">
-      <div className="modal modal-lg">
-        <div className="modal-header">
-          <h3>Nouvelle commande</h3>
-          <button className="modal-close" onClick={()=>setModal(false)}><i className="ti ti-x" style={{fontSize:20}}></i></button>
-        </div>
-        <div className="modal-body">
-          <div className="form-grid" style={{marginBottom:16}}>
-            <div className="form-group">
-              <label>Chantier *</label>
-              <select value={form.chantier_id} onChange={e=>setForm({...form,chantier_id:e.target.value})}>
-                <option value="">— Sélectionner —</option>
-                {chantiers.map(c=><option key={c.id} value={c.id}>{c.numero} — {c.nom}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Fournisseur *</label>
-              <select value={form.fournisseur_id} onChange={e=>setForm({...form,fournisseur_id:e.target.value})}>
-                <option value="">— Sélectionner —</option>
-                {fournisseurs.map(f=><option key={f.id} value={f.id}>{f.nom}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Livraison souhaitée</label>
-              <input type="date" value={form.date_livraison_souhaitee} onChange={e=>setForm({...form,date_livraison_souhaitee:e.target.value})}/>
-            </div>
-            <div className="form-group full">
-              <label>Observations</label>
-              <textarea value={form.observations} onChange={e=>setForm({...form,observations:e.target.value})} placeholder="Instructions particulières, remarques..."/>
-            </div>
-          </div>
-
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-            <strong style={{fontSize:13}}>Lignes de commande</strong>
-            <button className="btn btn-secondary btn-sm" onClick={addLigne}><i className="ti ti-plus"></i> Ajouter une ligne</button>
-          </div>
-
-          <div style={{overflowX:'auto'}}>
-            <table className="lignes-table">
-              <thead><tr>
-                <th className="col-desc">Description *</th>
-                <th className="col-ref">Référence</th>
-                <th className="col-qty">Qté</th>
-                <th className="col-unit">Unité</th>
-                <th className="col-pu">P.U. HT (€)</th>
-                <th className="col-tva">TVA %</th>
-                <th className="col-total">Total HT</th>
-                <th className="col-del"></th>
-              </tr></thead>
-              <tbody>
-                {lignes.map((l,i)=>(
-                  <tr key={i}>
-                    <td className="col-desc"><input value={l.description} onChange={e=>updLigne(i,'description',e.target.value)} placeholder="Description de l'article..."/></td>
-                    <td className="col-ref"><input value={l.reference_article} onChange={e=>updLigne(i,'reference_article',e.target.value)} placeholder="Réf."/></td>
-                    <td className="col-qty"><input type="number" min="0" step="0.001" value={l.quantite} onChange={e=>updLigne(i,'quantite',e.target.value)}/></td>
-                    <td className="col-unit">
-                      <select value={l.unite} onChange={e=>updLigne(i,'unite',e.target.value)}>
-                        <option value="u">u</option><option value="m">m</option><option value="m2">m²</option>
-                        <option value="m3">m³</option><option value="kg">kg</option><option value="h">h</option><option value="forfait">forfait</option>
-                      </select>
-                    </td>
-                    <td className="col-pu"><input type="number" min="0" step="0.01" value={l.prix_unitaire_ht} onChange={e=>updLigne(i,'prix_unitaire_ht',e.target.value)}/></td>
-                    <td className="col-tva">
-                      <select value={l.taux_tva} onChange={e=>updLigne(i,'taux_tva',e.target.value)}>
-                        <option value="17">17%</option><option value="14">14%</option><option value="8">8%</option><option value="3">3%</option><option value="0">0%</option>
-                      </select>
-                    </td>
-                    <td className="col-total">{fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
-                    <td className="col-del">
-                      {lignes.length>1&&<button onClick={()=>delLigne(i)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--red)',padding:4}}><i className="ti ti-trash" style={{fontSize:16}}></i></button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="totaux">
-            <div className="totaux-box">
-              <div className="totaux-row"><span>Total HT</span><span>{fmt(totalHT)}</span></div>
-              <div className="totaux-row"><span>TVA</span><span>{fmt(totalTVA)}</span></div>
-              <div className="totaux-row total"><span>TOTAL TTC</span><span>{fmt(totalHT+totalTVA)}</span></div>
-            </div>
-          </div>
-
-          <div className="form-actions">
-            <button className="btn btn-secondary" onClick={()=>setModal(false)}>Annuler</button>
-            <button className="btn btn-primary" onClick={save}><i className="ti ti-check"></i> Créer la commande</button>
-          </div>
-        </div>
-      </div>
-    </div>}
-
-    {/* DETAIL PO */}
-    {detailModal&&<div className="modal-overlay">
-      <div className="modal modal-lg">
-        <div className="modal-header">
-          <div>
-            <h3>{detailModal.po.numero}</h3>
-            <Badge statut={detailModal.po.statut} map={STATUT_PO}/>
-          </div>
-          <div className="flex gap-8">
-            <button className="btn btn-secondary btn-sm" onClick={downloadPDF}><i className="ti ti-file-download"></i> PDF</button>
-            {detailModal.po.statut==='brouillon'&&<button className="btn btn-primary btn-sm" onClick={()=>sendPO(detailModal.po)} disabled={sending}><i className="ti ti-send"></i> Marquer envoyée</button>}
-            <button className="modal-close" onClick={()=>setDetailModal(null)}><i className="ti ti-x" style={{fontSize:20}}></i></button>
-          </div>
-        </div>
-        <div className="modal-body">
-          <div className="po-info-grid">
-            <div className="po-info-item"><label>Fournisseur</label><span><strong>{detailModal.fournisseur?.nom||detailModal.po.fournisseurs?.nom||'—'}</strong></span></div>
-            <div className="po-info-item"><label>Chantier</label><span>{detailModal.chantier?.nom||detailModal.po.chantiers?.nom||'—'}</span></div>
-            <div className="po-info-item"><label>Client</label><span>{detailModal.chantier?.client||detailModal.po.chantiers?.client||'—'}</span></div>
-            <div className="po-info-item"><label>Date commande</label><span>{fmtDate(detailModal.po.date_creation)}</span></div>
-            <div className="po-info-item"><label>Livraison souhaitée</label><span>{fmtDate(detailModal.po.date_livraison_souhaitee)}</span></div>
-            <div className="po-info-item"><label>Envoyée le</label><span>{detailModal.po.envoye_le?fmtDate(detailModal.po.envoye_le):'Non encore envoyée'}</span></div>
-          </div>
-
-          {detailModal.po.observations&&<div className="alert alert-info" style={{marginBottom:16}}><i className="ti ti-info-circle"></i>{detailModal.po.observations}</div>}
-
-          <table style={{width:'100%',borderCollapse:'collapse',marginBottom:16}}>
-            <thead><tr style={{background:'var(--gray-1)'}}>
-              <th style={{padding:'8px 10px',textAlign:'left',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>Description</th>
-              <th style={{padding:'8px 10px',textAlign:'left',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>Réf.</th>
-              <th style={{padding:'8px 10px',textAlign:'right',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>Qté</th>
-              <th style={{padding:'8px 10px',textAlign:'left',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>Unité</th>
-              <th style={{padding:'8px 10px',textAlign:'right',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>P.U. HT</th>
-              <th style={{padding:'8px 10px',textAlign:'center',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>TVA</th>
-              <th style={{padding:'8px 10px',textAlign:'right',fontSize:11,fontWeight:600,color:'var(--gray-5)',textTransform:'uppercase',borderBottom:'1px solid var(--gray-3)'}}>Total HT</th>
-            </tr></thead>
-            <tbody>
-              {detailModal.lignes.map(l=>(
-                <tr key={l.id}>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)'}}>{l.description}</td>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)',color:'var(--gray-5)'}}>{l.reference_article||'—'}</td>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)',textAlign:'right'}}>{l.quantite}</td>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)'}}>{l.unite}</td>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)',textAlign:'right'}}>{fmt(l.prix_unitaire_ht)}</td>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)',textAlign:'center'}}>{l.taux_tva}%</td>
-                  <td style={{padding:'9px 10px',borderBottom:'1px solid var(--gray-2)',textAlign:'right',fontWeight:600,color:'var(--blue)'}}>{fmt(l.total_ht)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="totaux" style={{marginBottom:20}}>
-            <div className="totaux-box">
-              <div className="totaux-row"><span>Total HT</span><span>{fmt(detailModal.po.total_ht)}</span></div>
-              <div className="totaux-row"><span>TVA</span><span>{fmt(detailModal.po.total_tva)}</span></div>
-              <div className="totaux-row total"><span>TOTAL TTC</span><span>{fmt(detailModal.po.total_ttc)}</span></div>
-            </div>
-          </div>
-
-          {detailModal.bls.length>0&&<>
-            <strong style={{fontSize:13,display:'block',marginBottom:8}}><i className="ti ti-truck-delivery" style={{marginRight:6}}></i>Bons de livraison</strong>
-            {detailModal.bls.map(bl=>(
-              <div key={bl.id} style={{background:'var(--gray-1)',border:'1px solid var(--gray-3)',borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <div><strong>{bl.numero_bl}</strong> — {fmtDate(bl.date_reception)}</div>
-                <div className="flex gap-8 items-center">
-                  <span className="text-muted text-sm">Reçu par: {bl.utilisateurs?.prenom} {bl.utilisateurs?.nom}</span>
-                  <span className={`badge ${bl.statut_reception==='complet'?'badge-rec_totale':'badge-rec_partielle'}`}>{bl.statut_reception==='complet'?'Complet':'Partiel'}</span>
-                </div>
-              </div>
-            ))}
-          </>}
-
-          {detailModal.factures.length>0&&<>
-            <strong style={{fontSize:13,display:'block',marginBottom:8,marginTop:16}}><i className="ti ti-file-invoice" style={{marginRight:6}}></i>Factures</strong>
-            {detailModal.factures.map(f=>(
-              <div key={f.id} style={{background:'var(--gray-1)',border:'1px solid var(--gray-3)',borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <div><strong>{f.numero_facture_fournisseur}</strong> — {fmtDate(f.date_facture)}</div>
-                <div className="flex gap-8 items-center">
-                  <span style={{fontWeight:600}}>{fmt(f.montant_ttc)}</span>
-                  <Badge statut={f.statut} map={STATUT_FACTURE}/>
-                </div>
-              </div>
-            ))}
-          </>}
-        </div>
-      </div>
-    </div>}
-  </>);
+    </div>`;
 }
 
-// ─── RECEPTIONS ──────────────────────────────────────────────
-function Receptions(){
-  const {showToast,user}=React.useContext(AppCtx);
-  const [pos,setPos]=useState([]);
-  const [modal,setModal]=useState(false);
-  const [bls,setBls]=useState([]);
-  const [form,setForm]=useState({po_id:'',numero_bl:'',date_reception:today(),statut_reception:'partiel',observations:''});
-  const [selectedPO,setSelectedPO]=useState(null);
-  const [lignesPO,setLignesPO]=useState([]);
-  const [qtesRecues,setQtesRecues]=useState({});
-
-  const load=async()=>{
-    const {data:posData}=await sb.from('purchase_orders')
-      .select('*,chantiers(nom),fournisseurs(nom)')
-      .in('statut',['envoyee','rec_partielle'])
-      .order('created_at',{ascending:false});
-    setPos(posData||[]);
-    const {data:blsData}=await sb.from('bons_livraison')
-      .select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom)),utilisateurs(nom,prenom)')
-      .order('date_reception',{ascending:false});
-    setBls(blsData||[]);
-  };
-  useEffect(()=>{load();},[]);
-
-  const selectPO=async(po_id)=>{
-    setForm({...form,po_id});
-    if(!po_id){setSelectedPO(null);setLignesPO([]);return;}
-    const po=pos.find(p=>p.id===po_id);
-    setSelectedPO(po);
-    const {data:lignes}=await sb.from('lignes_po').select('*').eq('po_id',po_id).order('ordre');
-    setLignesPO(lignes||[]);
-    const init={};(lignes||[]).forEach(l=>{init[l.id]=l.quantite;});setQtesRecues(init);
-  };
-
-  const save=async()=>{
-    if(!form.po_id||!form.numero_bl){showToast('Commande et N° BL obligatoires','error');return;}
-    const {data:bl,error}=await sb.from('bons_livraison').insert({
-      po_id:form.po_id,numero_bl:form.numero_bl,date_reception:form.date_reception,
-      recu_par:user.id,statut_reception:form.statut_reception,observations:form.observations
-    }).select().single();
-    if(error){showToast('Erreur: '+error.message,'error');return;}
-    const lignesInsert=lignesPO.filter(l=>(parseFloat(qtesRecues[l.id])||0)>0).map(l=>({
-      bl_id:bl.id,ligne_po_id:l.id,quantite_recue:parseFloat(qtesRecues[l.id])||0
-    }));
-    if(lignesInsert.length>0) await sb.from('lignes_bl').insert(lignesInsert);
-    // Mise à jour statut PO
-    const newStatut=form.statut_reception==='complet'?'rec_totale':'rec_partielle';
-    await sb.from('purchase_orders').update({statut:newStatut}).eq('id',form.po_id);
-    showToast('Bon de livraison enregistré');
-    setModal(false);load();
-  };
-
-  return(<>
-    <div className="page-header">
-      <h1>Réceptions (Bons de livraison)</h1>
-      <button className="btn btn-primary" onClick={()=>{setForm({po_id:'',numero_bl:'',date_reception:today(),statut_reception:'partiel',observations:''});setSelectedPO(null);setLignesPO([]);setModal(true);}}>
-        <i className="ti ti-plus"></i> Saisir une réception
-      </button>
+function openNewPO(){
+  poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
+  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${c.numero} — ${c.nom}</option>`).join('');
+  const foursOpts = _foursActive.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('');
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
+        <div class="form-group"><label class="field-label">Fournisseur *</label><select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select></div>
+        <div class="form-group"><label class="field-label">Livraison souhaitée</label><input type="date" id="po-livraison"/></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="po-obs" placeholder="Instructions particulières..."></textarea></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <strong style="font-size:13px">Lignes de commande</strong>
+        <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+      </div>
+      <div style="overflow-x:auto"><table class="lignes-table" id="lignes-table">
+        <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">Référence</th><th style="width:70px">Qté</th><th style="width:75px">Unité</th><th style="width:100px">P.U. HT €</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
+        <tbody id="lignes-body"></tbody>
+      </table></div>
+      <div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="savePO()"><i class="ti ti-check"></i> Créer la commande</button>
+      </div>
     </div>
+  </div></div>`);
+  renderPoLignes();
+}
 
-    {pos.length>0&&<div className="alert alert-info" style={{marginBottom:16}}>
-      <i className="ti ti-truck-delivery"></i>
-      <strong>{pos.length} commande(s)</strong> en attente de réception
-    </div>}
+function renderPoLignes(){
+  const body = el('lignes-body');
+  if(!body) return;
+  body.innerHTML = poLignes.map((l,i)=>`<tr>
+    <td><input value="${l.description}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
+    <td><input value="${l.reference_article}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
+    <td><input type="number" min="0" step="0.001" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
+    <td><select onchange="updLigne(${i},'unite',this.value)">
+      ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
+    </select></td>
+    <td><input type="number" min="0" step="0.01" value="${l.prix_unitaire_ht}" onchange="updLigne(${i},'prix_unitaire_ht',this.value)"/></td>
+    <td><select onchange="updLigne(${i},'taux_tva',this.value)">
+      ${[17,14,8,3,0].map(t=>`<option ${l.taux_tva==t?'selected':''}>${t}</option>`).join('')}
+    </select></td>
+    <td style="text-align:right;font-weight:600;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td>${poLignes.length>1?`<button onclick="delLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button>`:'&nbsp;'}</td>
+  </tr>`).join('');
+  const totalHT = poLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = poLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const tot = el('po-totaux');
+  if(tot) tot.innerHTML = `
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+}
 
-    <div className="card">
-      <div className="card-header"><h2>Historique des réceptions</h2></div>
-      <div className="table-wrap">
+function updLigne(i,k,v){ poLignes[i][k]=v; renderPoLignes(); }
+function addPoLigne(){ poLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderPoLignes(); }
+function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
+
+async function savePO(){
+  const chantier_id = el('po-chantier').value;
+  const fournisseur_id = el('po-four').value;
+  if(!chantier_id||!fournisseur_id){ showToast('Chantier et fournisseur obligatoires','error'); return; }
+  if(poLignes.some(l=>!l.description)){ showToast('Toutes les lignes doivent avoir une description','error'); return; }
+  const {data:num} = await sb.rpc('generate_po_number');
+  const {data:po,error} = await sb.from('purchase_orders').insert({
+    numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
+    date_livraison_souhaitee:el('po-livraison').value||null,
+    observations:el('po-obs').value
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  await sb.from('lignes_po').insert(poLignes.map((l,i)=>({
+    po_id:po.id, ordre:i+1, description:l.description, reference_article:l.reference_article,
+    quantite:parseFloat(l.quantite)||0, unite:l.unite,
+    prix_unitaire_ht:parseFloat(l.prix_unitaire_ht)||0,
+    taux_tva:parseFloat(l.taux_tva)||17
+  })));
+  showToast('Commande créée — '+num);
+  closeModal(); renderPOS();
+}
+
+async function openPODetail(poId){
+  const po = _pos.find(p=>p.id===poId);
+  if(!po) return;
+  const [lignesR,blsR,facsR] = await Promise.all([
+    sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre'),
+    sb.from('bons_livraison').select('*,utilisateurs(nom,prenom)').eq('po_id',poId).order('date_reception'),
+    sb.from('factures').select('*').eq('po_id',poId)
+  ]);
+  const lignes = lignesR.data||[], bls = blsR.data||[], facs = facsR.data||[];
+  const four = _foursActive.find(f=>f.id===po.fournisseur_id) || po.fournisseurs;
+  const chant = _chantiersActive.find(c=>c.id===po.chantier_id) || po.chantiers;
+
+  const blsHtml = bls.length===0 ? '' : `
+    <div class="section-title"><i class="ti ti-truck-delivery"></i> Bons de livraison</div>
+    ${bls.map(b=>`<div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+      <div><strong>${b.numero_bl}</strong> — ${fmtDate(b.date_reception)}</div>
+      <div class="flex gap-8 items-center">
+        <span class="text-muted text-sm">${b.utilisateurs?.prenom||''} ${b.utilisateurs?.nom||''}</span>
+        <span class="badge badge-${b.statut_reception==='complet'?'rec_totale':'rec_partielle'}">${b.statut_reception==='complet'?'Complet':'Partiel'}</span>
+      </div>
+    </div>`).join('')}`;
+
+  const facsHtml = facs.length===0 ? '' : `
+    <div class="section-title"><i class="ti ti-file-invoice"></i> Factures</div>
+    ${facs.map(f=>`<div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+      <div><strong>${f.numero_facture_fournisseur}</strong> — ${fmtDate(f.date_facture)}</div>
+      <div class="flex gap-8 items-center"><span style="font-weight:600">${fmt(f.montant_ttc)}</span>${bFA(f.statut)}</div>
+    </div>`).join('')}`;
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>${po.numero}</h3>${bPO(po.statut)}</div>
+      <div class="flex gap-8 items-center">
+        <button class="btn btn-secondary btn-sm" onclick="downloadPDF_PO('${poId}')"><i class="ti ti-file-download"></i> PDF</button>
+        ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
+        <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="info-grid">
+        <div class="info-item"><label>Fournisseur</label><span><strong>${four?.nom||'—'}</strong></span></div>
+        <div class="info-item"><label>Chantier</label><span>${chant?.nom||'—'}</span></div>
+        <div class="info-item"><label>Client</label><span>${chant?.client||po.chantiers?.client||'—'}</span></div>
+        <div class="info-item"><label>Date commande</label><span>${fmtDate(po.date_creation)}</span></div>
+        <div class="info-item"><label>Livraison souhaitée</label><span>${fmtDate(po.date_livraison_souhaitee)}</span></div>
+        <div class="info-item"><label>Envoyée le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyée'}</span></div>
+      </div>
+      ${po.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${po.observations}</div>`:''}
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+        <thead><tr style="background:var(--gray-1)">
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Réf.</th>
+          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Qté</th>
+          <th style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Unité</th>
+          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">P.U. HT</th>
+          <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">TVA</th>
+          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Total HT</th>
+        </tr></thead>
+        <tbody>${lignes.map(l=>`<tr>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2)">${l.description}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);color:var(--gray-5)">${l.reference_article||'—'}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.quantite}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2)">${l.unite}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${fmt(l.prix_unitaire_ht)}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${l.taux_tva}%</td>
+          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(l.total_ht)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div class="totaux" style="margin-bottom:16px"><div class="totaux-box">
+        <div class="totaux-row"><span>Total HT</span><span>${fmt(po.total_ht)}</span></div>
+        <div class="totaux-row"><span>TVA</span><span>${fmt(po.total_tva)}</span></div>
+        <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(po.total_ttc)}</span></div>
+      </div></div>
+      ${blsHtml}${facsHtml}
+    </div>
+  </div></div>`);
+
+  // Store for PDF
+  window._detailPO = {po, lignes, fournisseur:four, chantier:chant};
+}
+
+async function markSent(poId){
+  await sb.from('purchase_orders').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',poId);
+  showToast('Commande marquée comme envoyée — téléchargez le PDF pour l\'envoyer au fournisseur');
+  closeModal(); renderPOS();
+}
+
+function downloadPDF_PO(poId){
+  if(!window._detailPO) return;
+  const {po, lignes, fournisseur, chantier} = window._detailPO;
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>${po.numero}</title>
+  <style>
+    body{font-family:Arial,sans-serif;font-size:12px;color:#222;margin:0;padding:20px}
+    .header{background:#0D2137;color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-radius:4px}
+    .header h1{font-size:20px;margin:0}.header p{margin:0;opacity:.7;font-size:11px}
+    .header-right{text-align:right}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+    .box{background:#f5f7f9;padding:12px 16px;border-radius:4px}
+    .box label{font-size:10px;font-weight:700;text-transform:uppercase;color:#777;display:block;margin-bottom:2px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    th{background:#0D2137;color:#fff;padding:8px 10px;text-align:left;font-size:11px}
+    td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}
+    tr:nth-child(even) td{background:#f9fafb}
+    .totaux{display:flex;justify-content:flex-end;margin-bottom:16px}
+    .totaux-box{min-width:220px;background:#f5f7f9;padding:12px 16px;border-radius:4px}
+    .t-row{display:flex;justify-content:space-between;padding:3px 0}
+    .t-total{border-top:2px solid #ddd;margin-top:6px;padding-top:6px;font-weight:700;font-size:14px;color:#0D2137}
+    .footer{background:#0D2137;color:#aaa;padding:10px;text-align:center;font-size:10px;border-radius:4px;margin-top:20px}
+    .cond{background:#f5f7f9;padding:10px 16px;border-radius:4px;font-size:11px;color:#555}
+    @media print{body{padding:0}}
+  </style></head><body>
+  <div class="header">
+    <div><h1>LYNEO</h1><p>Électricité — Luxembourg</p></div>
+    <div class="header-right"><strong style="font-size:16px">BON DE COMMANDE</strong><br><span style="font-size:13px">${po.numero}</span></div>
+  </div>
+  <div class="two-col">
+    <div class="box"><label>Fournisseur</label><strong>${fournisseur?.nom||'—'}</strong><br>${fournisseur?.adresse||''}<br>${(fournisseur?.code_postal||'')+' '+(fournisseur?.ville||'')}<br>${fournisseur?.numero_tva?'TVA: '+fournisseur.numero_tva:''}</div>
+    <div class="box">
+      <label>N° Commande</label><strong>${po.numero}</strong><br><br>
+      <label>Date</label>${fmtDate(po.date_creation)}<br><br>
+      <label>Livraison souhaitée</label>${fmtDate(po.date_livraison_souhaitee)}<br><br>
+      <label>Chantier</label><strong>${chantier?.nom||'—'}</strong>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Description</th><th>Référence</th><th style="text-align:right">Qté</th><th>Unité</th><th style="text-align:right">P.U. HT</th><th>TVA</th><th style="text-align:right">Total HT</th></tr></thead>
+    <tbody>${lignes.map(l=>`<tr>
+      <td>${l.description}</td><td>${l.reference_article||''}</td>
+      <td style="text-align:right">${l.quantite}</td><td>${l.unite}</td>
+      <td style="text-align:right">${fmt(l.prix_unitaire_ht)}</td><td>${l.taux_tva}%</td>
+      <td style="text-align:right;font-weight:600">${fmt(l.total_ht)}</td>
+    </tr>`).join('')}</tbody>
+  </table>
+  <div class="totaux"><div class="totaux-box">
+    <div class="t-row"><span>Total HT</span><span>${fmt(po.total_ht)}</span></div>
+    <div class="t-row"><span>TVA</span><span>${fmt(po.total_tva)}</span></div>
+    <div class="t-row t-total"><span>TOTAL TTC</span><span>${fmt(po.total_ttc)}</span></div>
+  </div></div>
+  ${po.observations?`<div class="cond" style="margin-bottom:12px"><strong>Observations :</strong> ${po.observations}</div>`:''}
+  <div class="cond">Conditions de paiement : ${fournisseur?.conditions_paiement||'30 jours'} &nbsp;|&nbsp; Merci de mentionner notre référence <strong>${po.numero}</strong> sur votre facture.</div>
+  <div class="footer">LYNEO SARL — Luxembourg &nbsp;|&nbsp; Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+  <script>window.onload=()=>{window.print()}<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+// ── RECEPTIONS ───────────────────────────────────────────────
+let _posAttente = [], _lignesRec = [];
+async function renderReceptions(){
+  const [posR, blsR] = await Promise.all([
+    sb.from('purchase_orders').select('*,chantiers(nom),fournisseurs(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
+    sb.from('bons_livraison').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
+  ]);
+  _posAttente = posR.data||[];
+  const bls = blsR.data||[];
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <h1>Réceptions (Bons de livraison)</h1>
+      <button class="btn btn-primary" onclick="openBLModal()"><i class="ti ti-plus"></i> Saisir une réception</button>
+    </div>
+    ${_posAttente.length>0?`<div class="alert alert-warning"><i class="ti ti-truck-delivery"></i><strong>${_posAttente.length} commande(s)</strong> en attente de réception</div>`:''}
+    <div class="card">
+      <div class="card-header"><h2>Historique des réceptions</h2></div>
+      <div class="table-wrap">
         <table>
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Statut</th></tr></thead>
           <tbody>
-            {bls.length===0&&<tr><td colSpan={7}><div className="empty"><i className="ti ti-truck-delivery"></i><p>Aucune réception enregistrée</p></div></td></tr>}
-            {bls.map(b=>(
-              <tr key={b.id}>
-                <td><strong style={{color:'var(--blue)'}}>{b.numero_bl}</strong></td>
-                <td>{b.purchase_orders?.numero||'—'}</td>
-                <td>{b.purchase_orders?.fournisseurs?.nom||'—'}</td>
-                <td>{b.purchase_orders?.chantiers?.nom||'—'}</td>
-                <td>{fmtDate(b.date_reception)}</td>
-                <td>{b.utilisateurs?.prenom} {b.utilisateurs?.nom}</td>
-                <td><span className={`badge ${b.statut_reception==='complet'?'badge-rec_totale':'badge-rec_partielle'}`}>{b.statut_reception==='complet'?'Réception complète':'Réception partielle'}</span></td>
-              </tr>
-            ))}
+            ${bls.length===0?`<tr><td colspan="7"><div class="empty"><i class="ti ti-truck-delivery"></i><p>Aucune réception</p></div></td></tr>`:
+            bls.map(b=>`<tr>
+              <td><strong class="text-blue">${b.numero_bl}</strong></td>
+              <td>${b.purchase_orders?.numero||'—'}</td>
+              <td>${b.purchase_orders?.fournisseurs?.nom||'—'}</td>
+              <td>${b.purchase_orders?.chantiers?.nom||'—'}</td>
+              <td>${fmtDate(b.date_reception)}</td>
+              <td>${b.utilisateurs?.prenom||''} ${b.utilisateurs?.nom||''}</td>
+              <td><span class="badge badge-${b.statut_reception==='complet'?'rec_totale':'rec_partielle'}">${b.statut_reception==='complet'?'Réception complète':'Réception partielle'}</span></td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
-    </div>
+    </div>`;
+}
 
-    {modal&&<Modal title="Nouvelle réception" onClose={()=>setModal(false)} onSave={save} saveLabel="Enregistrer le BL">
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Commande *</label>
-          <select value={form.po_id} onChange={e=>selectPO(e.target.value)}>
-            <option value="">— Sélectionner une commande —</option>
-            {pos.map(p=><option key={p.id} value={p.id}>{p.numero} — {p.fournisseurs?.nom} ({p.chantiers?.nom})</option>)}
+function openBLModal(){
+  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${p.chantiers?.nom})</option>`).join('');
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>Nouvelle réception</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Commande *</label>
+          <select id="bl-po" onchange="loadLignesBL(this.value)">
+            <option value="">— Sélectionner une commande —</option>${posOpts}
           </select>
         </div>
-        <div className="form-group"><label>N° BL fournisseur *</label><input value={form.numero_bl} onChange={e=>setForm({...form,numero_bl:e.target.value})} placeholder="BL-2026-XXXXX"/></div>
-        <div className="form-group"><label>Date de réception</label><input type="date" value={form.date_reception} onChange={e=>setForm({...form,date_reception:e.target.value})}/></div>
-        <div className="form-group"><label>Type de réception</label>
-          <select value={form.statut_reception} onChange={e=>setForm({...form,statut_reception:e.target.value})}>
+        <div class="form-group"><label class="field-label">N° BL fournisseur *</label><input id="bl-num" placeholder="BL-2026-XXXXX"/></div>
+        <div class="form-group"><label class="field-label">Date de réception</label><input type="date" id="bl-date" value="${today()}"/></div>
+        <div class="form-group"><label class="field-label">Type de réception</label>
+          <select id="bl-statut">
             <option value="partiel">Partielle — livraison incomplète</option>
             <option value="complet">Complète — tout reçu</option>
           </select>
         </div>
-        <div className="form-group full"><label>Observations</label><textarea value={form.observations} onChange={e=>setForm({...form,observations:e.target.value})} placeholder="Remarques sur la réception, dommages constatés..."/></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="bl-obs" placeholder="Remarques, dommages constatés..."></textarea></div>
       </div>
-
-      {lignesPO.length>0&&<>
-        <strong style={{fontSize:13,display:'block',margin:'16px 0 8px'}}>Quantités reçues</strong>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr>
-            <th style={{padding:'7px 10px',textAlign:'left',fontSize:11,fontWeight:600,color:'var(--gray-5)',background:'var(--gray-1)',borderBottom:'1px solid var(--gray-3)'}}>Description</th>
-            <th style={{padding:'7px 10px',textAlign:'right',fontSize:11,fontWeight:600,color:'var(--gray-5)',background:'var(--gray-1)',borderBottom:'1px solid var(--gray-3)'}}>Qté commandée</th>
-            <th style={{padding:'7px 10px',textAlign:'right',fontSize:11,fontWeight:600,color:'var(--gray-5)',background:'var(--gray-1)',borderBottom:'1px solid var(--gray-3)'}}>Qté reçue</th>
-          </tr></thead>
-          <tbody>
-            {lignesPO.map(l=>(
-              <tr key={l.id}>
-                <td style={{padding:'8px 10px',borderBottom:'1px solid var(--gray-2)'}}>{l.description}</td>
-                <td style={{padding:'8px 10px',borderBottom:'1px solid var(--gray-2)',textAlign:'right'}}>{l.quantite} {l.unite}</td>
-                <td style={{padding:'8px 10px',borderBottom:'1px solid var(--gray-2)',textAlign:'right',width:120}}>
-                  <input type="number" min="0" max={l.quantite} step="0.001" value={qtesRecues[l.id]||0}
-                    onChange={e=>setQtesRecues({...qtesRecues,[l.id]:e.target.value})}
-                    style={{width:90,textAlign:'right'}}/>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </>}
-    </Modal>}
-  </>);
+      <div id="bl-lignes-section"></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveBL()"><i class="ti ti-check"></i> Enregistrer le BL</button>
+      </div>
+    </div>
+  </div></div>`);
 }
 
-// ─── FACTURES ────────────────────────────────────────────────
-function Factures(){
-  const {showToast,user}=React.useContext(AppCtx);
-  const [items,setItems]=useState([]);
-  const [pos,setPos]=useState([]);
-  const [modal,setModal]=useState(false);
-  const [payModal,setPayModal]=useState(null);
-  const [form,setForm]=useState({po_id:'',numero_facture_fournisseur:'',date_facture:today(),date_echeance:'',montant_ht:0,montant_tva:0,montant_ttc:0,statut:'recue',observations:''});
-  const [payForm,setPayForm]=useState({date_paiement:today(),montant:0,mode_paiement:'virement',reference_virement:''});
+async function loadLignesBL(poId){
+  if(!poId){ el('bl-lignes-section').innerHTML=''; return; }
+  const {data} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+  _lignesRec = data||[];
+  el('bl-lignes-section').innerHTML = `
+    <strong style="font-size:13px;display:block;margin-bottom:8px">Quantités reçues</strong>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Description</th>
+        <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Qté commandée</th>
+        <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Qté reçue</th>
+      </tr></thead>
+      <tbody>${_lignesRec.map(l=>`<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${l.description}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.quantite} ${l.unite}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;width:120px">
+          <input type="number" min="0" step="0.001" value="${l.quantite}" id="qty-${l.id}" style="width:90px;text-align:right;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px"/>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
 
-  const load=async()=>{
-    const {data}=await sb.from('factures').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false});
-    setItems(data||[]);
-    const {data:posData}=await sb.from('purchase_orders').select('*,fournisseurs(nom),chantiers(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false});
-    setPos(posData||[]);
-  };
-  useEffect(()=>{load();},[]);
+async function saveBL(){
+  const poId = el('bl-po').value;
+  const num = el('bl-num').value.trim();
+  if(!poId||!num){ showToast('Commande et N° BL obligatoires','error'); return; }
+  const {data:bl,error} = await sb.from('bons_livraison').insert({
+    po_id:poId, numero_bl:num, date_reception:el('bl-date').value,
+    recu_par:currentUser.id, statut_reception:el('bl-statut').value,
+    observations:el('bl-obs').value
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  const lignesInsert = _lignesRec.filter(l=>(parseFloat(el('qty-'+l.id)?.value)||0)>0).map(l=>({
+    bl_id:bl.id, ligne_po_id:l.id, quantite_recue:parseFloat(el('qty-'+l.id).value)||0
+  }));
+  if(lignesInsert.length>0) await sb.from('lignes_bl').insert(lignesInsert);
+  const newStatut = el('bl-statut').value==='complet'?'rec_totale':'rec_partielle';
+  await sb.from('purchase_orders').update({statut:newStatut}).eq('id',poId);
+  showToast('Bon de livraison enregistré');
+  closeModal(); renderReceptions();
+}
 
-  const calcTTC=(ht,tva)=>setForm(f=>({...f,montant_ht:ht,montant_tva:tva,montant_ttc:(parseFloat(ht)||0)+(parseFloat(tva)||0)}));
-
-  const save=async()=>{
-    if(!form.po_id||!form.numero_facture_fournisseur||!form.date_facture){showToast('Champs obligatoires manquants','error');return;}
-    await sb.from('factures').insert({...form,saisie_par:user.id,montant_ht:parseFloat(form.montant_ht),montant_tva:parseFloat(form.montant_tva),montant_ttc:parseFloat(form.montant_ttc)});
-    await sb.from('purchase_orders').update({statut:'facturee'}).eq('id',form.po_id);
-    showToast('Facture enregistrée');setModal(false);load();
-  };
-
-  const payer=async()=>{
-    await sb.from('paiements').insert({...payForm,facture_id:payModal.id,effectue_par:user.id,montant:parseFloat(payForm.montant)});
-    await sb.from('factures').update({statut:'payee'}).eq('id',payModal.id);
-    await sb.from('purchase_orders').update({statut:'payee'}).eq('id',payModal.po_id);
-    showToast('Paiement enregistré');setPayModal(null);load();
-  };
-
-  const valider=async(f)=>{
-    await sb.from('factures').update({statut:'validee'}).eq('id',f.id);
-    showToast('Facture validée');load();
-  };
-
-  return(<>
-    <div className="page-header">
+// ── FACTURES ─────────────────────────────────────────────────
+let _posPourFac = [];
+async function renderFactures(){
+  const [facsR, posR] = await Promise.all([
+    sb.from('factures').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
+    sb.from('purchase_orders').select('*,fournisseurs(nom),chantiers(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
+  ]);
+  const facs = facsR.data||[];
+  _posPourFac = posR.data||[];
+  el('page-content').innerHTML = `
+    <div class="page-header">
       <h1>Factures fournisseurs</h1>
-      <button className="btn btn-primary" onClick={()=>{setForm({po_id:'',numero_facture_fournisseur:'',date_facture:today(),date_echeance:'',montant_ht:0,montant_tva:0,montant_ttc:0,statut:'recue',observations:''});setModal(true);}}>
-        <i className="ti ti-plus"></i> Saisir une facture
-      </button>
+      <button class="btn btn-primary" onclick="openFacModal()"><i class="ti ti-plus"></i> Saisir une facture</button>
     </div>
-    <div className="card">
-      <div className="table-wrap">
+    <div class="card">
+      <div class="table-wrap">
         <table>
-          <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date facture</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            {items.length===0&&<tr><td colSpan={9}><div className="empty"><i className="ti ti-file-invoice"></i><p>Aucune facture</p></div></td></tr>}
-            {items.map(r=>(
-              <tr key={r.id}>
-                <td><strong style={{color:'var(--blue)'}}>{r.numero_facture_fournisseur}</strong></td>
-                <td>{r.purchase_orders?.numero||'—'}</td>
-                <td>{r.purchase_orders?.fournisseurs?.nom||'—'}</td>
-                <td>{r.purchase_orders?.chantiers?.nom||'—'}</td>
-                <td>{fmtDate(r.date_facture)}</td>
-                <td style={{color:r.date_echeance&&new Date(r.date_echeance)<new Date()&&r.statut!=='payee'?'var(--red)':''}}>{fmtDate(r.date_echeance)}</td>
-                <td><strong>{fmt(r.montant_ttc)}</strong></td>
-                <td><Badge statut={r.statut} map={STATUT_FACTURE}/></td>
-                <td><div className="td-actions">
-                  {r.statut==='recue'&&<button className="btn btn-success btn-sm" onClick={()=>valider(r)}><i className="ti ti-check"></i> Valider</button>}
-                  {r.statut==='validee'&&<button className="btn btn-primary btn-sm" onClick={()=>{setPayModal(r);setPayForm({date_paiement:today(),montant:r.montant_ttc,mode_paiement:'virement',reference_virement:''});}}><i className="ti ti-currency-euro"></i> Payer</button>}
-                  {r.statut==='recue'&&<button className="btn btn-danger btn-sm" onClick={async()=>{await sb.from('factures').update({statut:'litige'}).eq('id',r.id);showToast('Facture mise en litige');load();}}><i className="ti ti-alert-triangle"></i></button>}
+            ${facs.length===0?`<tr><td colspan="9"><div class="empty"><i class="ti ti-file-invoice"></i><p>Aucune facture</p></div></td></tr>`:
+            facs.map(r=>{
+              const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
+              return `<tr>
+                <td><strong class="text-blue">${r.numero_facture_fournisseur}</strong></td>
+                <td>${r.purchase_orders?.numero||'—'}</td>
+                <td>${r.purchase_orders?.fournisseurs?.nom||'—'}</td>
+                <td>${r.purchase_orders?.chantiers?.nom||'—'}</td>
+                <td>${fmtDate(r.date_facture)}</td>
+                <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
+                <td><strong>${fmt(r.montant_ttc)}</strong></td>
+                <td>${bFA(r.statut)}</td>
+                <td><div class="td-actions">
+                  ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
+                  ${r.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="openPayModal('${r.id}','${r.po_id}',${r.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
+                  ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
                 </div></td>
-              </tr>
-            ))}
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
-    </div>
-
-    {modal&&<Modal title="Saisir une facture fournisseur" onClose={()=>setModal(false)} onSave={save} saveLabel="Enregistrer la facture">
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Commande associée *</label>
-          <select value={form.po_id} onChange={e=>setForm({...form,po_id:e.target.value})}>
-            <option value="">— Sélectionner —</option>
-            {pos.map(p=><option key={p.id} value={p.id}>{p.numero} — {p.fournisseurs?.nom}</option>)}
-          </select>
-        </div>
-        <div className="form-group"><label>N° Facture fournisseur *</label><input value={form.numero_facture_fournisseur} onChange={e=>setForm({...form,numero_facture_fournisseur:e.target.value})} placeholder="FA-2026-XXXX"/></div>
-        <div className="form-group"><label>Date de facture *</label><input type="date" value={form.date_facture} onChange={e=>setForm({...form,date_facture:e.target.value})}/></div>
-        <div className="form-group"><label>Date d'échéance</label><input type="date" value={form.date_echeance} onChange={e=>setForm({...form,date_echeance:e.target.value})}/></div>
-        <div className="form-group"><label>Montant HT (€)</label><input type="number" step="0.01" value={form.montant_ht} onChange={e=>calcTTC(e.target.value,form.montant_tva)}/></div>
-        <div className="form-group"><label>Montant TVA (€)</label><input type="number" step="0.01" value={form.montant_tva} onChange={e=>calcTTC(form.montant_ht,e.target.value)}/></div>
-        <div className="form-group"><label>Montant TTC (€)</label><input type="number" step="0.01" value={form.montant_ttc} onChange={e=>setForm({...form,montant_ttc:e.target.value})} style={{fontWeight:700,color:'var(--blue)'}}/></div>
-        <div className="form-group full"><label>Observations</label><textarea value={form.observations} onChange={e=>setForm({...form,observations:e.target.value})} placeholder="Notes, réserves..."/></div>
-      </div>
-    </Modal>}
-
-    {payModal&&<Modal title={`Paiement — ${payModal.numero_facture_fournisseur}`} onClose={()=>setPayModal(null)} onSave={payer} saveLabel="Confirmer le paiement">
-      <div className="form-grid">
-        <div className="form-group"><label>Date de paiement</label><input type="date" value={payForm.date_paiement} onChange={e=>setPayForm({...payForm,date_paiement:e.target.value})}/></div>
-        <div className="form-group"><label>Montant payé (€)</label><input type="number" step="0.01" value={payForm.montant} onChange={e=>setPayForm({...payForm,montant:e.target.value})}/></div>
-        <div className="form-group"><label>Mode de paiement</label>
-          <select value={payForm.mode_paiement} onChange={e=>setPayForm({...payForm,mode_paiement:e.target.value})}>
-            <option value="virement">Virement bancaire</option><option value="cheque">Chèque</option><option value="carte">Carte</option>
-          </select>
-        </div>
-        <div className="form-group"><label>Référence virement</label><input value={payForm.reference_virement} onChange={e=>setPayForm({...payForm,reference_virement:e.target.value})} placeholder="REF-XXXX"/></div>
-      </div>
-    </Modal>}
-  </>);
+    </div>`;
 }
 
-// ─── UTILISATEURS ────────────────────────────────────────────
-function Utilisateurs(){
-  const {showToast}=React.useContext(AppCtx);
-  const [items,setItems]=useState([]);
-  const [modal,setModal]=useState(false);
-  const [editing,setEditing]=useState(null);
-  const empty={email:'',nom:'',prenom:'',role:'acheteur',actif:true};
-  const [form,setForm]=useState(empty);
-
-  const load=async()=>{const {data}=await sb.from('utilisateurs').select('*').order('nom');setItems(data||[]);};
-  useEffect(()=>{load();},[]);
-
-  const save=async()=>{
-    if(!form.email||!form.nom||!form.prenom){showToast('Champs obligatoires manquants','error');return;}
-    if(editing){await sb.from('utilisateurs').update({...form}).eq('id',editing.id);showToast('Utilisateur mis à jour');}
-    else{await sb.from('utilisateurs').insert({...form});showToast('Utilisateur créé');}
-    setModal(false);load();
-  };
-
-  const ROLES={admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'};
-
-  return(<>
-    <div className="page-header">
-      <h1>Utilisateurs</h1>
-      <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm(empty);setModal(true);}}><i className="ti ti-plus"></i> Nouvel utilisateur</button>
+function openFacModal(){
+  const opts = _posPourFac.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom}</option>`).join('');
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>Saisir une facture fournisseur</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Commande associée *</label><select id="fac-po"><option value="">— Sélectionner —</option>${opts}</select></div>
+        <div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="fac-num" placeholder="FA-2026-XXXX"/></div>
+        <div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-date" value="${today()}"/></div>
+        <div class="form-group"><label class="field-label">Date d'échéance</label><input type="date" id="fac-echeance"/></div>
+        <div class="form-group"><label class="field-label">Montant HT (€)</label><input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()"/></div>
+        <div class="form-group"><label class="field-label">Montant TVA (€)</label><input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/></div>
+        <div class="form-group"><label class="field-label">Montant TTC (€)</label><input type="number" step="0.01" id="fac-ttc" value="0" style="font-weight:700;color:var(--blue)"/></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="fac-obs" placeholder="Notes, réserves..."></textarea></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveFac()"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
     </div>
-    <div className="alert alert-info" style={{marginBottom:16}}><i className="ti ti-info-circle"></i>Mot de passe par défaut pour tous les comptes : <strong>lyneo2026</strong></div>
-    <div className="card">
-      <div className="table-wrap">
+  </div></div>`);
+}
+
+function calcFacTTC(){
+  const ht = parseFloat(el('fac-ht').value)||0;
+  const tva = parseFloat(el('fac-tva').value)||0;
+  el('fac-ttc').value = (ht+tva).toFixed(2);
+}
+
+async function saveFac(){
+  const po_id = el('fac-po').value;
+  const num = el('fac-num').value.trim();
+  const date = el('fac-date').value;
+  if(!po_id||!num||!date){ showToast('Champs obligatoires manquants','error'); return; }
+  await sb.from('factures').insert({po_id,numero_facture_fournisseur:num,date_facture:date,date_echeance:el('fac-echeance').value||null,montant_ht:parseFloat(el('fac-ht').value)||0,montant_tva:parseFloat(el('fac-tva').value)||0,montant_ttc:parseFloat(el('fac-ttc').value)||0,statut:'recue',saisie_par:currentUser.id,observations:el('fac-obs').value});
+  await sb.from('purchase_orders').update({statut:'facturee'}).eq('id',po_id);
+  showToast('Facture enregistrée'); closeModal(); renderFactures();
+}
+
+async function validerFac(id){ await sb.from('factures').update({statut:'validee'}).eq('id',id); showToast('Facture validée'); renderFactures(); }
+async function litigeFac(id){ await sb.from('factures').update({statut:'litige'}).eq('id',id); showToast('Facture mise en litige'); renderFactures(); }
+
+function openPayModal(facId, poId, montant){
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>Enregistrer le paiement</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Date de paiement</label><input type="date" id="pay-date" value="${today()}"/></div>
+        <div class="form-group"><label class="field-label">Montant payé (€)</label><input type="number" step="0.01" id="pay-montant" value="${montant}"/></div>
+        <div class="form-group"><label class="field-label">Mode de paiement</label>
+          <select id="pay-mode">
+            <option value="virement">Virement bancaire</option>
+            <option value="cheque">Chèque</option>
+            <option value="carte">Carte</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Référence virement</label><input id="pay-ref" placeholder="REF-XXXX"/></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="savePay('${facId}','${poId}')"><i class="ti ti-check"></i> Confirmer le paiement</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+
+async function savePay(facId, poId){
+  await sb.from('paiements').insert({facture_id:facId,date_paiement:el('pay-date').value,montant:parseFloat(el('pay-montant').value),mode_paiement:el('pay-mode').value,reference_virement:el('pay-ref').value,effectue_par:currentUser.id});
+  await sb.from('factures').update({statut:'payee'}).eq('id',facId);
+  await sb.from('purchase_orders').update({statut:'payee'}).eq('id',poId);
+  showToast('Paiement enregistré'); closeModal(); renderFactures();
+}
+
+// ── UTILISATEURS ─────────────────────────────────────────────
+async function renderUtilisateurs(){
+  const {data} = await sb.from('utilisateurs').select('*').order('nom');
+  const users = data||[];
+  const ROLES = {admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'};
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <h1>Utilisateurs</h1>
+      <button class="btn btn-primary" onclick="openUserModal()"><i class="ti ti-plus"></i> Nouvel utilisateur</button>
+    </div>
+    <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Mot de passe par défaut pour tous les comptes : <strong>lyneo2026</strong></div>
+    <div class="card">
+      <div class="table-wrap">
         <table>
           <thead><tr><th>Prénom</th><th>Nom</th><th>Email</th><th>Rôle</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
-            {items.map(r=>(
-              <tr key={r.id}>
-                <td>{r.prenom}</td><td><strong>{r.nom}</strong></td>
-                <td>{r.email}</td>
-                <td><span className="badge badge-envoyee">{ROLES[r.role]||r.role}</span></td>
-                <td><span className={`badge ${r.actif?'badge-actif':'badge-annulee'}`}>{r.actif?'Actif':'Inactif'}</span></td>
-                <td><button className="btn btn-secondary btn-sm" onClick={()=>{setEditing(r);setForm(r);setModal(true);}}><i className="ti ti-edit"></i></button></td>
-              </tr>
-            ))}
+            ${users.map(r=>`<tr>
+              <td>${r.prenom}</td><td><strong>${r.nom}</strong></td><td>${r.email}</td>
+              <td><span class="badge badge-envoyee">${ROLES[r.role]||r.role}</span></td>
+              <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Actif':'Inactif'}</span></td>
+              <td><button class="btn btn-secondary btn-sm" onclick='openUserModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
-    </div>
-    {modal&&<Modal title={editing?'Modifier utilisateur':'Nouvel utilisateur'} onClose={()=>setModal(false)} onSave={save}>
-      <div className="form-grid">
-        <div className="form-group"><label>Prénom *</label><input value={form.prenom} onChange={e=>setForm({...form,prenom:e.target.value})} placeholder="Prénom"/></div>
-        <div className="form-group"><label>Nom *</label><input value={form.nom} onChange={e=>setForm({...form,nom:e.target.value})} placeholder="Nom"/></div>
-        <div className="form-group"><label>Email *</label><input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="prenom.nom@lyneo.lu"/></div>
-        <div className="form-group"><label>Rôle</label>
-          <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
-            <option value="admin">Administrateur</option>
-            <option value="acheteur">Acheteur</option>
-            <option value="reception">Réception</option>
-            <option value="comptabilite">Comptabilité</option>
+    </div>`;
+}
+
+function openUserModal(r=null){
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${r?'Modifier utilisateur':'Nouvel utilisateur'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Prénom *</label><input id="u-prenom" value="${r?.prenom||''}" placeholder="Prénom"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="u-nom" value="${r?.nom||''}" placeholder="Nom"/></div>
+        <div class="form-group"><label class="field-label">Email *</label><input type="email" id="u-email" value="${r?.email||''}" placeholder="prenom.nom@lyneo.lu"/></div>
+        <div class="form-group"><label class="field-label">Rôle</label>
+          <select id="u-role">
+            <option value="admin" ${r?.role==='admin'?'selected':''}>Administrateur</option>
+            <option value="acheteur" ${r?.role==='acheteur'?'selected':''}>Acheteur</option>
+            <option value="reception" ${r?.role==='reception'?'selected':''}>Réception</option>
+            <option value="comptabilite" ${r?.role==='comptabilite'?'selected':''}>Comptabilité</option>
           </select>
         </div>
-        <div className="form-group"><label>Actif</label>
-          <select value={form.actif?'1':'0'} onChange={e=>setForm({...form,actif:e.target.value==='1'})}>
-            <option value="1">Oui</option><option value="0">Non</option>
+        <div class="form-group"><label class="field-label">Actif</label>
+          <select id="u-actif">
+            <option value="1" ${r?.actif!==false?'selected':''}>Oui</option>
+            <option value="0" ${r?.actif===false?'selected':''}>Non</option>
           </select>
         </div>
       </div>
-    </Modal>}
-  </>);
-}
-
-// ─── MODAL GÉNÉRIQUE ─────────────────────────────────────────
-function Modal({title,children,onClose,onSave,saveLabel='Enregistrer'}){
-  return(
-    <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')onClose();}}>
-      <div className="modal modal-lg">
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <button className="modal-close" onClick={onClose}><i className="ti ti-x" style={{fontSize:20}}></i></button>
-        </div>
-        <div className="modal-body">
-          {children}
-          <div className="form-actions">
-            <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
-            <button className="btn btn-primary" onClick={onSave}><i className="ti ti-check"></i> {saveLabel}</button>
-          </div>
-        </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveUser('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
-  );
+  </div></div>`);
 }
 
-ReactDOM.render(<App/>, document.getElementById('root'));
+async function saveUser(id){
+  const prenom=el('u-prenom').value.trim(), nom=el('u-nom').value.trim(), email=el('u-email').value.trim();
+  if(!prenom||!nom||!email){ showToast('Champs obligatoires manquants','error'); return; }
+  const data={prenom,nom,email,role:el('u-role').value,actif:el('u-actif').value==='1'};
+  if(id) await sb.from('utilisateurs').update(data).eq('id',id);
+  else await sb.from('utilisateurs').insert(data);
+  showToast(id?'Utilisateur mis à jour':'Utilisateur créé');
+  closeModal(); renderUtilisateurs();
+}
+
+// ── INIT ─────────────────────────────────────────────────────
+window.addEventListener('load', ()=>{
+  const stored = sessionStorage.getItem('lyneo_user');
+  if(stored){ currentUser = JSON.parse(stored); initApp(); }
+  el('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+});
 </script>
 </body>
 </html>
