@@ -406,7 +406,7 @@ async function renderChantiers(search=''){
           <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? `<tr><td colspan="8"><div class="empty"><i class="ti ti-building-factory-2"></i><p>Aucun chantier</p></div></td></tr>` :
-            items.map(r=>`<tr>
+            items.map(r=>`<tr style="cursor:pointer" onclick="openChantierDetail('${r.id}')">
               <td><strong class="text-blue">${r.numero}</strong></td>
               <td><strong>${r.nom}</strong></td>
               <td>${r.client}</td>
@@ -414,12 +414,182 @@ async function renderChantiers(search=''){
               <td>${fmtDate(r.date_debut)}</td>
               <td>${fmtDate(r.date_fin_prevue)}</td>
               <td>${bCH(r.statut)}</td>
-              <td><button class="btn btn-secondary btn-sm" onclick='openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
+              <td onclick="event.stopPropagation()"><div class="td-actions">
+                <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')"><i class="ti ti-eye"></i></button>
+                <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'").replace(/"/g,'&quot;')})'><i class="ti ti-edit"></i></button>
+              </div></td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>
     </div>`;
+}
+
+async function openChantierDetail(chantierId){
+  const chantier = _chantiers.find(c=>c.id===chantierId);
+  if(!chantier) return;
+  const {data:annexes} = await sb.from('anexos_chantier').select('*,utilisateurs(nom,prenom)').eq('chantier_id',chantierId).order('created_at',{ascending:false});
+  const {data:posChantier} = await sb.from('purchase_orders').select('numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false});
+  const docs = annexes||[];
+  const pos = posChantier||[];
+
+  const CATEGORIES = {plan:'📐 Plan',contrat:'📄 Contrat',photo:'📸 Photo',permis:'🏛️ Permis',devis:'📊 Devis',rapport:'📋 Rapport',autre:'📎 Autre'};
+
+  const iconeType = (tipo) => {
+    if(!tipo) return 'ti-file';
+    if(tipo.includes('pdf')) return 'ti-file-type-pdf';
+    if(tipo.includes('image')) return 'ti-photo';
+    if(tipo.includes('word')||tipo.includes('document')) return 'ti-file-type-doc';
+    if(tipo.includes('excel')||tipo.includes('sheet')) return 'ti-file-type-xls';
+    return 'ti-file';
+  };
+  const fmtSize = (b) => {
+    if(!b) return '';
+    if(b<1024) return b+'B';
+    if(b<1048576) return (b/1024).toFixed(1)+'KB';
+    return (b/1048576).toFixed(1)+'MB';
+  };
+
+  // Grouper les docs par catégorie
+  const cats = ['plan','contrat','photo','permis','devis','rapport','autre'];
+  const docsParCat = {};
+  cats.forEach(c=>{ docsParCat[c] = docs.filter(d=>d.categorie===c); });
+
+  const totalCmds = pos.reduce((a,p)=>a+(p.total_ttc||0),0);
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div>
+        <h3>${chantier.nom}</h3>
+        <span style="font-size:12px;color:var(--gray-5)">${chantier.numero} — ${chantier.client}</span>
+      </div>
+      <div class="flex gap-8 items-center">
+        <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${JSON.stringify(chantier).replace(/'/g,"\\'").replace(/"/g,"&quot;")})'><i class="ti ti-edit"></i> Modifier</button>
+        <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div class="modal-body">
+
+      <!-- INFOS CHANTIER -->
+      <div class="info-grid" style="margin-bottom:20px">
+        <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
+        <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
+        <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
+        <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
+        <div class="info-item"><label>Date fin prévue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
+        <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
+      </div>
+      ${chantier.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
+
+      <!-- COMMANDES LIÉES -->
+      ${pos.length>0?`
+      <div class="section-title"><i class="ti ti-shopping-cart"></i> Commandes (${pos.length})</div>
+      <div style="margin-bottom:20px">
+        ${pos.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:var(--gray-1)">
+          <strong class="text-blue">${p.numero}</strong>
+          <span class="text-muted">${p.fournisseurs?.nom||'—'}</span>
+          <span>${fmt(p.total_ttc)}</span>
+          ${bPO(p.statut)}
+        </div>`).join('')}
+      </div>`:''}
+
+      <!-- ZONE UPLOAD -->
+      <div class="section-title"><i class="ti ti-paperclip"></i> Documents du chantier</div>
+      <div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center;background:var(--gray-1)"
+        ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+        ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
+        ondrop="handleDropChantier(event,'${chantierId}')">
+        <i class="ti ti-cloud-upload" style="font-size:32px;color:var(--gray-4);display:block;margin-bottom:8px"></i>
+        <p style="color:var(--gray-5);margin-bottom:10px">Glissez vos documents ici ou</p>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <label class="btn btn-secondary" style="cursor:pointer">
+            <i class="ti ti-paperclip"></i> Choisir fichier(s)
+            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.dwg" style="display:none" onchange="uploadAnnexesChantier(this.files,'${chantierId}',document.getElementById('ch-upload-cat').value)"/>
+          </label>
+          <select id="ch-upload-cat" style="padding:7px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px">
+            ${cats.map(c=>`<option value="${c}">${CATEGORIES[c]}</option>`).join('')}
+          </select>
+        </div>
+        <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel, DWG — max 10MB</p>
+      </div>
+      <div id="ch-upload-progress" style="display:none;margin-bottom:12px">
+        <div style="background:var(--gray-2);border-radius:4px;height:6px;overflow:hidden">
+          <div id="ch-progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .3s"></div>
+        </div>
+        <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="ch-progress-text">Téléchargement...</p>
+      </div>
+
+      <!-- DOCUMENTS PAR CATÉGORIE -->
+      <div id="ch-annexes-list">
+        ${docs.length===0
+          ? `<div style="text-align:center;padding:24px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>`
+          : cats.filter(c=>docsParCat[c].length>0).map(c=>`
+            <div style="margin-bottom:16px">
+              <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--gray-3)">${CATEGORIES[c]} (${docsParCat[c].length})</div>
+              ${docsParCat[c].map(d=>`
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <i class="ti ${iconeType(d.tipo)}" style="font-size:22px;color:var(--blue)"></i>
+                    <div>
+                      <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
+                      <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} — ${fmtDate(d.created_at)}</div>
+                    </div>
+                  </div>
+                  <div class="flex gap-8">
+                    <a href="${d.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i></a>
+                    <a href="${d.url}" download="${d.nome_ficheiro}" class="btn btn-secondary btn-sm"><i class="ti ti-download"></i></a>
+                    <button class="btn btn-danger btn-sm" onclick="deleteAnnexeChantier('${d.id}','${chantierId}','${d.url}')"><i class="ti ti-trash"></i></button>
+                  </div>
+                </div>`).join('')}
+            </div>`).join('')}
+      </div>
+
+    </div>
+  </div></div>`);
+}
+
+async function handleDropChantier(event, chantierId){
+  event.preventDefault();
+  event.currentTarget.style.borderColor='var(--gray-3)';
+  event.currentTarget.style.background='var(--gray-1)';
+  const cat = el('ch-upload-cat')?.value||'autre';
+  await uploadAnnexesChantier(event.dataTransfer.files, chantierId, cat);
+}
+
+async function uploadAnnexesChantier(files, chantierId, categorie='autre'){
+  if(!files||files.length===0) return;
+  const progress = el('ch-upload-progress');
+  const bar = el('ch-progress-bar');
+  const txt = el('ch-progress-text');
+  if(progress) progress.style.display='block';
+
+  for(let i=0; i<files.length; i++){
+    const file = files[i];
+    if(file.size > 10*1024*1024){ showToast(`${file.name} dépasse 10MB — ignoré`,'error'); continue; }
+    if(bar) bar.style.width=Math.round((i/files.length)*100)+'%';
+    if(txt) txt.textContent=`Envoi ${i+1}/${files.length} : ${file.name}`;
+    const path = `chantiers/${chantierId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+    const {data:upData, error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(upErr){ showToast('Erreur: '+upErr.message,'error'); continue; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    await sb.from('anexos_chantier').insert({
+      chantier_id:chantierId, nome_ficheiro:file.name, url:urlData.publicUrl,
+      tamanho:file.size, tipo:file.type, categorie, carregado_por:currentUser.id
+    });
+  }
+  if(bar) bar.style.width='100%';
+  if(txt) txt.textContent='Terminé !';
+  showToast(files.length>1?`${files.length} documents ajoutés`:'Document ajouté');
+  setTimeout(()=>openChantierDetail(chantierId), 500);
+}
+
+async function deleteAnnexeChantier(id, chantierId, url){
+  if(!confirm('Supprimer ce document ?')) return;
+  const path = url.split('/Documents/')[1];
+  if(path) await sb.storage.from('Documents').remove([path]);
+  await sb.from('anexos_chantier').delete().eq('id',id);
+  showToast('Document supprimé');
+  openChantierDetail(chantierId);
 }
 
 function openChantierModal(r=null){
@@ -956,19 +1126,20 @@ async function renderFactures(){
     <div class="card">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${facs.length===0?`<tr><td colspan="9"><div class="empty"><i class="ti ti-file-invoice"></i><p>Aucune facture</p></div></td></tr>`:
+            ${facs.length===0?`<tr><td colspan="10"><div class="empty"><i class="ti ti-file-invoice"></i><p>Aucune facture</p></div></td></tr>`:
             facs.map(r=>{
               const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
               return `<tr>
-                <td><strong class="text-blue">${r.numero_facture_fournisseur}</strong></td>
+                <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${r.numero_facture_fournisseur}</strong></td>
                 <td>${r.purchase_orders?.numero||'—'}</td>
                 <td>${r.purchase_orders?.fournisseurs?.nom||'—'}</td>
                 <td>${r.purchase_orders?.chantiers?.nom||'—'}</td>
                 <td>${fmtDate(r.date_facture)}</td>
                 <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
                 <td><strong>${fmt(r.montant_ttc)}</strong></td>
+                <td><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button></td>
                 <td>${bFA(r.statut)}</td>
                 <td><div class="td-actions">
                   ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
@@ -981,6 +1152,148 @@ async function renderFactures(){
         </table>
       </div>
     </div>`;
+}
+
+// ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
+async function openFacDetail(facId){
+  const {data:fac} = await sb.from('factures').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom))').eq('id',facId).single();
+  const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
+  const docs = annexes||[];
+
+  const iconeType = (tipo) => {
+    if(!tipo) return 'ti-file';
+    if(tipo.includes('pdf')) return 'ti-file-type-pdf';
+    if(tipo.includes('image')) return 'ti-photo';
+    if(tipo.includes('word')||tipo.includes('document')) return 'ti-file-type-doc';
+    if(tipo.includes('excel')||tipo.includes('sheet')) return 'ti-file-type-xls';
+    return 'ti-file';
+  };
+
+  const fmtSize = (b) => {
+    if(!b) return '';
+    if(b<1024) return b+'B';
+    if(b<1048576) return (b/1024).toFixed(1)+'KB';
+    return (b/1048576).toFixed(1)+'MB';
+  };
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div>
+        <h3>${fac.numero_facture_fournisseur}</h3>
+        <span style="font-size:12px;color:var(--gray-5)">${fac.purchase_orders?.fournisseurs?.nom||''} — ${fac.purchase_orders?.chantiers?.nom||''}</span>
+      </div>
+      <div class="flex gap-8 items-center">
+        ${fac.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${fac.id}');closeModal()"><i class="ti ti-check"></i> Valider</button>`:''}
+        ${fac.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="closeModal();openPayModal('${fac.id}','${fac.po_id}',${fac.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
+        <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div class="modal-body">
+
+      <!-- INFOS FACTURE -->
+      <div class="info-grid" style="margin-bottom:20px">
+        <div class="info-item"><label>N° Commande</label><span>${fac.purchase_orders?.numero||'—'}</span></div>
+        <div class="info-item"><label>Date facture</label><span>${fmtDate(fac.date_facture)}</span></div>
+        <div class="info-item"><label>Échéance</label><span>${fmtDate(fac.date_echeance)}</span></div>
+        <div class="info-item"><label>Montant HT</label><span>${fmt(fac.montant_ht)}</span></div>
+        <div class="info-item"><label>TVA</label><span>${fmt(fac.montant_tva)}</span></div>
+        <div class="info-item"><label>Total TTC</label><span style="font-weight:700;color:var(--blue);font-size:16px">${fmt(fac.montant_ttc)}</span></div>
+      </div>
+      ${fac.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${fac.observations}</div>`:''}
+
+      <!-- ZONE ANNEXES -->
+      <div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center;background:var(--gray-1)" id="drop-zone"
+        ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+        ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
+        ondrop="handleDrop(event,'${facId}')">
+        <i class="ti ti-cloud-upload" style="font-size:32px;color:var(--gray-4);display:block;margin-bottom:8px"></i>
+        <p style="color:var(--gray-5);margin-bottom:12px">Glissez vos documents ici ou</p>
+        <label class="btn btn-secondary" style="cursor:pointer">
+          <i class="ti ti-paperclip"></i> Choisir un fichier
+          <input type="file" id="fac-file-input" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style="display:none" onchange="uploadAnnexes(this.files,'${facId}')"/>
+        </label>
+        <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel — max 10MB par fichier</p>
+      </div>
+
+      <!-- LISTE DOCUMENTS -->
+      <div id="annexes-list">
+        ${docs.length===0
+          ? `<div style="text-align:center;padding:20px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>`
+          : docs.map(d=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
+              <div style="display:flex;align-items:center;gap:12px">
+                <i class="ti ${iconeType(d.tipo)}" style="font-size:24px;color:var(--blue)"></i>
+                <div>
+                  <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
+                  <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — Ajouté par ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} le ${fmtDate(d.created_at)}</div>
+                </div>
+              </div>
+              <div class="flex gap-8">
+                <a href="${d.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i> Ouvrir</a>
+                <a href="${d.url}" download="${d.nome_ficheiro}" class="btn btn-secondary btn-sm"><i class="ti ti-download"></i></a>
+                <button class="btn btn-danger btn-sm" onclick="deleteAnnexe('${d.id}','${facId}','${d.url}')"><i class="ti ti-trash"></i></button>
+              </div>
+            </div>`).join('')}
+      </div>
+
+      <div id="upload-progress" style="display:none;margin-top:12px">
+        <div style="background:var(--gray-2);border-radius:4px;height:6px;overflow:hidden">
+          <div id="progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .3s"></div>
+        </div>
+        <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="progress-text">Téléchargement en cours...</p>
+      </div>
+
+    </div>
+  </div></div>`);
+}
+
+async function handleDrop(event, facId){
+  event.preventDefault();
+  const zone = el('drop-zone');
+  zone.style.borderColor='var(--gray-3)';
+  zone.style.background='var(--gray-1)';
+  const files = event.dataTransfer.files;
+  if(files.length>0) await uploadAnnexes(files, facId);
+}
+
+async function uploadAnnexes(files, facId){
+  if(!files||files.length===0) return;
+  const progress = el('upload-progress');
+  const bar = el('progress-bar');
+  const txt = el('progress-text');
+  if(progress) progress.style.display='block';
+
+  for(let i=0; i<files.length; i++){
+    const file = files[i];
+    if(file.size > 10*1024*1024){ showToast(`${file.name} dépasse 10MB — ignoré`,'error'); continue; }
+    const pct = Math.round((i/files.length)*100);
+    if(bar) bar.style.width=pct+'%';
+    if(txt) txt.textContent=`Envoi ${i+1}/${files.length} : ${file.name}`;
+
+    const ext = file.name.split('.').pop();
+    const path = `factures/${facId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+    const {data:upData, error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(upErr){ showToast('Erreur upload: '+upErr.message,'error'); continue; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    await sb.from('anexos').insert({
+      factura_id:facId, nome_ficheiro:file.name, url:urlData.publicUrl,
+      tamanho:file.size, tipo:file.type, carregado_por:currentUser.id
+    });
+  }
+
+  if(bar) bar.style.width='100%';
+  if(txt) txt.textContent='Terminé !';
+  showToast(files.length>1?`${files.length} documents ajoutés`:'Document ajouté');
+  setTimeout(()=>openFacDetail(facId), 500);
+}
+
+async function deleteAnnexe(id, facId, url){
+  if(!confirm('Supprimer ce document ?')) return;
+  const path = url.split('/Documents/')[1];
+  if(path) await sb.storage.from('Documents').remove([path]);
+  await sb.from('anexos').delete().eq('id',id);
+  showToast('Document supprimé');
+  openFacDetail(facId);
 }
 
 function openFacModal(){
@@ -1017,9 +1330,12 @@ async function saveFac(){
   const num = el('fac-num').value.trim();
   const date = el('fac-date').value;
   if(!po_id||!num||!date){ showToast('Champs obligatoires manquants','error'); return; }
-  await sb.from('factures').insert({po_id,numero_facture_fournisseur:num,date_facture:date,date_echeance:el('fac-echeance').value||null,montant_ht:parseFloat(el('fac-ht').value)||0,montant_tva:parseFloat(el('fac-tva').value)||0,montant_ttc:parseFloat(el('fac-ttc').value)||0,statut:'recue',saisie_par:currentUser.id,observations:el('fac-obs').value});
+  const {data:fac} = await sb.from('factures').insert({po_id,numero_facture_fournisseur:num,date_facture:date,date_echeance:el('fac-echeance').value||null,montant_ht:parseFloat(el('fac-ht').value)||0,montant_tva:parseFloat(el('fac-tva').value)||0,montant_ttc:parseFloat(el('fac-ttc').value)||0,statut:'recue',saisie_par:currentUser.id,observations:el('fac-obs').value}).select().single();
   await sb.from('purchase_orders').update({statut:'facturee'}).eq('id',po_id);
-  showToast('Facture enregistrée'); closeModal(); renderFactures();
+  showToast('Facture enregistrée — vous pouvez maintenant y joindre des documents');
+  closeModal();
+  if(fac) openFacDetail(fac.id);
+  else renderFactures();
 }
 
 async function validerFac(id){ await sb.from('factures').update({statut:'validee'}).eq('id',id); showToast('Facture validée'); renderFactures(); }
