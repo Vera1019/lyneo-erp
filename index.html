@@ -1914,27 +1914,197 @@ async function deleteAnnexe(id, facId, url){
   openFacDetail(facId);
 }
 
+// ── NOUVELLE FACTURE FOURNISSEUR ─────────────────────────────
+let _facLignesPO = []; // lignes de la PO sélectionnée
+
 function openFacModal(){
-  const opts = _posPourFac.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom}</option>`).join('');
-  showModal(`<div class="modal-overlay"><div class="modal">
-    <div class="modal-header"><h3>Saisir une facture fournisseur</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+  const opts = _posPourFac.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${p.chantiers_lyneo?.nom||''})</option>`).join('');
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>Saisir une facture fournisseur</h3><div class="modal-header-sub">Sélectionnez la commande puis vérifiez les lignes facturées</div></div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
     <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group"><label class="field-label">Commande associée *</label><select id="fac-po"><option value="">— Sélectionner —</option>${opts}</select></div>
-        <div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="fac-num" placeholder="FA-2026-XXXX"/></div>
-        <div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Date d'échéance</label><input type="date" id="fac-echeance"/></div>
-        <div class="form-group"><label class="field-label">Montant HT (€)</label><input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()"/></div>
-        <div class="form-group"><label class="field-label">Montant TVA (€)</label><input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/></div>
-        <div class="form-group"><label class="field-label">Montant TTC (€)</label><input type="number" step="0.01" id="fac-ttc" value="0" style="font-weight:700;color:var(--blue)"/></div>
-        <div class="form-group full"><label class="field-label">Observations</label><textarea id="fac-obs" placeholder="Notes, réserves..."></textarea></div>
+
+      <!-- ÉTAPE 1 : Infos de base -->
+      <div style="background:var(--blue-light);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--blue);font-weight:600;display:flex;align-items:center;gap:8px">
+        <i class="ti ti-info-circle" style="font-size:16px"></i>
+        Sélectionnez la commande pour voir automatiquement les lignes réceptionnées
       </div>
+
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group">
+          <label class="field-label">Commande associée *</label>
+          <select id="fac-po" onchange="loadLignesPourFac(this.value)">
+            <option value="">— Sélectionner une commande —</option>${opts}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="field-label">N° Facture fournisseur *</label>
+          <input id="fac-num" placeholder="Ex: FA-2026-001"/>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Date de facture *</label>
+          <input type="date" id="fac-date" value="${today()}"/>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Date d'échéance</label>
+          <input type="date" id="fac-echeance"/>
+        </div>
+        <div class="form-group full">
+          <label class="field-label">Observations / Réserves</label>
+          <textarea id="fac-obs" placeholder="Notes internes, réserves sur la facture..."></textarea>
+        </div>
+      </div>
+
+      <!-- ÉTAPE 2 : Lignes de la commande -->
+      <div id="fac-lignes-section" style="margin-bottom:16px"></div>
+
+      <!-- ÉTAPE 3 : Totaux -->
+      <div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Montants de la facture</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="field-label">Montant HT (€)</label>
+            <input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()" style="font-size:16px;font-weight:600"/>
+          </div>
+          <div class="form-group">
+            <label class="field-label">Montant TVA (€)</label>
+            <input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/>
+          </div>
+          <div class="form-group">
+            <label class="field-label">Montant TTC (€)</label>
+            <input type="number" step="0.01" id="fac-ttc" value="0" style="font-weight:800;color:var(--blue);font-size:18px"/>
+          </div>
+          <div class="form-group" style="align-self:end">
+            <button class="btn btn-secondary" onclick="autoCalcFromLignes()" style="width:100%">
+              <i class="ti ti-calculator"></i> Calculer depuis les lignes
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ÉTAPE 4 : Annexes — toujours ouvert comme Odoo -->
+      <div style="border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden">
+        <div style="background:var(--gray-1);padding:12px 16px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;gap:8px">
+          <i class="ti ti-paperclip" style="color:var(--gray-5);font-size:17px"></i>
+          <span style="font-size:13px;font-weight:600;color:var(--gray-7)">Documents joints</span>
+          <span style="font-size:11px;color:var(--gray-5);margin-left:4px">Glissez la facture PDF ici</span>
+        </div>
+        <div style="padding:16px">
+          <div id="fac-drop-zone"
+            style="border:2px dashed var(--gray-3);border-radius:var(--radius-sm);padding:24px;text-align:center;background:#fff;transition:all .2s;cursor:pointer"
+            ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+            ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='#fff'"
+            ondrop="handleDropFacNew(event)"
+            onclick="el('fac-file-input-new').click()">
+            <i class="ti ti-cloud-upload" style="font-size:28px;color:var(--gray-4);display:block;margin-bottom:6px"></i>
+            <p style="color:var(--gray-5);font-size:13px;margin-bottom:0">Glissez la facture PDF ici ou <span style="color:var(--blue);font-weight:600">cliquez pour choisir</span></p>
+            <input type="file" id="fac-file-input-new" multiple accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="previewFacFiles(this.files)"/>
+          </div>
+          <div id="fac-files-preview" style="margin-top:12px"></div>
+        </div>
+      </div>
+
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveFac()"><i class="ti ti-check"></i> Enregistrer</button>
+        <button class="btn btn-primary btn-lg" onclick="saveFac()"><i class="ti ti-check"></i> Enregistrer la facture</button>
       </div>
     </div>
   </div></div>`);
+  _facLignesPO = [];
+  _facFilesNew = [];
+}
+
+let _facFilesNew = [];
+
+function previewFacFiles(files){
+  _facFilesNew = Array.from(files);
+  const preview = el('fac-files-preview');
+  if(!preview) return;
+  preview.innerHTML = _facFilesNew.map((f,i)=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);margin-bottom:6px">
+      <i class="ti ti-file-type-pdf" style="font-size:20px;color:var(--red)"></i>
+      <span style="font-size:13px;flex:1">${f.name}</span>
+      <span style="font-size:11px;color:var(--gray-5)">${(f.size/1024).toFixed(0)} KB</span>
+      <button onclick="removeFacFile(${i})" style="background:none;border:none;cursor:pointer;color:var(--gray-4)"><i class="ti ti-x"></i></button>
+    </div>`).join('');
+}
+
+function removeFacFile(i){
+  _facFilesNew.splice(i,1);
+  previewFacFiles(_facFilesNew);
+}
+
+function handleDropFacNew(event){
+  event.preventDefault();
+  const zone = el('fac-drop-zone');
+  zone.style.borderColor='var(--gray-3)';
+  zone.style.background='#fff';
+  _facFilesNew = Array.from(event.dataTransfer.files);
+  previewFacFiles(_facFilesNew);
+}
+
+async function loadLignesPourFac(poId){
+  const section = el('fac-lignes-section');
+  if(!poId){ section.innerHTML=''; _facLignesPO=[]; return; }
+  const {data:lignes} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+  _facLignesPO = lignes||[];
+  if(_facLignesPO.length===0){ section.innerHTML=''; return; }
+  const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_ht)||0),0);
+  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_tva)||0),0);
+  section.innerHTML = `
+    <div style="border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden;margin-bottom:8px">
+      <div style="background:var(--gray-1);padding:10px 16px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em"><i class="ti ti-list-check"></i> Lignes de la commande</span>
+        <span style="font-size:12px;color:var(--gray-5)">${_facLignesPO.length} article(s)</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;min-width:500px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>
+            <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Qté</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Unité</th>
+            <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">P.U. HT</th>
+            <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">TVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Total HT</th>
+          </tr></thead>
+          <tbody>
+            ${_facLignesPO.map((l,i)=>`<tr style="${i%2===0?'':'background:var(--gray-1)'}">
+              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px">
+                <div style="font-weight:500">${l.description}</div>
+                ${l.reference_article?`<div style="font-size:11px;color:var(--gray-5)">${l.reference_article}</div>`:''}
+              </td>
+              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">${l.quantite}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px">${l.unite}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">${fmt(l.prix_unitaire_ht)}</td>
+              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:13px">${l.taux_tva}%</td>
+              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">${fmt(l.total_ht)}</td>
+            </tr>`).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="background:var(--navy);color:#fff">
+              <td colspan="5" style="padding:10px 12px;font-weight:700;font-size:13px">TOTAL</td>
+              <td style="padding:10px 12px;text-align:right;font-weight:800;font-size:15px">${fmt(totalHT)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>`;
+  // Auto-fill totaux
+  el('fac-ht').value = totalHT.toFixed(2);
+  el('fac-tva').value = totalTVA.toFixed(2);
+  el('fac-ttc').value = (totalHT+totalTVA).toFixed(2);
+}
+
+function autoCalcFromLignes(){
+  if(_facLignesPO.length===0){ showToast('Sélectionnez d'abord une commande','error'); return; }
+  const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_ht)||0),0);
+  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_tva)||0),0);
+  el('fac-ht').value = totalHT.toFixed(2);
+  el('fac-tva').value = totalTVA.toFixed(2);
+  el('fac-ttc').value = (totalHT+totalTVA).toFixed(2);
+  showToast('Montants calculés depuis les lignes');
 }
 
 function calcFacTTC(){
@@ -1947,10 +2117,32 @@ async function saveFac(){
   const po_id = el('fac-po').value;
   const num = el('fac-num').value.trim();
   const date = el('fac-date').value;
-  if(!po_id||!num||!date){ showToast('Champs obligatoires manquants','error'); return; }
-  const {data:fac} = await sb.from('factures').insert({po_id,numero_facture_fournisseur:num,date_facture:date,date_echeance:el('fac-echeance').value||null,montant_ht:parseFloat(el('fac-ht').value)||0,montant_tva:parseFloat(el('fac-tva').value)||0,montant_ttc:parseFloat(el('fac-ttc').value)||0,statut:'recue',saisie_par:currentUser.id,observations:el('fac-obs').value}).select().single();
+  if(!po_id||!num||!date){ showToast('Commande, N° facture et date obligatoires','error'); return; }
+  const {data:fac,error} = await sb.from('factures').insert({
+    po_id, numero_facture_fournisseur:num, date_facture:date,
+    date_echeance:el('fac-echeance').value||null,
+    montant_ht:parseFloat(el('fac-ht').value)||0,
+    montant_tva:parseFloat(el('fac-tva').value)||0,
+    montant_ttc:parseFloat(el('fac-ttc').value)||0,
+    statut:'recue', saisie_par:currentUser.id,
+    observations:el('fac-obs').value
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
   await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',po_id);
-  showToast('Facture enregistrée — vous pouvez maintenant y joindre des documents');
+  // Upload des fichiers joints
+  if(_facFilesNew.length>0 && fac){
+    for(const file of _facFilesNew){
+      const path = `factures/${fac.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+      if(!upErr){
+        const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+        await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
+      }
+    }
+    showToast('Facture et '+_facFilesNew.length+' document(s) enregistrés');
+  } else {
+    showToast('Facture enregistrée');
+  }
   closeModal();
   if(fac) openFacDetail(fac.id);
   else renderFactures();
