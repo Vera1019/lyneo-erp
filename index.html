@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css"/>
@@ -351,6 +351,95 @@ body{overflow-x:hidden}
   .btn{padding:6px 10px;font-size:12px}
   .page{padding:12px}
 }
+
+/* ── GLOBAL OVERFLOW FIX ──────────────────────────────────── */
+html,body{max-width:100vw;overflow-x:hidden}
+.app-layout{max-width:100vw;overflow-x:hidden}
+.main{max-width:100%;overflow-x:hidden}
+.page{max-width:100%;overflow-x:hidden}
+.card{max-width:100%;overflow:hidden}
+
+/* Force all table wrappers to scroll */
+.table-wrap{
+  overflow-x:auto!important;
+  -webkit-overflow-scrolling:touch;
+  max-width:100%;
+  display:block;
+}
+
+/* Minimum column widths for tables - prevent text wrapping breaking layout */
+@media(max-width:900px){
+  /* Hide less important columns on smaller screens */
+  .col-hide-sm{display:none}
+  th,td{padding:8px 10px;font-size:12px;white-space:nowrap}
+}
+
+@media(max-width:768px){
+  /* Page layout */
+  .main{margin-left:0!important;width:100%!important}
+  .page{padding:12px!important;overflow-x:hidden!important}
+  .topbar{padding:0 12px!important}
+
+  /* Force table scroll */
+  .table-wrap{
+    overflow-x:scroll!important;
+    -webkit-overflow-scrolling:touch;
+    width:100%;
+    max-width:calc(100vw - 24px);
+  }
+  table{min-width:600px}
+
+  /* Page header stack */
+  .page-header{
+    flex-direction:column!important;
+    align-items:flex-start!important;
+    gap:10px!important;
+  }
+  .page-header-left h1{font-size:18px}
+  .page-actions{width:100%;overflow-x:auto}
+
+  /* Modal full width */
+  .modal-overlay{padding:0!important;align-items:flex-end!important}
+  .modal,.modal-lg{
+    max-width:100%!important;
+    width:100%!important;
+    max-height:95vh!important;
+    border-radius:16px 16px 0 0!important;
+  }
+  .modal-header{padding:14px 16px!important}
+  .modal-body{padding:14px 16px!important}
+
+  /* Forms */
+  .form-grid{grid-template-columns:1fr!important}
+  .form-group.full{grid-column:1!important}
+  .info-grid{grid-template-columns:1fr 1fr!important}
+
+  /* Lignes table in PO */
+  .lignes-table th,.lignes-table td{font-size:11px;padding:5px 6px}
+
+  /* Totaux */
+  .totaux-box{min-width:unset;width:100%}
+  .totaux{justify-content:stretch}
+
+  /* Buttons in modals */
+  .form-actions{flex-wrap:wrap}
+  .form-actions .btn{flex:1;justify-content:center}
+
+  /* Tabs */
+  .tabs-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tab-btn{white-space:nowrap;font-size:12px;padding:8px 12px}
+
+  /* Cards in chantier detail */
+  .info-grid{grid-template-columns:1fr!important}
+
+  /* TD actions */
+  .td-actions{flex-wrap:nowrap;gap:4px}
+  .td-actions .btn{padding:4px 6px}
+
+  /* Search */
+  .search-wrap input{min-width:unset!important;width:100%}
+  .search-wrap{width:100%}
+}
 </style>
 </head>
 <body>
@@ -628,7 +717,7 @@ async function renderDashboard(){
     </div>`:''}
 
     <!-- KPIs par domaine -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px">
 
       <!-- VENTES -->
       <div class="kpi-card kpi-green" onclick="navigate('factures_vente')" style="cursor:pointer">
@@ -854,7 +943,7 @@ async function openChantierDetail(chantierId, tab){
 
   // ── ONGLET INFO ──
   const tabInfo = `
-    <div class="info-grid" style="margin-bottom:16px">
+    <div class="info-grid" style="margin-bottom:16px;max-width:100%">
       <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
       <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
@@ -1320,7 +1409,7 @@ function openNewPO(){
         <strong style="font-size:13px">Lignes de commande</strong>
         <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%"><table class="lignes-table" id="lignes-table">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%"><table class="lignes-table" style="min-width:580px" id="lignes-table">
         <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">Référence</th><th style="width:70px">Qté</th><th style="width:75px">Unité</th><th style="width:100px">P.U. HT €</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
         <tbody id="lignes-body"></tbody>
       </table></div>
