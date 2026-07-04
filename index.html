@@ -544,8 +544,8 @@ html,body{max-width:100vw;overflow-x:hidden}
 
 <script>
 // ── CONFIG SUPABASE ──────────────────────────────────────────
-const SUPA_URL = 'https://ognucvqfatdhkyvrdhha.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nbnVjdnFmYXRkaGt5dnJkaGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjUxOTIsImV4cCI6MjA5ODI0MTE5Mn0.eeAUCXqTafM0Sfjocz7TTup9RdT12CJ_bSKZaiOlfGg';
+const SUPA_URL = 'https://uhqbdbxfpiinihfilcpe.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVocWJkYnhmcGlpbmloZmlsY3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzU4ODQsImV4cCI6MjA5ODExMTg4NH0.b7seaNoLiQH9N0JyUGJJTq4Uu87VDr3aC1q4PAjUNuE';
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 // Supabase Pointages (base séparée)
@@ -655,10 +655,10 @@ async function renderDashboard(){
   el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><div class="empty-icon" style="margin:0 auto 16px"><i class="ti ti-loader" style="font-size:36px;color:var(--gray-4)"></i></div><p>Chargement...</p></div>';
 
   const [posR, blsR, facsR, chantsR, facsVenteR, pointagesR] = await Promise.allSettled([
-    sb.from('purchase_orders').select('id,statut,total_ht,total_ttc,date_creation'),
+    sb.from('purchase_orders_lyneo').select('id,statut,total_ht,total_ttc,date_creation'),
     sb.from('bons_livraison').select('id,statut_reception'),
     sb.from('factures').select('id,statut,montant_ttc,date_echeance'),
-    sb.from('chantiers').select('id,nom,client,statut,chef_chantier,date_fin_prevue'),
+    sb.from('chantiers_lyneo').select('id,nom,client,statut,chef_chantier,date_fin_prevue'),
     sb.from('factures_vente').select('id,statut,total_ttc,date_echeance'),
     sbPT.from('picages').select('id,date,heures').gte('date', new Date(Date.now()-7*86400000).toISOString().split('T')[0]),
   ]).then(results => results.map(r => r.status==='fulfilled' ? r.value : {data:[]}));
@@ -853,7 +853,7 @@ async function renderDashboard(){
 
 async function renderChantiers(search=''){
   if(!search) {
-    const {data} = await sb.from('chantiers').select('*').order('created_at',{ascending:false});
+    const {data} = await sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false});
     _chantiers = data||[];
   }
   const items = search ? _chantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : _chantiers;
@@ -898,7 +898,7 @@ async function openChantierDetail(chantierId, tab){
   if(!chantier) return;
   const [annexesR, posR] = await Promise.all([
     sb.from('anexos_chantier').select('*,utilisateurs(nom,prenom)').eq('chantier_id',chantierId).order('created_at',{ascending:false}),
-    sb.from('purchase_orders').select('numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
+    sb.from('purchase_orders_lyneo').select('numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
   ]);
   const docs = annexesR.data||[];
   const pos = posR.data||[];
@@ -1045,7 +1045,7 @@ async function openChantierDetail(chantierId, tab){
 
 async function saveCodePointages(chantierId){
   const code = el('ch-code-pt').value.trim();
-  await sb.from('chantiers').update({code_pointages:code}).eq('id',chantierId);
+  await sb.from('chantiers_lyneo').update({code_pointages:code}).eq('id',chantierId);
   // Mettre à jour localement
   const ch = _chantiers.find(c=>c.id===chantierId);
   if(ch) ch.code_pointages = code;
@@ -1243,11 +1243,11 @@ async function saveChantier(id){
   if(!nom||!client){ showToast('Nom et client obligatoires','error'); return; }
   const cpModal = el('ch-code-pt-modal'); const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
-    await sb.from('chantiers').update(data).eq('id',id);
+    await sb.from('chantiers_lyneo').update(data).eq('id',id);
     showToast('Chantier mis à jour');
   } else {
     const {data:num} = await sb.rpc('generate_chantier_number');
-    await sb.from('chantiers').insert({...data,numero:num});
+    await sb.from('chantiers_lyneo').insert({...data,numero:num});
     showToast('Chantier créé — '+num);
   }
   closeModal(); renderChantiers();
@@ -1341,8 +1341,8 @@ let poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_u
 
 async function renderPOS(search='', filterStatut=''){
   const [posR, chantsR, foursR] = await Promise.all([
-    sb.from('purchase_orders').select('*,chantiers(nom,client),fournisseurs(nom,email)').order('created_at',{ascending:false}),
-    sb.from('chantiers').select('*').eq('statut','actif'),
+    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo(nom,client),fournisseurs(nom,email)').order('created_at',{ascending:false}),
+    sb.from('chantiers_lyneo').select('*').eq('statut','actif'),
     sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
   ]);
   _pos = posR.data||[]; _chantiersActive = chantsR.data||[]; _foursActive = foursR.data||[];
@@ -1454,7 +1454,7 @@ async function savePO(){
   if(!chantier_id||!fournisseur_id){ showToast('Chantier et fournisseur obligatoires','error'); return; }
   if(poLignes.some(l=>!l.description)){ showToast('Toutes les lignes doivent avoir une description','error'); return; }
   const {data:num} = await sb.rpc('generate_po_number');
-  const {data:po,error} = await sb.from('purchase_orders').insert({
+  const {data:po,error} = await sb.from('purchase_orders_lyneo').insert({
     numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
     date_livraison_souhaitee:el('po-livraison').value||null,
     observations:el('po-obs').value
@@ -1552,7 +1552,7 @@ async function openPODetail(poId){
 }
 
 async function markSent(poId){
-  await sb.from('purchase_orders').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',poId);
+  await sb.from('purchase_orders_lyneo').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',poId);
   showToast('Commande marquée comme envoyée — téléchargez le PDF pour l\'envoyer au fournisseur');
   closeModal(); renderPOS();
 }
@@ -1622,8 +1622,8 @@ function downloadPDF_PO(poId){
 let _posAttente = [], _lignesRec = [];
 async function renderReceptions(){
   const [posR, blsR] = await Promise.all([
-    sb.from('purchase_orders').select('*,chantiers(nom),fournisseurs(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
-    sb.from('bons_livraison').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
+    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo(nom),fournisseurs(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
+    sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs(nom),chantiers_lyneo(nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
   ]);
   _posAttente = posR.data||[];
   const bls = blsR.data||[];
@@ -1722,7 +1722,7 @@ async function saveBL(){
   }));
   if(lignesInsert.length>0) await sb.from('lignes_bl').insert(lignesInsert);
   const newStatut = el('bl-statut').value==='complet'?'rec_totale':'rec_partielle';
-  await sb.from('purchase_orders').update({statut:newStatut}).eq('id',poId);
+  await sb.from('purchase_orders_lyneo').update({statut:newStatut}).eq('id',poId);
   showToast('Bon de livraison enregistré');
   closeModal(); renderReceptions();
 }
@@ -1731,8 +1731,8 @@ async function saveBL(){
 let _posPourFac = [];
 async function renderFactures(){
   const [facsR, posR] = await Promise.all([
-    sb.from('factures').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
-    sb.from('purchase_orders').select('*,fournisseurs(nom),chantiers(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
+    sb.from('factures').select('*,purchase_orders_lyneo(numero,fournisseurs(nom),chantiers_lyneo(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
+    sb.from('purchase_orders_lyneo').select('*,fournisseurs(nom),chantiers_lyneo(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
   ]);
   const facs = facsR.data||[];
   _posPourFac = posR.data||[];
@@ -1774,7 +1774,7 @@ async function renderFactures(){
 
 // ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
 async function openFacDetail(facId){
-  const {data:fac} = await sb.from('factures').select('*,purchase_orders(numero,fournisseurs(nom),chantiers(nom))').eq('id',facId).single();
+  const {data:fac} = await sb.from('factures').select('*,purchase_orders_lyneo(numero,fournisseurs(nom),chantiers_lyneo(nom))').eq('id',facId).single();
   const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
   const docs = annexes||[];
 
@@ -1949,7 +1949,7 @@ async function saveFac(){
   const date = el('fac-date').value;
   if(!po_id||!num||!date){ showToast('Champs obligatoires manquants','error'); return; }
   const {data:fac} = await sb.from('factures').insert({po_id,numero_facture_fournisseur:num,date_facture:date,date_echeance:el('fac-echeance').value||null,montant_ht:parseFloat(el('fac-ht').value)||0,montant_tva:parseFloat(el('fac-tva').value)||0,montant_ttc:parseFloat(el('fac-ttc').value)||0,statut:'recue',saisie_par:currentUser.id,observations:el('fac-obs').value}).select().single();
-  await sb.from('purchase_orders').update({statut:'facturee'}).eq('id',po_id);
+  await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',po_id);
   showToast('Facture enregistrée — vous pouvez maintenant y joindre des documents');
   closeModal();
   if(fac) openFacDetail(fac.id);
@@ -1986,7 +1986,7 @@ function openPayModal(facId, poId, montant){
 async function savePay(facId, poId){
   await sb.from('paiements').insert({facture_id:facId,date_paiement:el('pay-date').value,montant:parseFloat(el('pay-montant').value),mode_paiement:el('pay-mode').value,reference_virement:el('pay-ref').value,effectue_par:currentUser.id});
   await sb.from('factures').update({statut:'payee'}).eq('id',facId);
-  await sb.from('purchase_orders').update({statut:'payee'}).eq('id',poId);
+  await sb.from('purchase_orders_lyneo').update({statut:'payee'}).eq('id',poId);
   showToast('Paiement enregistré'); closeModal(); renderFactures();
 }
 
