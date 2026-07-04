@@ -424,6 +424,8 @@ const STATUT_CH = {actif:'Actif', pause:'En pause', termine:'Terminé'};
 const STATUT_FA = {recue:'Reçue', validee:'Validée', payee:'Payée', litige:'Litige'};
 
 function bPO(s){ return `<span class="badge badge-${s}">${STATUT_PO[s]||s}</span>`; }
+const STATUT_FV = {brouillon:'Brouillon',envoyee:'Envoyée',payee_partiel:'Part. payée',payee:'Payée',annulee:'Annulée'};
+function bFV(s){ return `<span class="badge badge-${s}">${STATUT_FV[s]||s}</span>`; }
 function bCH(s){ return `<span class="badge badge-${s}">${STATUT_CH[s]||s}</span>`; }
 function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
 
@@ -498,88 +500,184 @@ function navigate(page){
 // ── DASHBOARD ────────────────────────────────────────────────
 async function renderDashboard(){
   el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><div class="empty-icon" style="margin:0 auto 16px"><i class="ti ti-loader" style="font-size:36px;color:var(--gray-4)"></i></div><p>Chargement...</p></div>';
-  const [pos, bls, facs, chants, recentPos] = await Promise.all([
-    sb.from('purchase_orders').select('id,statut,total_ttc'),
+
+  const [posR, blsR, facsR, chantsR, facsVenteR, pointagesR] = await Promise.all([
+    sb.from('purchase_orders').select('id,statut,total_ht,total_ttc,date_creation'),
     sb.from('bons_livraison').select('id,statut_reception'),
-    sb.from('factures').select('id,statut,montant_ttc'),
-    sb.from('chantiers').select('id,statut'),
-    sb.from('purchase_orders').select('id,numero,statut,total_ttc,date_creation,chantiers(nom),fournisseurs(nom)').order('created_at',{ascending:false}).limit(8)
+    sb.from('factures').select('id,statut,montant_ttc,date_echeance'),
+    sb.from('chantiers').select('id,nom,client,statut,chef_chantier,date_fin_prevue'),
+    sb.from('factures_vente').select('id,statut,total_ttc,date_echeance').catch(()=>({data:[]})),
+    sbPT.from('picages').select('id,date,heures').gte('date', new Date(Date.now()-7*86400000).toISOString().split('T')[0]).catch(()=>({data:[]})),
   ]);
-  const posD = pos.data||[], facsD = facs.data||[];
-  const posEnCours = posD.filter(p=>!['payee','annulee'].includes(p.statut)).length;
-  const blsAttente = (bls.data||[]).filter(b=>b.statut_reception==='partiel').length;
-  const facsPayer = facsD.filter(f=>['recue','validee'].includes(f.statut)).length;
-  const chantiersActifs = (chants.data||[]).filter(c=>c.statut==='actif').length;
-  const montantEnCours = posD.filter(p=>['envoyee','rec_partielle','rec_totale'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
-  const montantFacs = facsD.filter(f=>f.statut==='validee').reduce((a,b)=>a+(b.montant_ttc||0),0);
-  const recs = recentPos.data||[];
+
+  const pos = posR.data||[], bls = blsR.data||[], facs = facsR.data||[];
+  const chants = chantsR.data||[], facsV = facsVenteR.data||[], pics = pointagesR.data||[];
+  const today_str = new Date().toISOString().split('T')[0];
+
+  // ── VENTES
+  const caTotal = facsV.filter(f=>f.statut==='payee').reduce((a,b)=>a+(b.total_ttc||0),0);
+  const facturesAEncaisser = facsV.filter(f=>['envoyee','payee_partiel'].includes(f.statut));
+  const facturesEnRetard = facturesAEncaisser.filter(f=>f.date_echeance && f.date_echeance < today_str);
+
+  // ── ACHATS
+  const posEnCours = pos.filter(p=>!['payee','annulee'].includes(p.statut)).length;
+  const blsAttente = bls.filter(b=>b.statut_reception==='partiel').length;
+  const facsFourn = facs.filter(f=>['recue','validee'].includes(f.statut));
+  const facsFournRetard = facsFourn.filter(f=>f.date_echeance && f.date_echeance < today_str);
+  const montantAchats = pos.filter(p=>['envoyee','rec_partielle','rec_totale'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
+
+  // ── CHANTIERS
+  const chantiersActifs = chants.filter(c=>c.statut==='actif');
+  const chantiersRetard = chantiersActifs.filter(c=>c.date_fin_prevue && c.date_fin_prevue < today_str);
+
+  // ── EMPLOYÉS / POINTAGES
+  const heuresSemaine = pics.reduce((a,b)=>a+(parseFloat(b.heures)||0),0);
+  const joursUniques = new Set(pics.map(p=>p.date)).size;
+
   const hour = new Date().getHours();
   const greeting = hour<12?'Bonjour':hour<18?'Bon après-midi':'Bonsoir';
+
+  // ── ALERTES
+  const alertes = [];
+  if(facturesEnRetard.length>0) alertes.push({type:'red',icon:'ti-alert-circle',msg:`${facturesEnRetard.length} facture(s) client en retard de paiement`,page:'factures_vente'});
+  if(facsFournRetard.length>0) alertes.push({type:'orange',icon:'ti-alert-triangle',msg:`${facsFournRetard.length} facture(s) fournisseur échue(s)`,page:'factures'});
+  if(blsAttente>0) alertes.push({type:'blue',icon:'ti-truck-delivery',msg:`${blsAttente} bon(s) de livraison en attente de réception complète`,page:'receptions'});
+  if(chantiersRetard.length>0) alertes.push({type:'purple',icon:'ti-clock-exclamation',msg:`${chantiersRetard.length} chantier(s) dépassent leur date de fin prévue`,page:'chantiers'});
 
   el('page-content').innerHTML = `
     <div class="dashboard-welcome">
       <h1>${greeting}, ${currentUser.prenom} 👋</h1>
-      <p>Voici un aperçu de l'activité Lyneo aujourd'hui</p>
+      <p>${new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
     </div>
 
-    <div class="kpi-grid">
-      <div class="kpi-card kpi-blue" onclick="navigate('pos')">
+    ${alertes.length>0?`
+    <div style="margin-bottom:24px;display:flex;flex-direction:column;gap:8px">
+      ${alertes.map(a=>`
+        <div class="alert alert-${a.type==='red'?'error':a.type==='orange'?'warning':a.type==='blue'?'info':'info'}"
+          style="cursor:pointer" onclick="navigate('${a.page}')">
+          <i class="ti ${a.icon}"></i>
+          <span>${a.msg}</span>
+          <i class="ti ti-chevron-right" style="margin-left:auto;font-size:14px"></i>
+        </div>`).join('')}
+    </div>`:''}
+
+    <!-- KPIs par domaine -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+
+      <!-- VENTES -->
+      <div class="kpi-card kpi-green" onclick="navigate('factures_vente')" style="cursor:pointer">
+        <div class="kpi-top">
+          <div class="kpi-icon"><i class="ti ti-receipt"></i></div>
+          <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Ventes</span>
+        </div>
+        <div class="kpi-value" style="font-size:22px">${fmt(caTotal)}</div>
+        <div class="kpi-label">CA encaissé</div>
+        <div class="kpi-sub">${facturesAEncaisser.length} facture(s) à encaisser</div>
+      </div>
+
+      <!-- ACHATS -->
+      <div class="kpi-card kpi-blue" onclick="navigate('pos')" style="cursor:pointer">
         <div class="kpi-top">
           <div class="kpi-icon"><i class="ti ti-shopping-cart"></i></div>
-          <span class="kpi-trend" style="background:var(--blue-light);color:var(--blue)">Actif</span>
+          <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Achats</span>
         </div>
-        <div class="kpi-value">${posEnCours}</div>
+        <div class="kpi-value" style="font-size:22px">${fmt(montantAchats)}</div>
         <div class="kpi-label">Commandes en cours</div>
-        <div class="kpi-sub">${fmt(montantEnCours)} engagés</div>
+        <div class="kpi-sub">${posEnCours} commande(s) · ${blsAttente} BL en attente</div>
       </div>
-      <div class="kpi-card kpi-orange" onclick="navigate('receptions')">
-        <div class="kpi-top">
-          <div class="kpi-icon"><i class="ti ti-truck-delivery"></i></div>
-          ${blsAttente>0?`<span class="kpi-trend" style="background:var(--orange-light);color:var(--orange)">⚠ Attention</span>`:''}
-        </div>
-        <div class="kpi-value">${blsAttente}</div>
-        <div class="kpi-label">BL en attente</div>
-        <div class="kpi-sub">Réceptions partielles</div>
-      </div>
-      <div class="kpi-card kpi-red" onclick="navigate('factures')">
-        <div class="kpi-top">
-          <div class="kpi-icon"><i class="ti ti-file-invoice"></i></div>
-          ${facsPayer>0?`<span class="kpi-trend" style="background:var(--red-light);color:var(--red)">À payer</span>`:''}
-        </div>
-        <div class="kpi-value">${facsPayer}</div>
-        <div class="kpi-label">Factures à régler</div>
-        <div class="kpi-sub">${fmt(montantFacs)}</div>
-      </div>
-      <div class="kpi-card kpi-green" onclick="navigate('chantiers')">
+
+      <!-- CHANTIERS -->
+      <div class="kpi-card kpi-purple" onclick="navigate('chantiers')" style="cursor:pointer">
         <div class="kpi-top">
           <div class="kpi-icon"><i class="ti ti-building-factory-2"></i></div>
-          <span class="kpi-trend" style="background:var(--green-light);color:var(--green)">En cours</span>
+          <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Chantiers</span>
         </div>
-        <div class="kpi-value">${chantiersActifs}</div>
+        <div class="kpi-value" style="font-size:22px">${chantiersActifs.length}</div>
         <div class="kpi-label">Chantiers actifs</div>
-        <div class="kpi-sub">Projets en cours</div>
+        <div class="kpi-sub">${chantiersRetard.length>0?`<span style="color:var(--red)">${chantiersRetard.length} en retard</span>`:'Tous dans les délais'}</div>
+      </div>
+
+      <!-- EMPLOYÉS -->
+      <div class="kpi-card kpi-orange" style="cursor:pointer">
+        <div class="kpi-top">
+          <div class="kpi-icon"><i class="ti ti-users"></i></div>
+          <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Employés</span>
+        </div>
+        <div class="kpi-value" style="font-size:22px">${heuresSemaine.toFixed(0)}h</div>
+        <div class="kpi-label">Heures cette semaine</div>
+        <div class="kpi-sub">${joursUniques} jour(s) travaillés</div>
       </div>
     </div>
 
+    <!-- LIGNE 2 : Chantiers actifs + Factures à encaisser -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+
+      <!-- CHANTIERS ACTIFS -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-header">
+          <h2><i class="ti ti-building-factory-2"></i> Chantiers actifs</h2>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('chantiers')"><i class="ti ti-arrow-right"></i></button>
+        </div>
+        <div style="padding:0">
+          ${chantiersActifs.length===0
+            ? `<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier actif</p></div>`
+            : chantiersActifs.slice(0,5).map(c=>{
+                const enRetard = c.date_fin_prevue && c.date_fin_prevue < today_str;
+                return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2);cursor:pointer" onclick="navigate('chantiers')">
+                  <div>
+                    <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${c.nom}</div>
+                    <div style="font-size:12px;color:var(--gray-5)">${c.client} ${c.chef_chantier?'· '+c.chef_chantier:''}</div>
+                  </div>
+                  <div style="text-align:right">
+                    ${enRetard
+                      ? `<span class="badge badge-annulee">En retard</span>`
+                      : c.date_fin_prevue
+                        ? `<span style="font-size:11px;color:var(--gray-5)">Fin: ${fmtDate(c.date_fin_prevue)}</span>`
+                        : `<span class="badge badge-actif">Actif</span>`}
+                  </div>
+                </div>`;
+              }).join('')}
+        </div>
+      </div>
+
+      <!-- FACTURES À ENCAISSER -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-header">
+          <h2><i class="ti ti-receipt"></i> Factures à encaisser</h2>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('factures_vente')"><i class="ti ti-arrow-right"></i></button>
+        </div>
+        <div style="padding:0">
+          ${facturesAEncaisser.length===0
+            ? `<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture en attente</p></div>`
+            : facturesAEncaisser.slice(0,5).map(f=>{
+                const enRetard = f.date_echeance && f.date_echeance < today_str;
+                return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2)">
+                  <div>
+                    <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${fmt(f.total_ttc)}</div>
+                    <div style="font-size:12px;color:${enRetard?'var(--red)':'var(--gray-5)'}">${enRetard?'⚠ En retard':'Échéance: '}${fmtDate(f.date_echeance)}</div>
+                  </div>
+                  ${bFV(f.statut)}
+                </div>`;
+              }).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- LIGNE 3 : Modules rapides -->
     <div class="modules-grid">
+      <div class="module-card" onclick="navigate('devis')" style="border-left:3px solid var(--green)">
+        <div class="module-card-icon" style="background:var(--green-light)"><i class="ti ti-file-description" style="color:var(--green)"></i></div>
+        <div class="module-card-text"><h3>Devis</h3><p>Créer et suivre les offres</p></div>
+        <i class="ti ti-chevron-right module-card-arrow"></i>
+      </div>
       <div class="module-card" onclick="navigate('pos')" style="border-left:3px solid var(--blue)">
         <div class="module-card-icon" style="background:var(--blue-light)"><i class="ti ti-shopping-cart" style="color:var(--blue)"></i></div>
-        <div class="module-card-text"><h3>Bons de commande</h3><p>Gérer les achats fournisseurs</p></div>
-        <i class="ti ti-chevron-right module-card-arrow"></i>
-      </div>
-      <div class="module-card" onclick="navigate('factures_vente')" style="border-left:3px solid var(--green)">
-        <div class="module-card-icon" style="background:var(--green-light)"><i class="ti ti-receipt" style="color:var(--green)"></i></div>
-        <div class="module-card-text"><h3>Factures clients</h3><p>Facturation et encaissements</p></div>
-        <i class="ti ti-chevron-right module-card-arrow"></i>
-      </div>
-      <div class="module-card" onclick="navigate('chantiers')" style="border-left:3px solid var(--purple)">
-        <div class="module-card-icon" style="background:var(--purple-light)"><i class="ti ti-building-factory-2" style="color:var(--purple)"></i></div>
-        <div class="module-card-text"><h3>Chantiers</h3><p>Projets, documents et heures</p></div>
+        <div class="module-card-text"><h3>Bons de commande</h3><p>Achats fournisseurs</p></div>
         <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
       <div class="module-card" onclick="navigate('receptions')" style="border-left:3px solid var(--orange)">
         <div class="module-card-icon" style="background:var(--orange-light)"><i class="ti ti-truck-delivery" style="color:var(--orange)"></i></div>
-        <div class="module-card-text"><h3>Réceptions</h3><p>Bons de livraison et contrôle</p></div>
+        <div class="module-card-text"><h3>Réceptions</h3><p>Bons de livraison</p></div>
         <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
       <div class="module-card" onclick="navigate('factures')" style="border-left:3px solid var(--red)">
@@ -587,33 +685,15 @@ async function renderDashboard(){
         <div class="module-card-text"><h3>Factures fourn.</h3><p>Validation et paiements</p></div>
         <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
-      <div class="module-card" onclick="navigate('fournisseurs')" style="border-left:3px solid var(--gray-5)">
-        <div class="module-card-icon" style="background:var(--gray-2)"><i class="ti ti-users" style="color:var(--gray-6)"></i></div>
-        <div class="module-card-text"><h3>Fournisseurs</h3><p>Annuaire et conditions</p></div>
+      <div class="module-card" onclick="navigate('chantiers')" style="border-left:3px solid var(--purple)">
+        <div class="module-card-icon" style="background:var(--purple-light)"><i class="ti ti-building-factory-2" style="color:var(--purple)"></i></div>
+        <div class="module-card-text"><h3>Chantiers</h3><p>Projets et documents</p></div>
         <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h2><i class="ti ti-history"></i> Dernières commandes</h2>
-        <button class="btn btn-ghost btn-sm" onclick="navigate('pos')"><i class="ti ti-arrow-right"></i> Voir tout</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead>
-          <tbody>
-            ${recs.length===0 ? `<tr><td colspan="6"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p></div></td></tr>` :
-            recs.map(r=>`<tr>
-              <td><span class="td-primary">${r.numero}</span></td>
-              <td>${r.fournisseurs?.nom||'—'}</td>
-              <td>${r.chantiers?.nom||'—'}</td>
-              <td>${fmtDate(r.date_creation)}</td>
-              <td><strong>${fmt(r.total_ttc)}</strong></td>
-              <td>${bPO(r.statut)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
+      <div class="module-card" onclick="navigate('clients')" style="border-left:3px solid var(--gray-5)">
+        <div class="module-card-icon" style="background:var(--gray-2)"><i class="ti ti-building-store" style="color:var(--gray-6)"></i></div>
+        <div class="module-card-text"><h3>Clients</h3><p>Annuaire et historique</p></div>
+        <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
     </div>`;
 }
