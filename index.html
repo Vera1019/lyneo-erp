@@ -287,8 +287,70 @@ select{cursor:pointer}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ── RESPONSIVE ──────────────────────────────────────────────── */
-@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.modules-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:768px){.sidebar{transform:translateX(-100%)}.main{margin-left:0}.kpi-grid{grid-template-columns:1fr 1fr}.login-left{display:none}.login-right{width:100%}}
+
+/* ── OVERFLOW FIX ─────────────────────────────────────────── */
+body{overflow-x:hidden}
+.main{min-width:0;overflow-x:hidden}
+.page{overflow-x:hidden}
+
+/* ── TABLET 1100px ────────────────────────────────────────── */
+@media(max-width:1100px){
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .modules-grid{grid-template-columns:repeat(2,1fr)}
+  .info-grid{grid-template-columns:repeat(2,1fr)}
+  .form-grid{grid-template-columns:1fr}
+  .sidebar{width:200px}
+  .main{margin-left:200px}
+}
+
+/* ── MOBILE 768px ─────────────────────────────────────────── */
+@media(max-width:768px){
+  /* Login */
+  .login-left{display:none}
+  .login-right{width:100%;padding:24px}
+
+  /* Layout */
+  .sidebar{transform:translateX(-100%);width:240px;z-index:200}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .page{padding:16px}
+  .topbar{padding:0 16px}
+
+  /* Grids */
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .modules-grid{grid-template-columns:1fr}
+  .info-grid{grid-template-columns:1fr 1fr}
+  .form-grid{grid-template-columns:1fr}
+  .page-header{flex-direction:column;align-items:flex-start;gap:12px}
+  .page-actions{width:100%;flex-wrap:wrap}
+
+  /* Dashboard panels */
+  div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
+  div[style*="grid-template-columns:repeat(4,1fr)"]{grid-template-columns:1fr 1fr!important}
+
+  /* Tables */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{padding:8px 10px;font-size:12px}
+
+  /* Modal */
+  .modal{max-width:100%;margin:8px;border-radius:12px}
+  .modal-lg{max-width:100%}
+
+  /* Sidebar toggle button */
+  .sidebar-toggle{display:flex}
+
+  /* Hide some topbar elements */
+  .topbar-chip{display:none}
+  #topbar-date{display:none}
+}
+
+/* ── SMALL MOBILE 480px ───────────────────────────────────── */
+@media(max-width:480px){
+  .kpi-grid{grid-template-columns:1fr}
+  .kpi-value{font-size:24px}
+  .btn{padding:6px 10px;font-size:12px}
+  .page{padding:12px}
+}
 </style>
 </head>
 <body>
@@ -380,6 +442,9 @@ select{cursor:pointer}
   <div class="main">
     <div class="topbar">
       <div class="topbar-left">
+        <button class="sidebar-toggle" onclick="toggleSidebar()" style="display:none;background:none;border:none;cursor:pointer;padding:6px;border-radius:6px;color:var(--gray-6);margin-right:8px" id="sidebar-toggle-btn">
+          <i class="ti ti-menu-2" style="font-size:22px"></i>
+        </button>
         <div class="topbar-title" id="topbar-title">Tableau de bord</div>
       </div>
       <div class="topbar-right">
@@ -392,6 +457,7 @@ select{cursor:pointer}
 </div>
 
 <div id="modal-container"></div>
+<div id="sidebar-overlay" onclick="toggleSidebar()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;backdrop-filter:blur(2px)"></div>
 <div id="toast-container"></div>
 
 <script>
@@ -610,7 +676,7 @@ async function renderDashboard(){
     </div>
 
     <!-- LIGNE 2 : Chantiers actifs + Factures à encaisser -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:20px">
 
       <!-- CHANTIERS ACTIFS -->
       <div class="card" style="margin-bottom:0">
@@ -713,7 +779,7 @@ async function renderChantiers(search=''){
       </div>
     </div>
     <div class="card">
-      <div class="table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1120,7 +1186,7 @@ async function renderFournisseurs(search=''){
       </div>
     </div>
     <div class="card">
-      <div class="table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1215,7 +1281,7 @@ async function renderPOS(search='', filterStatut=''){
       </div>
     </div>
     <div class="card">
-      <div class="table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Livraison souhaitée</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1254,7 +1320,7 @@ function openNewPO(){
         <strong style="font-size:13px">Lignes de commande</strong>
         <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
-      <div style="overflow-x:auto"><table class="lignes-table" id="lignes-table">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%"><table class="lignes-table" id="lignes-table">
         <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">Référence</th><th style="width:70px">Qté</th><th style="width:75px">Unité</th><th style="width:100px">P.U. HT €</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
         <tbody id="lignes-body"></tbody>
       </table></div>
@@ -1485,7 +1551,7 @@ async function renderReceptions(){
     ${_posAttente.length>0?`<div class="alert alert-warning"><i class="ti ti-truck-delivery"></i><strong>${_posAttente.length} commande(s)</strong> en attente de réception</div>`:''}
     <div class="card">
       <div class="card-header"><h2>Historique des réceptions</h2></div>
-      <div class="table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Statut</th></tr></thead>
           <tbody>
@@ -1592,7 +1658,7 @@ async function renderFactures(){
       <button class="btn btn-primary" onclick="openFacModal()"><i class="ti ti-plus"></i> Saisir une facture</button>
     </div>
     <div class="card">
-      <div class="table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1856,7 +1922,7 @@ async function renderUtilisateurs(){
     </div>
     <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Mot de passe par défaut pour tous les comptes : <strong>lyneo2026</strong></div>
     <div class="card">
-      <div class="table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>Prénom</th><th>Nom</th><th>Email</th><th>Rôle</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1914,7 +1980,41 @@ async function saveUser(id){
 }
 
 // ── INIT ─────────────────────────────────────────────────────
+function toggleSidebar(){
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = el('sidebar-overlay');
+  const isOpen = sidebar.classList.contains('open');
+  if(isOpen){
+    sidebar.classList.remove('open');
+    overlay.style.display='none';
+  } else {
+    sidebar.classList.add('open');
+    overlay.style.display='block';
+  }
+}
+
+function checkMobile(){
+  const btn = el('sidebar-toggle-btn');
+  if(btn) btn.style.display = window.innerWidth<=768 ? 'flex' : 'none';
+}
+
+window.addEventListener('resize', checkMobile);
+
+// Close sidebar on nav click on mobile
+document.querySelectorAll && setTimeout(()=>{
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    const orig = n.onclick;
+    n.addEventListener('click',()=>{
+      if(window.innerWidth<=768){
+        document.querySelector('.sidebar').classList.remove('open');
+        el('sidebar-overlay').style.display='none';
+      }
+    });
+  });
+},500);
+
 window.addEventListener('load', ()=>{
+  checkMobile();
   const stored = sessionStorage.getItem('lyneo_user');
   if(stored){ currentUser = JSON.parse(stored); initApp(); }
   el('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
