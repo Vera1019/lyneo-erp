@@ -425,16 +425,23 @@ async function renderChantiers(search=''){
     </div>`;
 }
 
-async function openChantierDetail(chantierId){
+// ── SUPABASE POINTAGES (base séparée) ───────────────────────
+const SB_PT_URL = 'https://eqnidlvbmbfzauevhcnb.supabase.co';
+const SB_PT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxbmlkbHZibWJmemF1ZXZoY25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0MDYyNDAsImV4cCI6MjA5Nzk4MjI0MH0.Hi_rCmkmZ8eBBa3b7Ti0XvC-G27Q7G0mNAulpftL2MU';
+const sbPT = supabase.createClient(SB_PT_URL, SB_PT_KEY);
+
+async function openChantierDetail(chantierId, tab){
+  tab = tab || 'info';
   const chantier = _chantiers.find(c=>c.id===chantierId);
   if(!chantier) return;
-  const {data:annexes} = await sb.from('anexos_chantier').select('*,utilisateurs(nom,prenom)').eq('chantier_id',chantierId).order('created_at',{ascending:false});
-  const {data:posChantier} = await sb.from('purchase_orders').select('numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false});
-  const docs = annexes||[];
-  const pos = posChantier||[];
+  const [annexesR, posR] = await Promise.all([
+    sb.from('anexos_chantier').select('*,utilisateurs(nom,prenom)').eq('chantier_id',chantierId).order('created_at',{ascending:false}),
+    sb.from('purchase_orders').select('numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
+  ]);
+  const docs = annexesR.data||[];
+  const pos = posR.data||[];
 
   const CATEGORIES = {plan:'📐 Plan',contrat:'📄 Contrat',photo:'📸 Photo',permis:'🏛️ Permis',devis:'📊 Devis',rapport:'📋 Rapport',autre:'📎 Autre'};
-
   const iconeType = (tipo) => {
     if(!tipo) return 'ti-file';
     if(tipo.includes('pdf')) return 'ti-file-type-pdf';
@@ -449,13 +456,109 @@ async function openChantierDetail(chantierId){
     if(b<1048576) return (b/1024).toFixed(1)+'KB';
     return (b/1048576).toFixed(1)+'MB';
   };
-
-  // Grouper les docs par catégorie
   const cats = ['plan','contrat','photo','permis','devis','rapport','autre'];
   const docsParCat = {};
   cats.forEach(c=>{ docsParCat[c] = docs.filter(d=>d.categorie===c); });
-
   const totalCmds = pos.reduce((a,p)=>a+(p.total_ttc||0),0);
+
+  const tabs = [
+    {id:'info', label:'Informations', icon:'ti-info-circle'},
+    {id:'heures', label:'Heures', icon:'ti-clock'},
+    {id:'commandes', label:'Commandes ('+pos.length+')', icon:'ti-shopping-cart'},
+    {id:'documents', label:'Documents ('+docs.length+')', icon:'ti-paperclip'},
+  ];
+
+  const tabsHtml = tabs.map(t=>`
+    <div onclick="openChantierDetail('${chantierId}','${t.id}')"
+      style="padding:10px 18px;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid ${tab===t.id?'var(--blue)':'transparent'};color:${tab===t.id?'var(--blue)':'var(--gray-5)'};display:flex;align-items:center;gap:6px;transition:all .15s;margin-bottom:-1px">
+      <i class="ti ${t.icon}"></i>${t.label}
+    </div>`).join('');
+
+  // ── ONGLET INFO ──
+  const tabInfo = `
+    <div class="info-grid" style="margin-bottom:16px">
+      <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
+      <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
+      <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
+      <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
+      <div class="info-item"><label>Date fin prévue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
+      <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
+    </div>
+    ${chantier.observations?`<div class="alert alert-info"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
+    <div style="margin-top:16px;padding:14px 16px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius)">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Liaison système de pointages</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="ch-code-pt" placeholder="Code chantier dans le système de pointages" value="${chantier.code_pointages||''}"
+          style="flex:1;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px"/>
+        <button class="btn btn-primary btn-sm" onclick="saveCodePointages('${chantierId}')"><i class="ti ti-link"></i> Lier</button>
+      </div>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">Entrez le code du chantier tel qu'il apparaît dans le système de pointages pour afficher les heures.</p>
+    </div>`;
+
+  // ── ONGLET COMMANDES ──
+  const tabCommandes = pos.length===0
+    ? `<div class="empty"><i class="ti ti-shopping-cart"></i><p>Aucune commande pour ce chantier</p></div>`
+    : pos.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
+        <strong class="text-blue">${p.numero}</strong>
+        <span class="text-muted">${p.fournisseurs?.nom||'—'}</span>
+        <span style="font-weight:600">${fmt(p.total_ttc)}</span>
+        ${bPO(p.statut)}
+      </div>`).join('');
+
+  // ── ONGLET DOCUMENTS ──
+  const tabDocuments = `
+    <div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center;background:var(--gray-1)"
+      ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+      ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
+      ondrop="handleDropChantier(event,'${chantierId}')">
+      <i class="ti ti-cloud-upload" style="font-size:32px;color:var(--gray-4);display:block;margin-bottom:8px"></i>
+      <p style="color:var(--gray-5);margin-bottom:10px">Glissez vos documents ici ou</p>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap">
+        <label class="btn btn-secondary" style="cursor:pointer">
+          <i class="ti ti-paperclip"></i> Choisir fichier(s)
+          <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.dwg" style="display:none"
+            onchange="uploadAnnexesChantier(this.files,'${chantierId}',document.getElementById('ch-upload-cat').value)"/>
+        </label>
+        <select id="ch-upload-cat" style="padding:7px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px">
+          ${cats.map(c=>`<option value="${c}">${CATEGORIES[c]}</option>`).join('')}
+        </select>
+      </div>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel, DWG — max 10MB</p>
+    </div>
+    <div id="ch-upload-progress" style="display:none;margin-bottom:12px">
+      <div style="background:var(--gray-2);border-radius:4px;height:6px;overflow:hidden">
+        <div id="ch-progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .3s"></div>
+      </div>
+      <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="ch-progress-text">Téléchargement...</p>
+    </div>
+    ${docs.length===0
+      ? `<div style="text-align:center;padding:24px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>`
+      : cats.filter(c=>docsParCat[c].length>0).map(c=>`
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--gray-3)">${CATEGORIES[c]} (${docsParCat[c].length})</div>
+          ${docsParCat[c].map(d=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+              <div style="display:flex;align-items:center;gap:12px">
+                <i class="ti ${iconeType(d.tipo)}" style="font-size:22px;color:var(--blue)"></i>
+                <div>
+                  <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
+                  <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} — ${fmtDate(d.created_at)}</div>
+                </div>
+              </div>
+              <div class="flex gap-8">
+                <a href="${d.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i></a>
+                <a href="${d.url}" download="${d.nome_ficheiro}" class="btn btn-secondary btn-sm"><i class="ti ti-download"></i></a>
+                <button class="btn btn-danger btn-sm" onclick="deleteAnnexeChantier('${d.id}','${chantierId}','${d.url}')"><i class="ti ti-trash"></i></button>
+              </div>
+            </div>`).join('')}
+        </div>`).join('')}`;
+
+  // Onglet heures — sera chargé dynamiquement
+  const tabHeures = `<div id="heures-content" style="text-align:center;padding:32px;color:var(--gray-4)">
+    <i class="ti ti-loader" style="font-size:32px;display:block;margin-bottom:8px"></i>Chargement des heures...
+  </div>`;
+
+  const tabContent = {info:tabInfo, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments};
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -464,88 +567,140 @@ async function openChantierDetail(chantierId){
         <span style="font-size:12px;color:var(--gray-5)">${chantier.numero} — ${chantier.client}</span>
       </div>
       <div class="flex gap-8 items-center">
-        <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${JSON.stringify(chantier).replace(/'/g,"\\'").replace(/"/g,"&quot;")})'><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${JSON.stringify(chantier).replace(/'/g,"\'").replace(/"/g,"&quot;")})'><i class="ti ti-edit"></i> Modifier</button>
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
-    <div class="modal-body">
-
-      <!-- INFOS CHANTIER -->
-      <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
-        <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
-        <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
-        <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
-        <div class="info-item"><label>Date fin prévue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
-        <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
-      </div>
-      ${chantier.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
-
-      <!-- COMMANDES LIÉES -->
-      ${pos.length>0?`
-      <div class="section-title"><i class="ti ti-shopping-cart"></i> Commandes (${pos.length})</div>
-      <div style="margin-bottom:20px">
-        ${pos.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:var(--gray-1)">
-          <strong class="text-blue">${p.numero}</strong>
-          <span class="text-muted">${p.fournisseurs?.nom||'—'}</span>
-          <span>${fmt(p.total_ttc)}</span>
-          ${bPO(p.statut)}
-        </div>`).join('')}
-      </div>`:''}
-
-      <!-- ZONE UPLOAD -->
-      <div class="section-title"><i class="ti ti-paperclip"></i> Documents du chantier</div>
-      <div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center;background:var(--gray-1)"
-        ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
-        ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
-        ondrop="handleDropChantier(event,'${chantierId}')">
-        <i class="ti ti-cloud-upload" style="font-size:32px;color:var(--gray-4);display:block;margin-bottom:8px"></i>
-        <p style="color:var(--gray-5);margin-bottom:10px">Glissez vos documents ici ou</p>
-        <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap">
-          <label class="btn btn-secondary" style="cursor:pointer">
-            <i class="ti ti-paperclip"></i> Choisir fichier(s)
-            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.dwg" style="display:none" onchange="uploadAnnexesChantier(this.files,'${chantierId}',document.getElementById('ch-upload-cat').value)"/>
-          </label>
-          <select id="ch-upload-cat" style="padding:7px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px">
-            ${cats.map(c=>`<option value="${c}">${CATEGORIES[c]}</option>`).join('')}
-          </select>
-        </div>
-        <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel, DWG — max 10MB</p>
-      </div>
-      <div id="ch-upload-progress" style="display:none;margin-bottom:12px">
-        <div style="background:var(--gray-2);border-radius:4px;height:6px;overflow:hidden">
-          <div id="ch-progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .3s"></div>
-        </div>
-        <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="ch-progress-text">Téléchargement...</p>
-      </div>
-
-      <!-- DOCUMENTS PAR CATÉGORIE -->
-      <div id="ch-annexes-list">
-        ${docs.length===0
-          ? `<div style="text-align:center;padding:24px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>`
-          : cats.filter(c=>docsParCat[c].length>0).map(c=>`
-            <div style="margin-bottom:16px">
-              <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--gray-3)">${CATEGORIES[c]} (${docsParCat[c].length})</div>
-              ${docsParCat[c].map(d=>`
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <i class="ti ${iconeType(d.tipo)}" style="font-size:22px;color:var(--blue)"></i>
-                    <div>
-                      <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
-                      <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} — ${fmtDate(d.created_at)}</div>
-                    </div>
-                  </div>
-                  <div class="flex gap-8">
-                    <a href="${d.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i></a>
-                    <a href="${d.url}" download="${d.nome_ficheiro}" class="btn btn-secondary btn-sm"><i class="ti ti-download"></i></a>
-                    <button class="btn btn-danger btn-sm" onclick="deleteAnnexeChantier('${d.id}','${chantierId}','${d.url}')"><i class="ti ti-trash"></i></button>
-                  </div>
-                </div>`).join('')}
-            </div>`).join('')}
-      </div>
-
+    <div style="display:flex;border-bottom:1px solid var(--gray-3);padding:0 20px">${tabsHtml}</div>
+    <div class="modal-body" id="chantier-tab-body">
+      ${tabContent[tab]||tabInfo}
     </div>
   </div></div>`);
+
+  // Charger les heures si onglet actif
+  if(tab==='heures') loadHeuresChantier(chantier);
+}
+
+async function saveCodePointages(chantierId){
+  const code = el('ch-code-pt').value.trim();
+  await sb.from('chantiers').update({code_pointages:code}).eq('id',chantierId);
+  // Mettre à jour localement
+  const ch = _chantiers.find(c=>c.id===chantierId);
+  if(ch) ch.code_pointages = code;
+  showToast('Liaison pointages enregistrée');
+  if(code) loadHeuresChantier({id:chantierId, code_pointages:code});
+}
+
+async function loadHeuresChantier(chantier){
+  const container = el('heures-content');
+  if(!container) return;
+
+  if(!chantier.code_pointages){
+    container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
+      <i class="ti ti-link-off" style="font-size:36px;display:block;margin-bottom:12px"></i>
+      <p style="margin-bottom:12px">Ce chantier n'est pas encore lié au système de pointages.</p>
+      <p style="font-size:12px">Allez dans l'onglet <strong>Informations</strong> et entrez le code chantier.</p>
+    </div>`;
+    return;
+  }
+
+  // Chercher le chantier dans la base pointages par code
+  const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
+  const ptChantier = (ptChantiers||[]).find(c=>
+    c.code === chantier.code_pointages ||
+    c.nom?.toLowerCase() === chantier.code_pointages?.toLowerCase()
+  );
+
+  if(!ptChantier){
+    container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
+      <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:12px;color:var(--orange)"></i>
+      <p>Code "<strong>${chantier.code_pointages}</strong>" introuvable dans le système de pointages.</p>
+      <p style="font-size:12px;margin-top:8px">Vérifiez le code dans l'onglet Informations.</p>
+    </div>`;
+    return;
+  }
+
+  // Récupérer les picages pour ce chantier
+  const {data:picages} = await sbPT.from('picages')
+    .select('*,employes(nom)')
+    .eq('chantier_id', ptChantier.id)
+    .order('date', {ascending:false});
+
+  const pics = picages||[];
+  if(pics.length===0){
+    container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
+      <i class="ti ti-clock" style="font-size:36px;display:block;margin-bottom:12px"></i>
+      <p>Aucune heure enregistrée pour ce chantier.</p>
+    </div>`;
+    return;
+  }
+
+  // Calculer totaux par employé
+  const parEmploye = {};
+  pics.forEach(p=>{
+    const nom = p.employes?.nom || 'Inconnu';
+    if(!parEmploye[nom]) parEmploye[nom] = {heures:0, jours:new Set()};
+    parEmploye[nom].heures += parseFloat(p.heures)||0;
+    parEmploye[nom].jours.add(p.date);
+  });
+
+  const totalHeures = pics.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+  const totalJours = new Set(pics.map(p=>p.date)).size;
+
+  // Dernières 10 entrées
+  const dernieres = pics.slice(0,10);
+
+  container.innerHTML = `
+    <!-- STATS HEURES -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+      <div style="background:var(--blue-light);border-radius:var(--radius);padding:16px;text-align:center">
+        <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;margin-bottom:4px">Total heures</div>
+        <div style="font-size:28px;font-weight:700;color:var(--blue)">${totalHeures.toFixed(1)}h</div>
+      </div>
+      <div style="background:var(--green-light);border-radius:var(--radius);padding:16px;text-align:center">
+        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;margin-bottom:4px">Jours travaillés</div>
+        <div style="font-size:28px;font-weight:700;color:var(--green)">${totalJours}</div>
+      </div>
+      <div style="background:var(--orange-light);border-radius:var(--radius);padding:16px;text-align:center">
+        <div style="font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;margin-bottom:4px">Employés actifs</div>
+        <div style="font-size:28px;font-weight:700;color:var(--orange)">${Object.keys(parEmploye).length}</div>
+      </div>
+    </div>
+
+    <!-- PAR EMPLOYÉ -->
+    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Heures par employé</div>
+    <div style="margin-bottom:20px">
+      ${Object.entries(parEmploye).sort((a,b)=>b[1].heures-a[1].heures).map(([nom,d])=>{
+        const pct = Math.round((d.heures/totalHeures)*100);
+        return `<div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:13px;font-weight:500">${nom}</span>
+            <span style="font-size:13px;font-weight:700;color:var(--blue)">${d.heures.toFixed(1)}h</span>
+          </div>
+          <div style="background:var(--gray-2);border-radius:4px;height:8px;overflow:hidden">
+            <div style="background:var(--blue);height:100%;width:${pct}%;border-radius:4px;transition:width .5s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--gray-5);margin-top:2px">${d.jours.size} jour(s) — ${pct}% du total</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <!-- DERNIÈRES ENTRÉES -->
+    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">10 dernières entrées</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Date</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Employé</th>
+        <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Heures</th>
+      </tr></thead>
+      <tbody>
+        ${dernieres.map(p=>`<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(p.date)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${p.employes?.nom||'—'}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${parseFloat(p.heures).toFixed(1)}h</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
 async function handleDropChantier(event, chantierId){
@@ -610,6 +765,7 @@ function openChantierModal(r=null){
         <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
         <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
+        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/></div>
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -623,7 +779,7 @@ async function saveChantier(id){
   const nom = el('ch-nom').value.trim();
   const client = el('ch-client').value.trim();
   if(!nom||!client){ showToast('Nom et client obligatoires','error'); return; }
-  const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value};
+  const cpModal = el('ch-code-pt-modal'); const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
     await sb.from('chantiers').update(data).eq('id',id);
     showToast('Chantier mis à jour');
