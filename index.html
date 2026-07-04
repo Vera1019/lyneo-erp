@@ -603,12 +603,37 @@ async function doLogin() {
   const email = el('login-email').value.trim();
   const pass = el('login-password').value;
   if(!email||!pass){ showLoginError('Remplissez tous les champs'); return; }
-  const {data,error} = await sb.from('utilisateurs').select('*').eq('email',email).eq('actif',true).single();
-  if(error||!data){ showLoginError('Email introuvable ou compte inactif'); return; }
-  if(pass !== 'lyneo2026'){ showLoginError('Mot de passe incorrect'); return; }
-  currentUser = data;
-  sessionStorage.setItem('lyneo_user', JSON.stringify(data));
-  initApp();
+  
+  // Désactiver le bouton pendant le chargement
+  const btn = document.querySelector('.login-btn');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Connexion...'; }
+  
+  try {
+    const {data,error} = await sb.from('utilisateurs').select('*').eq('email',email).eq('actif',true).single();
+    console.log('Login result:', {data, error});
+    if(error){
+      showLoginError('Erreur: ' + (error.message||'Compte introuvable'));
+      if(btn){ btn.disabled=false; btn.textContent='Se connecter'; }
+      return;
+    }
+    if(!data){
+      showLoginError('Email introuvable ou compte inactif');
+      if(btn){ btn.disabled=false; btn.textContent='Se connecter'; }
+      return;
+    }
+    if(pass !== 'lyneo2026'){
+      showLoginError('Mot de passe incorrect');
+      if(btn){ btn.disabled=false; btn.textContent='Se connecter'; }
+      return;
+    }
+    currentUser = data;
+    sessionStorage.setItem('lyneo_user', JSON.stringify(data));
+    initApp();
+  } catch(e) {
+    console.error('Login error:', e);
+    showLoginError('Erreur de connexion: ' + e.message);
+    if(btn){ btn.disabled=false; btn.textContent='Se connecter'; }
+  }
 }
 
 function showLoginError(msg){
@@ -773,7 +798,7 @@ async function renderDashboard(){
         </div>
         <div style="padding:0">
           ${chantiersActifs.length===0
-            ? `<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier actif</p></div>`
+            ? '<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier actif</p></div>'
             : chantiersActifs.slice(0,5).map(c=>{
                 const enRetard = c.date_fin_prevue && c.date_fin_prevue < today_str;
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2);cursor:pointer" onclick="navigate('chantiers')">
@@ -783,7 +808,7 @@ async function renderDashboard(){
                   </div>
                   <div style="text-align:right">
                     ${enRetard
-                      ? `<span class="badge badge-annulee">En retard</span>`
+                      ? '<span class="badge badge-annulee">En retard</span>'
                       : c.date_fin_prevue
                         ? `<span style="font-size:11px;color:var(--gray-5)">Fin: ${fmtDate(c.date_fin_prevue)}</span>`
                         : `<span class="badge badge-actif">Actif</span>`}
@@ -801,7 +826,7 @@ async function renderDashboard(){
         </div>
         <div style="padding:0">
           ${facturesAEncaisser.length===0
-            ? `<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture en attente</p></div>`
+            ? '<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture en attente</p></div>'
             : facturesAEncaisser.slice(0,5).map(f=>{
                 const enRetard = f.date_echeance && f.date_echeance < today_str;
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2)">
@@ -870,7 +895,7 @@ async function renderChantiers(search=''){
         <table>
           <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? `<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>` :
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
             items.map(r=>`<tr style="cursor:pointer" onclick="openChantierDetail('${r.id}')">
               <td><strong class="text-blue">${r.numero}</strong></td>
               <td><strong>${r.nom}</strong></td>
@@ -994,7 +1019,7 @@ async function openChantierDetail(chantierId, tab){
       <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="ch-progress-text">Téléchargement...</p>
     </div>
     ${docs.length===0
-      ? `<div style="text-align:center;padding:24px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>`
+      ? '<div style="text-align:center;padding:24px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>'
       : cats.filter(c=>docsParCat[c].length>0).map(c=>`
         <div style="margin-bottom:16px">
           <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--gray-3)">${CATEGORIES[c]} (${docsParCat[c].length})</div>
@@ -1274,7 +1299,7 @@ async function renderFournisseurs(search=''){
         <table>
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? `<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>` :
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
             items.map(r=>`<tr>
               <td><strong>${r.nom}</strong></td>
               <td>${r.email?`<a href="mailto:${r.email}" style="color:var(--blue)">${r.email}</a>`:'—'}</td>
@@ -1369,7 +1394,7 @@ async function renderPOS(search='', filterStatut=''){
         <table>
           <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Livraison souhaitée</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? `<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>` :
+            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
             items.map(r=>`<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
               <td><strong class="text-blue">${r.numero}</strong></td>
               <td>${r.fournisseurs?.nom||'—'}</td>
@@ -1639,7 +1664,7 @@ async function renderReceptions(){
         <table>
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Statut</th></tr></thead>
           <tbody>
-            ${bls.length===0?`<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>`:
+            ${bls.length===0?'<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
             bls.map(b=>`<tr>
               <td><strong class="text-blue">${b.numero_bl}</strong></td>
               <td>${b.purchase_orders?.numero||'—'}</td>
@@ -1746,7 +1771,7 @@ async function renderFactures(){
         <table>
           <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${facs.length===0?`<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture enregistrée</p></div></td></tr>`:
+            ${facs.length===0?'<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture enregistrée</p></div></td></tr>':
             facs.map(r=>{
               const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
               return `<tr>
@@ -1836,7 +1861,7 @@ async function openFacDetail(facId){
       <!-- LISTE DOCUMENTS -->
       <div id="annexes-list">
         ${docs.length===0
-          ? `<div style="text-align:center;padding:20px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>`
+          ? '<div style="text-align:center;padding:20px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>'
           : docs.map(d=>`
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
               <div style="display:flex;align-items:center;gap:12px">
@@ -2070,17 +2095,18 @@ async function loadLignesPourFac(poId){
             <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Total HT</th>
           </tr></thead>
           <tbody>
-            ${_facLignesPO.map((l,i)=>`<tr style="${i%2===0?'':'background:var(--gray-1)'}">
-              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px">
-                <div style="font-weight:500">${l.description}</div>
-                ${l.reference_article?`<div style="font-size:11px;color:var(--gray-5)">${l.reference_article}</div>`:''}
-              </td>
-              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">${l.quantite}</td>
-              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px">${l.unite}</td>
-              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">${fmt(l.prix_unitaire_ht)}</td>
-              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:13px">${l.taux_tva}%</td>
-              <td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">${fmt(l.total_ht)}</td>
-            </tr>`).join('')}
+            ${_facLignesPO.map((l,i)=>{
+              const ref = l.reference_article ? '<div style="font-size:11px;color:var(--gray-5)">'+l.reference_article+'</div>' : '';
+              const bg = i%2===0 ? '' : 'background:var(--gray-1)';
+              return '<tr style="'+bg+'">'
+                + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px"><div style="font-weight:500">'+l.description+'</div>'+ref+'</td>'
+                + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">'+l.quantite+'</td>'
+                + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px">'+l.unite+'</td>'
+                + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">'+fmt(l.prix_unitaire_ht)+'</td>'
+                + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:13px">'+l.taux_tva+'%</td>'
+                + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">'+fmt(l.total_ht)+'</td>'
+                + '</tr>';
+            }).join('')}
           </tbody>
           <tfoot>
             <tr style="background:var(--navy);color:#fff">
@@ -2098,7 +2124,7 @@ async function loadLignesPourFac(poId){
 }
 
 function autoCalcFromLignes(){
-  if(_facLignesPO.length===0){ showToast('Sélectionnez d'abord une commande','error'); return; }
+  if(_facLignesPO.length===0){ showToast("Sélectionnez d'abord une commande",'error'); return; }
   const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_ht)||0),0);
   const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_tva)||0),0);
   el('fac-ht').value = totalHT.toFixed(2);
