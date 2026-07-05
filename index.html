@@ -1404,7 +1404,10 @@ async function renderPOS(search='', filterStatut=''){
               <td>${fmt(r.total_ht)}</td>
               <td><strong>${fmt(r.total_ttc)}</strong></td>
               <td>${bPO(r.statut)}</td>
-              <td onclick="event.stopPropagation()"><button class="btn btn-secondary btn-sm" onclick="openPODetail('${r.id}')"><i class="ti ti-eye"></i></button></td>
+              <td onclick="event.stopPropagation()"><div class="td-actions">
+                <button class="btn btn-secondary btn-sm" onclick="openPODetail('${r.id}')"><i class="ti ti-eye"></i></button>
+                ${r.statut==='brouillon' ? '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();annulerPO(\'' + r.id + '\')" title="Annuler"><i class="ti ti-x"></i></button>' : ''}
+              </div></td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -1711,44 +1714,92 @@ function openBLModal(){
 }
 
 async function loadLignesBL(poId){
-  if(!poId){ el('bl-lignes-section').innerHTML=''; return; }
-  const {data} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
-  _lignesRec = data||[];
+  if(!poId){ el('bl-lignes-section').innerHTML=''; _lignesRec=[]; return; }
+  // Charger les lignes de la PO
+  const {data:lignes} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+  _lignesRec = lignes||[];
+  // Calculer les quantités déjà reçues par ligne
+  const {data:blsExistants} = await sb.from('bons_livraison').select('id').eq('po_id',poId);
+  const blIds = (blsExistants||[]).map(b=>b.id);
+  let dejRecu = {};
+  if(blIds.length>0){
+    const {data:lignesBL} = await sb.from('lignes_bl').select('ligne_po_id,quantite_recue').in('bl_id',blIds);
+    (lignesBL||[]).forEach(l=>{
+      dejRecu[l.ligne_po_id] = (dejRecu[l.ligne_po_id]||0) + parseFloat(l.quantite_recue||0);
+    });
+  }
+  // Calculer quantités restantes
+  _lignesRec = _lignesRec.map(l=>({
+    ...l,
+    deja_recu: dejRecu[l.id]||0,
+    restant: Math.max(0, parseFloat(l.quantite) - (dejRecu[l.id]||0))
+  }));
+  // Check if all lines already fully received
+  const allDone = _lignesRec.every(l=>l.restant<=0);
+  if(allDone){
+    el('bl-lignes-section').innerHTML = `<div class="alert alert-success"><i class="ti ti-circle-check"></i>Toutes les lignes de cette commande ont déjà été intégralement réceptionnées.</div>`;
+    return;
+  }
   el('bl-lignes-section').innerHTML = `
-    <strong style="font-size:13px;display:block;margin-bottom:8px">Quantités reçues</strong>
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr>
-        <th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Description</th>
-        <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Qté commandée</th>
-        <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Qté reçue</th>
+    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Quantités à réceptionner</div>
+    <table style="width:100%;border-collapse:collapse;border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden">
+      <thead><tr style="background:var(--gray-1)">
+        <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Commandé</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Déjà reçu</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Restant</th>
+        <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Progression</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Qté reçue maintenant</th>
       </tr></thead>
-      <tbody>${_lignesRec.map(l=>`<tr>
-        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${l.description}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.quantite} ${l.unite}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;width:120px">
-          <input type="number" min="0" step="0.001" value="${l.quantite}" id="qty-${l.id}" style="width:90px;text-align:right;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px"/>
-        </td>
-      </tr>`).join('')}</tbody>
+      <tbody>${_lignesRec.map(l=>{
+        const pct = Math.min(100, Math.round((l.deja_recu/parseFloat(l.quantite))*100));
+        const isDone = l.restant <= 0;
+        return '<tr style="'+(isDone?'opacity:.5;background:var(--gray-1)':'')+'">'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px"><strong>'+l.description+'</strong></td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">'+l.quantite+' '+l.unite+'</td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px;color:var(--green)">'+l.deja_recu+' '+l.unite+'</td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px;font-weight:700;color:'+(isDone?'var(--green)':'var(--orange)')+'">'+l.restant+' '+l.unite+'</td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);min-width:100px">'
+          +   '<div style="background:var(--gray-2);border-radius:4px;height:8px;overflow:hidden">'
+          +     '<div style="background:'+(pct>=100?'var(--green)':'var(--blue)')+';height:100%;width:'+pct+'%;border-radius:4px"></div>'
+          +   '</div>'
+          +   '<div style="font-size:10px;color:var(--gray-5);text-align:center;margin-top:2px">'+pct+'%</div>'
+          + '</td>'
+          + '<td style="padding:6px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'
+          +   (isDone 
+            ? '<span style="color:var(--green);font-size:12px;font-weight:600"><i class="ti ti-check"></i> Complet</span>'
+            : '<input type="number" min="0" max="'+l.restant+'" step="0.001" value="'+l.restant+'" id="qty-'+l.id+'" style="width:90px;text-align:right;padding:6px 8px;border:1.5px solid var(--gray-3);border-radius:6px;font-size:13px"/>')
+          + '</td>'
+          + '</tr>';
+      }).join('')}</tbody>
     </table>`;
 }
 
 async function saveBL(){
   const poId = el('bl-po').value;
   const num = el('bl-num').value.trim();
-  if(!poId||!num){ showToast('Commande et N° BL obligatoires','error'); return; }
+  if(!poId||!num){ showToast("Commande et N° BL obligatoires",'error'); return; }
   const {data:bl,error} = await sb.from('bons_livraison').insert({
     po_id:poId, numero_bl:num, date_reception:el('bl-date').value,
     recu_par:currentUser.id, statut_reception:el('bl-statut').value,
     observations:el('bl-obs').value
   }).select().single();
   if(error){ showToast('Erreur: '+error.message,'error'); return; }
-  const lignesInsert = _lignesRec.filter(l=>(parseFloat(el('qty-'+l.id)?.value)||0)>0).map(l=>({
-    bl_id:bl.id, ligne_po_id:l.id, quantite_recue:parseFloat(el('qty-'+l.id).value)||0
-  }));
+  const lignesInsert = _lignesRec
+    .filter(l=>l.restant>0 && (parseFloat(el('qty-'+l.id)?.value)||0)>0)
+    .map(l=>({
+      bl_id:bl.id, ligne_po_id:l.id,
+      quantite_recue:Math.min(parseFloat(el('qty-'+l.id).value)||0, l.restant)
+    }));
   if(lignesInsert.length>0) await sb.from('lignes_bl').insert(lignesInsert);
-  const newStatut = el('bl-statut').value==='complet'?'rec_totale':'rec_partielle';
+  // Vérifier si tout est reçu maintenant
+  const toutRecu = _lignesRec.every(l=>{
+    const nouvQte = l.restant>0 ? (parseFloat(el('qty-'+l.id)?.value)||0) : 0;
+    return (l.deja_recu + nouvQte) >= parseFloat(l.quantite);
+  });
+  const newStatut = toutRecu ? 'rec_totale' : 'rec_partielle';
   await sb.from('purchase_orders_lyneo').update({statut:newStatut}).eq('id',poId);
-  showToast('Bon de livraison enregistré');
+  showToast(toutRecu ? 'Réception complète enregistrée ✓' : 'Réception partielle enregistrée');
   closeModal(); renderReceptions();
 }
 
@@ -1988,18 +2039,19 @@ function openFacModal(){
       <!-- ÉTAPE 3 : Totaux -->
       <div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:16px;margin-bottom:16px">
         <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Montants de la facture</div>
+        <div id="fac-montant-warn" class="alert alert-warning" style="display:none;margin-bottom:12px"></div>
         <div class="form-grid">
           <div class="form-group">
             <label class="field-label">Montant HT (€)</label>
-            <input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()" style="font-size:16px;font-weight:600"/>
+            <input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC();validateFacMontant()" style="font-size:16px;font-weight:600"/>
           </div>
           <div class="form-group">
             <label class="field-label">Montant TVA (€)</label>
-            <input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/>
+            <input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC();validateFacMontant()"/>
           </div>
           <div class="form-group">
             <label class="field-label">Montant TTC (€)</label>
-            <input type="number" step="0.01" id="fac-ttc" value="0" style="font-weight:800;color:var(--blue);font-size:18px"/>
+            <input type="number" step="0.01" id="fac-ttc" value="0" oninput="validateFacMontant()" style="font-weight:800;color:var(--blue);font-size:18px"/>
           </div>
           <div class="form-group" style="align-self:end">
             <button class="btn btn-secondary" onclick="autoCalcFromLignes()" style="width:100%">
@@ -2137,6 +2189,7 @@ function calcFacTTC(){
   const ht = parseFloat(el('fac-ht').value)||0;
   const tva = parseFloat(el('fac-tva').value)||0;
   el('fac-ttc').value = (ht+tva).toFixed(2);
+  validateFacMontant();
 }
 
 async function saveFac(){
@@ -2314,6 +2367,55 @@ document.querySelectorAll && setTimeout(()=>{
     });
   });
 },500);
+
+
+// ── HISTORIQUE FOURNISSEUR ───────────────────────────────────
+async function openFourHistory(fourId, fourNom){
+  const {data:pos} = await sb.from('purchase_orders_lyneo')
+    .select('id,numero,statut,total_ttc,date_creation,chantiers_lyneo(nom)')
+    .eq('fournisseur_id',fourId)
+    .order('created_at',{ascending:false});
+  const items = pos||[];
+  const totalEngage = items.filter(p=>!['annulee'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header">
+      <div><h3>Historique — ${fourNom}</h3><div class="modal-header-sub">${items.length} commande(s) · Total engagé: ${fmt(totalEngage)}</div></div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      ${items.length===0
+        ? '<div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande pour ce fournisseur</p></div>'
+        : '<div class="table-wrap"><table><thead><tr><th>N° Commande</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>'
+          + items.map(p=>'<tr><td><strong class="td-primary">'+p.numero+'</strong></td><td>'+(p.chantiers_lyneo?.nom||'—')+'</td><td>'+fmtDate(p.date_creation)+'</td><td><strong>'+fmt(p.total_ttc)+'</strong></td><td>'+bPO(p.statut)+'</td></tr>').join('')
+          + '</tbody></table></div>'}
+    </div>
+  </div></div>`);
+}
+
+// ── ANNULER PO ───────────────────────────────────────────────
+async function annulerPO(poId){
+  if(!confirm('Êtes-vous sûr de vouloir annuler cette commande ?')) return;
+  await sb.from('purchase_orders_lyneo').update({statut:'annulee'}).eq('id',poId);
+  showToast('Commande annulée');
+  renderPOS();
+}
+
+// ── VALIDATION MONTANT FACTURE ────────────────────────────────
+function validateFacMontant(){
+  const ttc = parseFloat(el('fac-ttc')?.value)||0;
+  const poTotal = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_ttc)||0),0);
+  if(poTotal>0 && Math.abs(ttc-poTotal)>1){
+    const diff = ttc - poTotal;
+    const warn = el('fac-montant-warn');
+    if(warn){
+      warn.style.display='flex';
+      warn.innerHTML = '<i class="ti ti-alert-triangle"></i> Écart de '+fmt(Math.abs(diff))+' par rapport à la commande ('+(diff>0?'facturé en surplus':'facturé en moins')+')';
+    }
+  } else {
+    const warn = el('fac-montant-warn');
+    if(warn) warn.style.display='none';
+  }
+}
 
 window.addEventListener('load', ()=>{
   checkMobile();
