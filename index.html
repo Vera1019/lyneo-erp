@@ -1315,15 +1315,24 @@ async function renderFournisseurs(search=''){
               <td>${r.conditions_paiement||'—'}</td>
               <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Oui':'Non'}</span></td>
               <td><div class="td-actions">
-                <button class="btn btn-secondary btn-sm" onclick='openFourModal(${JSON.stringify(r).replace(/\'/g,"\\'")})'><i class="ti ti-edit"></i></button>
+                <button class="btn btn-secondary btn-sm" data-four-edit="${r.id}" title="Modifier"><i class="ti ti-edit"></i></button>
               </div></td>
             </tr>`;}).join('')}
           </tbody>
         </table>
       </div>
-    </div>`;
+    </div>
+  // Event delegation for edit buttons
+  setTimeout(()=>{
+    document.querySelectorAll('[data-four-edit]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const r = _fournisseurs.find(f=>f.id===btn.dataset.fourEdit);
+        if(r) openFourModal(r);
+      });
+    });
+  }, 50);
 }
-
 function openFourModal(r=null){
   const isEdit = !!r;
   showModal(`<div class="modal-overlay"><div class="modal">
@@ -1375,7 +1384,7 @@ let poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_u
 
 async function renderPOS(search='', filterStatut=''){
   const [posR, chantsR, foursR] = await Promise.all([
-    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo(nom,client),fournisseurs(nom,email)').order('created_at',{ascending:false}),
+    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom,client,numero),fournisseurs!fournisseur_id(nom,email)').order('created_at',{ascending:false}),
     sb.from('chantiers_lyneo').select('*').eq('statut','actif'),
     sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
   ]);
@@ -1405,7 +1414,9 @@ async function renderPOS(search='', filterStatut=''){
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
             items.map(r=>{
-              const chantierNom = r.chantiers_lyneo?.nom || r.chantiers?.nom || '—';
+              const chantierNom = r.chantiers_lyneo?.nom 
+                || _chantiersActive.find(c=>c.id===r.chantier_id)?.nom 
+                || '—';
               const pct = ['rec_totale','facturee','payee'].includes(r.statut) ? 100
                 : r.statut==='rec_partielle' ? 50
                 : r.statut==='envoyee' ? 10 : 0;
@@ -1523,12 +1534,20 @@ async function savePO(){
 async function openPODetail(poId){
   const po = _pos.find(p=>p.id===poId);
   if(!po) return;
-  const [lignesR,blsR,facsR] = await Promise.all([
+  const [lignesR,blsR,facsR,lignesBlR] = await Promise.all([
     sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre'),
     sb.from('bons_livraison').select('*,utilisateurs(nom,prenom)').eq('po_id',poId).order('date_reception'),
-    sb.from('factures').select('*').eq('po_id',poId)
+    sb.from('factures').select('*').eq('po_id',poId),
+    sb.from('lignes_bl').select('ligne_po_id,quantite_recue').in('bl_id',
+      (await sb.from('bons_livraison').select('id').eq('po_id',poId)).data?.map(b=>b.id)||[]
+    )
   ]);
   const lignes = lignesR.data||[], bls = blsR.data||[], facs = facsR.data||[];
+  // Calculate received qty per line
+  const qtesRecues = {};
+  (lignesBlR.data||[]).forEach(lb=>{
+    qtesRecues[lb.ligne_po_id] = (qtesRecues[lb.ligne_po_id]||0) + parseFloat(lb.quantite_recue||0);
+  });
   const four = _foursActive.find(f=>f.id===po.fournisseur_id) || po.fournisseurs;
   const chant = _chantiersActive.find(c=>c.id===po.chantier_id) || po.chantiers;
 
@@ -1570,26 +1589,44 @@ async function openPODetail(poId){
         <div class="info-item"><label>Envoyée le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyée'}</span></div>
       </div>
       ${po.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${po.observations}</div>`:''}
-      <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
-        <thead><tr style="background:var(--gray-1)">
-          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>
-          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Réf.</th>
-          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Qté</th>
-          <th style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Unité</th>
-          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">P.U. HT</th>
-          <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">TVA</th>
-          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Total HT</th>
-        </tr></thead>
-        <tbody>${lignes.map(l=>`<tr>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2)">${l.description}</td>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);color:var(--gray-5)">${l.reference_article||'—'}</td>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.quantite}</td>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2)">${l.unite}</td>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${fmt(l.prix_unitaire_ht)}</td>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${l.taux_tva}%</td>
-          <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(l.total_ht)}</td>
-        </tr>`;}).join('')}</tbody>
-      </table>
+      <div style="overflow-x:auto;margin-bottom:12px">
+      <table style="width:100%;border-collapse:collapse;min-width:600px">
+        <thead>
+          <tr style="background:var(--navy)">
+            <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Description</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Qté cmd.</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Reçu</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Restant</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">P.U. HT</th>
+            <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">TVA</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Total HT</th>
+          </tr>
+        </thead>
+        <tbody>${lignes.map((l,i)=>{
+          const recu = qtesRecues[l.id]||0;
+          const restant = Math.max(0, parseFloat(l.quantite) - recu);
+          const pct = parseFloat(l.quantite)>0 ? Math.min(100,Math.round((recu/parseFloat(l.quantite))*100)) : 0;
+          const pctColor = pct>=100?'var(--green)':pct>0?'var(--blue)':'var(--gray-4)';
+          const bg = i%2===0?'#fff':'var(--gray-1)';
+          return '<tr style="background:'+bg+'">'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'
+            +  '<div style="font-weight:500;color:var(--gray-8)">'+l.description+'</div>'
+            +  (l.reference_article?'<div style="font-size:11px;color:var(--gray-5);margin-top:1px">'+l.reference_article+'</div>':'')
+            +'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600">'+l.quantite+' '+l.unite+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'
+            +  '<div style="font-weight:700;color:'+pctColor+'">'+recu+' '+l.unite+'</div>'
+            +  '<div style="background:var(--gray-2);border-radius:3px;height:5px;margin-top:4px;overflow:hidden">'
+            +    '<div style="background:'+pctColor+';height:100%;width:'+pct+'%;border-radius:3px"></div>'
+            +  '</div>'
+            +'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:'+(restant>0?'var(--orange)':'var(--green)')+'">'+restant+' '+l.unite+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'+fmt(l.prix_unitaire_ht)+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:center">'+l.taux_tva+'%</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">'+fmt(l.total_ht)+'</td>'
+            +'</tr>';
+        }).join('')}</tbody>
+      </table></div>
       <div class="totaux" style="margin-bottom:16px"><div class="totaux-box">
         <div class="totaux-row"><span>Total HT</span><span>${fmt(po.total_ht)}</span></div>
         <div class="totaux-row"><span>TVA</span><span>${fmt(po.total_tva)}</span></div>
@@ -1674,7 +1711,7 @@ function downloadPDF_PO(poId){
 let _posAttente = [], _lignesRec = [];
 async function renderReceptions(){
   const [posR, blsR] = await Promise.all([
-    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo(nom),fournisseurs(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
+    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom),fournisseurs!fournisseur_id(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
     sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs(nom),chantiers_lyneo(nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
   ]);
   _posAttente = posR.data||[];
@@ -1838,7 +1875,7 @@ let _posPourFac = [];
 async function renderFactures(){
   const [facsR, posR] = await Promise.all([
     sb.from('factures').select('*,purchase_orders_lyneo(numero,fournisseurs(nom),chantiers_lyneo(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
-    sb.from('purchase_orders_lyneo').select('*,fournisseurs(nom),chantiers_lyneo(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
+    sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
   ]);
   const facs = facsR.data||[];
   _posPourFac = posR.data||[];
