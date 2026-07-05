@@ -1306,22 +1306,26 @@ async function renderFournisseurs(search=''){
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
-            items.map(r=>`<tr>
-              <td><strong>${r.nom}</strong></td>
-              <td>${r.email?`<a href="mailto:${r.email}" style="color:var(--blue)">${r.email}</a>`:'—'}</td>
-              <td>${r.telephone||'—'}</td>
-              <td>${r.ville||'—'}</td>
-              <td>${r.numero_tva||'—'}</td>
-              <td>${r.conditions_paiement||'—'}</td>
-              <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Oui':'Non'}</span></td>
-              <td><div class="td-actions">
-                <button class="btn btn-secondary btn-sm" data-four-edit="${r.id}" title="Modifier"><i class="ti ti-edit"></i></button>
-              </div></td>
-            </tr>`;}).join('')}
+            items.map(r=>{
+              const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
+              const badge = '<span class="badge badge-'+(r.actif?'oui':'non')+'">'+(r.actif?'Oui':'Non')+'</span>';
+              return '<tr>'
+                +'<td><strong>'+r.nom+'</strong></td>'
+                +'<td>'+email+'</td>'
+                +'<td>'+(r.telephone||'—')+'</td>'
+                +'<td>'+(r.ville||'—')+'</td>'
+                +'<td>'+(r.numero_tva||'—')+'</td>'
+                +'<td>'+(r.conditions_paiement||'—')+'</td>'
+                +'<td>'+badge+'</td>'
+                +'<td><div class="td-actions">'
+                +  '<button class="btn btn-secondary btn-sm" data-four-edit="'+r.id+'" title="Modifier"><i class="ti ti-edit"></i></button>'
+                +'</div></td>'
+                +'</tr>';
+            }).join('')}
           </tbody>
         </table>
       </div>
-    </div>
+    </div>`;
   // Event delegation for edit buttons
   setTimeout(()=>{
     document.querySelectorAll('[data-four-edit]').forEach(btn=>{
@@ -1361,7 +1365,6 @@ function openFourModal(r=null){
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        ${isEdit ? '<button class="btn btn-ghost" onclick="closeModal();openFourHistory(''+r.id+'')"><i class="ti ti-history"></i> Historique commandes</button>' : ''}
         <button class="btn btn-primary" onclick="saveFour('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
@@ -1512,8 +1515,8 @@ function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
 async function savePO(){
   const chantier_id = el('po-chantier').value;
   const fournisseur_id = el('po-four').value;
-  if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires','error'); return; }
-  if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description','error'); return; }
+  if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires",'error'); return; }
+  if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
   const {data:num} = await sb.rpc('generate_po_number');
   const {data:po,error} = await sb.from('purchase_orders_lyneo').insert({
     numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
@@ -1687,19 +1690,19 @@ function downloadPDF_PO(poId){
   </div>
   <table>
     <thead><tr><th>Description</th><th>Référence</th><th style="text-align:right">Qté</th><th>Unité</th><th style="text-align:right">P.U. HT</th><th>TVA</th><th style="text-align:right">Total HT</th></tr></thead>
-    <tbody>${lignes.map(l=>`<tr>
-      <td>${l.description}</td><td>${l.reference_article||''}</td>
-      <td style="text-align:right">${l.quantite}</td><td>${l.unite}</td>
-      <td style="text-align:right">${fmt(l.prix_unitaire_ht)}</td><td>${l.taux_tva}%</td>
-      <td style="text-align:right;font-weight:600">${fmt(l.total_ht)}</td>
-    </tr>`;}).join('')}</tbody>
+    <tbody>'+lignes.map(l=>'<tr>'
+      +'<td>'+l.description+'</td><td>'+(l.reference_article||'')+'</td>'
+      +'<td style="text-align:right">'+l.quantite+'</td><td>'+l.unite+'</td>'
+      +'<td style="text-align:right">'+fmt(l.prix_unitaire_ht)+'</td><td>'+l.taux_tva+'%</td>'
+      +'<td style="text-align:right;font-weight:600">'+fmt(l.total_ht)+'</td>'
+      +'</tr>').join('')+'</tbody>
   </table>
   <div class="totaux"><div class="totaux-box">
     <div class="t-row"><span>Total HT</span><span>${fmt(po.total_ht)}</span></div>
     <div class="t-row"><span>TVA</span><span>${fmt(po.total_tva)}</span></div>
     <div class="t-row t-total"><span>TOTAL TTC</span><span>${fmt(po.total_ttc)}</span></div>
   </div></div>
-  ${po.observations?`<div class="cond" style="margin-bottom:12px"><strong>Observations :</strong> ${po.observations}</div>`:''}
+  '+(po.observations?'<div class="cond" style="margin-bottom:12px"><strong>Observations :</strong> '+po.observations+'</div>':'')+'
   <div class="cond">Conditions de paiement : ${fournisseur?.conditions_paiement||'30 jours'} &nbsp;|&nbsp; Merci de mentionner notre référence <strong>${po.numero}</strong> sur votre facture.</div>
   <div class="footer">LYNEO SARL — Luxembourg &nbsp;|&nbsp; Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
   <script>window.onload=()=>{window.print()}<\/script>
@@ -1735,15 +1738,19 @@ async function renderReceptions(){
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th></tr></thead>
           <tbody>
             ${bls.length===0?'<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
-            bls.map(b=>`<tr>
-              <td><strong class="text-blue">${b.numero_bl}</strong></td>
-              <td>${b.purchase_orders?.numero||'—'}</td>
-              <td>${b.purchase_orders?.fournisseurs?.nom||'—'}</td>
-              <td>${b.purchase_orders?.chantiers?.nom||'—'}</td>
-              <td>${fmtDate(b.date_reception)}</td>
-              <td>${b.utilisateurs?.prenom||''} ${b.utilisateurs?.nom||''}</td>
-              <td><span class="badge badge-${b.statut_reception==='complet'?'rec_totale':'rec_partielle'}">${b.statut_reception==='complet'?'Réception complète':'Réception partielle'}</span></td>
-            </tr>`;}).join('')}
+            bls.map(b=>{
+              const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
+              const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
+              return '<tr>'
+                +'<td><strong class="text-blue">'+b.numero_bl+'</strong></td>'
+                +'<td>'+(b.purchase_orders?.numero||'—')+'</td>'
+                +'<td>'+(b.purchase_orders?.fournisseurs?.nom||'—')+'</td>'
+                +'<td>'+(b.purchase_orders?.chantiers?.nom||'—')+'</td>'
+                +'<td>'+fmtDate(b.date_reception)+'</td>'
+                +'<td>'+(b.utilisateurs?.prenom||'')+' '+(b.utilisateurs?.nom||'')+'</td>'
+                +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
+                +'</tr>';
+            }).join('')}
           </tbody>
         </table>
       </div>
