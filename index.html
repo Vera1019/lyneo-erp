@@ -896,19 +896,21 @@ async function renderChantiers(search=''){
           <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
-            items.map(r=>`<tr style="cursor:pointer" onclick="openChantierDetail('${r.id}')">
-              <td><strong class="text-blue">${r.numero}</strong></td>
-              <td><strong>${r.nom}</strong></td>
+            items.map(r=>{
+              const enRetard = r.date_fin_prevue && r.date_fin_prevue < new Date().toISOString().split('T')[0] && r.statut==='actif';
+              return `<tr style="cursor:pointer${enRetard?';border-left:3px solid var(--red)':''}" onclick="openChantierDetail('${r.id}')">
+              <td><span class="td-primary">${r.numero}</span></td>
+              <td><strong>${r.nom}</strong>${enRetard?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">En retard</span>':''}</td>
               <td>${r.client}</td>
               <td>${r.chef_chantier||'—'}</td>
               <td>${fmtDate(r.date_debut)}</td>
-              <td>${fmtDate(r.date_fin_prevue)}</td>
+              <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_fin_prevue)}</td>
               <td>${bCH(r.statut)}</td>
               <td onclick="event.stopPropagation()"><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')"><i class="ti ti-eye"></i></button>
                 <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'").replace(/"/g,'&quot;')})'><i class="ti ti-edit"></i></button>
               </div></td>
-            </tr>`).join('')}
+            </tr>`;}).join('')}
           </tbody>
         </table>
       </div>
@@ -1181,11 +1183,15 @@ async function loadHeuresChantier(chantier){
         <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Heures</th>
       </tr></thead>
       <tbody>
-        ${dernieres.map(p=>`<tr>
-          <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(p.date)}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${p.employes?.nom||'—'}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${parseFloat(p.heures).toFixed(1)}h</td>
-        </tr>`).join('')}
+        ${dernieres.map(p=>{
+          const h = parseFloat(p.heures).toFixed(1);
+          const nom = p.employes?.nom||'—';
+          return '<tr>'
+            + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">'+fmtDate(p.date)+'</td>'
+            + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">'+nom+'</td>'
+            + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">'+h+'h</td>'
+            + '</tr>';
+        }).join('')}
       </tbody>
     </table>`;
 }
@@ -1265,7 +1271,7 @@ function openChantierModal(r=null){
 async function saveChantier(id){
   const nom = el('ch-nom').value.trim();
   const client = el('ch-client').value.trim();
-  if(!nom||!client){ showToast('Nom et client obligatoires','error'); return; }
+  if(!nom||!client){ showToast("Nom et client obligatoires",'error'); return; }
   const cpModal = el('ch-code-pt-modal'); const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
@@ -1308,8 +1314,10 @@ async function renderFournisseurs(search=''){
               <td>${r.numero_tva||'—'}</td>
               <td>${r.conditions_paiement||'—'}</td>
               <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Oui':'Non'}</span></td>
-              <td><button class="btn btn-secondary btn-sm" onclick='openFourModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
-            </tr>`).join('')}
+              <td><div class="td-actions">
+                <button class="btn btn-secondary btn-sm" onclick='openFourModal(${JSON.stringify(r).replace(/\'/g,"\\'")})'><i class="ti ti-edit"></i></button>
+              </div></td>
+            </tr>`;}).join('')}
           </tbody>
         </table>
       </div>
@@ -1344,6 +1352,7 @@ function openFourModal(r=null){
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        ${isEdit ? '<button class="btn btn-ghost" onclick="closeModal();openFourHistory(''+r.id+'')"><i class="ti ti-history"></i> Historique commandes</button>' : ''}
         <button class="btn btn-primary" onclick="saveFour('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
@@ -1392,15 +1401,28 @@ async function renderPOS(search='', filterStatut=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Livraison souhaitée</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
-            items.map(r=>`<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
-              <td><strong class="text-blue">${r.numero}</strong></td>
+            items.map(r=>{
+              const chantierNom = r.chantiers_lyneo?.nom || r.chantiers?.nom || '—';
+              const pct = ['rec_totale','facturee','payee'].includes(r.statut) ? 100
+                : r.statut==='rec_partielle' ? 50
+                : r.statut==='envoyee' ? 10 : 0;
+              const pctColor = pct===100?'var(--green)':pct>0?'var(--blue)':'var(--gray-3)';
+              return `<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
+              <td><span class="td-primary">${r.numero}</span></td>
               <td>${r.fournisseurs?.nom||'—'}</td>
-              <td>${r.chantiers?.nom||'—'}</td>
+              <td><strong>${chantierNom}</strong></td>
               <td>${fmtDate(r.date_creation)}</td>
-              <td>${fmtDate(r.date_livraison_souhaitee)}</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;background:var(--gray-2);border-radius:4px;height:6px;min-width:60px">
+                    <div style="background:${pctColor};height:100%;width:${pct}%;border-radius:4px"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--gray-5)">${pct}%</span>
+                </div>
+              </td>
               <td>${fmt(r.total_ht)}</td>
               <td><strong>${fmt(r.total_ttc)}</strong></td>
               <td>${bPO(r.statut)}</td>
@@ -1408,7 +1430,7 @@ async function renderPOS(search='', filterStatut=''){
                 <button class="btn btn-secondary btn-sm" onclick="openPODetail('${r.id}')"><i class="ti ti-eye"></i></button>
                 ${r.statut==='brouillon' ? '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();annulerPO(\'' + r.id + '\')" title="Annuler"><i class="ti ti-x"></i></button>' : ''}
               </div></td>
-            </tr>`).join('')}
+            </tr>`;}).join('')}
           </tbody>
         </table>
       </div>
@@ -1479,8 +1501,8 @@ function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
 async function savePO(){
   const chantier_id = el('po-chantier').value;
   const fournisseur_id = el('po-four').value;
-  if(!chantier_id||!fournisseur_id){ showToast('Chantier et fournisseur obligatoires','error'); return; }
-  if(poLignes.some(l=>!l.description)){ showToast('Toutes les lignes doivent avoir une description','error'); return; }
+  if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires','error'); return; }
+  if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description','error'); return; }
   const {data:num} = await sb.rpc('generate_po_number');
   const {data:po,error} = await sb.from('purchase_orders_lyneo').insert({
     numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
@@ -1532,7 +1554,9 @@ async function openPODetail(poId){
       <div><h3>${po.numero}</h3>${bPO(po.statut)}</div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-secondary btn-sm" onclick="downloadPDF_PO('${poId}')"><i class="ti ti-file-download"></i> PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.print()" title="Imprimer"><i class="ti ti-printer"></i></button>
         ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
+        ${po.statut==='rec_totale'?`<button class="btn btn-success btn-sm" onclick="closeModal();navigate('factures')"><i class="ti ti-file-invoice"></i> Saisir facture</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
@@ -1564,7 +1588,7 @@ async function openPODetail(poId){
           <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${fmt(l.prix_unitaire_ht)}</td>
           <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${l.taux_tva}%</td>
           <td style="padding:9px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(l.total_ht)}</td>
-        </tr>`).join('')}</tbody>
+        </tr>`;}).join('')}</tbody>
       </table>
       <div class="totaux" style="margin-bottom:16px"><div class="totaux-box">
         <div class="totaux-row"><span>Total HT</span><span>${fmt(po.total_ht)}</span></div>
@@ -1631,7 +1655,7 @@ function downloadPDF_PO(poId){
       <td style="text-align:right">${l.quantite}</td><td>${l.unite}</td>
       <td style="text-align:right">${fmt(l.prix_unitaire_ht)}</td><td>${l.taux_tva}%</td>
       <td style="text-align:right;font-weight:600">${fmt(l.total_ht)}</td>
-    </tr>`).join('')}</tbody>
+    </tr>`;}).join('')}</tbody>
   </table>
   <div class="totaux"><div class="totaux-box">
     <div class="t-row"><span>Total HT</span><span>${fmt(po.total_ht)}</span></div>
@@ -1660,12 +1684,18 @@ async function renderReceptions(){
       <div class="page-header-left"><h1>Réceptions</h1><p>Bons de livraison et contrôle des marchandises</p></div>
       <button class="btn btn-primary" onclick="openBLModal()"><i class="ti ti-plus"></i> Saisir une réception</button>
     </div>
-    ${_posAttente.length>0?`<div class="alert alert-warning"><i class="ti ti-truck-delivery"></i><strong>${_posAttente.length} commande(s)</strong> en attente de réception</div>`:''}
+    ${_posAttente.length>0?`<div class="alert alert-warning" style="cursor:pointer" onclick="">
+      <i class="ti ti-truck-delivery"></i>
+      <div>
+        <strong>${_posAttente.length} commande(s) en attente de réception</strong>
+        <div style="font-size:12px;margin-top:2px;opacity:.8">${_posAttente.map(p=>p.numero+' — '+(p.fournisseurs?.nom||'')).join(' · ')}</div>
+      </div>
+    </div>`:''}
     <div class="card">
       <div class="card-header"><h2>Historique des réceptions</h2></div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Statut</th></tr></thead>
+          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th></tr></thead>
           <tbody>
             ${bls.length===0?'<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
             bls.map(b=>`<tr>
@@ -1676,7 +1706,7 @@ async function renderReceptions(){
               <td>${fmtDate(b.date_reception)}</td>
               <td>${b.utilisateurs?.prenom||''} ${b.utilisateurs?.nom||''}</td>
               <td><span class="badge badge-${b.statut_reception==='complet'?'rec_totale':'rec_partielle'}">${b.statut_reception==='complet'?'Réception complète':'Réception partielle'}</span></td>
-            </tr>`).join('')}
+            </tr>`;}).join('')}
           </tbody>
         </table>
       </div>
@@ -2182,7 +2212,7 @@ function autoCalcFromLignes(){
   el('fac-ht').value = totalHT.toFixed(2);
   el('fac-tva').value = totalTVA.toFixed(2);
   el('fac-ttc').value = (totalHT+totalTVA).toFixed(2);
-  showToast('Montants calculés depuis les lignes');
+  showToast("Montants calculés depuis les lignes");
 }
 
 function calcFacTTC(){
@@ -2196,7 +2226,7 @@ async function saveFac(){
   const po_id = el('fac-po').value;
   const num = el('fac-num').value.trim();
   const date = el('fac-date').value;
-  if(!po_id||!num||!date){ showToast('Commande, N° facture et date obligatoires','error'); return; }
+  if(!po_id||!num||!date){ showToast("Commande, N° facture et date obligatoires",'error'); return; }
   const {data:fac,error} = await sb.from('factures').insert({
     po_id, numero_facture_fournisseur:num, date_facture:date,
     date_echeance:el('fac-echeance').value||null,
@@ -2275,7 +2305,7 @@ async function renderUtilisateurs(){
       <div class="page-header-left"><h1>Utilisateurs</h1><p>Gestion des accès et rôles</p></div>
       <button class="btn btn-primary" onclick="openUserModal()"><i class="ti ti-plus"></i> Nouvel utilisateur</button>
     </div>
-    <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Mot de passe par défaut pour tous les comptes : <strong>lyneo2026</strong></div>
+    <div class="alert alert-warning" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i>Mot de passe par défaut : <strong>lyneo2026</strong> — Pensez à le personnaliser pour chaque utilisateur en production.</div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
@@ -2326,7 +2356,7 @@ function openUserModal(r=null){
 
 async function saveUser(id){
   const prenom=el('u-prenom').value.trim(), nom=el('u-nom').value.trim(), email=el('u-email').value.trim();
-  if(!prenom||!nom||!email){ showToast('Champs obligatoires manquants','error'); return; }
+  if(!prenom||!nom||!email){ showToast("Champs obligatoires manquants",'error'); return; }
   const data={prenom,nom,email,role:el('u-role').value,actif:el('u-actif').value==='1'};
   if(id) await sb.from('utilisateurs').update(data).eq('id',id);
   else await sb.from('utilisateurs').insert(data);
@@ -2371,6 +2401,7 @@ document.querySelectorAll && setTimeout(()=>{
 
 // ── HISTORIQUE FOURNISSEUR ───────────────────────────────────
 async function openFourHistory(fourId, fourNom){
+  if(!fourNom) { const f = _fournisseurs.find(x=>x.id===fourId); fourNom = f?.nom||''; }
   const {data:pos} = await sb.from('purchase_orders_lyneo')
     .select('id,numero,statut,total_ttc,date_creation,chantiers_lyneo(nom)')
     .eq('fournisseur_id',fourId)
