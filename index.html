@@ -1633,9 +1633,9 @@ async function openPODetail(poId){
       <div><h3>${po.numero}</h3>${bPO(po.statut)}</div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-secondary btn-sm" onclick="downloadPDF_PO('${poId}')"><i class="ti ti-file-download"></i> PDF</button>
-        ${['brouillon','envoyee'].includes(po.statut)?`<button class="btn btn-warning btn-sm" onclick="closeModal();openEditPO('${poId}')"><i class="ti ti-edit"></i> Modifier</button>`:''}
+        <button class="btn btn-warning btn-sm" onclick="closeModal();openEditPO('${poId}')"><i class="ti ti-edit"></i> Modifier</button>
         ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
-        ${po.statut==='rec_totale'?`<button class="btn btn-success btn-sm" onclick="closeModal();navigate('factures')"><i class="ti ti-file-invoice"></i> Saisir facture</button>`:''}
+        ${['rec_partielle','rec_totale','envoyee'].includes(po.statut)?`<button class="btn btn-success btn-sm" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-file-invoice"></i> Générer facture</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
@@ -2157,7 +2157,7 @@ function openFacModal(){
           <input type="date" id="fac-date" value="${today()}"/>
         </div>
         <div class="form-group">
-          <label class="field-label">Date d'échéance</label>
+          <label class="field-label">Date échéance</label>
           <input type="date" id="fac-echeance"/>
         </div>
         <div class="form-group full">
@@ -2553,12 +2553,14 @@ function validateFacMontant(){
 
 
 // ── EDIT PO ──────────────────────────────────────────────────
+// Allows editing PO at any stage before rec_totale/facturee/payee
 async function openEditPO(poId){
   const po = _pos.find(p=>p.id===poId);
   if(!po){ showToast("Commande introuvable", 'error'); return; }
+
   const {data:lignesData} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
   poLignes = (lignesData||[]).map(l=>({
-    id: l.id,
+    _db_id: l.id,
     description: l.description,
     reference_article: l.reference_article||'',
     quantite: l.quantite,
@@ -2567,56 +2569,66 @@ async function openEditPO(poId){
     taux_tva: l.taux_tva
   }));
 
-  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}" ${po.chantier_id===c.id?'selected':''}>${c.numero} — ${c.nom}</option>`).join('');
-  const foursOpts = _foursActive.map(f=>`<option value="${f.id}" ${po.fournisseur_id===f.id?'selected':''}>${f.nom}</option>`).join('');
+  if(!_chantiersActive.length){
+    const {data} = await sb.from('chantiers_lyneo').select('*').eq('statut','actif');
+    _chantiersActive = data||[];
+  }
+  if(!_foursActive.length){
+    const {data} = await sb.from('fournisseurs').select('*').eq('actif',true).order('nom');
+    _foursActive = data||[];
+  }
 
-  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
-    <div class="modal-header">
-      <div><h3>Modifier — ${po.numero}</h3><div class="modal-header-sub">Vous pouvez modifier les lignes, les prix et les quantités</div></div>
-      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label class="field-label">Chantier</label>
-          <select id="po-chantier"><option value="">— Sélectionner —</option>${chantsOpts}</select>
-        </div>
-        <div class="form-group"><label class="field-label">Fournisseur</label>
-          <select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select>
-        </div>
-        <div class="form-group"><label class="field-label">Livraison souhaitée</label>
-          <input type="date" id="po-livraison" value="${po.date_livraison_souhaitee||''}"/>
-        </div>
-        <div class="form-group full"><label class="field-label">Observations</label>
-          <textarea id="po-obs">${po.observations||''}</textarea>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <strong style="font-size:13px">Lignes de commande</strong>
-        <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
-      </div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%">
-        <table class="lignes-table" id="lignes-table" style="min-width:580px">
-          <thead><tr>
-            <th style="min-width:180px">Description *</th>
-            <th style="width:100px">Référence</th>
-            <th style="width:70px">Qté</th>
-            <th style="width:75px">Unité</th>
-            <th style="width:100px">P.U. HT €</th>
-            <th style="width:65px">TVA %</th>
-            <th style="width:100px;text-align:right">Total HT</th>
-            <th style="width:30px"></th>
-          </tr></thead>
-          <tbody id="lignes-body"></tbody>
-        </table>
-      </div>
-      <div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>
-      <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveEditPO('${poId}')"><i class="ti ti-check"></i> Enregistrer les modifications</button>
-      </div>
-    </div>
-  </div></div>`);
+  const chantsOpts = _chantiersActive.map(c=>'<option value="'+c.id+'"'+(po.chantier_id===c.id?' selected':'')+'>'+c.numero+' — '+c.nom+'</option>').join('');
+  const foursOpts = _foursActive.map(f=>'<option value="'+f.id+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+f.nom+'</option>').join('');
+
+  showModal('<div class="modal-overlay"><div class="modal modal-lg">'
+    +'<div class="modal-header">'
+    +  '<div><h3>Modifier — '+po.numero+'</h3>'
+    +  '<div class="modal-header-sub">Modifiez les lignes, les prix et les quantités</div></div>'
+    +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
+    +'</div>'
+    +'<div class="modal-body">'
+    +  '<div class="form-grid" style="margin-bottom:16px">'
+    +    '<div class="form-group"><label class="field-label">Chantier *</label>'
+    +      '<select id="po-chantier"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
+    +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
+    +      '<select id="po-four"><option value="">— Sélectionner —</option>'+foursOpts+'</select></div>'
+    +    '<div class="form-group"><label class="field-label">Livraison souhaitée</label>'
+    +      '<input type="date" id="po-livraison" value="'+(po.date_livraison_souhaitee||'')+'"/></div>'
+    +    '<div class="form-group full"><label class="field-label">Observations</label>'
+    +      '<textarea id="po-obs">'+(po.observations||'')+'</textarea></div>'
+    +  '</div>'
+    +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +    '<strong style="font-size:13px">Lignes de commande</strong>'
+    +    '<button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
+    +  '</div>'
+    +  '<div style="overflow-x:auto;max-width:100%">'
+    +    '<table class="lignes-table" id="lignes-table" style="min-width:580px">'
+    +      '<thead><tr>'
+    +        '<th style="min-width:180px">Description *</th>'
+    +        '<th style="width:100px">Référence</th>'
+    +        '<th style="width:70px">Qté</th>'
+    +        '<th style="width:75px">Unité</th>'
+    +        '<th style="width:110px">P.U. HT €</th>'
+    +        '<th style="width:65px">TVA %</th>'
+    +        '<th style="width:100px;text-align:right">Total HT</th>'
+    +        '<th style="width:30px"></th>'
+    +      '</tr></thead>'
+    +      '<tbody id="lignes-body"></tbody>'
+    +    '</table>'
+    +  '</div>'
+    +  '<div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>'
+    +  '<div class="form-actions">'
+    +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
+    +    '<button class="btn btn-primary" id="btn-save-edit-po"><i class="ti ti-check"></i> Enregistrer les modifications</button>'
+    +  '</div>'
+    +'</div>'
+  +'</div></div>');
   renderPoLignes();
+  setTimeout(()=>{
+    const btn = el('btn-save-edit-po');
+    if(btn) btn.addEventListener('click', ()=>saveEditPO(poId));
+  }, 50);
 }
 
 async function saveEditPO(poId){
@@ -2625,84 +2637,225 @@ async function saveEditPO(poId){
   if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires", 'error'); return; }
   if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
 
-  // Update PO header
   await sb.from('purchase_orders_lyneo').update({
     chantier_id, fournisseur_id,
     date_livraison_souhaitee: el('po-livraison').value||null,
     observations: el('po-obs').value
   }).eq('id', poId);
 
-  // Delete existing lines and re-insert
+  // Delete and re-insert all lines
   await sb.from('lignes_po').delete().eq('po_id', poId);
-  await sb.from('lignes_po').insert(poLignes.map((l,i)=>({
+  const {error} = await sb.from('lignes_po').insert(poLignes.map((l,i)=>({
     po_id: poId, ordre: i+1,
     description: l.description,
-    reference_article: l.reference_article,
+    reference_article: l.reference_article||'',
     quantite: parseFloat(l.quantite)||0,
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
     taux_tva: parseFloat(l.taux_tva)||17
   })));
-
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast("Commande mise à jour");
   closeModal();
-  renderPOS();
+  await renderPOS();
 }
 
-// ── EDIT FACTURE FOURNISSEUR (modifier prix) ──────────────────
-async function openEditFacLignes(facId){
-  const {data:fac} = await sb.from('factures').select('*,purchase_orders_lyneo(numero,lignes_po(*))').eq('id',facId).single();
-  if(!fac){ showToast("Facture introuvable", 'error'); return; }
-  const lignes = fac.purchase_orders_lyneo?.lignes_po||[];
+// ── GÉNÉRER FACTURE DEPUIS PO ─────────────────────────────────
+// Like Odoo: creates a facture from a PO with editable lines
+let _facFromPoLignes = [];
 
-  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
-    <div class="modal-header">
-      <div><h3>Modifier les montants — ${fac.numero_facture_fournisseur}</h3>
-        <div class="modal-header-sub">Ajustez les montants si la facture diffère de la commande</div>
-      </div>
-      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
-    </div>
-    <div class="modal-body">
-      <div class="alert alert-info" style="margin-bottom:16px">
-        <i class="ti ti-info-circle"></i>
-        Ces montants sont ceux de la facture reçue du fournisseur. Ils peuvent différer de la commande.
-      </div>
-      <div class="form-grid">
-        <div class="form-group"><label class="field-label">N° Facture fournisseur</label>
-          <input id="efac-num" value="${fac.numero_facture_fournisseur}"/>
-        </div>
-        <div class="form-group"><label class="field-label">Date de facture</label>
-          <input type="date" id="efac-date" value="${fac.date_facture}"/>
-        </div>
-        <div class="form-group"><label class="field-label">Date d'échéance</label>
-          <input type="date" id="efac-echeance" value="${fac.date_echeance||''}"/>
-        </div>
-        <div class="form-group"><label class="field-label">Statut</label>
-          <select id="efac-statut">
-            <option value="recue" ${fac.statut==='recue'?'selected':''}>Reçue</option>
-            <option value="validee" ${fac.statut==='validee'?'selected':''}>Validée</option>
-            <option value="litige" ${fac.statut==='litige'?'selected':''}>Litige</option>
-          </select>
-        </div>
-        <div class="form-group"><label class="field-label">Montant HT (€)</label>
-          <input type="number" step="0.01" id="efac-ht" value="${fac.montant_ht||0}" oninput="calcEditFacTTC()"/>
-        </div>
-        <div class="form-group"><label class="field-label">Montant TVA (€)</label>
-          <input type="number" step="0.01" id="efac-tva" value="${fac.montant_tva||0}" oninput="calcEditFacTTC()"/>
-        </div>
-        <div class="form-group"><label class="field-label">Montant TTC (€)</label>
-          <input type="number" step="0.01" id="efac-ttc" value="${fac.montant_ttc||0}" style="font-weight:800;color:var(--blue);font-size:16px"/>
-        </div>
-        <div class="form-group full"><label class="field-label">Observations</label>
-          <textarea id="efac-obs">${fac.observations||''}</textarea>
-        </div>
-      </div>
-      <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveEditFac('${facId}')"><i class="ti ti-check"></i> Enregistrer</button>
-      </div>
-    </div>
-  </div></div>`);
+async function openFacFromPO(poId){
+  const po = _pos.find(p=>p.id===poId);
+  if(!po){ showToast("Commande introuvable", 'error'); return; }
+
+  const {data:lignesData} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+  _facFromPoLignes = (lignesData||[]).map(l=>({
+    ligne_po_id: l.id,
+    description: l.description,
+    reference_article: l.reference_article||'',
+    quantite: parseFloat(l.quantite)||0,
+    unite: l.unite,
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+    taux_tva: parseFloat(l.taux_tva)||17,
+    total_ht: parseFloat(l.total_ht)||0
+  }));
+
+  if(!_foursActive.length){
+    const {data} = await sb.from('fournisseurs').select('*').eq('actif',true).order('nom');
+    _foursActive = data||[];
+  }
+  const four = _foursActive.find(f=>f.id===po.fournisseur_id);
+
+  const renderFacLines = () => {
+    const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+    const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+    const tbody = el('fac-po-lines-body');
+    if(!tbody) return;
+    tbody.innerHTML = _facFromPoLignes.map((l,i)=>
+      '<tr>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">'
+      +  '<input value="'+l.description+'" onchange="_facFromPoLignes['+i+'].description=this.value" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>'
+      +'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:80px">'
+      +  '<input type="number" min="0" step="0.001" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/>'
+      +'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:40px;text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:100px">'
+      +  '<input type="number" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" onchange="_facFromPoLignes['+i+'].prix_unitaire_ht=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/>'
+      +'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:60px">'
+      +  '<select onchange="_facFromPoLignes['+i+'].taux_tva=this.value;renderFacPOLines()" style="padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px">'
+      +  [17,14,8,3,0].map(t=>'<option value="'+t+'"'+(parseFloat(l.taux_tva)==t?' selected':'')+'>'+t+'%</option>').join('')
+      +  '</select>'
+      +'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">'
+      +  fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))
+      +'</td>'
+      +'</tr>'
+    ).join('');
+    const totBox = el('fac-po-totaux');
+    if(totBox) totBox.innerHTML =
+      '<div class="totaux-row"><span>Total HT</span><span>'+fmt(totalHT)+'</span></div>'
+      +'<div class="totaux-row"><span>TVA</span><span>'+fmt(totalTVA)+'</span></div>'
+      +'<div class="totaux-row ttc"><span>TOTAL TTC</span><span>'+fmt(totalHT+totalTVA)+'</span></div>';
+    if(el('fac-gen-ht')) el('fac-gen-ht').value = totalHT.toFixed(2);
+    if(el('fac-gen-tva')) el('fac-gen-tva').value = totalTVA.toFixed(2);
+    if(el('fac-gen-ttc')) el('fac-gen-ttc').value = (totalHT+totalTVA).toFixed(2);
+  };
+  window.renderFacPOLines = renderFacLines;
+
+  const totalHT0 = _facFromPoLignes.reduce((a,l)=>a+l.total_ht,0);
+  const totalTVA0 = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+
+  showModal('<div class="modal-overlay"><div class="modal modal-lg">'
+    +'<div class="modal-header">'
+    +  '<div><h3>Générer une facture — '+po.numero+'</h3>'
+    +  '<div class="modal-header-sub">'+( four?.nom||'')+'</div></div>'
+    +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
+    +'</div>'
+    +'<div class="modal-body">'
+    +  '<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Vous pouvez modifier les quantités et les prix avant de créer la facture.</div>'
+    +  '<div class="form-grid" style="margin-bottom:16px">'
+    +    '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="fac-gen-num" placeholder="FA-2026-XXXX"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-gen-date" value="'+today()+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fac-gen-echeance"/></div>'
+    +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
+    +  '</div>'
+    +  '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Lignes facturées (modifiables)</div>'
+    +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+    +    '<thead><tr style="background:var(--navy)">'
+    +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:80px">Qté</th>'
+    +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:40px">Un.</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:100px">P.U. HT €</th>'
+    +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:60px">TVA</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Total HT</th>'
+    +    '</tr></thead>'
+    +    '<tbody id="fac-po-lines-body"></tbody>'
+    +  '</table></div>'
+    +  '<div class="totaux"><div class="totaux-box" id="fac-po-totaux"></div></div>'
+    +  '<input type="hidden" id="fac-gen-ht" value="'+totalHT0.toFixed(2)+'"/>'
+    +  '<input type="hidden" id="fac-gen-tva" value="'+totalTVA0.toFixed(2)+'"/>'
+    +  '<input type="hidden" id="fac-gen-ttc" value="'+(totalHT0+totalTVA0).toFixed(2)+'"/>'
+    +  '<div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:16px;margin-top:16px">'
+    +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px"><i class="ti ti-paperclip"></i> Joindre la facture PDF</div>'
+    +    '<div id="fac-gen-drop" ondragover="event.preventDefault()" ondrop="handleDropFacNew(event)" onclick="el(&quot;fac-gen-file&quot;).click()" style="text-align:center;padding:16px;cursor:pointer;border:2px dashed var(--gray-3);border-radius:var(--radius-sm)">'
+    +      '<i class="ti ti-cloud-upload" style="font-size:24px;color:var(--gray-4);display:block;margin-bottom:4px"></i>'
+    +      '<span style="font-size:13px;color:var(--gray-5)">Glissez le PDF ou <span style="color:var(--blue);font-weight:600">cliquez</span></span>'
+    +      '<input type="file" id="fac-gen-file" accept=".pdf,.jpg,.png" style="display:none" onchange="previewFacFiles(this.files)"/>'
+    +    '</div>'
+    +    '<div id="fac-files-preview" style="margin-top:8px"></div>'
+    +  '</div>'
+    +  '<div class="form-actions">'
+    +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
+    +    '<button class="btn btn-primary btn-lg" id="btn-save-fac-po"><i class="ti ti-check"></i> Créer la facture</button>'
+    +  '</div>'
+    +'</div></div></div>');
+
+  setTimeout(()=>{
+    renderFacLines();
+    const btn = el('btn-save-fac-po');
+    if(btn) btn.addEventListener('click', ()=>saveFacFromPO(poId));
+  }, 50);
+}
+
+async function saveFacFromPO(poId){
+  const num = el('fac-gen-num')?.value.trim();
+  const date = el('fac-gen-date')?.value;
+  if(!num||!date){ showToast("N° facture et date obligatoires", 'error'); return; }
+
+  const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+
+  const {data:fac,error} = await sb.from('factures').insert({
+    po_id: poId,
+    numero_facture_fournisseur: num,
+    date_facture: date,
+    date_echeance: el('fac-gen-echeance')?.value||null,
+    montant_ht: totalHT,
+    montant_tva: totalTVA,
+    montant_ttc: totalHT+totalTVA,
+    statut: 'recue',
+    saisie_par: currentUser.id,
+    observations: el('fac-gen-obs')?.value||''
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+
+  await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',poId);
+
+  // Upload files if any
+  if(_facFilesNew && _facFilesNew.length>0 && fac){
+    for(const file of _facFilesNew){
+      const path = 'factures/'+fac.id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+      const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+      if(!upErr){
+        const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+        await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
+      }
+    }
+    showToast('Facture créée avec '+_facFilesNew.length+' document(s)');
+  } else {
+    showToast('Facture créée — '+num);
+  }
+  _facFilesNew = [];
+  closeModal();
+  renderFactures();
+}
+
+// ── EDIT FACTURE FOURNISSEUR ──────────────────────────────────
+async function openEditFacLignes(facId){
+  const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
+  if(!fac){ showToast("Facture introuvable", 'error'); return; }
+
+  showModal('<div class="modal-overlay"><div class="modal">'
+    +'<div class="modal-header">'
+    +  '<div><h3>Modifier — '+fac.numero_facture_fournisseur+'</h3>'
+    +  '<div class="modal-header-sub">Modifiez les montants et informations</div></div>'
+    +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
+    +'</div>'
+    +'<div class="modal-body">'
+    +  '<div class="form-grid">'
+    +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+fac.date_facture+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Statut</label>'
+    +      '<select id="efac-statut">'
+    +        '<option value="recue"'+(fac.statut==='recue'?' selected':'')+'>Reçue</option>'
+    +        '<option value="validee"'+(fac.statut==='validee'?' selected':'')+'>Validée</option>'
+    +        '<option value="litige"'+(fac.statut==='litige'?' selected':'')+'>Litige</option>'
+    +      '</select>'
+    +    '</div>'
+    +    '<div class="form-group"><label class="field-label">Montant HT (€)</label><input type="number" step="0.01" id="efac-ht" value="'+(fac.montant_ht||0)+'" oninput="calcEditFacTTC()"/></div>'
+    +    '<div class="form-group"><label class="field-label">Montant TVA (€)</label><input type="number" step="0.01" id="efac-tva" value="'+(fac.montant_tva||0)+'" oninput="calcEditFacTTC()"/></div>'
+    +    '<div class="form-group"><label class="field-label">Montant TTC (€)</label><input type="number" step="0.01" id="efac-ttc" value="'+(fac.montant_ttc||0)+'" style="font-weight:800;color:var(--blue);font-size:16px"/></div>'
+    +    '<div class="form-group full"><label class="field-label">Observations</label><textarea id="efac-obs">'+(fac.observations||'')+'</textarea></div>'
+    +  '</div>'
+    +  '<div class="form-actions">'
+    +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
+    +    '<button class="btn btn-primary" id="btn-save-edit-fac"><i class="ti ti-check"></i> Enregistrer</button>'
+    +  '</div>'
+    +'</div></div></div>');
+  setTimeout(()=>{ const b=el('btn-save-edit-fac'); if(b) b.addEventListener('click',()=>saveEditFac(facId)); },50);
 }
 
 function calcEditFacTTC(){
@@ -2727,6 +2880,7 @@ async function saveEditFac(facId){
   closeModal();
   renderFactures();
 }
+
 
 window.addEventListener('load', ()=>{
   checkMobile();
