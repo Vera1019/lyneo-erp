@@ -1314,8 +1314,8 @@ function openChantierModal(r=null){
         </select></div>
         <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
         <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
-        <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
         <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -1518,7 +1518,6 @@ function openNewPO(){
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
         <div class="form-group"><label class="field-label">Fournisseur *</label><select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select></div>
-        <div class="form-group"><label class="field-label">Livraison souhaitée</label><input type="date" id="po-livraison"/></div>
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="po-obs" placeholder="Instructions particulières..."></textarea></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -1577,7 +1576,7 @@ async function savePO(){
   const {data:num} = await sb.rpc('generate_po_number');
   const {data:po,error} = await sb.from('purchase_orders_lyneo').insert({
     numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
-    date_livraison_souhaitee:el('po-livraison').value||null,
+
     observations:el('po-obs').value
   }).select().single();
   if(error){ showToast('Erreur: '+error.message,'error'); return; }
@@ -2593,8 +2592,6 @@ async function openEditPO(poId){
     +      '<select id="po-chantier"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
     +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
     +      '<select id="po-four"><option value="">— Sélectionner —</option>'+foursOpts+'</select></div>'
-    +    '<div class="form-group"><label class="field-label">Livraison souhaitée</label>'
-    +      '<input type="date" id="po-livraison" value="'+(po.date_livraison_souhaitee||'')+'"/></div>'
     +    '<div class="form-group full"><label class="field-label">Observations</label>'
     +      '<textarea id="po-obs">'+(po.observations||'')+'</textarea></div>'
     +  '</div>'
@@ -2639,7 +2636,7 @@ async function saveEditPO(poId){
 
   await sb.from('purchase_orders_lyneo').update({
     chantier_id, fournisseur_id,
-    date_livraison_souhaitee: el('po-livraison').value||null,
+
     observations: el('po-obs').value
   }).eq('id', poId);
 
@@ -2669,11 +2666,23 @@ async function openFacFromPO(poId){
   if(!po){ showToast("Commande introuvable", 'error'); return; }
 
   const {data:lignesData} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+
+  // Load already received quantities
+  const {data:blsData} = await sb.from('bons_livraison').select('id').eq('po_id',poId);
+  const blIds = (blsData||[]).map(b=>b.id);
+  let dejRecu = {};
+  if(blIds.length>0){
+    const {data:ligBL} = await sb.from('lignes_bl').select('ligne_po_id,quantite_recue').in('bl_id',blIds);
+    (ligBL||[]).forEach(lb=>{ dejRecu[lb.ligne_po_id]=(dejRecu[lb.ligne_po_id]||0)+parseFloat(lb.quantite_recue||0); });
+  }
+
   _facFromPoLignes = (lignesData||[]).map(l=>({
     ligne_po_id: l.id,
     description: l.description,
     reference_article: l.reference_article||'',
-    quantite: parseFloat(l.quantite)||0,
+    quantite_commandee: parseFloat(l.quantite)||0,
+    quantite_recue: dejRecu[l.id]||0,
+    quantite: dejRecu[l.id]||parseFloat(l.quantite)||0, // default to received qty
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
     taux_tva: parseFloat(l.taux_tva)||17,
@@ -2691,28 +2700,30 @@ async function openFacFromPO(poId){
     const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
     const tbody = el('fac-po-lines-body');
     if(!tbody) return;
-    tbody.innerHTML = _facFromPoLignes.map((l,i)=>
-      '<tr>'
+    tbody.innerHTML = _facFromPoLignes.map((l,i)=>{
+      const totalLigne = (parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0);
+      const bg = i%2===0?'#fff':'var(--gray-1)';
+      return '<tr style="background:'+bg+'">'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">'
       +  '<input value="'+l.description+'" onchange="_facFromPoLignes['+i+'].description=this.value" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>'
       +'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5);white-space:nowrap">'+l.quantite_commandee+' '+l.unite+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:80px">'
-      +  '<input type="number" min="0" step="0.001" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/>'
+      +  '<input type="number" min="0" step="0.001" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:40px;text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:100px">'
-      +  '<input type="number" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" onchange="_facFromPoLignes['+i+'].prix_unitaire_ht=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/>'
+      +  '<input type="number" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" onchange="_facFromPoLignes['+i+'].prix_unitaire_ht=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:60px">'
-      +  '<select onchange="_facFromPoLignes['+i+'].taux_tva=this.value;renderFacPOLines()" style="padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px">'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:55px">'
+      +  '<select onchange="_facFromPoLignes['+i+'].taux_tva=this.value;renderFacPOLines()" style="padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'
       +  [17,14,8,3,0].map(t=>'<option value="'+t+'"'+(parseFloat(l.taux_tva)==t?' selected':'')+'>'+t+'%</option>').join('')
       +  '</select>'
       +'</td>'
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">'
-      +  fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))
-      +'</td>'
-      +'</tr>'
-    ).join('');
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">'+fmt(totalLigne)+'</td>'
+      +'</tr>';
+    }).join('');
     const totBox = el('fac-po-totaux');
     if(totBox) totBox.innerHTML =
       '<div class="totaux-row"><span>Total HT</span><span>'+fmt(totalHT)+'</span></div>'
@@ -2741,14 +2752,16 @@ async function openFacFromPO(poId){
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fac-gen-echeance"/></div>'
     +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
     +  '</div>'
-    +  '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Lignes facturées (modifiables)</div>'
-    +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+    +  '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Lignes facturées — modifiez les quantités et les prix</div>'
+    +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:600px">'
     +    '<thead><tr style="background:var(--navy)">'
     +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
-    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:80px">Qté</th>'
-    +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:40px">Un.</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">Cmd.</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">Reçu</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:80px">Qté fact.</th>'
+    +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:35px">Un.</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:100px">P.U. HT €</th>'
-    +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:60px">TVA</th>'
+    +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:55px">TVA</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Total HT</th>'
     +    '</tr></thead>'
     +    '<tbody id="fac-po-lines-body"></tbody>'
