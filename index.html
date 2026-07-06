@@ -950,10 +950,20 @@ async function openChantierDetail(chantierId, tab){
   cats.forEach(c=>{ docsParCat[c] = docs.filter(d=>d.categorie===c); });
   const totalCmds = pos.reduce((a,p)=>a+(p.total_ttc||0),0);
 
+  // Load factures fournisseur and vente for this chantier
+  const [facsFournR, facsVenteR] = await Promise.all([
+    sb.from('factures').select('*').in('po_id', pos.map(p=>p.id)).order('created_at',{ascending:false}),
+    sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false}).catch(()=>({data:[]}))
+  ]);
+  const facsFourn = facsFournR.data||[];
+  const facsVente = facsVenteR.data||[];
+
   const tabs = [
     {id:'info', label:'Informations', icon:'ti-info-circle'},
-    {id:'heures', label:'Heures', icon:'ti-clock'},
     {id:'commandes', label:'Commandes ('+pos.length+')', icon:'ti-shopping-cart'},
+    {id:'fac_fourn', label:'Fact. fourn. ('+facsFourn.length+')', icon:'ti-file-invoice'},
+    {id:'fac_vente', label:'Fact. clients ('+facsVente.length+')', icon:'ti-receipt'},
+    {id:'heures', label:'Heures', icon:'ti-clock'},
     {id:'documents', label:'Documents ('+docs.length+')', icon:'ti-paperclip'},
   ];
 
@@ -1047,7 +1057,54 @@ async function openChantierDetail(chantierId, tab){
     <i class="ti ti-loader" style="font-size:32px;display:block;margin-bottom:8px"></i>Chargement des heures...
   </div>`;
 
-  const tabContent = {info:tabInfo, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments};
+  // Tab: Factures fournisseurs
+  const tabFacFourn = facsFourn.length===0
+    ? '<div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture fournisseur pour ce chantier</p></div>'
+    : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+      + '<thead><tr style="background:var(--gray-1)">'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Échéance</th>'
+      + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Montant TTC</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Statut</th>'
+      + '</tr></thead><tbody>'
+      + facsFourn.map(f=>{
+          const enRetard = f.date_echeance && f.date_echeance < new Date().toISOString().split('T')[0] && f.statut!=='payee';
+          return '<tr>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+f.numero_facture_fournisseur+'</strong></td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(f.date_facture)+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);color:'+(enRetard?'var(--red)':'inherit')+'">'+fmtDate(f.date_echeance)+(enRetard?' ⚠️':'')+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(f.montant_ttc)+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bFA(f.statut)+'</td>'
+            +'</tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + '<div style="padding:12px 0;font-size:13px;color:var(--gray-6);text-align:right"><strong>Total TTC : </strong>'
+      + fmt(facsFourn.reduce((a,f)=>a+(f.montant_ttc||0),0))+'</div>';
+
+  // Tab: Factures clients  
+  const tabFacVente = facsVente.length===0
+    ? '<div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client pour ce chantier</p><button class="btn btn-primary" onclick="closeModal();navigate(&quot;factures_vente&quot;)"><i class="ti ti-plus"></i> Créer une facture</button></div>'
+    : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+      + '<thead><tr style="background:var(--gray-1)">'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Client</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
+      + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Total TTC</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Statut</th>'
+      + '</tr></thead><tbody>'
+      + facsVente.map(f=>'<tr>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+f.numero+'</strong></td>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(f.clients?.nom||'—')+'</td>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(f.date_creation)+'</td>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(f.total_ttc)+'</td>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bFV(f.statut)+'</td>'
+          +'</tr>').join('')
+      + '</tbody></table></div>'
+      + '<div style="padding:12px 0;font-size:13px;color:var(--gray-6);text-align:right"><strong>Total TTC facturé : </strong>'
+      + fmt(facsVente.reduce((a,f)=>a+(f.total_ttc||0),0))+'</div>';
+
+  const tabContent = {info:tabInfo, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -1576,7 +1633,7 @@ async function openPODetail(poId){
       <div><h3>${po.numero}</h3>${bPO(po.statut)}</div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-secondary btn-sm" onclick="downloadPDF_PO('${poId}')"><i class="ti ti-file-download"></i> PDF</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.print()" title="Imprimer"><i class="ti ti-printer"></i></button>
+        ${['brouillon','envoyee'].includes(po.statut)?`<button class="btn btn-warning btn-sm" onclick="closeModal();openEditPO('${poId}')"><i class="ti ti-edit"></i> Modifier</button>`:''}
         ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
         ${po.statut==='rec_totale'?`<button class="btn btn-success btn-sm" onclick="closeModal();navigate('factures')"><i class="ti ti-file-invoice"></i> Saisir facture</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
@@ -1910,6 +1967,7 @@ async function renderFactures(){
                 <td><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button></td>
                 <td>${bFA(r.statut)}</td>
                 <td><div class="td-actions">
+                  <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
                   ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
                   ${r.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="openPayModal('${r.id}','${r.po_id}',${r.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
                   ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
@@ -1951,6 +2009,7 @@ async function openFacDetail(facId){
         <span style="font-size:12px;color:var(--gray-5)">${fac.purchase_orders?.fournisseurs?.nom||''} — ${fac.purchase_orders?.chantiers?.nom||''}</span>
       </div>
       <div class="flex gap-8 items-center">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
         ${fac.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${fac.id}');closeModal()"><i class="ti ti-check"></i> Valider</button>`:''}
         ${fac.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="closeModal();openPayModal('${fac.id}','${fac.po_id}',${fac.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
@@ -2490,6 +2549,183 @@ function validateFacMontant(){
     const warn = el('fac-montant-warn');
     if(warn) warn.style.display='none';
   }
+}
+
+
+// ── EDIT PO ──────────────────────────────────────────────────
+async function openEditPO(poId){
+  const po = _pos.find(p=>p.id===poId);
+  if(!po){ showToast("Commande introuvable", 'error'); return; }
+  const {data:lignesData} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+  poLignes = (lignesData||[]).map(l=>({
+    id: l.id,
+    description: l.description,
+    reference_article: l.reference_article||'',
+    quantite: l.quantite,
+    unite: l.unite,
+    prix_unitaire_ht: l.prix_unitaire_ht,
+    taux_tva: l.taux_tva
+  }));
+
+  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}" ${po.chantier_id===c.id?'selected':''}>${c.numero} — ${c.nom}</option>`).join('');
+  const foursOpts = _foursActive.map(f=>`<option value="${f.id}" ${po.fournisseur_id===f.id?'selected':''}>${f.nom}</option>`).join('');
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>Modifier — ${po.numero}</h3><div class="modal-header-sub">Vous pouvez modifier les lignes, les prix et les quantités</div></div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Chantier</label>
+          <select id="po-chantier"><option value="">— Sélectionner —</option>${chantsOpts}</select>
+        </div>
+        <div class="form-group"><label class="field-label">Fournisseur</label>
+          <select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select>
+        </div>
+        <div class="form-group"><label class="field-label">Livraison souhaitée</label>
+          <input type="date" id="po-livraison" value="${po.date_livraison_souhaitee||''}"/>
+        </div>
+        <div class="form-group full"><label class="field-label">Observations</label>
+          <textarea id="po-obs">${po.observations||''}</textarea>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <strong style="font-size:13px">Lignes de commande</strong>
+        <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+      </div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%">
+        <table class="lignes-table" id="lignes-table" style="min-width:580px">
+          <thead><tr>
+            <th style="min-width:180px">Description *</th>
+            <th style="width:100px">Référence</th>
+            <th style="width:70px">Qté</th>
+            <th style="width:75px">Unité</th>
+            <th style="width:100px">P.U. HT €</th>
+            <th style="width:65px">TVA %</th>
+            <th style="width:100px;text-align:right">Total HT</th>
+            <th style="width:30px"></th>
+          </tr></thead>
+          <tbody id="lignes-body"></tbody>
+        </table>
+      </div>
+      <div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveEditPO('${poId}')"><i class="ti ti-check"></i> Enregistrer les modifications</button>
+      </div>
+    </div>
+  </div></div>`);
+  renderPoLignes();
+}
+
+async function saveEditPO(poId){
+  const chantier_id = el('po-chantier').value;
+  const fournisseur_id = el('po-four').value;
+  if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires", 'error'); return; }
+  if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
+
+  // Update PO header
+  await sb.from('purchase_orders_lyneo').update({
+    chantier_id, fournisseur_id,
+    date_livraison_souhaitee: el('po-livraison').value||null,
+    observations: el('po-obs').value
+  }).eq('id', poId);
+
+  // Delete existing lines and re-insert
+  await sb.from('lignes_po').delete().eq('po_id', poId);
+  await sb.from('lignes_po').insert(poLignes.map((l,i)=>({
+    po_id: poId, ordre: i+1,
+    description: l.description,
+    reference_article: l.reference_article,
+    quantite: parseFloat(l.quantite)||0,
+    unite: l.unite,
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+    taux_tva: parseFloat(l.taux_tva)||17
+  })));
+
+  showToast("Commande mise à jour");
+  closeModal();
+  renderPOS();
+}
+
+// ── EDIT FACTURE FOURNISSEUR (modifier prix) ──────────────────
+async function openEditFacLignes(facId){
+  const {data:fac} = await sb.from('factures').select('*,purchase_orders_lyneo(numero,lignes_po(*))').eq('id',facId).single();
+  if(!fac){ showToast("Facture introuvable", 'error'); return; }
+  const lignes = fac.purchase_orders_lyneo?.lignes_po||[];
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>Modifier les montants — ${fac.numero_facture_fournisseur}</h3>
+        <div class="modal-header-sub">Ajustez les montants si la facture diffère de la commande</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" style="margin-bottom:16px">
+        <i class="ti ti-info-circle"></i>
+        Ces montants sont ceux de la facture reçue du fournisseur. Ils peuvent différer de la commande.
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">N° Facture fournisseur</label>
+          <input id="efac-num" value="${fac.numero_facture_fournisseur}"/>
+        </div>
+        <div class="form-group"><label class="field-label">Date de facture</label>
+          <input type="date" id="efac-date" value="${fac.date_facture}"/>
+        </div>
+        <div class="form-group"><label class="field-label">Date d'échéance</label>
+          <input type="date" id="efac-echeance" value="${fac.date_echeance||''}"/>
+        </div>
+        <div class="form-group"><label class="field-label">Statut</label>
+          <select id="efac-statut">
+            <option value="recue" ${fac.statut==='recue'?'selected':''}>Reçue</option>
+            <option value="validee" ${fac.statut==='validee'?'selected':''}>Validée</option>
+            <option value="litige" ${fac.statut==='litige'?'selected':''}>Litige</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Montant HT (€)</label>
+          <input type="number" step="0.01" id="efac-ht" value="${fac.montant_ht||0}" oninput="calcEditFacTTC()"/>
+        </div>
+        <div class="form-group"><label class="field-label">Montant TVA (€)</label>
+          <input type="number" step="0.01" id="efac-tva" value="${fac.montant_tva||0}" oninput="calcEditFacTTC()"/>
+        </div>
+        <div class="form-group"><label class="field-label">Montant TTC (€)</label>
+          <input type="number" step="0.01" id="efac-ttc" value="${fac.montant_ttc||0}" style="font-weight:800;color:var(--blue);font-size:16px"/>
+        </div>
+        <div class="form-group full"><label class="field-label">Observations</label>
+          <textarea id="efac-obs">${fac.observations||''}</textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveEditFac('${facId}')"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+
+function calcEditFacTTC(){
+  const ht = parseFloat(el('efac-ht')?.value)||0;
+  const tva = parseFloat(el('efac-tva')?.value)||0;
+  if(el('efac-ttc')) el('efac-ttc').value = (ht+tva).toFixed(2);
+}
+
+async function saveEditFac(facId){
+  const {error} = await sb.from('factures').update({
+    numero_facture_fournisseur: el('efac-num').value,
+    date_facture: el('efac-date').value,
+    date_echeance: el('efac-echeance').value||null,
+    montant_ht: parseFloat(el('efac-ht').value)||0,
+    montant_tva: parseFloat(el('efac-tva').value)||0,
+    montant_ttc: parseFloat(el('efac-ttc').value)||0,
+    statut: el('efac-statut').value,
+    observations: el('efac-obs').value
+  }).eq('id', facId);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  showToast("Facture mise à jour");
+  closeModal();
+  renderFactures();
 }
 
 window.addEventListener('load', ()=>{
