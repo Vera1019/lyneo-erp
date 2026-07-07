@@ -953,7 +953,7 @@ async function openChantierDetail(chantierId, tab){
   // Load factures fournisseur and vente for this chantier
   const [facsFournR, facsVenteR] = await Promise.all([
     sb.from('factures').select('*').in('po_id', pos.map(p=>p.id)).order('created_at',{ascending:false}),
-    sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false}).catch(()=>({data:[]}))
+    Promise.resolve(sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})).catch(()=>({data:[]}))
   ]);
   const facsFourn = facsFournR.data||[];
   const facsVente = facsVenteR.data||[];
