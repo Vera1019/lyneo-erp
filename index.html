@@ -925,7 +925,7 @@ async function openChantierDetail(chantierId, tab){
   if(!chantier) return;
   const [annexesR, posR] = await Promise.all([
     sb.from('anexos_chantier').select('*,utilisateurs(nom,prenom)').eq('chantier_id',chantierId).order('created_at',{ascending:false}),
-    sb.from('purchase_orders_lyneo').select('numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
+    sb.from('purchase_orders_lyneo').select('id,numero,statut,total_ttc,fournisseurs(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
   ]);
   const docs = annexesR.data||[];
   const pos = posR.data||[];
