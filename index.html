@@ -1967,6 +1967,7 @@ async function renderFactures(){
                 <td>${bFA(r.statut)}</td>
                 <td><div class="td-actions">
                   <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
+                  <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${r.id}')" title="Dupliquer"><i class="ti ti-copy"></i></button>
                   ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
                   ${r.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="openPayModal('${r.id}','${r.po_id}',${r.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
                   ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
@@ -2009,6 +2010,7 @@ async function openFacDetail(facId){
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${fac.id}')"><i class="ti ti-copy"></i> Dupliquer</button>
         ${fac.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${fac.id}');closeModal()"><i class="ti ti-check"></i> Valider</button>`:''}
         ${fac.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="closeModal();openPayModal('${fac.id}','${fac.po_id}',${fac.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
@@ -2379,6 +2381,19 @@ async function saveFac(){
     observations:el('fac-obs')?.value||''
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+
+  if(fac && _facLignesPO.length>0){
+    const {error:lignesErr} = await sb.from('lignes_facture').insert(_facLignesPO.map((l,i)=>({
+      facture_id: fac.id, ordre: i+1,
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    })));
+    if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
+  }
 
   await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',po_id);
 
@@ -2904,6 +2919,19 @@ async function saveFacFromPO(poId){
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
 
+  if(fac && _facFromPoLignes.length>0){
+    const {error:lignesErr} = await sb.from('lignes_facture').insert(_facFromPoLignes.map((l,i)=>({
+      facture_id: fac.id, ordre: i+1,
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    })));
+    if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
+  }
+
   await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',poId);
 
   // Upload files if any
@@ -2926,18 +2954,48 @@ async function saveFacFromPO(poId){
 }
 
 // ── EDIT FACTURE FOURNISSEUR ──────────────────────────────────
+let _efacLignes = [];
+
 async function openEditFacLignes(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
 
-  showModal('<div class="modal-overlay"><div class="modal">'
+  const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
+
+  if((lignesData||[]).length===0 && (parseFloat(fac.montant_ht)>0 || parseFloat(fac.montant_ttc)>0)){
+    // Legacy invoice saved without detailed lines: seed one editable line from the existing totals
+    const ht = parseFloat(fac.montant_ht)||0;
+    const tva = parseFloat(fac.montant_tva)||0;
+    const tauxApprox = ht>0 ? Math.round((tva/ht)*100) : 17;
+    _efacLignes = [{
+      _db_id: null,
+      description: 'Montant facture (à détailler si besoin)',
+      reference_article: '',
+      quantite: 1,
+      unite: 'forfait',
+      prix_unitaire_ht: ht,
+      taux_tva: [17,14,8,3,0].includes(tauxApprox) ? tauxApprox : 17
+    }];
+  } else {
+    _efacLignes = (lignesData||[]).map(l=>({
+      _db_id: l.id,
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite||'u',
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    }));
+  }
+
+  showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
     +  '<div><h3>Modifier — '+fac.numero_facture_fournisseur+'</h3>'
-    +  '<div class="modal-header-sub">Modifiez les montants et informations</div></div>'
+    +  '<div class="modal-header-sub">Modifiez les lignes, les montants et les informations</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
-    +  '<div class="form-grid">'
+    +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+fac.date_facture+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
@@ -2948,33 +3006,118 @@ async function openEditFacLignes(facId){
     +        '<option value="litige"'+(fac.statut==='litige'?' selected':'')+'>Litige</option>'
     +      '</select>'
     +    '</div>'
-    +    '<div class="form-group"><label class="field-label">Montant HT (€)</label><input type="number" step="0.01" id="efac-ht" value="'+(fac.montant_ht||0)+'" oninput="calcEditFacTTC()"/></div>'
-    +    '<div class="form-group"><label class="field-label">Montant TVA (€)</label><input type="number" step="0.01" id="efac-tva" value="'+(fac.montant_tva||0)+'" oninput="calcEditFacTTC()"/></div>'
-    +    '<div class="form-group"><label class="field-label">Montant TTC (€)</label><input type="number" step="0.01" id="efac-ttc" value="'+(fac.montant_ttc||0)+'" style="font-weight:800;color:var(--blue);font-size:16px"/></div>'
-    +    '<div class="form-group full"><label class="field-label">Observations</label><textarea id="efac-obs">'+(fac.observations||'')+'</textarea></div>'
     +  '</div>'
+    +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +    '<strong style="font-size:13px">Lignes de la facture</strong>'
+    +    '<button class="btn btn-secondary btn-sm" onclick="addEfacLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
+    +  '</div>'
+    +  '<div style="overflow-x:auto;max-width:100%">'
+    +    '<table class="lignes-table" id="efac-lignes-table" style="min-width:580px">'
+    +      '<thead><tr>'
+    +        '<th style="min-width:180px">Description *</th>'
+    +        '<th style="width:100px">Référence</th>'
+    +        '<th style="width:70px">Qté</th>'
+    +        '<th style="width:75px">Unité</th>'
+    +        '<th style="width:110px">P.U. HT €</th>'
+    +        '<th style="width:65px">TVA %</th>'
+    +        '<th style="width:100px;text-align:right">Total HT</th>'
+    +        '<th style="width:30px"></th>'
+    +      '</tr></thead>'
+    +      '<tbody id="efac-lignes-body"></tbody>'
+    +    '</table>'
+    +  '</div>'
+    +  '<div class="totaux"><div class="totaux-box" id="efac-totaux"></div></div>'
+    +  '<div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="efac-obs">'+(fac.observations||'')+'</textarea></div>'
     +  '<div class="form-actions">'
     +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
     +    '<button class="btn btn-primary" id="btn-save-edit-fac"><i class="ti ti-check"></i> Enregistrer</button>'
     +  '</div>'
     +'</div></div></div>');
+  renderEfacLignes();
   setTimeout(()=>{ const b=el('btn-save-edit-fac'); if(b) b.addEventListener('click',()=>saveEditFac(facId)); },50);
 }
 
-function calcEditFacTTC(){
-  const ht = parseFloat(el('efac-ht')?.value)||0;
-  const tva = parseFloat(el('efac-tva')?.value)||0;
-  if(el('efac-ttc')) el('efac-ttc').value = (ht+tva).toFixed(2);
+function renderEfacLignes(){
+  const body = el('efac-lignes-body');
+  if(!body) return;
+  body.innerHTML = _efacLignes.map((l,i)=>`<tr>
+    <td><input value="${l.description}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
+    <td><input value="${l.reference_article}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
+    <td><input type="number" min="0" step="0.001" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
+    <td><select onchange="updEfacLigne(${i},'unite',this.value)">
+      ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
+    </select></td>
+    <td><input type="number" min="0" step="0.01" value="${l.prix_unitaire_ht}" onchange="updEfacLigne(${i},'prix_unitaire_ht',this.value)"/></td>
+    <td><select onchange="updEfacLigne(${i},'taux_tva',this.value)">
+      ${[17,14,8,3,0].map(t=>`<option ${l.taux_tva==t?'selected':''}>${t}</option>`).join('')}
+    </select></td>
+    <td style="text-align:right;font-weight:600;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td><button onclick="delEfacLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button></td>
+  </tr>`).join('');
+  const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const tot = el('efac-totaux');
+  if(tot) tot.innerHTML = `
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
 
+function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); }
+function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); }
+function delEfacLigne(i){ _efacLignes.splice(i,1); renderEfacLignes(); }
+
 async function saveEditFac(facId){
+  if(_efacLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
+
+  const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+
+  // Sync lines: update existing, insert new, delete only the ones actually removed
+  const {data:existingLignes, error:fetchErr} = await sb.from('lignes_facture').select('id').eq('facture_id', facId);
+  if(fetchErr){ showToast('Erreur: '+fetchErr.message, 'error'); return; }
+  const existingIds = (existingLignes||[]).map(l=>l.id);
+  const keptIds = _efacLignes.filter(l=>l._db_id).map(l=>l._db_id);
+  const idsToDelete = existingIds.filter(id=>!keptIds.includes(id));
+
+  if(idsToDelete.length>0){
+    const {error:delErr} = await sb.from('lignes_facture').delete().in('id', idsToDelete);
+    if(delErr){ showToast('Erreur: '+delErr.message, 'error'); return; }
+  }
+
+  for(const l of _efacLignes.filter(l=>l._db_id)){
+    const {error:updErr} = await sb.from('lignes_facture').update({
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    }).eq('id', l._db_id);
+    if(updErr){ showToast('Erreur: '+updErr.message, 'error'); return; }
+  }
+
+  const newLignes = _efacLignes.filter(l=>!l._db_id);
+  if(newLignes.length>0){
+    const {error:insErr} = await sb.from('lignes_facture').insert(newLignes.map((l,i)=>({
+      facture_id: facId, ordre: existingIds.length + i + 1,
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    })));
+    if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
+  }
+
   const {error} = await sb.from('factures').update({
     numero_facture_fournisseur: el('efac-num').value,
     date_facture: el('efac-date').value,
     date_echeance: el('efac-echeance').value||null,
-    montant_ht: parseFloat(el('efac-ht').value)||0,
-    montant_tva: parseFloat(el('efac-tva').value)||0,
-    montant_ttc: parseFloat(el('efac-ttc').value)||0,
+    montant_ht: totalHT,
+    montant_tva: totalTVA,
+    montant_ttc: totalHT+totalTVA,
     statut: el('efac-statut').value,
     observations: el('efac-obs').value
   }).eq('id', facId);
@@ -2982,6 +3125,44 @@ async function saveEditFac(facId){
   showToast("Facture mise à jour");
   closeModal();
   renderFactures();
+}
+
+// ── DUPLIQUER UNE FACTURE (comme Odoo) ────────────────────────
+async function duplicateFacture(facId){
+  const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
+  if(!fac){ showToast("Facture introuvable", 'error'); return; }
+  const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
+
+  const {data:newFac, error} = await sb.from('factures').insert({
+    po_id: fac.po_id,
+    numero_facture_fournisseur: (fac.numero_facture_fournisseur||'')+' (copie)',
+    date_facture: today(),
+    date_echeance: fac.date_echeance,
+    montant_ht: fac.montant_ht,
+    montant_tva: fac.montant_tva,
+    montant_ttc: fac.montant_ttc,
+    statut: 'recue',
+    saisie_par: currentUser.id,
+    observations: fac.observations||''
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+
+  if((lignesData||[]).length>0){
+    const {error:lignesErr} = await sb.from('lignes_facture').insert(lignesData.map((l,i)=>({
+      facture_id: newFac.id, ordre: i+1,
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: l.quantite,
+      unite: l.unite,
+      prix_unitaire_ht: l.prix_unitaire_ht,
+      taux_tva: l.taux_tva
+    })));
+    if(lignesErr){ showToast("Copie créée, mais erreur en dupliquant les lignes: "+lignesErr.message, 'error'); }
+  }
+
+  showToast("Facture dupliquée — modifiez les champs nécessaires");
+  closeModal();
+  openEditFacLignes(newFac.id);
 }
 
 
