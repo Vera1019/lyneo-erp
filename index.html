@@ -2325,6 +2325,15 @@ function updateFacTotaux(){
   if(el('fac-ttc')) el('fac-ttc').value = (totalHT+totalTVA).toFixed(2);
 }
 
+function addFacLigne(){
+  _facLignesPO.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17});
+  renderFacLignesEdit();
+}
+function delFacLigne(i){
+  _facLignesPO.splice(i,1);
+  renderFacLignesEdit();
+}
+
 function autoCalcFromLignes(){
   updateFacTotaux();
   showToast("Montants recalculés depuis les lignes");
@@ -2672,18 +2681,51 @@ async function saveEditPO(poId){
     observations: el('po-obs').value
   }).eq('id', poId);
 
-  // Delete and re-insert all lines
-  await sb.from('lignes_po').delete().eq('po_id', poId);
-  const {error} = await sb.from('lignes_po').insert(poLignes.map((l,i)=>({
-    po_id: poId, ordre: i+1,
-    description: l.description,
-    reference_article: l.reference_article||'',
-    quantite: parseFloat(l.quantite)||0,
-    unite: l.unite,
-    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-    taux_tva: parseFloat(l.taux_tva)||17
-  })));
-  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  // Sync lines without destroying/recreating everything (avoids duplicates
+  // if a line already has a reception/BL linked to it and can't be deleted):
+  // - lines with _db_id → UPDATE in place
+  // - lines without _db_id (added in this session) → INSERT
+  // - lines that existed before but were removed from the list → DELETE only those
+  const {data:existingLignes, error:fetchErr} = await sb.from('lignes_po').select('id').eq('po_id', poId);
+  if(fetchErr){ showToast('Erreur: '+fetchErr.message, 'error'); return; }
+  const existingIds = (existingLignes||[]).map(l=>l.id);
+  const keptIds = poLignes.filter(l=>l._db_id).map(l=>l._db_id);
+  const idsToDelete = existingIds.filter(id=>!keptIds.includes(id));
+
+  if(idsToDelete.length>0){
+    const {error:delErr} = await sb.from('lignes_po').delete().in('id', idsToDelete);
+    if(delErr){
+      showToast("Impossible de supprimer une ligne déjà reçue ou facturée: "+delErr.message, 'error');
+      return;
+    }
+  }
+
+  for(const l of poLignes.filter(l=>l._db_id)){
+    const {error:updErr} = await sb.from('lignes_po').update({
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    }).eq('id', l._db_id);
+    if(updErr){ showToast('Erreur: '+updErr.message, 'error'); return; }
+  }
+
+  const newLignes = poLignes.filter(l=>!l._db_id);
+  if(newLignes.length>0){
+    const {error:insErr} = await sb.from('lignes_po').insert(newLignes.map((l,i)=>({
+      po_id: poId, ordre: existingIds.length + i + 1,
+      description: l.description,
+      reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0,
+      unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    })));
+    if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
+  }
+
   showToast("Commande mise à jour");
   closeModal();
   await renderPOS();
@@ -2754,6 +2796,9 @@ async function openFacFromPO(poId){
       +  '</select>'
       +'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);font-size:13px">'+fmt(totalLigne)+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:center">'
+      +  (_facFromPoLignes.length>1?'<button onclick="delFacPoLigne('+i+')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button>':'&nbsp;')
+      +'</td>'
       +'</tr>';
     }).join('');
     const totBox = el('fac-po-totaux');
@@ -2784,7 +2829,10 @@ async function openFacFromPO(poId){
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fac-gen-echeance"/></div>'
     +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
     +  '</div>'
-    +  '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Lignes facturées — modifiez les quantités et les prix</div>'
+    +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em">Lignes facturées — modifiez les quantités et les prix</div>'
+    +    '<button class="btn btn-secondary btn-sm" onclick="addFacPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
+    +  '</div>'
     +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:600px">'
     +    '<thead><tr style="background:var(--navy)">'
     +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
@@ -2795,6 +2843,7 @@ async function openFacFromPO(poId){
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:100px">P.U. HT €</th>'
     +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:55px">TVA</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Total HT</th>'
+    +      '<th style="padding:8px 10px;width:34px"></th>'
     +    '</tr></thead>'
     +    '<tbody id="fac-po-lines-body"></tbody>'
     +  '</table></div>'
@@ -2822,6 +2871,15 @@ async function openFacFromPO(poId){
     const btn = el('btn-save-fac-po');
     if(btn) btn.addEventListener('click', ()=>saveFacFromPO(poId));
   }, 50);
+}
+
+function addFacPoLigne(){
+  _facFromPoLignes.push({ligne_po_id:null,description:'',reference_article:'',quantite_commandee:0,quantite_recue:0,quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17,total_ht:0});
+  if(window.renderFacPOLines) window.renderFacPOLines();
+}
+function delFacPoLigne(i){
+  _facFromPoLignes.splice(i,1);
+  if(window.renderFacPOLines) window.renderFacPOLines();
 }
 
 async function saveFacFromPO(poId){
