@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
@@ -29,7 +29,7 @@
 body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var(--gray-8);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 .hidden{display:none!important}
 
-/* â”€â”€ LOGIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── LOGIN ─────────────────────────────────────────────────── */
 .login-page{min-height:100vh;display:flex;background:var(--navy)}
 .login-left{flex:1;display:flex;align-items:center;justify-content:center;padding:40px;background:linear-gradient(135deg,var(--navy) 0%,var(--navy-mid) 50%,#1a2744 100%);position:relative;overflow:hidden}
 .login-left::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
@@ -55,7 +55,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .login-btn:hover{background:var(--blue-mid);transform:translateY(-1px);box-shadow:0 4px 12px rgba(37,99,235,.3)}
 .login-hint{text-align:center;margin-top:20px;font-size:12px;color:var(--gray-4)}
 
-/* â”€â”€ LAYOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── LAYOUT ─────────────────────────────────────────────────── */
 .app-layout{display:flex;min-height:100vh}
 .sidebar{width:240px;min-height:100vh;background:var(--navy);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;transition:width .2s}
 .sidebar-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px}
@@ -83,7 +83,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .sidebar-logout{display:flex;align-items:center;gap:6px;padding:7px 10px;color:rgba(255,255,255,.4);cursor:pointer;font-size:12px;border-radius:6px;transition:all .15s;border:none;background:none;font-family:inherit;width:100%}
 .sidebar-logout:hover{background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
 
-/* â”€â”€ MAIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── MAIN ───────────────────────────────────────────────────── */
 .main{margin-left:240px;flex:1;display:flex;flex-direction:column;min-height:100vh}
 .topbar{background:#fff;border-bottom:1px solid var(--gray-3);padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;box-shadow:var(--shadow-sm)}
 .topbar-left{display:flex;align-items:center;gap:12px}
@@ -93,12 +93,12 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .topbar-chip{display:flex;align-items:center;gap:6px;padding:5px 12px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:20px;font-size:12px;color:var(--gray-6);font-weight:500}
 .page{padding:28px;flex:1}
 
-/* â”€â”€ DASHBOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── DASHBOARD ──────────────────────────────────────────────── */
 .dashboard-welcome{margin-bottom:24px}
 .dashboard-welcome h1{font-size:24px;font-weight:700;color:var(--gray-8)}
 .dashboard-welcome p{font-size:14px;color:var(--gray-5);margin-top:2px}
 
-/* â”€â”€ KPI CARDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── KPI CARDS ──────────────────────────────────────────────── */
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
 .kpi-card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-3);padding:20px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
 .kpi-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:transparent}
@@ -121,7 +121,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .kpi-label{font-size:12px;color:var(--gray-5);font-weight:500}
 .kpi-sub{font-size:12px;color:var(--gray-5);margin-top:6px}
 
-/* â”€â”€ MODULE CARDS (dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── MODULE CARDS (dashboard) ───────────────────────────────── */
 .modules-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
 .module-card{background:#fff;border:1px solid var(--gray-3);border-radius:var(--radius);padding:20px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:16px}
 .module-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:transparent}
@@ -132,14 +132,14 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .module-card-arrow{margin-left:auto;color:var(--gray-4);font-size:16px;transition:transform .2s}
 .module-card:hover .module-card-arrow{transform:translateX(4px);color:var(--blue)}
 
-/* â”€â”€ CARDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── CARDS ───────────────────────────────────────────────────── */
 .card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-3);box-shadow:var(--shadow-sm);margin-bottom:20px}
 .card-header{padding:16px 20px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between}
 .card-header h2{font-size:15px;font-weight:600;color:var(--gray-8);display:flex;align-items:center;gap:8px}
 .card-header h2 i{color:var(--gray-5);font-size:17px}
 .card-body{padding:20px}
 
-/* â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── BUTTONS ─────────────────────────────────────────────────── */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius-sm);border:1px solid transparent;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;line-height:1.3;white-space:nowrap;font-family:inherit}
 .btn-primary{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 1px 2px rgba(37,99,235,.2)}
 .btn-primary:hover{background:var(--blue-mid);transform:translateY(-1px);box-shadow:0 4px 8px rgba(37,99,235,.3)}
@@ -158,7 +158,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
 .btn i{font-size:15px}
 
-/* â”€â”€ BADGES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── BADGES ──────────────────────────────────────────────────── */
 .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
 .badge::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.6}
 .badge-brouillon{background:#F3E8FF;color:#6D28D9}
@@ -178,7 +178,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .badge-non{background:#FEE2E2;color:#991B1B}
 .badge-payee_partiel{background:#FEF3C7;color:#92400E}
 
-/* â”€â”€ TABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── TABLE ───────────────────────────────────────────────────── */
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 thead{background:var(--gray-1)}
@@ -190,7 +190,7 @@ tbody tr:hover td{background:var(--blue-light)}
 .td-actions{display:flex;gap:6px;align-items:center}
 .td-primary{font-weight:600;color:var(--blue);font-size:13px}
 
-/* â”€â”€ FORM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── FORM ────────────────────────────────────────────────────── */
 .form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
 .form-group{display:flex;flex-direction:column;gap:6px}
 .form-group.full{grid-column:1/-1}
@@ -201,7 +201,7 @@ input:hover,select:hover{border-color:var(--gray-4)}
 textarea{resize:vertical;min-height:80px}
 select{cursor:pointer}
 
-/* â”€â”€ MODAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── MODAL ───────────────────────────────────────────────────── */
 .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s ease}
 .modal{background:#fff;border-radius:var(--radius-lg);width:100%;max-width:720px;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-xl);animation:slideUp .25s ease}
 .modal-lg{max-width:960px}
@@ -216,19 +216,19 @@ select{cursor:pointer}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
 
-/* â”€â”€ PAGE HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── PAGE HEADER ─────────────────────────────────────────────── */
 .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:12px}
 .page-header-left h1{font-size:22px;font-weight:700;color:var(--gray-8)}
 .page-header-left p{font-size:13px;color:var(--gray-5);margin-top:2px}
 .page-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
-/* â”€â”€ SEARCH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── SEARCH ──────────────────────────────────────────────────── */
 .search-wrap{position:relative}
 .search-wrap input{padding-left:36px;min-width:240px;background:var(--gray-1);border-color:var(--gray-3)}
 .search-wrap input:focus{background:#fff}
 .search-wrap i{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--gray-4);font-size:16px;pointer-events:none}
 
-/* â”€â”€ ALERT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── ALERT ───────────────────────────────────────────────────── */
 .alert{padding:12px 16px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-weight:500}
 .alert i{font-size:17px;flex-shrink:0}
 .alert-info{background:var(--blue-light);color:#1E40AF;border:1px solid #BFDBFE}
@@ -236,48 +236,48 @@ select{cursor:pointer}
 .alert-success{background:var(--green-light);color:#065F46;border:1px solid #A7F3D0}
 .alert-error{background:var(--red-light);color:#991B1B;border:1px solid #FECACA}
 
-/* â”€â”€ EMPTY STATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── EMPTY STATE ─────────────────────────────────────────────── */
 .empty{text-align:center;padding:56px 24px;color:var(--gray-4)}
 .empty-icon{width:72px;height:72px;border-radius:20px;background:var(--gray-2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
 .empty-icon i{font-size:36px;color:var(--gray-4)}
 .empty p{font-size:14px;margin-bottom:20px;color:var(--gray-5)}
 
-/* â”€â”€ LIGNES PO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── LIGNES PO ───────────────────────────────────────────────── */
 .lignes-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
 .lignes-table th{background:var(--gray-1);padding:9px 10px;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--gray-3);text-align:left}
 .lignes-table td{padding:6px 8px;border-bottom:1px solid var(--gray-2);vertical-align:middle}
 .lignes-table input,.lignes-table select{padding:6px 8px;font-size:13px;border-radius:4px}
 .lignes-table tr:hover td{background:var(--blue-light)}
 
-/* â”€â”€ TOTAUX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── TOTAUX ──────────────────────────────────────────────────── */
 .totaux{display:flex;justify-content:flex-end;margin-top:16px}
 .totaux-box{background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:16px 20px;min-width:280px}
 .totaux-row{display:flex;justify-content:space-between;gap:24px;padding:4px 0;font-size:13px;color:var(--gray-6)}
 .totaux-row.ttc{border-top:2px solid var(--gray-3);margin-top:8px;padding-top:10px;font-weight:800;font-size:17px;color:var(--blue)}
 
-/* â”€â”€ TOAST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── TOAST ───────────────────────────────────────────────────── */
 .toast{position:fixed;bottom:28px;right:28px;z-index:999;color:#fff;padding:14px 20px;border-radius:var(--radius);box-shadow:var(--shadow-xl);font-size:13px;font-weight:600;display:flex;align-items:center;gap:10px;max-width:380px;animation:toastIn .3s cubic-bezier(.34,1.56,.64,1)}
 .toast-success{background:linear-gradient(135deg,var(--green),#059669)}
 .toast-error{background:linear-gradient(135deg,var(--red),#DC2626)}
 @keyframes toastIn{from{transform:translateY(20px) scale(.95);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
 
-/* â”€â”€ INFO GRID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── INFO GRID ───────────────────────────────────────────────── */
 .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
 .info-item{background:var(--gray-1);border-radius:var(--radius-sm);padding:12px 14px}
 .info-item label{font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px}
 .info-item span{font-size:14px;font-weight:500;color:var(--gray-8)}
 
-/* â”€â”€ SECTION TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── SECTION TITLE ───────────────────────────────────────────── */
 .section-title{font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px;display:flex;align-items:center;gap:8px}
 .section-title i{font-size:15px}
 
-/* â”€â”€ TABS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── TABS ────────────────────────────────────────────────────── */
 .tabs-bar{display:flex;border-bottom:2px solid var(--gray-3);margin-bottom:20px;gap:2px}
 .tab-btn{padding:10px 18px;font-size:13px;font-weight:600;color:var(--gray-5);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;margin-bottom:-2px;display:flex;align-items:center;gap:6px;border-radius:var(--radius-sm) var(--radius-sm) 0 0;background:none;border-left:none;border-right:none;border-top:none;font-family:inherit}
 .tab-btn:hover{color:var(--gray-8);background:var(--gray-1)}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);background:var(--blue-light)}
 
-/* â”€â”€ MISC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── MISC ────────────────────────────────────────────────────── */
 .flex{display:flex}.gap-8{gap:8px}.gap-12{gap:12px}.items-center{align-items:center}
 .text-blue{color:var(--blue)}.fw-600{font-weight:600}.fw-700{font-weight:700}
 .text-muted{color:var(--gray-5)}.text-sm{font-size:12px}.text-right{text-align:right}
@@ -286,9 +286,9 @@ select{cursor:pointer}
 .spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* â”€â”€ RESPONSIVE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
 
-/* â”€â”€ RESPONSIVE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
 
 /* Base overflow fix */
 html { overflow-x: hidden; }
@@ -345,7 +345,7 @@ body { overflow-x: hidden; max-width: 100vw; }
   .kpi-value { font-size: 26px; }
 }
 
-/* â”€â”€ GLOBAL OVERFLOW FIX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── GLOBAL OVERFLOW FIX ──────────────────────────────────── */
 html,body{max-width:100vw;overflow-x:hidden}
 .app-layout{max-width:100vw;overflow-x:hidden}
 .main{max-width:100%;overflow-x:hidden}
@@ -445,33 +445,33 @@ html,body{max-width:100vw;overflow-x:hidden}
         <div class="login-brand-icon"><i class="ti ti-bolt"></i></div>
         <div class="login-brand-name">LY<span>NEO</span></div>
       </div>
-      <div class="login-tagline">SystÃ¨me de gestion intÃ©grÃ© â€” Luxembourg</div>
+      <div class="login-tagline">Système de gestion intégré — Luxembourg</div>
       <div class="login-features">
         <div class="login-feature"><i class="ti ti-shopping-cart"></i> Gestion des achats & fournisseurs</div>
-        <div class="login-feature"><i class="ti ti-building-factory-2"></i> Suivi des chantiers en temps rÃ©el</div>
+        <div class="login-feature"><i class="ti ti-building-factory-2"></i> Suivi des chantiers en temps réel</div>
         <div class="login-feature"><i class="ti ti-file-invoice"></i> Facturation client & fournisseur</div>
-        <div class="login-feature"><i class="ti ti-clock"></i> IntÃ©gration pointages employÃ©s</div>
+        <div class="login-feature"><i class="ti ti-clock"></i> Intégration pointages employés</div>
         <div class="login-feature"><i class="ti ti-shield-check"></i> Conforme TVA Luxembourg</div>
       </div>
     </div>
   </div>
   <div class="login-right">
     <div class="login-card">
-      <h1 class="login-card-title">Bon retour ðŸ‘‹</h1>
-      <p class="login-card-sub">Connectez-vous Ã  votre espace Lyneo ERP</p>
+      <h1 class="login-card-title">Bon retour 👋</h1>
+      <p class="login-card-sub">Connectez-vous à votre espace Lyneo ERP</p>
       <div class="field-wrap">
         <label class="field-label">Adresse email</label>
         <input type="email" id="login-email" class="field-input" placeholder="votre@lyneo.lu" value="admin@lyneo.lu"/>
       </div>
       <div class="field-wrap">
         <label class="field-label">Mot de passe</label>
-        <input type="password" id="login-password" class="field-input" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" value="lyneo2026"/>
+        <input type="password" id="login-password" class="field-input" placeholder="••••••••" value="lyneo2026"/>
       </div>
       <button class="login-btn" onclick="doLogin()">
         <i class="ti ti-login"></i> Se connecter
       </button>
       <div id="login-error" class="alert alert-warning hidden" style="margin-top:16px"></div>
-      <p class="login-hint">Mot de passe par dÃ©faut : lyneo2026</p>
+      <p class="login-hint">Mot de passe par défaut : lyneo2026</p>
     </div>
   </div>
 </div>
@@ -494,14 +494,13 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="nav-item" onclick="navigate('clients')" id="nav-clients"><i class="ti ti-building-store"></i> Clients</div>
       <div class="nav-item" onclick="navigate('devis')" id="nav-devis"><i class="ti ti-file-description"></i> Devis</div>
       <div class="nav-item" onclick="navigate('factures_vente')" id="nav-factures_vente"><i class="ti ti-receipt"></i> Factures clients</div>
-      <div class="nav-item" onclick="navigate('rentabilite')" id="nav-rentabilite"><i class="ti ti-chart-arcs"></i> Rentabilité projets</div>
 
       <div class="nav-section">Achats</div>
       <div class="nav-item" onclick="navigate('pos')" id="nav-pos"><i class="ti ti-shopping-cart"></i> Bons de commande</div>
-      <div class="nav-item" onclick="navigate('receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> RÃ©ceptions (BL)</div>
+      <div class="nav-item" onclick="navigate('receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> Réceptions (BL)</div>
       <div class="nav-item" onclick="navigate('factures')" id="nav-factures"><i class="ti ti-file-invoice"></i> Factures fourn.</div>
 
-      <div class="nav-section">RÃ©fÃ©rentiels</div>
+      <div class="nav-section">Référentiels</div>
       <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
       <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
 
@@ -514,11 +513,11 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="sidebar-user-info">
         <div class="sidebar-avatar" id="sidebar-avatar">A</div>
         <div>
-          <div class="sidebar-user-name" id="sidebar-username">â€”</div>
-          <div class="sidebar-user-role" id="sidebar-role">â€”</div>
+          <div class="sidebar-user-name" id="sidebar-username">—</div>
+          <div class="sidebar-user-role" id="sidebar-role">—</div>
         </div>
       </div>
-      <button class="sidebar-logout" onclick="doLogout()"><i class="ti ti-logout" style="font-size:15px"></i> DÃ©connexion</button>
+      <button class="sidebar-logout" onclick="doLogout()"><i class="ti ti-logout" style="font-size:15px"></i> Déconnexion</button>
     </div>
   </div>
 
@@ -544,23 +543,23 @@ html,body{max-width:100vw;overflow-x:hidden}
 <div id="toast-container"></div>
 
 <script>
-// â”€â”€ CONFIG SUPABASE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CONFIG SUPABASE ──────────────────────────────────────────
 const SUPA_URL = 'https://uhqbdbxfpiinihfilcpe.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVocWJkYnhmcGlpbmloZmlsY3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzU4ODQsImV4cCI6MjA5ODExMTg4NH0.b7seaNoLiQH9N0JyUGJJTq4Uu87VDr3aC1q4PAjUNuE';
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-// Supabase Pointages (base sÃ©parÃ©e)
+// Supabase Pointages (base séparée)
 const SB_PT_URL = 'https://eqnidlvbmbfzauevhcnb.supabase.co';
 const SB_PT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxbmlkbHZibWJmemF1ZXZoY25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0MDYyNDAsImV4cCI6MjA5Nzk4MjI0MH0.Hi_rCmkmZ8eBBa3b7Ti0XvC-G27Q7G0mNAulpftL2MU';
 const sbPT = supabase.createClient(SB_PT_URL, SB_PT_KEY);
 
-// â”€â”€ Ã‰TAT GLOBAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── ÉTAT GLOBAL ──────────────────────────────────────────────
 let currentUser = null;
 let currentPage = 'dashboard';
 
-// â”€â”€ UTILS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── UTILS ────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR'}).format(n||0);
-const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : 'â€”';
+const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 const today = () => new Date().toISOString().split('T')[0];
 const el = id => document.getElementById(id);
 const qs = sel => document.querySelector(sel);
@@ -571,14 +570,14 @@ function badge(statut, map) {
 }
 
 const STATUT_PO = {
-  brouillon:'Brouillon', envoyee:'EnvoyÃ©e', rec_partielle:'RÃ©c. partielle',
-  rec_totale:'RÃ©c. totale', facturee:'FacturÃ©e', payee:'PayÃ©e', annulee:'AnnulÃ©e'
+  brouillon:'Brouillon', envoyee:'Envoyée', rec_partielle:'Réc. partielle',
+  rec_totale:'Réc. totale', facturee:'Facturée', payee:'Payée', annulee:'Annulée'
 };
-const STATUT_CH = {actif:'Actif', pause:'En pause', termine:'TerminÃ©'};
-const STATUT_FA = {recue:'ReÃ§ue', validee:'ValidÃ©e', payee:'PayÃ©e', litige:'Litige'};
+const STATUT_CH = {actif:'Actif', pause:'En pause', termine:'Terminé'};
+const STATUT_FA = {recue:'Reçue', validee:'Validée', payee:'Payée', litige:'Litige'};
 
 function bPO(s){ return `<span class="badge badge-${s}">${STATUT_PO[s]||s}</span>`; }
-const STATUT_FV = {brouillon:'Brouillon',envoyee:'EnvoyÃ©e',payee_partiel:'Part. payÃ©e',payee:'PayÃ©e',annulee:'AnnulÃ©e'};
+const STATUT_FV = {brouillon:'Brouillon',envoyee:'Envoyée',payee_partiel:'Part. payée',payee:'Payée',annulee:'Annulée'};
 function bFV(s){ return `<span class="badge badge-${s}">${STATUT_FV[s]||s}</span>`; }
 function bCH(s){ return `<span class="badge badge-${s}">${STATUT_CH[s]||s}</span>`; }
 function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
@@ -599,13 +598,13 @@ function showModal(html) {
 }
 function closeModal(){ el('modal-container').innerHTML = ''; }
 
-// â”€â”€ AUTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── AUTH ─────────────────────────────────────────────────────
 async function doLogin() {
   const email = el('login-email').value.trim();
   const pass = el('login-password').value;
   if(!email||!pass){ showLoginError('Remplissez tous les champs'); return; }
   
-  // DÃ©sactiver le bouton pendant le chargement
+  // Désactiver le bouton pendant le chargement
   const btn = document.querySelector('.login-btn');
   if(btn){ btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Connexion...'; }
   
@@ -654,7 +653,7 @@ function initApp(){
   el('login-page').classList.add('hidden');
   el('app-layout').classList.remove('hidden');
   el('sidebar-username').textContent = currentUser.prenom+' '+currentUser.nom;
-  el('sidebar-role').textContent = {admin:'Administrateur',acheteur:'Acheteur',reception:'RÃ©ception',comptabilite:'ComptabilitÃ©'}[currentUser.role]||currentUser.role;
+  el('sidebar-role').textContent = {admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'}[currentUser.role]||currentUser.role;
   const av = el('sidebar-avatar');
   if(av) av.textContent = (currentUser.prenom||'?')[0].toUpperCase();
   if(currentUser.role==='admin') el('nav-admin-section').classList.remove('hidden');
@@ -663,8 +662,8 @@ function initApp(){
   navigate('dashboard');
 }
 
-// â”€â”€ NAVIGATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'RÃ©ceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',rentabilite:'Rentabilité projets'};
+// ── NAVIGATION ───────────────────────────────────────────────
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients'};
 
 function navigate(page){
   currentPage = page;
@@ -672,11 +671,11 @@ function navigate(page){
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
   el('topbar-title').textContent = PAGE_TITLES[page]||'';
-  const pages = {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,rentabilite:renderRentabilite};
+  const pages = {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente};
   if(pages[page]) pages[page]();
 }
 
-// â”€â”€ DASHBOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DASHBOARD ────────────────────────────────────────────────
 async function renderDashboard(){
   el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><div class="empty-icon" style="margin:0 auto 16px"><i class="ti ti-loader" style="font-size:36px;color:var(--gray-4)"></i></div><p>Chargement...</p></div>';
 
@@ -693,39 +692,39 @@ async function renderDashboard(){
   const chants = chantsR.data||[], facsV = facsVenteR.data||[], pics = pointagesR.data||[];
   const today_str = new Date().toISOString().split('T')[0];
 
-  // â”€â”€ VENTES
+  // ── VENTES
   const caTotal = facsV.filter(f=>f.statut==='payee').reduce((a,b)=>a+(b.total_ttc||0),0);
   const facturesAEncaisser = facsV.filter(f=>['envoyee','payee_partiel'].includes(f.statut));
   const facturesEnRetard = facturesAEncaisser.filter(f=>f.date_echeance && f.date_echeance < today_str);
 
-  // â”€â”€ ACHATS
+  // ── ACHATS
   const posEnCours = pos.filter(p=>!['payee','annulee'].includes(p.statut)).length;
   const blsAttente = bls.filter(b=>b.statut_reception==='partiel').length;
   const facsFourn = facs.filter(f=>['recue','validee'].includes(f.statut));
   const facsFournRetard = facsFourn.filter(f=>f.date_echeance && f.date_echeance < today_str);
   const montantAchats = pos.filter(p=>['envoyee','rec_partielle','rec_totale'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
 
-  // â”€â”€ CHANTIERS
+  // ── CHANTIERS
   const chantiersActifs = chants.filter(c=>c.statut==='actif');
   const chantiersRetard = chantiersActifs.filter(c=>c.date_fin_prevue && c.date_fin_prevue < today_str);
 
-  // â”€â”€ EMPLOYÃ‰S / POINTAGES
+  // ── EMPLOYÉS / POINTAGES
   const heuresSemaine = pics.reduce((a,b)=>a+(parseFloat(b.heures)||0),0);
   const joursUniques = new Set(pics.map(p=>p.date)).size;
 
   const hour = new Date().getHours();
-  const greeting = hour<12?'Bonjour':hour<18?'Bon aprÃ¨s-midi':'Bonsoir';
+  const greeting = hour<12?'Bonjour':hour<18?'Bon après-midi':'Bonsoir';
 
-  // â”€â”€ ALERTES
+  // ── ALERTES
   const alertes = [];
   if(facturesEnRetard.length>0) alertes.push({type:'red',icon:'ti-alert-circle',msg:`${facturesEnRetard.length} facture(s) client en retard de paiement`,page:'factures_vente'});
-  if(facsFournRetard.length>0) alertes.push({type:'orange',icon:'ti-alert-triangle',msg:`${facsFournRetard.length} facture(s) fournisseur Ã©chue(s)`,page:'factures'});
-  if(blsAttente>0) alertes.push({type:'blue',icon:'ti-truck-delivery',msg:`${blsAttente} bon(s) de livraison en attente de rÃ©ception complÃ¨te`,page:'receptions'});
-  if(chantiersRetard.length>0) alertes.push({type:'purple',icon:'ti-clock-exclamation',msg:`${chantiersRetard.length} chantier(s) dÃ©passent leur date de fin prÃ©vue`,page:'chantiers'});
+  if(facsFournRetard.length>0) alertes.push({type:'orange',icon:'ti-alert-triangle',msg:`${facsFournRetard.length} facture(s) fournisseur échue(s)`,page:'factures'});
+  if(blsAttente>0) alertes.push({type:'blue',icon:'ti-truck-delivery',msg:`${blsAttente} bon(s) de livraison en attente de réception complète`,page:'receptions'});
+  if(chantiersRetard.length>0) alertes.push({type:'purple',icon:'ti-clock-exclamation',msg:`${chantiersRetard.length} chantier(s) dépassent leur date de fin prévue`,page:'chantiers'});
 
   el('page-content').innerHTML = `
     <div class="dashboard-welcome">
-      <h1>${greeting}, ${currentUser.prenom} ðŸ‘‹</h1>
+      <h1>${greeting}, ${currentUser.prenom} 👋</h1>
       <p>${new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
     </div>
 
@@ -750,8 +749,8 @@ async function renderDashboard(){
           <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Ventes</span>
         </div>
         <div class="kpi-value" style="font-size:22px">${fmt(caTotal)}</div>
-        <div class="kpi-label">CA encaissÃ©</div>
-        <div class="kpi-sub">${facturesAEncaisser.length} facture(s) Ã  encaisser</div>
+        <div class="kpi-label">CA encaissé</div>
+        <div class="kpi-sub">${facturesAEncaisser.length} facture(s) à encaisser</div>
       </div>
 
       <!-- ACHATS -->
@@ -762,7 +761,7 @@ async function renderDashboard(){
         </div>
         <div class="kpi-value" style="font-size:22px">${fmt(montantAchats)}</div>
         <div class="kpi-label">Commandes en cours</div>
-        <div class="kpi-sub">${posEnCours} commande(s) Â· ${blsAttente} BL en attente</div>
+        <div class="kpi-sub">${posEnCours} commande(s) · ${blsAttente} BL en attente</div>
       </div>
 
       <!-- CHANTIERS -->
@@ -773,22 +772,22 @@ async function renderDashboard(){
         </div>
         <div class="kpi-value" style="font-size:22px">${chantiersActifs.length}</div>
         <div class="kpi-label">Chantiers actifs</div>
-        <div class="kpi-sub">${chantiersRetard.length>0?`<span style="color:var(--red)">${chantiersRetard.length} en retard</span>`:'Tous dans les dÃ©lais'}</div>
+        <div class="kpi-sub">${chantiersRetard.length>0?`<span style="color:var(--red)">${chantiersRetard.length} en retard</span>`:'Tous dans les délais'}</div>
       </div>
 
-      <!-- EMPLOYÃ‰S -->
+      <!-- EMPLOYÉS -->
       <div class="kpi-card kpi-orange" style="cursor:pointer">
         <div class="kpi-top">
           <div class="kpi-icon"><i class="ti ti-users"></i></div>
-          <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">EmployÃ©s</span>
+          <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Employés</span>
         </div>
         <div class="kpi-value" style="font-size:22px">${heuresSemaine.toFixed(0)}h</div>
         <div class="kpi-label">Heures cette semaine</div>
-        <div class="kpi-sub">${joursUniques} jour(s) travaillÃ©s</div>
+        <div class="kpi-sub">${joursUniques} jour(s) travaillés</div>
       </div>
     </div>
 
-    <!-- LIGNE 2 : Chantiers actifs + Factures Ã  encaisser -->
+    <!-- LIGNE 2 : Chantiers actifs + Factures à encaisser -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:20px">
 
       <!-- CHANTIERS ACTIFS -->
@@ -805,7 +804,7 @@ async function renderDashboard(){
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2);cursor:pointer" onclick="navigate('chantiers')">
                   <div>
                     <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${c.nom}</div>
-                    <div style="font-size:12px;color:var(--gray-5)">${c.client} ${c.chef_chantier?'Â· '+c.chef_chantier:''}</div>
+                    <div style="font-size:12px;color:var(--gray-5)">${c.client} ${c.chef_chantier?'· '+c.chef_chantier:''}</div>
                   </div>
                   <div style="text-align:right">
                     ${enRetard
@@ -819,10 +818,10 @@ async function renderDashboard(){
         </div>
       </div>
 
-      <!-- FACTURES Ã€ ENCAISSER -->
+      <!-- FACTURES À ENCAISSER -->
       <div class="card" style="margin-bottom:0">
         <div class="card-header">
-          <h2><i class="ti ti-receipt"></i> Factures Ã  encaisser</h2>
+          <h2><i class="ti ti-receipt"></i> Factures à encaisser</h2>
           <button class="btn btn-ghost btn-sm" onclick="navigate('factures_vente')"><i class="ti ti-arrow-right"></i></button>
         </div>
         <div style="padding:0">
@@ -833,7 +832,7 @@ async function renderDashboard(){
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2)">
                   <div>
                     <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${fmt(f.total_ttc)}</div>
-                    <div style="font-size:12px;color:${enRetard?'var(--red)':'var(--gray-5)'}">${enRetard?'âš  En retard':'Ã‰chÃ©ance: '}${fmtDate(f.date_echeance)}</div>
+                    <div style="font-size:12px;color:${enRetard?'var(--red)':'var(--gray-5)'}">${enRetard?'⚠ En retard':'Échéance: '}${fmtDate(f.date_echeance)}</div>
                   </div>
                   ${bFV(f.statut)}
                 </div>`;
@@ -846,7 +845,7 @@ async function renderDashboard(){
     <div class="modules-grid">
       <div class="module-card" onclick="navigate('devis')" style="border-left:3px solid var(--green)">
         <div class="module-card-icon" style="background:var(--green-light)"><i class="ti ti-file-description" style="color:var(--green)"></i></div>
-        <div class="module-card-text"><h3>Devis</h3><p>CrÃ©er et suivre les offres</p></div>
+        <div class="module-card-text"><h3>Devis</h3><p>Créer et suivre les offres</p></div>
         <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
       <div class="module-card" onclick="navigate('pos')" style="border-left:3px solid var(--blue)">
@@ -856,7 +855,7 @@ async function renderDashboard(){
       </div>
       <div class="module-card" onclick="navigate('receptions')" style="border-left:3px solid var(--orange)">
         <div class="module-card-icon" style="background:var(--orange-light)"><i class="ti ti-truck-delivery" style="color:var(--orange)"></i></div>
-        <div class="module-card-text"><h3>RÃ©ceptions</h3><p>Bons de livraison</p></div>
+        <div class="module-card-text"><h3>Réceptions</h3><p>Bons de livraison</p></div>
         <i class="ti ti-chevron-right module-card-arrow"></i>
       </div>
       <div class="module-card" onclick="navigate('factures')" style="border-left:3px solid var(--red)">
@@ -894,16 +893,16 @@ async function renderChantiers(search=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>NumÃ©ro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>DÃ©but</th><th>Fin prÃ©vue</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvÃ©</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
             items.map(r=>{
               const enRetard = r.date_fin_prevue && r.date_fin_prevue < new Date().toISOString().split('T')[0] && r.statut==='actif';
               return `<tr style="cursor:pointer${enRetard?';border-left:3px solid var(--red)':''}" onclick="openChantierDetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
               <td><strong>${r.nom}</strong>${enRetard?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">En retard</span>':''}</td>
               <td>${r.client}</td>
-              <td>${r.chef_chantier||'â€”'}</td>
+              <td>${r.chef_chantier||'—'}</td>
               <td>${fmtDate(r.date_debut)}</td>
               <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_fin_prevue)}</td>
               <td>${bCH(r.statut)}</td>
@@ -931,7 +930,7 @@ async function openChantierDetail(chantierId, tab){
   const docs = annexesR.data||[];
   const pos = posR.data||[];
 
-  const CATEGORIES = {plan:'ðŸ“ Plan',contrat:'ðŸ“„ Contrat',photo:'ðŸ“¸ Photo',permis:'ðŸ›ï¸ Permis',devis:'ðŸ“Š Devis',rapport:'ðŸ“‹ Rapport',autre:'ðŸ“Ž Autre'};
+  const CATEGORIES = {plan:'📐 Plan',contrat:'📄 Contrat',photo:'📸 Photo',permis:'🏛️ Permis',devis:'📊 Devis',rapport:'📋 Rapport',autre:'📎 Autre'};
   const iconeType = (tipo) => {
     if(!tipo) return 'ti-file';
     if(tipo.includes('pdf')) return 'ti-file-type-pdf';
@@ -974,38 +973,38 @@ async function openChantierDetail(chantierId, tab){
       <i class="ti ${t.icon}"></i>${t.label}
     </div>`).join('');
 
-  // â”€â”€ ONGLET INFO â”€â”€
+  // ── ONGLET INFO ──
   const tabInfo = `
     <div class="info-grid" style="margin-bottom:16px;max-width:100%">
-      <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'â€”'}</span></div>
-      <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'â€”'}</span></div>
+      <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
+      <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
-      <div class="info-item"><label>Date dÃ©but</label><span>${fmtDate(chantier.date_debut)}</span></div>
-      <div class="info-item"><label>Date fin prÃ©vue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
+      <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
+      <div class="info-item"><label>Date fin prévue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
       <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
     </div>
     ${chantier.observations?`<div class="alert alert-info"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
     <div style="margin-top:16px;padding:14px 16px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius)">
-      <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Liaison systÃ¨me de pointages</div>
+      <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Liaison système de pointages</div>
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="ch-code-pt" placeholder="Code chantier dans le systÃ¨me de pointages" value="${chantier.code_pointages||''}"
+        <input id="ch-code-pt" placeholder="Code chantier dans le système de pointages" value="${chantier.code_pointages||''}"
           style="flex:1;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px"/>
         <button class="btn btn-primary btn-sm" onclick="saveCodePointages('${chantierId}')"><i class="ti ti-link"></i> Lier</button>
       </div>
-      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">Entrez le code du chantier tel qu'il apparaÃ®t dans le systÃ¨me de pointages pour afficher les heures.</p>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">Entrez le code du chantier tel qu'il apparaît dans le système de pointages pour afficher les heures.</p>
     </div>`;
 
-  // â”€â”€ ONGLET COMMANDES â”€â”€
+  // ── ONGLET COMMANDES ──
   const tabCommandes = pos.length===0
     ? `<div class="empty"><i class="ti ti-shopping-cart"></i><p>Aucune commande pour ce chantier</p></div>`
     : pos.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
         <strong class="text-blue">${p.numero}</strong>
-        <span class="text-muted">${p.fournisseurs?.nom||'â€”'}</span>
+        <span class="text-muted">${p.fournisseurs?.nom||'—'}</span>
         <span style="font-weight:600">${fmt(p.total_ttc)}</span>
         ${bPO(p.statut)}
       </div>`).join('');
 
-  // â”€â”€ ONGLET DOCUMENTS â”€â”€
+  // ── ONGLET DOCUMENTS ──
   const tabDocuments = `
     <div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center;background:var(--gray-1)"
       ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
@@ -1023,13 +1022,13 @@ async function openChantierDetail(chantierId, tab){
           ${cats.map(c=>`<option value="${c}">${CATEGORIES[c]}</option>`).join('')}
         </select>
       </div>
-      <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel, DWG â€” max 10MB</p>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel, DWG — max 10MB</p>
     </div>
     <div id="ch-upload-progress" style="display:none;margin-bottom:12px">
       <div style="background:var(--gray-2);border-radius:4px;height:6px;overflow:hidden">
         <div id="ch-progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .3s"></div>
       </div>
-      <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="ch-progress-text">TÃ©lÃ©chargement...</p>
+      <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="ch-progress-text">Téléchargement...</p>
     </div>
     ${docs.length===0
       ? '<div style="text-align:center;padding:24px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>'
@@ -1042,7 +1041,7 @@ async function openChantierDetail(chantierId, tab){
                 <i class="ti ${iconeType(d.tipo)}" style="font-size:22px;color:var(--blue)"></i>
                 <div>
                   <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
-                  <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} â€” ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} â€” ${fmtDate(d.created_at)}</div>
+                  <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} — ${fmtDate(d.created_at)}</div>
                 </div>
               </div>
               <div class="flex gap-8">
@@ -1053,7 +1052,7 @@ async function openChantierDetail(chantierId, tab){
             </div>`).join('')}
         </div>`).join('')}`;
 
-  // Onglet heures â€” sera chargÃ© dynamiquement
+  // Onglet heures — sera chargé dynamiquement
   const tabHeures = `<div id="heures-content" style="text-align:center;padding:32px;color:var(--gray-4)">
     <i class="ti ti-loader" style="font-size:32px;display:block;margin-bottom:8px"></i>Chargement des heures...
   </div>`;
@@ -1063,9 +1062,9 @@ async function openChantierDetail(chantierId, tab){
     ? '<div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture fournisseur pour ce chantier</p></div>'
     : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
       + '<thead><tr style="background:var(--gray-1)">'
-      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">NÂ° Facture</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
-      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Ã‰chÃ©ance</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Échéance</th>'
       + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Montant TTC</th>'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Statut</th>'
       + '</tr></thead><tbody>'
@@ -1074,7 +1073,7 @@ async function openChantierDetail(chantierId, tab){
           return '<tr>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+f.numero_facture_fournisseur+'</strong></td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(f.date_facture)+'</td>'
-            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);color:'+(enRetard?'var(--red)':'inherit')+'">'+fmtDate(f.date_echeance)+(enRetard?' âš ï¸':'')+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);color:'+(enRetard?'var(--red)':'inherit')+'">'+fmtDate(f.date_echeance)+(enRetard?' ⚠️':'')+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(f.montant_ttc)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bFA(f.statut)+'</td>'
             +'</tr>';
@@ -1085,10 +1084,10 @@ async function openChantierDetail(chantierId, tab){
 
   // Tab: Factures clients  
   const tabFacVente = facsVente.length===0
-    ? '<div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client pour ce chantier</p><button class="btn btn-primary" onclick="closeModal();navigate(&quot;factures_vente&quot;)"><i class="ti ti-plus"></i> CrÃ©er une facture</button></div>'
+    ? '<div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client pour ce chantier</p><button class="btn btn-primary" onclick="closeModal();navigate(&quot;factures_vente&quot;)"><i class="ti ti-plus"></i> Créer une facture</button></div>'
     : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
       + '<thead><tr style="background:var(--gray-1)">'
-      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">NÂ° Facture</th>'
+      + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Client</th>'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
       + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Total TTC</th>'
@@ -1096,13 +1095,13 @@ async function openChantierDetail(chantierId, tab){
       + '</tr></thead><tbody>'
       + facsVente.map(f=>'<tr>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+f.numero+'</strong></td>'
-          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(f.clients?.nom||'â€”')+'</td>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(f.clients?.nom||'—')+'</td>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(f.date_creation)+'</td>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(f.total_ttc)+'</td>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bFV(f.statut)+'</td>'
           +'</tr>').join('')
       + '</tbody></table></div>'
-      + '<div style="padding:12px 0;font-size:13px;color:var(--gray-6);text-align:right"><strong>Total TTC facturÃ© : </strong>'
+      + '<div style="padding:12px 0;font-size:13px;color:var(--gray-6);text-align:right"><strong>Total TTC facturé : </strong>'
       + fmt(facsVente.reduce((a,f)=>a+(f.total_ttc||0),0))+'</div>';
 
   const tabContent = {info:tabInfo, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
@@ -1111,7 +1110,7 @@ async function openChantierDetail(chantierId, tab){
     <div class="modal-header">
       <div>
         <h3>${chantier.nom}</h3>
-        <span style="font-size:12px;color:var(--gray-5)">${chantier.numero} â€” ${chantier.client}</span>
+        <span style="font-size:12px;color:var(--gray-5)">${chantier.numero} — ${chantier.client}</span>
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${JSON.stringify(chantier).replace(/'/g,"\'").replace(/"/g,"&quot;")})'><i class="ti ti-edit"></i> Modifier</button>
@@ -1131,10 +1130,10 @@ async function openChantierDetail(chantierId, tab){
 async function saveCodePointages(chantierId){
   const code = el('ch-code-pt').value.trim();
   await sb.from('chantiers_lyneo').update({code_pointages:code}).eq('id',chantierId);
-  // Mettre Ã  jour localement
+  // Mettre à jour localement
   const ch = _chantiers.find(c=>c.id===chantierId);
   if(ch) ch.code_pointages = code;
-  showToast('Liaison pointages enregistrÃ©e');
+  showToast('Liaison pointages enregistrée');
   if(code) loadHeuresChantier({id:chantierId, code_pointages:code});
 }
 
@@ -1145,7 +1144,7 @@ async function loadHeuresChantier(chantier){
   if(!chantier.code_pointages){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
       <i class="ti ti-link-off" style="font-size:36px;display:block;margin-bottom:12px"></i>
-      <p style="margin-bottom:12px">Ce chantier n'est pas encore liÃ© au systÃ¨me de pointages.</p>
+      <p style="margin-bottom:12px">Ce chantier n'est pas encore lié au système de pointages.</p>
       <p style="font-size:12px">Allez dans l'onglet <strong>Informations</strong> et entrez le code chantier.</p>
     </div>`;
     return;
@@ -1161,13 +1160,13 @@ async function loadHeuresChantier(chantier){
   if(!ptChantier){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
       <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:12px;color:var(--orange)"></i>
-      <p>Code "<strong>${chantier.code_pointages}</strong>" introuvable dans le systÃ¨me de pointages.</p>
-      <p style="font-size:12px;margin-top:8px">VÃ©rifiez le code dans l'onglet Informations.</p>
+      <p>Code "<strong>${chantier.code_pointages}</strong>" introuvable dans le système de pointages.</p>
+      <p style="font-size:12px;margin-top:8px">Vérifiez le code dans l'onglet Informations.</p>
     </div>`;
     return;
   }
 
-  // RÃ©cupÃ©rer les picages pour ce chantier
+  // Récupérer les picages pour ce chantier
   const {data:picages} = await sbPT.from('picages')
     .select('*,employes(nom)')
     .eq('chantier_id', ptChantier.id)
@@ -1177,12 +1176,12 @@ async function loadHeuresChantier(chantier){
   if(pics.length===0){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
       <i class="ti ti-clock" style="font-size:36px;display:block;margin-bottom:12px"></i>
-      <p>Aucune heure enregistrÃ©e pour ce chantier.</p>
+      <p>Aucune heure enregistrée pour ce chantier.</p>
     </div>`;
     return;
   }
 
-  // Calculer totaux par employÃ©
+  // Calculer totaux par employé
   const parEmploye = {};
   pics.forEach(p=>{
     const nom = p.employes?.nom || 'Inconnu';
@@ -1194,7 +1193,7 @@ async function loadHeuresChantier(chantier){
   const totalHeures = pics.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
   const totalJours = new Set(pics.map(p=>p.date)).size;
 
-  // DerniÃ¨res 10 entrÃ©es
+  // Dernières 10 entrées
   const dernieres = pics.slice(0,10);
 
   container.innerHTML = `
@@ -1205,17 +1204,17 @@ async function loadHeuresChantier(chantier){
         <div style="font-size:28px;font-weight:700;color:var(--blue)">${totalHeures.toFixed(1)}h</div>
       </div>
       <div style="background:var(--green-light);border-radius:var(--radius);padding:16px;text-align:center">
-        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;margin-bottom:4px">Jours travaillÃ©s</div>
+        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;margin-bottom:4px">Jours travaillés</div>
         <div style="font-size:28px;font-weight:700;color:var(--green)">${totalJours}</div>
       </div>
       <div style="background:var(--orange-light);border-radius:var(--radius);padding:16px;text-align:center">
-        <div style="font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;margin-bottom:4px">EmployÃ©s actifs</div>
+        <div style="font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;margin-bottom:4px">Employés actifs</div>
         <div style="font-size:28px;font-weight:700;color:var(--orange)">${Object.keys(parEmploye).length}</div>
       </div>
     </div>
 
-    <!-- PAR EMPLOYÃ‰ -->
-    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Heures par employÃ©</div>
+    <!-- PAR EMPLOYÉ -->
+    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Heures par employé</div>
     <div style="margin-bottom:20px">
       ${Object.entries(parEmploye).sort((a,b)=>b[1].heures-a[1].heures).map(([nom,d])=>{
         const pct = Math.round((d.heures/totalHeures)*100);
@@ -1227,23 +1226,23 @@ async function loadHeuresChantier(chantier){
           <div style="background:var(--gray-2);border-radius:4px;height:8px;overflow:hidden">
             <div style="background:var(--blue);height:100%;width:${pct}%;border-radius:4px;transition:width .5s"></div>
           </div>
-          <div style="font-size:11px;color:var(--gray-5);margin-top:2px">${d.jours.size} jour(s) â€” ${pct}% du total</div>
+          <div style="font-size:11px;color:var(--gray-5);margin-top:2px">${d.jours.size} jour(s) — ${pct}% du total</div>
         </div>`;
       }).join('')}
     </div>
 
-    <!-- DERNIÃˆRES ENTRÃ‰ES -->
-    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">10 derniÃ¨res entrÃ©es</div>
+    <!-- DERNIÈRES ENTRÉES -->
+    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">10 dernières entrées</div>
     <table style="width:100%;border-collapse:collapse">
       <thead><tr>
         <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Date</th>
-        <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">EmployÃ©</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Employé</th>
         <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Heures</th>
       </tr></thead>
       <tbody>
         ${dernieres.map(p=>{
           const h = parseFloat(p.heures).toFixed(1);
-          const nom = p.employes?.nom||'â€”';
+          const nom = p.employes?.nom||'—';
           return '<tr>'
             + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">'+fmtDate(p.date)+'</td>'
             + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">'+nom+'</td>'
@@ -1274,7 +1273,7 @@ async function uploadAnnexesChantier(files, chantierId, categorie='autre'){
 
   for(let i=0; i<files.length; i++){
     const file = files[i];
-    if(file.size > 10*1024*1024){ showToast(`${file.name} dÃ©passe 10MB â€” ignorÃ©`,'error'); continue; }
+    if(file.size > 10*1024*1024){ showToast(`${file.name} dépasse 10MB — ignoré`,'error'); continue; }
     if(bar) bar.style.width=Math.round((i/files.length)*100)+'%';
     if(txt) txt.textContent=`Envoi ${i+1}/${files.length} : ${file.name}`;
     const path = `chantiers/${chantierId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
@@ -1289,11 +1288,11 @@ async function uploadAnnexesChantier(files, chantierId, categorie='autre'){
     successCount++;
   }
   if(bar) bar.style.width='100%';
-  if(txt) txt.textContent='TerminÃ© !';
+  if(txt) txt.textContent='Terminé !';
   if(successCount>0){
-    showToast(successCount>1?`${successCount} document(s) ajoutÃ©(s)`:'Document ajoutÃ©');
+    showToast(successCount>1?`${successCount} document(s) ajouté(s)`:'Document ajouté');
   } else if(lastError){
-    showToast("Aucun document n'a pu Ãªtre ajoutÃ©", 'error');
+    showToast("Aucun document n'a pu être ajouté", 'error');
   }
   setTimeout(()=>openChantierDetail(chantierId), 500);
 }
@@ -1303,7 +1302,7 @@ async function deleteAnnexeChantier(id, chantierId, url){
   const path = url.split('/Documents/')[1];
   if(path) await sb.storage.from('Documents').remove([path]);
   await sb.from('anexos_chantier').delete().eq('id',id);
-  showToast('Document supprimÃ©');
+  showToast('Document supprimé');
   openChantierDetail(chantierId);
 }
 
@@ -1313,18 +1312,18 @@ function openChantierModal(r=null){
     <div class="modal-header"><h3>${isEdit?'Modifier chantier':'Nouveau chantier'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="Ex: RÃ©novation BÃ¢timent A"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="Ex: Rénovation Bâtiment A"/></div>
         <div class="form-group"><label class="field-label">Client *</label><input id="ch-client" value="${r?.client||''}" placeholder="Nom du client"/></div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
           <option value="actif" ${r?.statut==='actif'?'selected':''}>Actif</option>
           <option value="pause" ${r?.statut==='pause'?'selected':''}>En pause</option>
-          <option value="termine" ${r?.statut==='termine'?'selected':''}>TerminÃ©</option>
+          <option value="termine" ${r?.statut==='termine'?'selected':''}>Terminé</option>
         </select></div>
-        <div class="form-group"><label class="field-label">Date dÃ©but</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
-        <div class="form-group"><label class="field-label">Date fin prÃ©vue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
-        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le systÃ¨me de pointages"/></div>
+        <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
+        <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
+        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/></div>
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
       </div>
       <div class="form-actions">
@@ -1342,16 +1341,16 @@ async function saveChantier(id){
   const cpModal = el('ch-code-pt-modal'); const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
-    showToast('Chantier mis Ã  jour');
+    showToast('Chantier mis à jour');
   } else {
     const {data:num} = await sb.rpc('generate_chantier_number');
     await sb.from('chantiers_lyneo').insert({...data,numero:num});
-    showToast('Chantier crÃ©Ã© â€” '+num);
+    showToast('Chantier créé — '+num);
   }
   closeModal(); renderChantiers();
 }
 
-// â”€â”€ FOURNISSEURS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FOURNISSEURS ─────────────────────────────────────────────
 let _fournisseurs = [];
 async function renderFournisseurs(search=''){
   if(!search){
@@ -1370,19 +1369,19 @@ async function renderFournisseurs(search=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>Nom</th><th>Email</th><th>TÃ©lÃ©phone</th><th>Ville</th><th>NÂ° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvÃ©</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
             items.map(r=>{
-              const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : 'â€”';
+              const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif?'oui':'non')+'">'+(r.actif?'Oui':'Non')+'</span>';
               return '<tr>'
                 +'<td><strong>'+r.nom+'</strong></td>'
                 +'<td>'+email+'</td>'
-                +'<td>'+(r.telephone||'â€”')+'</td>'
-                +'<td>'+(r.ville||'â€”')+'</td>'
-                +'<td>'+(r.numero_tva||'â€”')+'</td>'
-                +'<td>'+(r.conditions_paiement||'â€”')+'</td>'
+                +'<td>'+(r.telephone||'—')+'</td>'
+                +'<td>'+(r.ville||'—')+'</td>'
+                +'<td>'+(r.numero_tva||'—')+'</td>'
+                +'<td>'+(r.conditions_paiement||'—')+'</td>'
                 +'<td>'+badge+'</td>'
                 +'<td><div class="td-actions">'
                 +  '<button class="btn btn-secondary btn-sm" data-four-edit="'+r.id+'" title="Modifier"><i class="ti ti-edit"></i></button>'
@@ -1410,17 +1409,17 @@ function openFourModal(r=null){
     <div class="modal-header"><h3>${isEdit?'Modifier fournisseur':'Nouveau fournisseur'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${r?.nom||''}" placeholder="Nom de la sociÃ©tÃ©"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${r?.nom||''}" placeholder="Nom de la société"/></div>
         <div class="form-group"><label class="field-label">Email</label><input type="email" id="f-email" value="${r?.email||''}" placeholder="contact@fournisseur.com"/></div>
-        <div class="form-group"><label class="field-label">TÃ©lÃ©phone</label><input id="f-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
-        <div class="form-group"><label class="field-label">NÂ° TVA</label><input id="f-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
-        <div class="form-group full"><label class="field-label">Adresse</label><input id="f-adresse" value="${r?.adresse||''}" placeholder="Rue et numÃ©ro"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="f-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
+        <div class="form-group"><label class="field-label">N° TVA</label><input id="f-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="f-adresse" value="${r?.adresse||''}" placeholder="Rue et numéro"/></div>
         <div class="form-group"><label class="field-label">Code postal</label><input id="f-cp" value="${r?.code_postal||''}" placeholder="L-1234"/></div>
         <div class="form-group"><label class="field-label">Ville</label><input id="f-ville" value="${r?.ville||''}" placeholder="Luxembourg"/></div>
         <div class="form-group"><label class="field-label">Pays</label><input id="f-pays" value="${r?.pays||'Luxembourg'}"/></div>
         <div class="form-group"><label class="field-label">Conditions paiement</label>
           <select id="f-cond">
-            ${['ImmÃ©diat','15 jours','30 jours','45 jours','60 jours'].map(c=>`<option ${(r?.conditions_paiement||'30 jours')===c?'selected':''}>${c}</option>`).join('')}
+            ${['Immédiat','15 jours','30 jours','45 jours','60 jours'].map(c=>`<option ${(r?.conditions_paiement||'30 jours')===c?'selected':''}>${c}</option>`).join('')}
           </select>
         </div>
         <div class="form-group"><label class="field-label">Actif</label>
@@ -1444,11 +1443,11 @@ async function saveFour(id){
   const data = {nom,email:el('f-email').value,telephone:el('f-tel').value,numero_tva:el('f-tva').value,adresse:el('f-adresse').value,code_postal:el('f-cp').value,ville:el('f-ville').value,pays:el('f-pays').value,conditions_paiement:el('f-cond').value,actif:el('f-actif').value==='1'};
   if(id) await sb.from('fournisseurs').update(data).eq('id',id);
   else await sb.from('fournisseurs').insert(data);
-  showToast(id?'Fournisseur mis Ã  jour':'Fournisseur crÃ©Ã©');
+  showToast(id?'Fournisseur mis à jour':'Fournisseur créé');
   closeModal(); renderFournisseurs();
 }
 
-// â”€â”€ PURCHASE ORDERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PURCHASE ORDERS ──────────────────────────────────────────
 let _pos = [], _chantiersActive = [], _foursActive = [];
 let poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
 
@@ -1470,7 +1469,7 @@ async function renderPOS(search='', filterStatut=''){
     <div class="page-header">
       <div class="page-header-left"><h1>Bons de commande</h1><p>Achats et commandes fournisseurs</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="NÂ° PO, chantier, fournisseur..." oninput="renderPOS(this.value,document.getElementById('po-filter-statut').value)" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="N° PO, chantier, fournisseur..." oninput="renderPOS(this.value,document.getElementById('po-filter-statut').value)" value="${search}"/></div>
         <select id="po-filter-statut" onchange="renderPOS(document.querySelector('.search-wrap input').value,this.value)" style="padding:7px 10px;border-radius:var(--radius);border:1px solid var(--gray-3);font-size:13px">
           <option value="">Tous les statuts</option>${statusOpts}
         </select>
@@ -1480,20 +1479,20 @@ async function renderPOS(search='', filterStatut=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>NÂ° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> CrÃ©er une commande</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
             items.map(r=>{
               const chantierNom = r.chantiers_lyneo?.nom 
                 || _chantiersActive.find(c=>c.id===r.chantier_id)?.nom 
-                || 'â€”';
+                || '—';
               const pct = ['rec_totale','facturee','payee'].includes(r.statut) ? 100
                 : r.statut==='rec_partielle' ? 50
                 : r.statut==='envoyee' ? 10 : 0;
               const pctColor = pct===100?'var(--green)':pct>0?'var(--blue)':'var(--gray-3)';
               return `<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
-              <td>${r.fournisseurs?.nom||'â€”'}</td>
+              <td>${r.fournisseurs?.nom||'—'}</td>
               <td><strong>${chantierNom}</strong></td>
               <td>${fmtDate(r.date_creation)}</td>
               <td>
@@ -1520,28 +1519,28 @@ async function renderPOS(search='', filterStatut=''){
 
 function openNewPO(){
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
-  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${c.numero} â€” ${c.nom}</option>`).join('');
+  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${c.numero} — ${c.nom}</option>`).join('');
   const foursOpts = _foursActive.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier"><option value="">â€” SÃ©lectionner â€”</option>${chantsOpts}</select></div>
-        <div class="form-group"><label class="field-label">Fournisseur *</label><select id="po-four"><option value="">â€” SÃ©lectionner â€”</option>${foursOpts}</select></div>
-        <div class="form-group full"><label class="field-label">Observations</label><textarea id="po-obs" placeholder="Instructions particuliÃ¨res..."></textarea></div>
+        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
+        <div class="form-group"><label class="field-label">Fournisseur *</label><select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="po-obs" placeholder="Instructions particulières..."></textarea></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes de commande</strong>
         <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%"><table class="lignes-table" style="min-width:580px" id="lignes-table">
-        <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">RÃ©fÃ©rence</th><th style="width:70px">QtÃ©</th><th style="width:75px">UnitÃ©</th><th style="width:100px">P.U. HT â‚¬</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
+        <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">Référence</th><th style="width:70px">Qté</th><th style="width:75px">Unité</th><th style="width:100px">P.U. HT €</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
         <tbody id="lignes-body"></tbody>
       </table></div>
       <div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="savePO()"><i class="ti ti-check"></i> CrÃ©er la commande</button>
+        <button class="btn btn-primary" onclick="savePO()"><i class="ti ti-check"></i> Créer la commande</button>
       </div>
     </div>
   </div></div>`);
@@ -1553,7 +1552,7 @@ function renderPoLignes(){
   if(!body) return;
   body.innerHTML = poLignes.map((l,i)=>`<tr>
     <td><input value="${l.description}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
-    <td><input value="${l.reference_article}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="RÃ©f."/></td>
+    <td><input value="${l.reference_article}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
     <td><input type="number" min="0" step="0.001" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
@@ -1596,7 +1595,7 @@ async function savePO(){
     prix_unitaire_ht:parseFloat(l.prix_unitaire_ht)||0,
     taux_tva:parseFloat(l.taux_tva)||17
   })));
-  showToast('Commande crÃ©Ã©e â€” '+num);
+  showToast('Commande créée — '+num);
   closeModal(); renderPOS();
 }
 
@@ -1623,7 +1622,7 @@ async function openPODetail(poId){
   const blsHtml = bls.length===0 ? '' : `
     <div class="section-title"><i class="ti ti-truck-delivery"></i> Bons de livraison</div>
     ${bls.map(b=>`<div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
-      <div><strong>${b.numero_bl}</strong> â€” ${fmtDate(b.date_reception)}</div>
+      <div><strong>${b.numero_bl}</strong> — ${fmtDate(b.date_reception)}</div>
       <div class="flex gap-8 items-center">
         <span class="text-muted text-sm">${b.utilisateurs?.prenom||''} ${b.utilisateurs?.nom||''}</span>
         <span class="badge badge-${b.statut_reception==='complet'?'rec_totale':'rec_partielle'}">${b.statut_reception==='complet'?'Complet':'Partiel'}</span>
@@ -1633,7 +1632,7 @@ async function openPODetail(poId){
   const facsHtml = facs.length===0 ? '' : `
     <div class="section-title"><i class="ti ti-file-invoice"></i> Factures</div>
     ${facs.map(f=>`<div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
-      <div><strong>${f.numero_facture_fournisseur}</strong> â€” ${fmtDate(f.date_facture)}</div>
+      <div><strong>${f.numero_facture_fournisseur}</strong> — ${fmtDate(f.date_facture)}</div>
       <div class="flex gap-8 items-center"><span style="font-weight:600">${fmt(f.montant_ttc)}</span>${bFA(f.statut)}</div>
     </div>`).join('')}`;
 
@@ -1643,19 +1642,19 @@ async function openPODetail(poId){
       <div class="flex gap-8 items-center">
         <button class="btn btn-secondary btn-sm" onclick="downloadPDF_PO('${poId}')"><i class="ti ti-file-download"></i> PDF</button>
         <button class="btn btn-warning btn-sm" onclick="closeModal();openEditPO('${poId}')"><i class="ti ti-edit"></i> Modifier</button>
-        ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyÃ©e</button>`:''}
-        ${['rec_partielle','rec_totale','envoyee'].includes(po.statut)?`<button class="btn btn-success btn-sm" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-file-invoice"></i> GÃ©nÃ©rer facture</button>`:''}
+        ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
+        ${['rec_partielle','rec_totale','envoyee'].includes(po.statut)?`<button class="btn btn-success btn-sm" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-file-invoice"></i> Générer facture</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
     <div class="modal-body">
       <div class="info-grid">
-        <div class="info-item"><label>Fournisseur</label><span><strong>${four?.nom||'â€”'}</strong></span></div>
-        <div class="info-item"><label>Chantier</label><span>${chant?.nom||'â€”'}</span></div>
-        <div class="info-item"><label>Client</label><span>${chant?.client||po.chantiers?.client||'â€”'}</span></div>
+        <div class="info-item"><label>Fournisseur</label><span><strong>${four?.nom||'—'}</strong></span></div>
+        <div class="info-item"><label>Chantier</label><span>${chant?.nom||'—'}</span></div>
+        <div class="info-item"><label>Client</label><span>${chant?.client||po.chantiers?.client||'—'}</span></div>
         <div class="info-item"><label>Date commande</label><span>${fmtDate(po.date_creation)}</span></div>
-        <div class="info-item"><label>Livraison souhaitÃ©e</label><span>${fmtDate(po.date_livraison_souhaitee)}</span></div>
-        <div class="info-item"><label>EnvoyÃ©e le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyÃ©e'}</span></div>
+        <div class="info-item"><label>Livraison souhaitée</label><span>${fmtDate(po.date_livraison_souhaitee)}</span></div>
+        <div class="info-item"><label>Envoyée le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyée'}</span></div>
       </div>
       ${po.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${po.observations}</div>`:''}
       <div style="overflow-x:auto;margin-bottom:12px">
@@ -1663,8 +1662,8 @@ async function openPODetail(poId){
         <thead>
           <tr style="background:var(--navy)">
             <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Description</th>
-            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">QtÃ© cmd.</th>
-            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">ReÃ§u</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Qté cmd.</th>
+            <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Reçu</th>
             <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">Restant</th>
             <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">P.U. HT</th>
             <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.1)">TVA</th>
@@ -1711,7 +1710,7 @@ async function openPODetail(poId){
 
 async function markSent(poId){
   await sb.from('purchase_orders_lyneo').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',poId);
-  showToast('Commande marquÃ©e comme envoyÃ©e â€” tÃ©lÃ©chargez le PDF pour l\'envoyer au fournisseur');
+  showToast('Commande marquée comme envoyée — téléchargez le PDF pour l\'envoyer au fournisseur');
   closeModal(); renderPOS();
 }
 
@@ -1742,20 +1741,20 @@ function downloadPDF_PO(poId){
     @media print{body{padding:0}}
   </style></head><body>
   <div class="header">
-    <div><h1>LYNEO</h1><p>Ã‰lectricitÃ© â€” Luxembourg</p></div>
+    <div><h1>LYNEO</h1><p>Électricité — Luxembourg</p></div>
     <div class="header-right"><strong style="font-size:16px">BON DE COMMANDE</strong><br><span style="font-size:13px">${po.numero}</span></div>
   </div>
   <div class="two-col">
-    <div class="box"><label>Fournisseur</label><strong>${fournisseur?.nom||'â€”'}</strong><br>${fournisseur?.adresse||''}<br>${(fournisseur?.code_postal||'')+' '+(fournisseur?.ville||'')}<br>${fournisseur?.numero_tva?'TVA: '+fournisseur.numero_tva:''}</div>
+    <div class="box"><label>Fournisseur</label><strong>${fournisseur?.nom||'—'}</strong><br>${fournisseur?.adresse||''}<br>${(fournisseur?.code_postal||'')+' '+(fournisseur?.ville||'')}<br>${fournisseur?.numero_tva?'TVA: '+fournisseur.numero_tva:''}</div>
     <div class="box">
-      <label>NÂ° Commande</label><strong>${po.numero}</strong><br><br>
+      <label>N° Commande</label><strong>${po.numero}</strong><br><br>
       <label>Date</label>${fmtDate(po.date_creation)}<br><br>
-      <label>Livraison souhaitÃ©e</label>${fmtDate(po.date_livraison_souhaitee)}<br><br>
-      <label>Chantier</label><strong>${chantier?.nom||'â€”'}</strong>
+      <label>Livraison souhaitée</label>${fmtDate(po.date_livraison_souhaitee)}<br><br>
+      <label>Chantier</label><strong>${chantier?.nom||'—'}</strong>
     </div>
   </div>
   <table>
-    <thead><tr><th>Description</th><th>RÃ©fÃ©rence</th><th style="text-align:right">QtÃ©</th><th>UnitÃ©</th><th style="text-align:right">P.U. HT</th><th>TVA</th><th style="text-align:right">Total HT</th></tr></thead>
+    <thead><tr><th>Description</th><th>Référence</th><th style="text-align:right">Qté</th><th>Unité</th><th style="text-align:right">P.U. HT</th><th>TVA</th><th style="text-align:right">Total HT</th></tr></thead>
     <tbody>'+lignes.map(l=>'<tr>'
       +'<td>'+l.description+'</td><td>'+(l.reference_article||'')+'</td>'
       +'<td style="text-align:right">'+l.quantite+'</td><td>'+l.unite+'</td>'
@@ -1769,14 +1768,14 @@ function downloadPDF_PO(poId){
     <div class="t-row t-total"><span>TOTAL TTC</span><span>${fmt(po.total_ttc)}</span></div>
   </div></div>
   '+(po.observations?'<div class="cond" style="margin-bottom:12px"><strong>Observations :</strong> '+po.observations+'</div>':'')+'
-  <div class="cond">Conditions de paiement : ${fournisseur?.conditions_paiement||'30 jours'} &nbsp;|&nbsp; Merci de mentionner notre rÃ©fÃ©rence <strong>${po.numero}</strong> sur votre facture.</div>
-  <div class="footer">LYNEO SARL â€” Luxembourg &nbsp;|&nbsp; Document gÃ©nÃ©rÃ© le ${new Date().toLocaleDateString('fr-FR')}</div>
+  <div class="cond">Conditions de paiement : ${fournisseur?.conditions_paiement||'30 jours'} &nbsp;|&nbsp; Merci de mentionner notre référence <strong>${po.numero}</strong> sur votre facture.</div>
+  <div class="footer">LYNEO SARL — Luxembourg &nbsp;|&nbsp; Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
   <script>window.onload=()=>{window.print()}<\/script>
   </body></html>`);
   win.document.close();
 }
 
-// â”€â”€ RECEPTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── RECEPTIONS ───────────────────────────────────────────────
 let _posAttente = [], _lignesRec = [];
 async function renderReceptions(){
   const [posR, blsR] = await Promise.all([
@@ -1787,31 +1786,31 @@ async function renderReceptions(){
   const bls = blsR.data||[];
   el('page-content').innerHTML = `
     <div class="page-header">
-      <div class="page-header-left"><h1>RÃ©ceptions</h1><p>Bons de livraison et contrÃ´le des marchandises</p></div>
-      <button class="btn btn-primary" onclick="openBLModal()"><i class="ti ti-plus"></i> Saisir une rÃ©ception</button>
+      <div class="page-header-left"><h1>Réceptions</h1><p>Bons de livraison et contrôle des marchandises</p></div>
+      <button class="btn btn-primary" onclick="openBLModal()"><i class="ti ti-plus"></i> Saisir une réception</button>
     </div>
     ${_posAttente.length>0?`<div class="alert alert-warning" style="cursor:pointer" onclick="">
       <i class="ti ti-truck-delivery"></i>
       <div>
-        <strong>${_posAttente.length} commande(s) en attente de rÃ©ception</strong>
-        <div style="font-size:12px;margin-top:2px;opacity:.8">${_posAttente.map(p=>p.numero+' â€” '+(p.fournisseurs?.nom||'')).join(' Â· ')}</div>
+        <strong>${_posAttente.length} commande(s) en attente de réception</strong>
+        <div style="font-size:12px;margin-top:2px;opacity:.8">${_posAttente.map(p=>p.numero+' — '+(p.fournisseurs?.nom||'')).join(' · ')}</div>
       </div>
     </div>`:''}
     <div class="card">
-      <div class="card-header"><h2>Historique des rÃ©ceptions</h2></div>
+      <div class="card-header"><h2>Historique des réceptions</h2></div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>NÂ° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date rÃ©ception</th><th>ReÃ§u par</th><th>RÃ©ception</th></tr></thead>
+          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th></tr></thead>
           <tbody>
-            ${bls.length===0?'<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune rÃ©ception enregistrÃ©e</p></div></td></tr>':
+            ${bls.length===0?'<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
             bls.map(b=>{
               const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
-              const statutLabel = b.statut_reception==='complet' ? 'RÃ©ception complÃ¨te' : 'RÃ©ception partielle';
+              const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
               return '<tr>'
                 +'<td><strong class="text-blue">'+b.numero_bl+'</strong></td>'
-                +'<td>'+(b.purchase_orders?.numero||'â€”')+'</td>'
-                +'<td>'+(b.purchase_orders?.fournisseurs?.nom||'â€”')+'</td>'
-                +'<td>'+(b.purchase_orders?.chantiers?.nom||'â€”')+'</td>'
+                +'<td>'+(b.purchase_orders?.numero||'—')+'</td>'
+                +'<td>'+(b.purchase_orders?.fournisseurs?.nom||'—')+'</td>'
+                +'<td>'+(b.purchase_orders?.chantiers?.nom||'—')+'</td>'
                 +'<td>'+fmtDate(b.date_reception)+'</td>'
                 +'<td>'+(b.utilisateurs?.prenom||'')+' '+(b.utilisateurs?.nom||'')+'</td>'
                 +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
@@ -1824,25 +1823,25 @@ async function renderReceptions(){
 }
 
 function openBLModal(){
-  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} â€” ${p.fournisseurs?.nom} (${p.chantiers?.nom})</option>`).join('');
+  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${p.chantiers?.nom})</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
-    <div class="modal-header"><h3>Nouvelle rÃ©ception</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-header"><h3>Nouvelle réception</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Commande *</label>
           <select id="bl-po" onchange="loadLignesBL(this.value)">
-            <option value="">â€” SÃ©lectionner une commande â€”</option>${posOpts}
+            <option value="">— Sélectionner une commande —</option>${posOpts}
           </select>
         </div>
-        <div class="form-group"><label class="field-label">NÂ° BL fournisseur *</label><input id="bl-num" placeholder="BL-2026-XXXXX"/></div>
-        <div class="form-group"><label class="field-label">Date de rÃ©ception</label><input type="date" id="bl-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Type de rÃ©ception</label>
+        <div class="form-group"><label class="field-label">N° BL fournisseur *</label><input id="bl-num" placeholder="BL-2026-XXXXX"/></div>
+        <div class="form-group"><label class="field-label">Date de réception</label><input type="date" id="bl-date" value="${today()}"/></div>
+        <div class="form-group"><label class="field-label">Type de réception</label>
           <select id="bl-statut">
-            <option value="partiel">Partielle â€” livraison incomplÃ¨te</option>
-            <option value="complet">ComplÃ¨te â€” tout reÃ§u</option>
+            <option value="partiel">Partielle — livraison incomplète</option>
+            <option value="complet">Complète — tout reçu</option>
           </select>
         </div>
-        <div class="form-group full"><label class="field-label">Observations</label><textarea id="bl-obs" placeholder="Remarques, dommages constatÃ©s..."></textarea></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="bl-obs" placeholder="Remarques, dommages constatés..."></textarea></div>
       </div>
       <div id="bl-lignes-section"></div>
       <div class="form-actions">
@@ -1858,7 +1857,7 @@ async function loadLignesBL(poId){
   // Charger les lignes de la PO
   const {data:lignes} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
   _lignesRec = lignes||[];
-  // Calculer les quantitÃ©s dÃ©jÃ  reÃ§ues par ligne
+  // Calculer les quantités déjà reçues par ligne
   const {data:blsExistants} = await sb.from('bons_livraison').select('id').eq('po_id',poId);
   const blIds = (blsExistants||[]).map(b=>b.id);
   let dejRecu = {};
@@ -1868,7 +1867,7 @@ async function loadLignesBL(poId){
       dejRecu[l.ligne_po_id] = (dejRecu[l.ligne_po_id]||0) + parseFloat(l.quantite_recue||0);
     });
   }
-  // Calculer quantitÃ©s restantes
+  // Calculer quantités restantes
   _lignesRec = _lignesRec.map(l=>({
     ...l,
     deja_recu: dejRecu[l.id]||0,
@@ -1877,19 +1876,19 @@ async function loadLignesBL(poId){
   // Check if all lines already fully received
   const allDone = _lignesRec.every(l=>l.restant<=0);
   if(allDone){
-    el('bl-lignes-section').innerHTML = `<div class="alert alert-success"><i class="ti ti-circle-check"></i>Toutes les lignes de cette commande ont dÃ©jÃ  Ã©tÃ© intÃ©gralement rÃ©ceptionnÃ©es.</div>`;
+    el('bl-lignes-section').innerHTML = `<div class="alert alert-success"><i class="ti ti-circle-check"></i>Toutes les lignes de cette commande ont déjà été intégralement réceptionnées.</div>`;
     return;
   }
   el('bl-lignes-section').innerHTML = `
-    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">QuantitÃ©s Ã  rÃ©ceptionner</div>
+    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Quantités à réceptionner</div>
     <table style="width:100%;border-collapse:collapse;border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden">
       <thead><tr style="background:var(--gray-1)">
         <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>
-        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">CommandÃ©</th>
-        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">DÃ©jÃ  reÃ§u</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Commandé</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Déjà reçu</th>
         <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Restant</th>
         <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Progression</th>
-        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">QtÃ© reÃ§ue maintenant</th>
+        <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Qté reçue maintenant</th>
       </tr></thead>
       <tbody>${_lignesRec.map(l=>{
         const pct = Math.min(100, Math.round((l.deja_recu/parseFloat(l.quantite))*100));
@@ -1918,7 +1917,7 @@ async function loadLignesBL(poId){
 async function saveBL(){
   const poId = el('bl-po').value;
   const num = el('bl-num').value.trim();
-  if(!poId||!num){ showToast("Commande et NÂ° BL obligatoires",'error'); return; }
+  if(!poId||!num){ showToast("Commande et N° BL obligatoires",'error'); return; }
   const {data:bl,error} = await sb.from('bons_livraison').insert({
     po_id:poId, numero_bl:num, date_reception:el('bl-date').value,
     recu_par:currentUser.id, statut_reception:el('bl-statut').value,
@@ -1932,18 +1931,18 @@ async function saveBL(){
       quantite_recue:Math.min(parseFloat(el('qty-'+l.id).value)||0, l.restant)
     }));
   if(lignesInsert.length>0) await sb.from('lignes_bl').insert(lignesInsert);
-  // VÃ©rifier si tout est reÃ§u maintenant
+  // Vérifier si tout est reçu maintenant
   const toutRecu = _lignesRec.every(l=>{
     const nouvQte = l.restant>0 ? (parseFloat(el('qty-'+l.id)?.value)||0) : 0;
     return (l.deja_recu + nouvQte) >= parseFloat(l.quantite);
   });
   const newStatut = toutRecu ? 'rec_totale' : 'rec_partielle';
   await sb.from('purchase_orders_lyneo').update({statut:newStatut}).eq('id',poId);
-  showToast(toutRecu ? 'RÃ©ception complÃ¨te enregistrÃ©e âœ“' : 'RÃ©ception partielle enregistrÃ©e');
+  showToast(toutRecu ? 'Réception complète enregistrée ✓' : 'Réception partielle enregistrée');
   closeModal(); renderReceptions();
 }
 
-// â”€â”€ FACTURES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FACTURES ─────────────────────────────────────────────────
 let _posPourFac = [];
 async function renderFactures(){
   const [facsR, posR] = await Promise.all([
@@ -1960,18 +1959,18 @@ async function renderFactures(){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>NÂ° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Ã‰chÃ©ance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
-            ${facs.length===0?'<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture enregistrÃ©e</p></div></td></tr>':
+            ${facs.length===0?'<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture enregistrée</p></div></td></tr>':
             facs.map(r=>{
               const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
               return `<tr>
                 <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${r.numero_facture_fournisseur}</strong></td>
-                <td>${r.purchase_orders?.numero||'â€”'}</td>
-                <td>${r.purchase_orders?.fournisseurs?.nom||'â€”'}</td>
-                <td>${r.purchase_orders?.chantiers?.nom||'â€”'}</td>
+                <td>${r.purchase_orders?.numero||'—'}</td>
+                <td>${r.purchase_orders?.fournisseurs?.nom||'—'}</td>
+                <td>${r.purchase_orders?.chantiers?.nom||'—'}</td>
                 <td>${fmtDate(r.date_facture)}</td>
-                <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' âš ï¸':''}</td>
+                <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
                 <td><strong>${fmt(r.montant_ttc)}</strong></td>
                 <td><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button></td>
                 <td>${bFA(r.statut)}</td>
@@ -1990,7 +1989,7 @@ async function renderFactures(){
     </div>`;
 }
 
-// â”€â”€ DETAIL FACTURE AVEC ANNEXES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
 async function openFacDetail(facId){
   const {data:fac} = await sb.from('factures').select('*,purchase_orders_lyneo(numero,fournisseurs(nom),chantiers_lyneo(nom))').eq('id',facId).single();
   const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
@@ -2016,7 +2015,7 @@ async function openFacDetail(facId){
     <div class="modal-header">
       <div>
         <h3>${fac.numero_facture_fournisseur}</h3>
-        <span style="font-size:12px;color:var(--gray-5)">${fac.purchase_orders?.fournisseurs?.nom||''} â€” ${fac.purchase_orders?.chantiers?.nom||''}</span>
+        <span style="font-size:12px;color:var(--gray-5)">${fac.purchase_orders?.fournisseurs?.nom||''} — ${fac.purchase_orders?.chantiers?.nom||''}</span>
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -2030,9 +2029,9 @@ async function openFacDetail(facId){
 
       <!-- INFOS FACTURE -->
       <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>NÂ° Commande</label><span>${fac.purchase_orders?.numero||'â€”'}</span></div>
+        <div class="info-item"><label>N° Commande</label><span>${fac.purchase_orders?.numero||'—'}</span></div>
         <div class="info-item"><label>Date facture</label><span>${fmtDate(fac.date_facture)}</span></div>
-        <div class="info-item"><label>Ã‰chÃ©ance</label><span>${fmtDate(fac.date_echeance)}</span></div>
+        <div class="info-item"><label>Échéance</label><span>${fmtDate(fac.date_echeance)}</span></div>
         <div class="info-item"><label>Montant HT</label><span>${fmt(fac.montant_ht)}</span></div>
         <div class="info-item"><label>TVA</label><span>${fmt(fac.montant_tva)}</span></div>
         <div class="info-item"><label>Total TTC</label><span style="font-weight:700;color:var(--blue);font-size:16px">${fmt(fac.montant_ttc)}</span></div>
@@ -2050,7 +2049,7 @@ async function openFacDetail(facId){
           <i class="ti ti-paperclip"></i> Choisir un fichier
           <input type="file" id="fac-file-input" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style="display:none" onchange="uploadAnnexes(this.files,'${facId}')"/>
         </label>
-        <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel â€” max 10MB par fichier</p>
+        <p style="font-size:11px;color:var(--gray-4);margin-top:8px">PDF, images, Word, Excel — max 10MB par fichier</p>
       </div>
 
       <!-- LISTE DOCUMENTS -->
@@ -2063,7 +2062,7 @@ async function openFacDetail(facId){
                 <i class="ti ${iconeType(d.tipo)}" style="font-size:24px;color:var(--blue)"></i>
                 <div>
                   <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
-                  <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} â€” AjoutÃ© par ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} le ${fmtDate(d.created_at)}</div>
+                  <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — Ajouté par ${d.utilisateurs?.prenom||''} ${d.utilisateurs?.nom||''} le ${fmtDate(d.created_at)}</div>
                 </div>
               </div>
               <div class="flex gap-8">
@@ -2078,7 +2077,7 @@ async function openFacDetail(facId){
         <div style="background:var(--gray-2);border-radius:4px;height:6px;overflow:hidden">
           <div id="progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .3s"></div>
         </div>
-        <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="progress-text">TÃ©lÃ©chargement en cours...</p>
+        <p style="font-size:12px;color:var(--gray-5);margin-top:6px;text-align:center" id="progress-text">Téléchargement en cours...</p>
       </div>
 
     </div>
@@ -2106,7 +2105,7 @@ async function uploadAnnexes(files, facId){
 
   for(let i=0; i<files.length; i++){
     const file = files[i];
-    if(file.size > 10*1024*1024){ showToast(`${file.name} dÃ©passe 10MB â€” ignorÃ©`,'error'); continue; }
+    if(file.size > 10*1024*1024){ showToast(`${file.name} dépasse 10MB — ignoré`,'error'); continue; }
     const pct = Math.round((i/files.length)*100);
     if(bar) bar.style.width=pct+'%';
     if(txt) txt.textContent=`Envoi ${i+1}/${files.length} : ${file.name}`;
@@ -2125,12 +2124,12 @@ async function uploadAnnexes(files, facId){
   }
 
   if(bar) bar.style.width='100%';
-  if(txt) txt.textContent='TerminÃ© !';
+  if(txt) txt.textContent='Terminé !';
 
   if(successCount>0){
-    showToast(successCount>1?`${successCount} document(s) ajoutÃ©(s)`:'Document ajoutÃ©');
+    showToast(successCount>1?`${successCount} document(s) ajouté(s)`:'Document ajouté');
   } else if(lastError){
-    showToast("Aucun document n'a pu Ãªtre ajoutÃ©", 'error');
+    showToast("Aucun document n'a pu être ajouté", 'error');
   }
   setTimeout(()=>openFacDetail(facId), 500);
 }
@@ -2140,11 +2139,11 @@ async function deleteAnnexe(id, facId, url){
   const path = url.split('/Documents/')[1];
   if(path) await sb.storage.from('Documents').remove([path]);
   await sb.from('anexos').delete().eq('id',id);
-  showToast('Document supprimÃ©');
+  showToast('Document supprimé');
   openFacDetail(facId);
 }
 
-// â”€â”€ FACTURE FOURNISSEUR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FACTURE FOURNISSEUR ───────────────────────────────────────
 // Structure Odoo: header info + lignes editables + totaux + annexes
 
 let _facLignesPO = [];
@@ -2152,44 +2151,44 @@ let _facFilesNew = [];
 
 function openFacModal(){
   // Odoo style: PO selector first, then lines load automatically
-  const opts = _posPourFac.map(p=>'<option value="'+p.id+'">'+p.numero+' â€” '+(p.fournisseurs?.nom||'')+'</option>').join('');
+  const opts = _posPourFac.map(p=>'<option value="'+p.id+'">'+p.numero+' — '+(p.fournisseurs?.nom||'')+'</option>').join('');
 
   el('modal-container').innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal modal-lg">'
     +'<div class="modal-header">'
     +  '<div><h3>Nouvelle facture fournisseur</h3>'
-    +  '<div class="modal-header-sub">SÃ©lectionnez la commande pour charger les lignes</div></div>'
+    +  '<div class="modal-header-sub">Sélectionnez la commande pour charger les lignes</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
 
-    // â”€â”€ SECTION 1: Infos de base (header) â”€â”€
+    // ── SECTION 1: Infos de base (header) ──
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">'
-    +  '<div class="form-group"><label class="field-label">Commande associÃ©e *</label>'
+    +  '<div class="form-group"><label class="field-label">Commande associée *</label>'
     +    '<select id="fac-po" onchange="loadLignesPourFac(this.value)">'
-    +    '<option value="">â€” SÃ©lectionner une commande â€”</option>'+opts
+    +    '<option value="">— Sélectionner une commande —</option>'+opts
     +    '</select></div>'
-    +  '<div class="form-group"><label class="field-label">NÂ° Facture fournisseur *</label>'
+    +  '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label>'
     +    '<input id="fac-num" placeholder="FA-2026-XXXX"/></div>'
     +  '<div class="form-group"><label class="field-label">Date de facture *</label>'
     +    '<input type="date" id="fac-date" value="'+today()+'"/></div>'
-    +  '<div class="form-group"><label class="field-label">Date Ã©chÃ©ance</label>'
+    +  '<div class="form-group"><label class="field-label">Date échéance</label>'
     +    '<input type="date" id="fac-echeance"/></div>'
     +'</div>'
 
-    // â”€â”€ SECTION 2: Lignes de la commande (editables) â”€â”€
+    // ── SECTION 2: Lignes de la commande (editables) ──
     +'<div id="fac-lignes-section" style="margin-bottom:16px">'
     +  '<div style="text-align:center;padding:24px;background:var(--gray-1);border-radius:var(--radius);border:1px dashed var(--gray-3);color:var(--gray-4)">'
     +    '<i class="ti ti-arrow-up" style="display:block;font-size:24px;margin-bottom:6px"></i>'
-    +    'SÃ©lectionnez une commande ci-dessus pour voir les lignes'
+    +    'Sélectionnez une commande ci-dessus pour voir les lignes'
     +  '</div>'
     +'</div>'
 
-    // â”€â”€ SECTION 3: Totaux â”€â”€
+    // ── SECTION 3: Totaux ──
     +'<div id="fac-totaux-section" style="display:none;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:16px;margin-bottom:16px">'
     +  '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;align-items:end">'
-    +    '<div class="form-group"><label class="field-label">Total HT calculÃ©</label>'
+    +    '<div class="form-group"><label class="field-label">Total HT calculé</label>'
     +      '<input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()" style="font-weight:600"/></div>'
-    +    '<div class="form-group"><label class="field-label">Total TVA calculÃ©</label>'
+    +    '<div class="form-group"><label class="field-label">Total TVA calculé</label>'
     +      '<input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/></div>'
     +    '<div class="form-group"><label class="field-label">TOTAL TTC</label>'
     +      '<input type="number" step="0.01" id="fac-ttc" value="0" style="font-weight:800;color:var(--blue);font-size:16px"/></div>'
@@ -2197,7 +2196,7 @@ function openFacModal(){
     +  '</div>'
     +'</div>'
 
-    // â”€â”€ SECTION 4: Annexes (toujours ouvert comme Odoo) â”€â”€
+    // ── SECTION 4: Annexes (toujours ouvert comme Odoo) ──
     +'<div style="border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:16px">'
     +  '<div style="background:var(--gray-1);padding:10px 16px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;gap:8px">'
     +    '<i class="ti ti-paperclip" style="color:var(--gray-5)"></i>'
@@ -2214,10 +2213,10 @@ function openFacModal(){
     +  '</div>'
     +'</div>'
 
-    // â”€â”€ SECTION 5: Observations (en bas comme Odoo) â”€â”€
+    // ── SECTION 5: Observations (en bas comme Odoo) ──
     +'<div class="form-group" style="margin-bottom:16px">'
-    +  '<label class="field-label">Observations / RÃ©serves</label>'
-    +  '<textarea id="fac-obs" placeholder="Notes internes, rÃ©serves sur la facture..." style="min-height:60px"></textarea>'
+    +  '<label class="field-label">Observations / Réserves</label>'
+    +  '<textarea id="fac-obs" placeholder="Notes internes, réserves sur la facture..." style="min-height:60px"></textarea>'
     +'</div>'
 
     +'<div class="form-actions">'
@@ -2242,7 +2241,7 @@ async function loadLignesPourFac(poId){
   const section = el('fac-lignes-section');
   const totauxSection = el('fac-totaux-section');
   if(!poId){
-    section.innerHTML = '<div style="text-align:center;padding:24px;background:var(--gray-1);border-radius:var(--radius);border:1px dashed var(--gray-3);color:var(--gray-4)"><i class="ti ti-arrow-up" style="display:block;font-size:24px;margin-bottom:6px"></i>SÃ©lectionnez une commande ci-dessus</div>';
+    section.innerHTML = '<div style="text-align:center;padding:24px;background:var(--gray-1);border-radius:var(--radius);border:1px dashed var(--gray-3);color:var(--gray-4)"><i class="ti ti-arrow-up" style="display:block;font-size:24px;margin-bottom:6px"></i>Sélectionnez une commande ci-dessus</div>';
     if(totauxSection) totauxSection.style.display='none';
     _facLignesPO=[];
     return;
@@ -2279,15 +2278,15 @@ function renderFacLignesEdit(){
 
   let html = '<div style="border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden">'
     +'<div style="background:var(--navy);padding:10px 16px;display:flex;align-items:center;justify-content:space-between">'
-    +  '<span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.06em">Lignes de la commande â€” modifiez quantitÃ©s et prix</span>'
+    +  '<span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.06em">Lignes de la commande — modifiez quantités et prix</span>'
     +  '<span style="font-size:11px;color:rgba(255,255,255,.5)">'+_facLignesPO.length+' article(s)</span>'
     +'</div>'
     +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:550px">'
     +'<thead><tr style="background:var(--gray-1)">'
     +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>'
-    +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:90px">QuantitÃ©</th>'
-    +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:55px">UnitÃ©</th>'
-    +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:110px">P.U. HT â‚¬</th>'
+    +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:90px">Quantité</th>'
+    +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:55px">Unité</th>'
+    +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:110px">P.U. HT €</th>'
     +'<th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:65px">TVA</th>'
     +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:110px">Total HT</th>'
     +'</tr></thead><tbody>';
@@ -2358,7 +2357,7 @@ function delFacLigne(i){
 
 function autoCalcFromLignes(){
   updateFacTotaux();
-  showToast("Montants recalculÃ©s depuis les lignes");
+  showToast("Montants recalculés depuis les lignes");
 }
 
 function calcFacTTC(){
@@ -2383,7 +2382,7 @@ async function saveFac(){
   const po_id = el('fac-po')?.value;
   const num = el('fac-num')?.value.trim();
   const date = el('fac-date')?.value;
-  if(!po_id||!num||!date){ showToast("Commande, NÂ° facture et date obligatoires", 'error'); return; }
+  if(!po_id||!num||!date){ showToast("Commande, N° facture et date obligatoires", 'error'); return; }
 
   const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
@@ -2412,7 +2411,7 @@ async function saveFac(){
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: parseFloat(l.taux_tva)||17
     })));
-    if(lignesErr){ showToast("Facture crÃ©Ã©e, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
+    if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
 
   await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',po_id);
@@ -2427,7 +2426,7 @@ async function saveFac(){
       }
     }
   }
-  showToast(_facFilesNew.length>0 ? 'Facture et '+_facFilesNew.length+' document(s) enregistrÃ©s' : 'Facture enregistrÃ©e â€” '+num);
+  showToast(_facFilesNew.length>0 ? 'Facture et '+_facFilesNew.length+' document(s) enregistrés' : 'Facture enregistrée — '+num);
   _facFilesNew = [];
   closeModal();
   if(fac) openFacDetail(fac.id);
@@ -2435,7 +2434,7 @@ async function saveFac(){
 }
 
 
-async function validerFac(id){ await sb.from('factures').update({statut:'validee'}).eq('id',id); showToast('Facture validÃ©e'); renderFactures(); }
+async function validerFac(id){ await sb.from('factures').update({statut:'validee'}).eq('id',id); showToast('Facture validée'); renderFactures(); }
 async function litigeFac(id){ await sb.from('factures').update({statut:'litige'}).eq('id',id); showToast('Facture mise en litige'); renderFactures(); }
 
 function openPayModal(facId, poId, montant){
@@ -2444,15 +2443,15 @@ function openPayModal(facId, poId, montant){
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Date de paiement</label><input type="date" id="pay-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Montant payÃ© (â‚¬)</label><input type="number" step="0.01" id="pay-montant" value="${montant}"/></div>
+        <div class="form-group"><label class="field-label">Montant payé (€)</label><input type="number" step="0.01" id="pay-montant" value="${montant}"/></div>
         <div class="form-group"><label class="field-label">Mode de paiement</label>
           <select id="pay-mode">
             <option value="virement">Virement bancaire</option>
-            <option value="cheque">ChÃ¨que</option>
+            <option value="cheque">Chèque</option>
             <option value="carte">Carte</option>
           </select>
         </div>
-        <div class="form-group"><label class="field-label">RÃ©fÃ©rence virement</label><input id="pay-ref" placeholder="REF-XXXX"/></div>
+        <div class="form-group"><label class="field-label">Référence virement</label><input id="pay-ref" placeholder="REF-XXXX"/></div>
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -2466,149 +2465,28 @@ async function savePay(facId, poId){
   await sb.from('paiements').insert({facture_id:facId,date_paiement:el('pay-date').value,montant:parseFloat(el('pay-montant').value),mode_paiement:el('pay-mode').value,reference_virement:el('pay-ref').value,effectue_par:currentUser.id});
   await sb.from('factures').update({statut:'payee'}).eq('id',facId);
   await sb.from('purchase_orders_lyneo').update({statut:'payee'}).eq('id',poId);
-  showToast('Paiement enregistrÃ©'); closeModal(); renderFactures();
+  showToast('Paiement enregistré'); closeModal(); renderFactures();
 }
 
-// â”€â”€ UTILISATEURS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// ── MODULE VENTES / CLIENTS / RENTABILITE ───────────────────────────────────
-let _clientsVente = [], _devisVente = [], _facturesVente = [], _chantiersVente = [], _achatsVente = [];
+// ── UTILISATEURS ─────────────────────────────────────────────
+async function renderClients(){ el('page-content').innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div><div class="page-actions"><button class="btn btn-primary"><i class="ti ti-plus"></i> Nouveau client</button></div></div><div class="card"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Module clients — disponible prochainement</p><p style="font-size:12px;color:var(--gray-4)">En attente de la résolution du problème Supabase</p></div></div>`; }
+async function renderDevis(){ el('page-content').innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Devis</h1><p>Offres et devis clients</p></div><div class="page-actions"><button class="btn btn-primary"><i class="ti ti-plus"></i> Nouveau devis</button></div></div><div class="card"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>Module devis — disponible prochainement</p><p style="font-size:12px;color:var(--gray-4)">En attente de la résolution du problème Supabase</p></div></div>`; }
+async function renderFacturesVente(){ el('page-content').innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Factures clients</h1><p>Facturation et encaissements</p></div><div class="page-actions"><button class="btn btn-primary"><i class="ti ti-plus"></i> Nouvelle facture</button></div></div><div class="card"><div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Module factures clients — disponible prochainement</p><p style="font-size:12px;color:var(--gray-4)">En attente de la résolution du problème Supabase</p></div></div>`; }
 
-const DEMO_CLIENTS = [
-  {id:'demo-c1', nom:'Atlas Construction', secteur:'Construction', ville:'Luxembourg', email:'contact@atlas.lu', telephone:'+352 26 10 40', commercial:'Marta Silva', statut:'actif'},
-  {id:'demo-c2', nom:'Luma Hotels', secteur:'Hôtellerie', ville:'Esch-sur-Alzette', email:'finance@luma.lu', telephone:'+352 27 44 12', commercial:'João Costa', statut:'actif'},
-  {id:'demo-c3', nom:'Norte Energie', secteur:'Energie', ville:'Mersch', email:'achats@norte.lu', telephone:'+352 28 90 11', commercial:'Ana Pereira', statut:'prospect'},
-  {id:'demo-c4', nom:'Clinique S. Gabriel', secteur:'Santé', ville:'Strassen', email:'admin@gabriel.lu', telephone:'+352 31 82 74', commercial:'Marta Silva', statut:'actif'}
-];
-const DEMO_DEVIS = [
-  {id:'demo-d1', numero:'DEV-2026-001', client_nom:'Atlas Construction', chantier_nom:'Atlas ERP Core', objet:'Implémentation ERP finance', statut:'accepte', total_ht:82000, probabilite:100, date_validite:'2026-07-31'},
-  {id:'demo-d2', numero:'DEV-2026-002', client_nom:'Luma Hotels', chantier_nom:'Booking Hub', objet:'Portail réservations B2B', statut:'negociation', total_ht:46000, probabilite:70, date_validite:'2026-08-18'},
-  {id:'demo-d3', numero:'DEV-2026-003', client_nom:'Norte Energie', chantier_nom:'eInvoice', objet:'Facturation électronique', statut:'envoye', total_ht:28000, probabilite:45, date_validite:'2026-08-25'},
-  {id:'demo-d4', numero:'DEV-2026-004', client_nom:'Clinique S. Gabriel', chantier_nom:'Patient CRM', objet:'CRM patients et automatisations', statut:'brouillon', total_ht:39000, probabilite:25, date_validite:'2026-09-05'}
-];
-const DEMO_FV = [
-  {id:'demo-f1', numero:'FV-2026-001', client_nom:'Atlas Construction', chantier_nom:'Atlas ERP Core', date_creation:'2026-07-01', date_echeance:'2026-07-31', statut:'payee', total_ht:42000, total_ttc:49140},
-  {id:'demo-f2', numero:'FV-2026-002', client_nom:'Atlas Construction', chantier_nom:'Atlas ERP Core', date_creation:'2026-07-06', date_echeance:'2026-08-05', statut:'envoyee', total_ht:40000, total_ttc:46800},
-  {id:'demo-f3', numero:'FV-2026-003', client_nom:'Clinique S. Gabriel', chantier_nom:'Patient CRM', date_creation:'2026-07-03', date_echeance:'2026-08-02', statut:'payee_partiel', total_ht:39000, total_ttc:45630}
-];
-
-function getLocalClients(){ try{return JSON.parse(localStorage.getItem('lyneo_clients_local')||'[]');}catch(e){return [];} }
-function setLocalClients(items){ localStorage.setItem('lyneo_clients_local', JSON.stringify(items)); }
-function normaliseClient(c){ return {id:c.id||c.nom, nom:c.nom||c.name||'Client', secteur:c.secteur||c.segment||c.activite||'—', ville:c.ville||c.city||c.localite||'—', email:c.email||'', telephone:c.telephone||c.phone||'', commercial:c.commercial||c.responsable||'—', statut:c.statut||'actif'}; }
-function normaliseDevis(d){ return {id:d.id||d.numero, numero:d.numero||d.reference||'DEV', client_nom:d.client_nom||d.client||d.clients?.nom||'—', chantier_nom:d.chantier_nom||d.chantier||d.chantiers_lyneo?.nom||'—', objet:d.objet||d.description||d.nom||'Offre client', statut:d.statut||'brouillon', total_ht:parseFloat(d.total_ht||d.montant_ht||d.total||0), probabilite:parseFloat(d.probabilite||d.probability||50), date_validite:d.date_validite||d.date_echeance||d.valid_until||''}; }
-function normaliseFV(f){ return {id:f.id||f.numero, numero:f.numero||f.reference||'FV', client_nom:f.client_nom||f.client||f.clients?.nom||'—', chantier_nom:f.chantier_nom||f.chantier||f.chantiers_lyneo?.nom||'—', date_creation:f.date_creation||f.date_facture||f.created_at||'', date_echeance:f.date_echeance||'', statut:f.statut||'brouillon', total_ht:parseFloat(f.total_ht||f.montant_ht||0), total_ttc:parseFloat(f.total_ttc||f.montant_ttc||0)}; }
-function badgeDevis(s){ const map={brouillon:'Brouillon',envoye:'Envoyé',negociation:'Négociation',accepte:'Accepté',refuse:'Refusé',expire:'Expiré'}; return `<span class="badge badge-${s}">${map[s]||s}</span>`; }
-function clientTurnover(nom){ return _facturesVente.filter(f=>f.client_nom===nom && ['payee','payee_partiel','envoyee'].includes(f.statut)).reduce((a,f)=>a+(f.total_ht||0),0); }
-function clientPipeline(nom){ return _devisVente.filter(d=>d.client_nom===nom && !['accepte','refuse','expire'].includes(d.statut)).reduce((a,d)=>a+(d.total_ht||0)*(d.probabilite||0)/100,0); }
-function chantierRevenue(name){ return _facturesVente.filter(f=>f.chantier_nom===name || f.chantier===name).reduce((a,f)=>a+(f.total_ht||0),0); }
-function chantierCost(chantier){ return _achatsVente.filter(p=>p.chantier_id===chantier.id || p.chantiers_lyneo?.nom===chantier.nom || p.chantier_nom===chantier.nom).reduce((a,p)=>a+parseFloat(p.total_ht||p.total_ttc||0),0); }
-
-async function loadSalesData(){
-  const [clientsR, devisR, fvR, chR, poR] = await Promise.allSettled([
-    sb.from('clients').select('*').order('nom',{ascending:true}),
-    sb.from('devis').select('*,clients(nom),chantiers_lyneo(nom)').order('created_at',{ascending:false}),
-    sb.from('factures_vente').select('*,clients(nom),chantiers_lyneo(nom)').order('created_at',{ascending:false}),
-    sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false}),
-    sb.from('purchase_orders_lyneo').select('id,chantier_id,total_ht,total_ttc,statut,chantiers_lyneo(nom)').neq('statut','annulee')
-  ]).then(results=>results.map(r=>r.status==='fulfilled'?r.value:{data:[],error:r.reason}));
-  _clientsVente = ((clientsR.data&&clientsR.data.length)?clientsR.data.map(normaliseClient):DEMO_CLIENTS).concat(getLocalClients());
-  _devisVente = (devisR.data&&devisR.data.length)?devisR.data.map(normaliseDevis):DEMO_DEVIS;
-  _facturesVente = (fvR.data&&fvR.data.length)?fvR.data.map(normaliseFV):DEMO_FV;
-  _chantiersVente = (chR.data&&chR.data.length)?chR.data:[
-    {id:'demo-p1', nom:'Atlas ERP Core', client:'Atlas Construction', statut:'actif', chef_chantier:'Marta Silva'},
-    {id:'demo-p2', nom:'Booking Hub', client:'Luma Hotels', statut:'actif', chef_chantier:'João Costa'},
-    {id:'demo-p3', nom:'Patient CRM', client:'Clinique S. Gabriel', statut:'actif', chef_chantier:'Marta Silva'}
-  ];
-  _achatsVente = poR.data||[
-    {chantier_id:'demo-p1', total_ht:38500, statut:'envoyee'},
-    {chantier_id:'demo-p2', total_ht:25200, statut:'envoyee'},
-    {chantier_id:'demo-p3', total_ht:17800, statut:'envoyee'}
-  ];
-}
-
-async function renderClients(search=''){
-  if(!search) await loadSalesData();
-  const q = (search||'').toLowerCase();
-  const items = _clientsVente.filter(c=>(c.nom+c.secteur+c.ville+c.commercial).toLowerCase().includes(q));
-  el('page-content').innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left"><h1>Clients</h1><p>Annuaire commercial, pipeline et chiffre d'affaires par client</p></div>
-      <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher client..." oninput="renderClients(this.value)" value="${search}"/></div>
-        <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
-      </div>
-    </div>
-    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
-      <div class="kpi-card kpi-green"><div class="kpi-value" style="font-size:22px">${fmt(_facturesVente.reduce((a,f)=>a+(f.total_ht||0),0))}</div><div class="kpi-label">CA facturé HT</div></div>
-      <div class="kpi-card kpi-blue"><div class="kpi-value" style="font-size:22px">${fmt(_devisVente.reduce((a,d)=>a+(d.total_ht||0)*(d.probabilite||0)/100,0))}</div><div class="kpi-label">Pipeline pondéré</div></div>
-      <div class="kpi-card kpi-purple"><div class="kpi-value" style="font-size:22px">${items.length}</div><div class="kpi-label">Clients / prospects</div></div>
-      <div class="kpi-card kpi-orange"><div class="kpi-value" style="font-size:22px">${_devisVente.filter(d=>['envoye','negociation'].includes(d.statut)).length}</div><div class="kpi-label">Devis ouverts</div></div>
-    </div>
-    <div class="card"><div class="table-wrap"><table><thead><tr><th>Client</th><th>Secteur</th><th>Ville</th><th>Commercial</th><th>CA HT</th><th>Pipeline</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
-      ${items.length===0?'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Aucun client trouvé</p></div></td></tr>':items.map(c=>`<tr>
-        <td><strong class="td-primary">${c.nom}</strong><div class="text-muted text-sm">${c.email||''} ${c.telephone?'· '+c.telephone:''}</div></td>
-        <td>${c.secteur}</td><td>${c.ville}</td><td>${c.commercial}</td><td><strong>${fmt(clientTurnover(c.nom))}</strong></td><td>${fmt(clientPipeline(c.nom))}</td><td>${bCH(c.statut==='actif'?'actif':'pause')}</td>
-        <td><button class="btn btn-secondary btn-sm" onclick="openClient360('${c.id}')"><i class="ti ti-eye"></i></button></td>
-      </tr>`).join('')}
-    </tbody></table></div></div>`;
-}
-
-async function renderDevis(search='', statut=''){
-  if(!search && !statut) await loadSalesData();
-  const q = (search||'').toLowerCase();
-  const items = _devisVente.filter(d=>(!statut||d.statut===statut) && (d.numero+d.client_nom+d.objet+d.chantier_nom).toLowerCase().includes(q));
-  const stages = ['brouillon','envoye','negociation','accepte'];
-  el('page-content').innerHTML = `
-    <div class="page-header"><div class="page-header-left"><h1>Devis</h1><p>Pipeline commercial façon Odoo, du brouillon à l'acceptation</p></div><div class="page-actions"><div class="search-wrap"><i class="ti ti-search"></i><input placeholder="N° devis, client, projet..." oninput="renderDevis(this.value,document.getElementById('devis-filter-statut').value)" value="${search}"/></div><select id="devis-filter-statut" onchange="renderDevis(document.querySelector('.search-wrap input').value,this.value)"><option value="">Tous statuts</option>${stages.map(s=>`<option value="${s}" ${statut===s?'selected':''}>${s}</option>`).join('')}</select><button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button></div></div>
-    <div style="display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:12px;margin-bottom:20px;overflow-x:auto">
-      ${stages.map(s=>{ const col=items.filter(d=>d.statut===s); return `<div class="card" style="margin-bottom:0;min-height:260px"><div class="card-header"><h2>${s}</h2><span class="text-muted text-sm">${fmt(col.reduce((a,d)=>a+d.total_ht,0))}</span></div><div class="card-body" style="padding:12px">${col.length?col.map(d=>`<div style="border:1px solid var(--gray-3);border-radius:var(--radius);padding:12px;margin-bottom:10px;background:#fff"><strong>${d.objet}</strong><div class="text-muted text-sm">${d.client_nom} · ${d.chantier_nom}</div><div style="display:flex;justify-content:space-between;margin-top:10px"><span class="td-primary">${fmt(d.total_ht)}</span><span class="text-muted text-sm">${d.probabilite}%</span></div></div>`).join(''):'<div class="empty" style="padding:24px 8px"><p>Aucun devis</p></div>'}</div></div>`; }).join('')}
-    </div>
-    <div class="card"><div class="table-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Projet</th><th>Objet</th><th>Montant HT</th><th>Prob.</th><th>Validité</th><th>Statut</th></tr></thead><tbody>${items.map(d=>`<tr><td><strong class="td-primary">${d.numero}</strong></td><td>${d.client_nom}</td><td>${d.chantier_nom}</td><td>${d.objet}</td><td><strong>${fmt(d.total_ht)}</strong></td><td>${d.probabilite}%</td><td>${fmtDate(d.date_validite)}</td><td>${badgeDevis(d.statut)}</td></tr>`).join('')}</tbody></table></div></div>`;
-}
-
-async function renderFacturesVente(search='', statut=''){
-  if(!search && !statut) await loadSalesData();
-  const q = (search||'').toLowerCase();
-  const todayStr = today();
-  const items = _facturesVente.filter(f=>(!statut||f.statut===statut) && (f.numero+f.client_nom+f.chantier_nom).toLowerCase().includes(q));
-  const encours = _facturesVente.filter(f=>['envoyee','payee_partiel'].includes(f.statut));
-  el('page-content').innerHTML = `
-    <div class="page-header"><div class="page-header-left"><h1>Factures clients</h1><p>Facturation, échéances et encaissements clients</p></div><div class="page-actions"><div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Facture, client, projet..." oninput="renderFacturesVente(this.value,document.getElementById('fv-filter-statut').value)" value="${search}"/></div><select id="fv-filter-statut" onchange="renderFacturesVente(document.querySelector('.search-wrap input').value,this.value)"><option value="">Tous statuts</option>${Object.keys(STATUT_FV).map(s=>`<option value="${s}" ${statut===s?'selected':''}>${STATUT_FV[s]}</option>`).join('')}</select><button class="btn btn-primary" onclick="openFactureVenteModal()"><i class="ti ti-plus"></i> Nouvelle facture</button></div></div>
-    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))"><div class="kpi-card kpi-green"><div class="kpi-value" style="font-size:22px">${fmt(_facturesVente.filter(f=>f.statut==='payee').reduce((a,f)=>a+f.total_ttc,0))}</div><div class="kpi-label">Encaissé TTC</div></div><div class="kpi-card kpi-orange"><div class="kpi-value" style="font-size:22px">${fmt(encours.reduce((a,f)=>a+f.total_ttc,0))}</div><div class="kpi-label">À encaisser TTC</div></div><div class="kpi-card kpi-red"><div class="kpi-value" style="font-size:22px">${encours.filter(f=>f.date_echeance && f.date_echeance<todayStr).length}</div><div class="kpi-label">Factures en retard</div></div><div class="kpi-card kpi-blue"><div class="kpi-value" style="font-size:22px">${items.length}</div><div class="kpi-label">Factures affichées</div></div></div>
-    <div class="card"><div class="table-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Projet</th><th>Date</th><th>Échéance</th><th>Total HT</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>${items.length?items.map(f=>{ const late=f.date_echeance&&f.date_echeance<todayStr&&!['payee','annulee'].includes(f.statut); return `<tr style="${late?'border-left:3px solid var(--red)':''}"><td><strong class="td-primary">${f.numero}</strong></td><td>${f.client_nom}</td><td>${f.chantier_nom}</td><td>${fmtDate(f.date_creation)}</td><td style="${late?'color:var(--red);font-weight:700':''}">${fmtDate(f.date_echeance)}</td><td>${fmt(f.total_ht)}</td><td><strong>${fmt(f.total_ttc)}</strong></td><td>${bFV(f.statut)}</td></tr>`;}).join(''):'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client</p></div></td></tr>'}</tbody></table></div></div>`;
-}
-
-async function renderRentabilite(){
-  await loadSalesData();
-  const rows = _chantiersVente.map(c=>{ const rev = chantierRevenue(c.nom) || _devisVente.filter(d=>d.chantier_nom===c.nom && d.statut==='accepte').reduce((a,d)=>a+d.total_ht,0); const cost = chantierCost(c); const margin = rev-cost; const pct = rev?Math.round((margin/rev)*100):0; return {...c, rev, cost, margin, pct}; }).sort((a,b)=>a.pct-b.pct);
-  const totalRev = rows.reduce((a,r)=>a+r.rev,0), totalCost = rows.reduce((a,r)=>a+r.cost,0), totalMargin = totalRev-totalCost;
-  el('page-content').innerHTML = `
-    <div class="page-header"><div class="page-header-left"><h1>Rentabilité projets</h1><p>Analyse du CA client, achats fournisseurs et marge par chantier/projet</p></div><div class="page-actions"><button class="btn btn-secondary" onclick="renderDashboard()"><i class="ti ti-refresh"></i> Actualiser</button></div></div>
-    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))"><div class="kpi-card kpi-green"><div class="kpi-value" style="font-size:22px">${fmt(totalRev)}</div><div class="kpi-label">Revenus HT</div></div><div class="kpi-card kpi-blue"><div class="kpi-value" style="font-size:22px">${fmt(totalCost)}</div><div class="kpi-label">Coûts achats HT</div></div><div class="kpi-card ${totalMargin>=0?'kpi-purple':'kpi-red'}"><div class="kpi-value" style="font-size:22px">${fmt(totalMargin)}</div><div class="kpi-label">Marge brute</div></div><div class="kpi-card kpi-orange"><div class="kpi-value" style="font-size:22px">${totalRev?Math.round(totalMargin/totalRev*100):0}%</div><div class="kpi-label">Marge moyenne</div></div></div>
-    <div class="card"><div class="card-header"><h2><i class="ti ti-chart-arcs"></i> Projets classés par marge</h2><button class="btn btn-primary btn-sm" onclick="navigate('factures_vente')"><i class="ti ti-receipt"></i> Voir factures clients</button></div><div class="table-wrap"><table><thead><tr><th>Projet</th><th>Client</th><th>Revenus HT</th><th>Coûts HT</th><th>Marge</th><th>Marge %</th><th>Lecture</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong class="td-primary">${r.nom}</strong></td><td>${r.client||'—'}</td><td>${fmt(r.rev)}</td><td>${fmt(r.cost)}</td><td style="font-weight:700;color:${r.margin<0?'var(--red)':'var(--green)'}">${fmt(r.margin)}</td><td><strong>${r.pct}%</strong></td><td>${r.pct<10?'<span class="badge badge-annulee">À revoir</span>':r.pct<25?'<span class="badge badge-pause">Sous vigilance</span>':'<span class="badge badge-actif">Rentable</span>'}</td></tr><tr><td colspan="7" style="padding-top:0"><div style="height:8px;background:var(--gray-2);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(2,Math.min(100,r.pct))}%;background:${r.pct<10?'var(--red)':r.pct<25?'var(--orange)':'var(--green)'}"></div></div></td></tr>`).join('')}</tbody></table></div></div>
-    <div class="alert alert-info"><i class="ti ti-info-circle"></i> La marge utilise les factures clients HT comme revenu et les bons de commande fournisseurs HT comme coûts. Quand il n'y a pas encore de facture client, les devis acceptés servent d'estimation.</div>`;
-}
-
-function openClientModal(){
-  showModal(`<div class="modal-overlay"><div class="modal"><div class="modal-header"><div><h3>Nouveau client</h3><div class="modal-header-sub">Création rapide, conservée localement si la table Supabase n'est pas prête</div></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div><div class="modal-body"><div class="form-grid"><div class="form-group"><label class="field-label">Nom</label><input id="cl-nom"/></div><div class="form-group"><label class="field-label">Secteur</label><input id="cl-secteur"/></div><div class="form-group"><label class="field-label">Ville</label><input id="cl-ville" value="Luxembourg"/></div><div class="form-group"><label class="field-label">Commercial</label><input id="cl-commercial" value="${currentUser?.prenom||''} ${currentUser?.nom||''}"/></div><div class="form-group"><label class="field-label">Email</label><input id="cl-email" type="email"/></div><div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel"/></div></div><div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveLocalClient()"><i class="ti ti-check"></i> Enregistrer</button></div></div></div></div>`);
-}
-function saveLocalClient(){ const nom=el('cl-nom').value.trim(); if(!nom){showToast('Nom client obligatoire','error');return;} const items=getLocalClients(); items.push({id:'local-'+Date.now(),nom,secteur:el('cl-secteur').value||'—',ville:el('cl-ville').value||'—',email:el('cl-email').value,telephone:el('cl-tel').value,commercial:el('cl-commercial').value||'—',statut:'actif'}); setLocalClients(items); closeModal(); showToast('Client ajouté localement'); renderClients(); }
-function openClient360(id){ const c=_clientsVente.find(x=>x.id==id); if(!c)return; const devis=_devisVente.filter(d=>d.client_nom===c.nom), facs=_facturesVente.filter(f=>f.client_nom===c.nom); showModal(`<div class="modal-overlay"><div class="modal modal-lg"><div class="modal-header"><div><h3>${c.nom}</h3><div class="modal-header-sub">Vue 360 client</div></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div><div class="modal-body"><div class="info-grid"><div class="info-item"><label>Secteur</label><span>${c.secteur}</span></div><div class="info-item"><label>Ville</label><span>${c.ville}</span></div><div class="info-item"><label>Commercial</label><span>${c.commercial}</span></div><div class="info-item"><label>CA HT</label><span>${fmt(clientTurnover(c.nom))}</span></div><div class="info-item"><label>Pipeline</label><span>${fmt(clientPipeline(c.nom))}</span></div><div class="info-item"><label>Factures</label><span>${facs.length}</span></div></div><div class="card"><div class="card-header"><h2><i class="ti ti-file-description"></i> Devis</h2></div><div class="table-wrap"><table><tbody>${devis.map(d=>`<tr><td><strong>${d.numero}</strong></td><td>${d.objet}</td><td>${fmt(d.total_ht)}</td><td>${badgeDevis(d.statut)}</td></tr>`).join('')||'<tr><td>Aucun devis</td></tr>'}</tbody></table></div></div></div></div></div>`); }
-function openDevisModal(){ showToast('Prototype: le formulaire détaillé de devis peut maintenant être branché à votre table devis.', 'success'); }
-function openFactureVenteModal(){ showToast('Prototype: la création de facture client sera branchée au schéma Supabase existant.', 'success'); }
 async function renderUtilisateurs(){
   const {data} = await sb.from('utilisateurs').select('*').order('nom');
   const users = data||[];
-  const ROLES = {admin:'Administrateur',acheteur:'Acheteur',reception:'RÃ©ception',comptabilite:'ComptabilitÃ©'};
+  const ROLES = {admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'};
   el('page-content').innerHTML = `
     <div class="page-header">
-      <div class="page-header-left"><h1>Utilisateurs</h1><p>Gestion des accÃ¨s et rÃ´les</p></div>
+      <div class="page-header-left"><h1>Utilisateurs</h1><p>Gestion des accès et rôles</p></div>
       <button class="btn btn-primary" onclick="openUserModal()"><i class="ti ti-plus"></i> Nouvel utilisateur</button>
     </div>
-    <div class="alert alert-warning" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i>Mot de passe par dÃ©faut : <strong>lyneo2026</strong> â€” Pensez Ã  le personnaliser pour chaque utilisateur en production.</div>
+    <div class="alert alert-warning" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i>Mot de passe par défaut : <strong>lyneo2026</strong> — Pensez à le personnaliser pour chaque utilisateur en production.</div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>PrÃ©nom</th><th>Nom</th><th>Email</th><th>RÃ´le</th><th>Actif</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Prénom</th><th>Nom</th><th>Email</th><th>Rôle</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${users.map(r=>`<tr>
               <td>${r.prenom}</td><td><strong>${r.nom}</strong></td><td>${r.email}</td>
@@ -2627,15 +2505,15 @@ function openUserModal(r=null){
     <div class="modal-header"><h3>${r?'Modifier utilisateur':'Nouvel utilisateur'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">PrÃ©nom *</label><input id="u-prenom" value="${r?.prenom||''}" placeholder="PrÃ©nom"/></div>
+        <div class="form-group"><label class="field-label">Prénom *</label><input id="u-prenom" value="${r?.prenom||''}" placeholder="Prénom"/></div>
         <div class="form-group"><label class="field-label">Nom *</label><input id="u-nom" value="${r?.nom||''}" placeholder="Nom"/></div>
         <div class="form-group"><label class="field-label">Email *</label><input type="email" id="u-email" value="${r?.email||''}" placeholder="prenom.nom@lyneo.lu"/></div>
-        <div class="form-group"><label class="field-label">RÃ´le</label>
+        <div class="form-group"><label class="field-label">Rôle</label>
           <select id="u-role">
             <option value="admin" ${r?.role==='admin'?'selected':''}>Administrateur</option>
             <option value="acheteur" ${r?.role==='acheteur'?'selected':''}>Acheteur</option>
-            <option value="reception" ${r?.role==='reception'?'selected':''}>RÃ©ception</option>
-            <option value="comptabilite" ${r?.role==='comptabilite'?'selected':''}>ComptabilitÃ©</option>
+            <option value="reception" ${r?.role==='reception'?'selected':''}>Réception</option>
+            <option value="comptabilite" ${r?.role==='comptabilite'?'selected':''}>Comptabilité</option>
           </select>
         </div>
         <div class="form-group"><label class="field-label">Actif</label>
@@ -2659,11 +2537,11 @@ async function saveUser(id){
   const data={prenom,nom,email,role:el('u-role').value,actif:el('u-actif').value==='1'};
   if(id) await sb.from('utilisateurs').update(data).eq('id',id);
   else await sb.from('utilisateurs').insert(data);
-  showToast(id?'Utilisateur mis Ã  jour':'Utilisateur crÃ©Ã©');
+  showToast(id?'Utilisateur mis à jour':'Utilisateur créé');
   closeModal(); renderUtilisateurs();
 }
 
-// â”€â”€ INIT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── INIT ─────────────────────────────────────────────────────
 function toggleSidebar(){
   const sidebar = document.querySelector('.sidebar');
   const overlay = el('sidebar-overlay');
@@ -2698,7 +2576,7 @@ document.querySelectorAll && setTimeout(()=>{
 },500);
 
 
-// â”€â”€ HISTORIQUE FOURNISSEUR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── HISTORIQUE FOURNISSEUR ───────────────────────────────────
 async function openFourHistory(fourId, fourNom){
   if(!fourNom) { const f = _fournisseurs.find(x=>x.id===fourId); fourNom = f?.nom||''; }
   const {data:pos} = await sb.from('purchase_orders_lyneo')
@@ -2709,28 +2587,28 @@ async function openFourHistory(fourId, fourNom){
   const totalEngage = items.filter(p=>!['annulee'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
   showModal(`<div class="modal-overlay"><div class="modal">
     <div class="modal-header">
-      <div><h3>Historique â€” ${fourNom}</h3><div class="modal-header-sub">${items.length} commande(s) Â· Total engagÃ©: ${fmt(totalEngage)}</div></div>
+      <div><h3>Historique — ${fourNom}</h3><div class="modal-header-sub">${items.length} commande(s) · Total engagé: ${fmt(totalEngage)}</div></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       ${items.length===0
         ? '<div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande pour ce fournisseur</p></div>'
-        : '<div class="table-wrap"><table><thead><tr><th>NÂ° Commande</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>'
-          + items.map(p=>'<tr><td><strong class="td-primary">'+p.numero+'</strong></td><td>'+(p.chantiers_lyneo?.nom||'â€”')+'</td><td>'+fmtDate(p.date_creation)+'</td><td><strong>'+fmt(p.total_ttc)+'</strong></td><td>'+bPO(p.statut)+'</td></tr>').join('')
+        : '<div class="table-wrap"><table><thead><tr><th>N° Commande</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>'
+          + items.map(p=>'<tr><td><strong class="td-primary">'+p.numero+'</strong></td><td>'+(p.chantiers_lyneo?.nom||'—')+'</td><td>'+fmtDate(p.date_creation)+'</td><td><strong>'+fmt(p.total_ttc)+'</strong></td><td>'+bPO(p.statut)+'</td></tr>').join('')
           + '</tbody></table></div>'}
     </div>
   </div></div>`);
 }
 
-// â”€â”€ ANNULER PO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── ANNULER PO ───────────────────────────────────────────────
 async function annulerPO(poId){
-  if(!confirm('ÃŠtes-vous sÃ»r de vouloir annuler cette commande ?')) return;
+  if(!confirm('Êtes-vous sûr de vouloir annuler cette commande ?')) return;
   await sb.from('purchase_orders_lyneo').update({statut:'annulee'}).eq('id',poId);
-  showToast('Commande annulÃ©e');
+  showToast('Commande annulée');
   renderPOS();
 }
 
-// â”€â”€ VALIDATION MONTANT FACTURE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── VALIDATION MONTANT FACTURE ────────────────────────────────
 function validateFacMontant(){
   const ttc = parseFloat(el('fac-ttc')?.value)||0;
   const poTotal = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.total_ttc)||0),0);
@@ -2739,7 +2617,7 @@ function validateFacMontant(){
     const warn = el('fac-montant-warn');
     if(warn){
       warn.style.display='flex';
-      warn.innerHTML = '<i class="ti ti-alert-triangle"></i> Ã‰cart de '+fmt(Math.abs(diff))+' par rapport Ã  la commande ('+(diff>0?'facturÃ© en surplus':'facturÃ© en moins')+')';
+      warn.innerHTML = '<i class="ti ti-alert-triangle"></i> Écart de '+fmt(Math.abs(diff))+' par rapport à la commande ('+(diff>0?'facturé en surplus':'facturé en moins')+')';
     }
   } else {
     const warn = el('fac-montant-warn');
@@ -2748,7 +2626,7 @@ function validateFacMontant(){
 }
 
 
-// â”€â”€ EDIT PO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EDIT PO ──────────────────────────────────────────────────
 // Allows editing PO at any stage before rec_totale/facturee/payee
 async function openEditPO(poId){
   const po = _pos.find(p=>p.id===poId);
@@ -2774,21 +2652,21 @@ async function openEditPO(poId){
     _foursActive = data||[];
   }
 
-  const chantsOpts = _chantiersActive.map(c=>'<option value="'+c.id+'"'+(po.chantier_id===c.id?' selected':'')+'>'+c.numero+' â€” '+c.nom+'</option>').join('');
+  const chantsOpts = _chantiersActive.map(c=>'<option value="'+c.id+'"'+(po.chantier_id===c.id?' selected':'')+'>'+c.numero+' — '+c.nom+'</option>').join('');
   const foursOpts = _foursActive.map(f=>'<option value="'+f.id+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+f.nom+'</option>').join('');
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
-    +  '<div><h3>Modifier â€” '+po.numero+'</h3>'
-    +  '<div class="modal-header-sub">Modifiez les lignes, les prix et les quantitÃ©s</div></div>'
+    +  '<div><h3>Modifier — '+po.numero+'</h3>'
+    +  '<div class="modal-header-sub">Modifiez les lignes, les prix et les quantités</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">Chantier *</label>'
-    +      '<select id="po-chantier"><option value="">â€” SÃ©lectionner â€”</option>'+chantsOpts+'</select></div>'
+    +      '<select id="po-chantier"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
     +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
-    +      '<select id="po-four"><option value="">â€” SÃ©lectionner â€”</option>'+foursOpts+'</select></div>'
+    +      '<select id="po-four"><option value="">— Sélectionner —</option>'+foursOpts+'</select></div>'
     +    '<div class="form-group full"><label class="field-label">Observations</label>'
     +      '<textarea id="po-obs">'+(po.observations||'')+'</textarea></div>'
     +  '</div>'
@@ -2800,10 +2678,10 @@ async function openEditPO(poId){
     +    '<table class="lignes-table" id="lignes-table" style="min-width:580px">'
     +      '<thead><tr>'
     +        '<th style="min-width:180px">Description *</th>'
-    +        '<th style="width:100px">RÃ©fÃ©rence</th>'
-    +        '<th style="width:70px">QtÃ©</th>'
-    +        '<th style="width:75px">UnitÃ©</th>'
-    +        '<th style="width:110px">P.U. HT â‚¬</th>'
+    +        '<th style="width:100px">Référence</th>'
+    +        '<th style="width:70px">Qté</th>'
+    +        '<th style="width:75px">Unité</th>'
+    +        '<th style="width:110px">P.U. HT €</th>'
     +        '<th style="width:65px">TVA %</th>'
     +        '<th style="width:100px;text-align:right">Total HT</th>'
     +        '<th style="width:30px"></th>'
@@ -2839,9 +2717,9 @@ async function saveEditPO(poId){
 
   // Sync lines without destroying/recreating everything (avoids duplicates
   // if a line already has a reception/BL linked to it and can't be deleted):
-  // - lines with _db_id â†’ UPDATE in place
-  // - lines without _db_id (added in this session) â†’ INSERT
-  // - lines that existed before but were removed from the list â†’ DELETE only those
+  // - lines with _db_id → UPDATE in place
+  // - lines without _db_id (added in this session) → INSERT
+  // - lines that existed before but were removed from the list → DELETE only those
   const {data:existingLignes, error:fetchErr} = await sb.from('lignes_po').select('id').eq('po_id', poId);
   if(fetchErr){ showToast('Erreur: '+fetchErr.message, 'error'); return; }
   const existingIds = (existingLignes||[]).map(l=>l.id);
@@ -2851,7 +2729,7 @@ async function saveEditPO(poId){
   if(idsToDelete.length>0){
     const {error:delErr} = await sb.from('lignes_po').delete().in('id', idsToDelete);
     if(delErr){
-      showToast("Impossible de supprimer une ligne dÃ©jÃ  reÃ§ue ou facturÃ©e: "+delErr.message, 'error');
+      showToast("Impossible de supprimer une ligne déjà reçue ou facturée: "+delErr.message, 'error');
       return;
     }
   }
@@ -2882,12 +2760,12 @@ async function saveEditPO(poId){
     if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
   }
 
-  showToast("Commande mise Ã  jour");
+  showToast("Commande mise à jour");
   closeModal();
   await renderPOS();
 }
 
-// â”€â”€ GÃ‰NÃ‰RER FACTURE DEPUIS PO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GÉNÉRER FACTURE DEPUIS PO ─────────────────────────────────
 // Like Odoo: creates a facture from a PO with editable lines
 let _facFromPoLignes = [];
 
@@ -2973,30 +2851,30 @@ async function openFacFromPO(poId){
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
-    +  '<div><h3>GÃ©nÃ©rer une facture â€” '+po.numero+'</h3>'
+    +  '<div><h3>Générer une facture — '+po.numero+'</h3>'
     +  '<div class="modal-header-sub">'+( four?.nom||'')+'</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
-    +  '<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Vous pouvez modifier les quantitÃ©s et les prix avant de crÃ©er la facture.</div>'
+    +  '<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Vous pouvez modifier les quantités et les prix avant de créer la facture.</div>'
     +  '<div class="form-grid" style="margin-bottom:16px">'
-    +    '<div class="form-group"><label class="field-label">NÂ° Facture fournisseur *</label><input id="fac-gen-num" placeholder="FA-2026-XXXX"/></div>'
+    +    '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="fac-gen-num" placeholder="FA-2026-XXXX"/></div>'
     +    '<div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-gen-date" value="'+today()+'"/></div>'
-    +    '<div class="form-group"><label class="field-label">Date Ã©chÃ©ance</label><input type="date" id="fac-gen-echeance"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fac-gen-echeance"/></div>'
     +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
     +  '</div>'
     +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-    +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em">Lignes facturÃ©es â€” modifiez les quantitÃ©s et les prix</div>'
+    +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em">Lignes facturées — modifiez les quantités et les prix</div>'
     +    '<button class="btn btn-secondary btn-sm" onclick="addFacPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
     +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:600px">'
     +    '<thead><tr style="background:var(--navy)">'
     +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">Cmd.</th>'
-    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">ReÃ§u</th>'
-    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:80px">QtÃ© fact.</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">Reçu</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:80px">Qté fact.</th>'
     +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:35px">Un.</th>'
-    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:100px">P.U. HT â‚¬</th>'
+    +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:100px">P.U. HT €</th>'
     +      '<th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:55px">TVA</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Total HT</th>'
     +      '<th style="padding:8px 10px;width:34px"></th>'
@@ -3018,7 +2896,7 @@ async function openFacFromPO(poId){
     +  '</div>'
     +  '<div class="form-actions">'
     +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
-    +    '<button class="btn btn-primary btn-lg" id="btn-save-fac-po"><i class="ti ti-check"></i> CrÃ©er la facture</button>'
+    +    '<button class="btn btn-primary btn-lg" id="btn-save-fac-po"><i class="ti ti-check"></i> Créer la facture</button>'
     +  '</div>'
     +'</div></div></div>');
 
@@ -3041,7 +2919,7 @@ function delFacPoLigne(i){
 async function saveFacFromPO(poId){
   const num = el('fac-gen-num')?.value.trim();
   const date = el('fac-gen-date')?.value;
-  if(!num||!date){ showToast("NÂ° facture et date obligatoires", 'error'); return; }
+  if(!num||!date){ showToast("N° facture et date obligatoires", 'error'); return; }
 
   const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
@@ -3070,7 +2948,7 @@ async function saveFacFromPO(poId){
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: parseFloat(l.taux_tva)||17
     })));
-    if(lignesErr){ showToast("Facture crÃ©Ã©e, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
+    if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
 
   await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',poId);
@@ -3085,16 +2963,16 @@ async function saveFacFromPO(poId){
         await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
       }
     }
-    showToast('Facture crÃ©Ã©e avec '+_facFilesNew.length+' document(s)');
+    showToast('Facture créée avec '+_facFilesNew.length+' document(s)');
   } else {
-    showToast('Facture crÃ©Ã©e â€” '+num);
+    showToast('Facture créée — '+num);
   }
   _facFilesNew = [];
   closeModal();
   renderFactures();
 }
 
-// â”€â”€ EDIT FACTURE FOURNISSEUR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EDIT FACTURE FOURNISSEUR ──────────────────────────────────
 let _efacLignes = [];
 
 async function openEditFacLignes(facId){
@@ -3110,7 +2988,7 @@ async function openEditFacLignes(facId){
     const tauxApprox = ht>0 ? Math.round((tva/ht)*100) : 17;
     _efacLignes = [{
       _db_id: null,
-      description: 'Montant facture (Ã  dÃ©tailler si besoin)',
+      description: 'Montant facture (à détailler si besoin)',
       reference_article: '',
       quantite: 1,
       unite: 'forfait',
@@ -3131,19 +3009,19 @@ async function openEditFacLignes(facId){
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
-    +  '<div><h3>Modifier â€” '+fac.numero_facture_fournisseur+'</h3>'
+    +  '<div><h3>Modifier — '+fac.numero_facture_fournisseur+'</h3>'
     +  '<div class="modal-header-sub">Modifiez les lignes, les montants et les informations</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
-    +    '<div class="form-group"><label class="field-label">NÂ° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+fac.date_facture+'"/></div>'
-    +    '<div class="form-group"><label class="field-label">Date Ã©chÃ©ance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
     +      '<select id="efac-statut">'
-    +        '<option value="recue"'+(fac.statut==='recue'?' selected':'')+'>ReÃ§ue</option>'
-    +        '<option value="validee"'+(fac.statut==='validee'?' selected':'')+'>ValidÃ©e</option>'
+    +        '<option value="recue"'+(fac.statut==='recue'?' selected':'')+'>Reçue</option>'
+    +        '<option value="validee"'+(fac.statut==='validee'?' selected':'')+'>Validée</option>'
     +        '<option value="litige"'+(fac.statut==='litige'?' selected':'')+'>Litige</option>'
     +      '</select>'
     +    '</div>'
@@ -3156,10 +3034,10 @@ async function openEditFacLignes(facId){
     +    '<table class="lignes-table" id="efac-lignes-table" style="min-width:580px">'
     +      '<thead><tr>'
     +        '<th style="min-width:180px">Description *</th>'
-    +        '<th style="width:100px">RÃ©fÃ©rence</th>'
-    +        '<th style="width:70px">QtÃ©</th>'
-    +        '<th style="width:75px">UnitÃ©</th>'
-    +        '<th style="width:110px">P.U. HT â‚¬</th>'
+    +        '<th style="width:100px">Référence</th>'
+    +        '<th style="width:70px">Qté</th>'
+    +        '<th style="width:75px">Unité</th>'
+    +        '<th style="width:110px">P.U. HT €</th>'
     +        '<th style="width:65px">TVA %</th>'
     +        '<th style="width:100px;text-align:right">Total HT</th>'
     +        '<th style="width:30px"></th>'
@@ -3183,7 +3061,7 @@ function renderEfacLignes(){
   if(!body) return;
   body.innerHTML = _efacLignes.map((l,i)=>`<tr>
     <td><input value="${l.description}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
-    <td><input value="${l.reference_article}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="RÃ©f."/></td>
+    <td><input value="${l.reference_article}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
     <td><input type="number" min="0" step="0.001" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updEfacLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
@@ -3263,12 +3141,12 @@ async function saveEditFac(facId){
     observations: el('efac-obs').value
   }).eq('id', facId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
-  showToast("Facture mise Ã  jour");
+  showToast("Facture mise à jour");
   closeModal();
   renderFactures();
 }
 
-// â”€â”€ DUPLIQUER UNE FACTURE (comme Odoo) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DUPLIQUER UNE FACTURE (comme Odoo) ────────────────────────
 async function duplicateFacture(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
@@ -3298,10 +3176,10 @@ async function duplicateFacture(facId){
       prix_unitaire_ht: l.prix_unitaire_ht,
       taux_tva: l.taux_tva
     })));
-    if(lignesErr){ showToast("Copie crÃ©Ã©e, mais erreur en dupliquant les lignes: "+lignesErr.message, 'error'); }
+    if(lignesErr){ showToast("Copie créée, mais erreur en dupliquant les lignes: "+lignesErr.message, 'error'); }
   }
 
-  showToast("Facture dupliquÃ©e â€” modifiez les champs nÃ©cessaires");
+  showToast("Facture dupliquée — modifiez les champs nécessaires");
   closeModal();
   openEditFacLignes(newFac.id);
 }
@@ -3316,4 +3194,3 @@ window.addEventListener('load', ()=>{
 </script>
 </body>
 </html>
-
