@@ -2585,7 +2585,163 @@ async function savePay(facId, poId){
 }
 
 // ── UTILISATEURS ─────────────────────────────────────────────
-async function renderClients(){ el('page-content').innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div><div class="page-actions"><button class="btn btn-primary"><i class="ti ti-plus"></i> Nouveau client</button></div></div><div class="card"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Module clients — disponible prochainement</p><p style="font-size:12px;color:var(--gray-4)">En attente de la résolution du problème Supabase</p></div></div>`; }
+// ── CLIENTS ───────────────────────────────────────────────────
+let _clients = [];
+
+async function renderClients(search=''){
+  if(!search){
+    const {data} = await sb.from('clients').select('*').order('nom');
+    _clients = data||[];
+  }
+  const items = search ? _clients.filter(i=>(i.nom+(i.email||'')).toLowerCase().includes(search.toLowerCase())) : _clients;
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderClients(this.value)" value="${search}"/></div>
+        <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table>
+          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Aucun client trouvé</p><button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button></div></td></tr>' :
+            items.map(r=>{
+              const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
+              const badge = '<span class="badge badge-'+(r.actif!==false?'oui':'non')+'">'+(r.actif!==false?'Oui':'Non')+'</span>';
+              return '<tr>'
+                +'<td><strong>'+r.nom+'</strong></td>'
+                +'<td>'+email+'</td>'
+                +'<td>'+(r.telephone||'—')+'</td>'
+                +'<td>'+(r.ville||'—')+'</td>'
+                +'<td>'+(r.numero_tva||'—')+'</td>'
+                +'<td>'+(r.conditions_paiement||'—')+'</td>'
+                +'<td>'+badge+'</td>'
+                +'<td><div class="td-actions">'
+                +  '<button class="btn btn-secondary btn-sm" data-client-detail="'+r.id+'" title="Voir le détail"><i class="ti ti-eye"></i></button>'
+                +  '<button class="btn btn-secondary btn-sm" data-client-edit="'+r.id+'" title="Modifier"><i class="ti ti-edit"></i></button>'
+                +'</div></td>'
+                +'</tr>';
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  setTimeout(()=>{
+    document.querySelectorAll('[data-client-edit]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const r = _clients.find(c=>c.id===btn.dataset.clientEdit);
+        if(r) openClientModal(r);
+      });
+    });
+    document.querySelectorAll('[data-client-detail]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        openClientDetail(btn.dataset.clientDetail);
+      });
+    });
+  }, 50);
+}
+
+function openClientModal(r=null){
+  const isEdit = !!r;
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${isEdit?'Modifier client':'Nouveau client'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${r?.nom||''}" placeholder="Nom de la société ou du client"/></div>
+        <div class="form-group"><label class="field-label">Contact principal</label><input id="cl-contact" value="${r?.contact_principal||''}" placeholder="Nom du contact"/></div>
+        <div class="form-group"><label class="field-label">Email</label><input type="email" id="cl-email" value="${r?.email||''}" placeholder="contact@client.com"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
+        <div class="form-group"><label class="field-label">N° TVA</label><input id="cl-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="cl-adresse" value="${r?.adresse||''}" placeholder="Rue et numéro"/></div>
+        <div class="form-group"><label class="field-label">Code postal</label><input id="cl-cp" value="${r?.code_postal||''}" placeholder="L-1234"/></div>
+        <div class="form-group"><label class="field-label">Ville</label><input id="cl-ville" value="${r?.ville||''}" placeholder="Luxembourg"/></div>
+        <div class="form-group"><label class="field-label">Pays</label><input id="cl-pays" value="${r?.pays||'Luxembourg'}"/></div>
+        <div class="form-group"><label class="field-label">Conditions paiement</label>
+          <select id="cl-cond">
+            ${['Immédiat','15 jours','30 jours','45 jours','60 jours'].map(c=>`<option ${(r?.conditions_paiement||'30 jours')===c?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Actif</label>
+          <select id="cl-actif">
+            <option value="1" ${r?.actif!==false?'selected':''}>Oui</option>
+            <option value="0" ${r?.actif===false?'selected':''}>Non</option>
+          </select>
+        </div>
+        <div class="form-group full"><label class="field-label">Notes</label><textarea id="cl-notes" placeholder="Informations complémentaires...">${r?.notes||''}</textarea></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveClient('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+
+async function saveClient(id){
+  const nom = el('cl-nom').value.trim();
+  if(!nom){ showToast('Nom obligatoire','error'); return; }
+  const data = {
+    nom,
+    contact_principal: el('cl-contact').value,
+    email: el('cl-email').value,
+    telephone: el('cl-tel').value,
+    numero_tva: el('cl-tva').value,
+    adresse: el('cl-adresse').value,
+    code_postal: el('cl-cp').value,
+    ville: el('cl-ville').value,
+    pays: el('cl-pays').value,
+    conditions_paiement: el('cl-cond').value,
+    actif: el('cl-actif').value==='1',
+    notes: el('cl-notes').value
+  };
+  const {error} = id
+    ? await sb.from('clients').update(data).eq('id',id)
+    : await sb.from('clients').insert(data);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  showToast(id?'Client mis à jour':'Client créé');
+  closeModal(); renderClients();
+}
+
+async function openClientDetail(clientId){
+  const client = _clients.find(c=>c.id===clientId);
+  if(!client){ showToast("Client introuvable", 'error'); return; }
+
+  // Chantiers liés (par correspondance du nom, en attendant la liaison directe client_id)
+  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut').ilike('client','%'+client.nom+'%');
+  const chantiers = chantiersData||[];
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>${client.nom}</h3><span style="font-size:12px;color:var(--gray-5)">${client.email||''} ${client.telephone?' — '+client.telephone:''}</span></div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-grid" style="margin-bottom:20px">
+        <div class="info-item"><label>Contact principal</label><span>${client.contact_principal||'—'}</span></div>
+        <div class="info-item"><label>Adresse</label><span>${client.adresse||'—'} ${client.code_postal||''} ${client.ville||''}</span></div>
+        <div class="info-item"><label>N° TVA</label><span>${client.numero_tva||'—'}</span></div>
+        <div class="info-item"><label>Conditions de paiement</label><span>${client.conditions_paiement||'—'}</span></div>
+      </div>
+      ${client.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${client.notes}</p></div>`:''}
+      <strong style="font-size:13px">Chantiers liés (${chantiers.length})</strong>
+      <div style="margin-top:8px">
+        ${chantiers.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun chantier trouvé pour ce client</p>' :
+          chantiers.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff;cursor:pointer" onclick="closeModal();openChantierDetail('${c.id}')">
+            <span>${c.numero||''} — ${c.nom}</span>${bCH ? bCH(c.statut) : ''}
+          </div>`).join('')}
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+        <button class="btn btn-primary" onclick="closeModal();openClientModal(_clients.find(c=>c.id==='${client.id}'))"><i class="ti ti-edit"></i> Modifier</button>
+      </div>
+    </div>
+  </div></div>`);
+}
 async function renderDevis(){ el('page-content').innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Devis</h1><p>Offres et devis clients</p></div><div class="page-actions"><button class="btn btn-primary"><i class="ti ti-plus"></i> Nouveau devis</button></div></div><div class="card"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>Module devis — disponible prochainement</p><p style="font-size:12px;color:var(--gray-4)">En attente de la résolution du problème Supabase</p></div></div>`; }
 async function renderFacturesVente(){ el('page-content').innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Factures clients</h1><p>Facturation et encaissements</p></div><div class="page-actions"><button class="btn btn-primary"><i class="ti ti-plus"></i> Nouvelle facture</button></div></div><div class="card"><div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Module factures clients — disponible prochainement</p><p style="font-size:12px;color:var(--gray-4)">En attente de la résolution du problème Supabase</p></div></div>`; }
 
