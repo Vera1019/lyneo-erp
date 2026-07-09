@@ -1307,14 +1307,23 @@ async function deleteAnnexeChantier(id, chantierId, url){
   openChantierDetail(chantierId);
 }
 
-function openChantierModal(r=null){
+async function openChantierModal(r=null){
   const isEdit = !!r;
+  const {data:clientsData} = await sb.from('clients').select('id,nom').eq('actif',true).order('nom');
+  const clients = clientsData||[];
+  const clientOpts = clients.map(c=>`<option value="${c.id}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal">
     <div class="modal-header"><h3>${isEdit?'Modifier chantier':'Nouveau chantier'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="Ex: Rénovation Bâtiment A"/></div>
-        <div class="form-group"><label class="field-label">Client *</label><input id="ch-client" value="${r?.client||''}" placeholder="Nom du client"/></div>
+        <div class="form-group"><label class="field-label">Client *</label>
+          <select id="ch-client-id">
+            <option value="">— Sélectionner un client —</option>
+            ${clientOpts}
+          </select>
+          ${clients.length===0?'<span style="font-size:11px;color:var(--gray-5)">Aucun client enregistré — <a href="#" onclick="closeModal();navigate(\'clients\');return false" style="color:var(--blue)">créer un client</a></span>':''}
+        </div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
@@ -1337,9 +1346,11 @@ function openChantierModal(r=null){
 
 async function saveChantier(id){
   const nom = el('ch-nom').value.trim();
-  const client = el('ch-client').value.trim();
-  if(!nom||!client){ showToast("Nom et client obligatoires",'error'); return; }
-  const cpModal = el('ch-code-pt-modal'); const data = {nom,client,adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  const clientId = el('ch-client-id').value;
+  if(!nom||!clientId){ showToast("Nom et client obligatoires",'error'); return; }
+  const {data:clientRow} = await sb.from('clients').select('nom').eq('id',clientId).single();
+  const cpModal = el('ch-code-pt-modal');
+  const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
     showToast('Chantier mis à jour');
@@ -2711,9 +2722,13 @@ async function openClientDetail(clientId){
   const client = _clients.find(c=>c.id===clientId);
   if(!client){ showToast("Client introuvable", 'error'); return; }
 
-  // Chantiers liés (par correspondance du nom, en attendant la liaison directe client_id)
-  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut').ilike('client','%'+client.nom+'%');
-  const chantiers = chantiersData||[];
+  // Chantiers liés — d'abord par client_id (liaison réelle), puis par nom
+  // (pour les chantiers créés avant cette liaison)
+  const [byIdR, byNameR] = await Promise.all([
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut').eq('client_id',client.id),
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut').ilike('client','%'+client.nom+'%').is('client_id',null)
+  ]);
+  const chantiers = [...(byIdR.data||[]), ...(byNameR.data||[])];
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
