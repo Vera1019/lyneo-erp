@@ -922,8 +922,13 @@ async function renderChantiers(search=''){
 
 async function openChantierDetail(chantierId, tab){
   tab = tab || 'info';
-  const chantier = _chantiers.find(c=>c.id===chantierId);
-  if(!chantier) return;
+  let chantier = _chantiers.find(c=>c.id===chantierId);
+  if(!chantier){
+    // Pas encore chargé en mémoire (ex: on arrive depuis un autre module) — on va le chercher directement
+    const {data} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
+    chantier = data;
+  }
+  if(!chantier){ showToast("Chantier introuvable", 'error'); return; }
   const [annexesR, posR] = await Promise.all([
     sb.from('anexos_chantier').select('*,utilisateurs(nom,prenom)').eq('chantier_id',chantierId).order('created_at',{ascending:false}),
     sb.from('purchase_orders_lyneo').select('id,numero,statut,total_ttc,fournisseurs!fournisseur_id(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
