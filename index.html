@@ -1641,6 +1641,7 @@ function openNewPO(){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
         <button class="btn btn-primary" onclick="savePO()"><i class="ti ti-check"></i> Créer la commande</button>
+        <button class="btn btn-success" onclick="savePO(true)"><i class="ti ti-send"></i> Créer et marquer envoyée</button>
       </div>
     </div>
   </div></div>`);
@@ -1677,7 +1678,7 @@ function updLigne(i,k,v){ poLignes[i][k]=v; renderPoLignes(); }
 function addPoLigne(){ poLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderPoLignes(); }
 function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
 
-async function savePO(){
+async function savePO(marquerEnvoyee){
   const chantier_id = el('po-chantier').value;
   const fournisseur_id = el('po-four').value;
   if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires",'error'); return; }
@@ -1695,7 +1696,12 @@ async function savePO(){
     prix_unitaire_ht:parseFloat(l.prix_unitaire_ht)||0,
     taux_tva:parseFloat(l.taux_tva)||17
   })));
-  showToast('Commande créée — '+num);
+  if(marquerEnvoyee===true){
+    await sb.from('purchase_orders_lyneo').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',po.id);
+    showToast('Commande créée et marquée envoyée — '+num);
+  } else {
+    showToast('Commande créée — '+num);
+  }
   closeModal(); renderPOS();
 }
 
