@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
@@ -2838,7 +2839,71 @@ async function openClientDetail(clientId){
     </div>
   </div></div>`);
 }
-// ── DEVIS ─────────────────────────────────────────────────────
+// ── IMPORT EXCEL POUR DEVIS ───────────────────────────────────
+function _parseNumFR(v){
+  if(v===null||v===undefined||v==='') return null;
+  if(typeof v==='number') return v;
+  const s = String(v).trim().replace(/\s/g,'').replace(',', '.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function parseDevisExcelRows(rows){
+  const result = [];
+  let inOptions = false;
+  for(const row of rows){
+    const a = row[0], b = row[1], c = row[2], d = row[3];
+    const desc = (a===null||a===undefined) ? '' : String(a).trim();
+    if(!desc) continue; // ligne vide
+    if(/^d[ée]signation$/i.test(desc)) continue; // en-tête du tableau
+    if(/^total$/i.test(desc)) continue; // ligne de total final
+    if(/^options?\b/i.test(desc)){ inOptions = true; continue; } // marqueur "OPTIONS" (si présent)
+
+    const qte = _parseNumFR(c);
+    const pu = _parseNumFR(d);
+    const bloc = inOptions ? 'option' : 'principal';
+    if(qte!==null && pu!==null){
+      result.push({bloc, type:'ligne', description:desc, unite:(b?String(b).trim():'u')||'u', quantite:qte, prix_unitaire_ht:pu, taux_tva:17});
+    } else {
+      // Titre de section, sous-titre, ou note sans prix — importé comme ligne de section
+      // (subtotal recalculé automatiquement à partir des lignes suivantes)
+      result.push({bloc, type:'section', description:desc, unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:17});
+    }
+  }
+  return result;
+}
+
+async function importDevisExcel(file){
+  if(!file) return;
+  if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null});
+      const parsed = parseDevisExcelRows(rows);
+      if(parsed.length===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
+
+      await openDevisModal();
+      _devisLignes.principal = parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>r);
+      _devisLignes.option = parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>r);
+      renderDevisLignesBloc('principal');
+      renderDevisLignesBloc('option');
+
+      const nbLignes = parsed.filter(r=>r.type==='ligne').length;
+      const nbOptions = _devisLignes.option.length;
+      showToast(`${nbLignes} ligne(s) importée(s)`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+' — vérifiez et complétez avant d\'enregistrer');
+      if(nbOptions===0){
+        setTimeout(()=>showToast("Astuce : votre fichier ne marque pas où commencent les Options — tout a été importé dans le bloc principal. Déplacez manuellement les lignes concernées si besoin.", 'error'), 1200);
+      }
+    }catch(err){
+      showToast('Erreur import: '+err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
 let _devis = [];
 let _devisLignes = {principal:[], option:[]};
 
@@ -2852,6 +2917,8 @@ async function renderDevis(search=''){
       <div class="page-header-left"><h1>Devis</h1><p>Offres et devis clients</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderDevis(this.value)" value="${search}"/></div>
+        <button class="btn btn-secondary" onclick="document.getElementById('devis-excel-input').click()"><i class="ti ti-file-spreadsheet"></i> Importer Excel</button>
+        <input type="file" id="devis-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcel(this.files[0])"/>
         <button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>
       </div>
     </div>
