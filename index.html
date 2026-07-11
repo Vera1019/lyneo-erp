@@ -958,7 +958,7 @@ async function openChantierDetail(chantierId, tab){
 
   // Load factures fournisseur and vente for this chantier
   const [facsFournR, facsVenteR] = await Promise.all([
-    sb.from('factures').select('*').in('po_id', pos.map(p=>p.id)).order('created_at',{ascending:false}),
+    sb.from('factures').select('*').eq('chantier_id', chantierId).order('created_at',{ascending:false}),
     Promise.resolve(sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})).catch(()=>({data:[]}))
   ]);
   const facsFourn = facsFournR.data||[];
@@ -2074,7 +2074,7 @@ async function saveBL(){
 let _posPourFac = [];
 async function renderFactures(){
   const [facsR, posR] = await Promise.all([
-    sb.from('factures').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
+    sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
     sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
   ]);
   const facs = facsR.data||[];
@@ -2096,7 +2096,7 @@ async function renderFactures(){
                 <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${r.numero_facture_fournisseur}</strong></td>
                 <td>${r.purchase_orders_lyneo?.numero||'—'}</td>
                 <td>${r.purchase_orders_lyneo?.fournisseurs?.nom||'—'}</td>
-                <td>${r.purchase_orders_lyneo?.chantiers_lyneo?.nom||'—'}</td>
+                <td>${r.chantiers_lyneo?.nom||'—'}</td>
                 <td>${fmtDate(r.date_facture)}</td>
                 <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
                 <td><strong>${fmt(r.montant_ttc)}</strong></td>
@@ -2121,7 +2121,7 @@ async function renderFactures(){
 
 // ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
 async function openFacDetail(facId){
-  const {data:fac} = await sb.from('factures').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom))').eq('id',facId).single();
+  const {data:fac} = await sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom))').eq('id',facId).single();
   const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
   const docs = annexes||[];
 
@@ -2145,7 +2145,7 @@ async function openFacDetail(facId){
     <div class="modal-header">
       <div>
         <h3>${fac.numero_facture_fournisseur}</h3>
-        <span style="font-size:12px;color:var(--gray-5)">${fac.purchase_orders_lyneo?.fournisseurs?.nom||''} — ${fac.purchase_orders_lyneo?.chantiers_lyneo?.nom||''}</span>
+        <span style="font-size:12px;color:var(--gray-5)">${fac.purchase_orders_lyneo?.fournisseurs?.nom||''} — ${fac.chantiers_lyneo?.nom||''}</span>
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -2524,8 +2524,10 @@ async function saveFac(){
   const mTVA = parseFloat(el('fac-tva')?.value)||totalTVA;
   const mTTC = parseFloat(el('fac-ttc')?.value)||(mHT+mTVA);
 
+  const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',po_id).single();
+
   const {data:fac,error} = await sb.from('factures').insert({
-    po_id, numero_facture_fournisseur:num,
+    po_id, chantier_id: poRow?.chantier_id||null, numero_facture_fournisseur:num,
     date_facture:date, date_echeance:el('fac-echeance')?.value||null,
     montant_ht:mHT, montant_tva:mTVA, montant_ttc:mTTC,
     statut:'recue', saisie_par:currentUser.id,
@@ -3082,7 +3084,7 @@ async function openFacFromPO(poId){
     reference_article: l.reference_article||'',
     quantite_commandee: parseFloat(l.quantite)||0,
     quantite_recue: dejRecu[l.id]||0,
-    quantite: dejRecu[l.id]||parseFloat(l.quantite)||0, // default to received qty
+    quantite: dejRecu[l.id]||0, // par défaut : la quantité déjà reçue (0 si rien n'a encore été livré)
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
     taux_tva: parseFloat(l.taux_tva)||17,
@@ -3216,8 +3218,11 @@ async function saveFacFromPO(poId){
   const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
 
+  const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',poId).single();
+
   const {data:fac,error} = await sb.from('factures').insert({
     po_id: poId,
+    chantier_id: poRow?.chantier_id||null,
     numero_facture_fournisseur: num,
     date_facture: date,
     date_echeance: el('fac-gen-echeance')?.value||null,
@@ -3272,6 +3277,16 @@ async function openEditFacLignes(facId){
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
 
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
+  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom').order('nom');
+  const chantiers = chantiersData||[];
+
+  // Rétro-compatibilité : si la facture n'a pas encore de chantier_id propre
+  // (créée avant cette fonctionnalité), on récupère celui de la commande liée
+  let chantierIdActuel = fac.chantier_id;
+  if(!chantierIdActuel && fac.po_id){
+    const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',fac.po_id).single();
+    chantierIdActuel = poRow?.chantier_id||null;
+  }
 
   if((lignesData||[]).length===0 && (parseFloat(fac.montant_ht)>0 || parseFloat(fac.montant_ttc)>0)){
     // Legacy invoice saved without detailed lines: seed one editable line from the existing totals
@@ -3308,6 +3323,12 @@ async function openEditFacLignes(facId){
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Chantier *</label>'
+    +      '<select id="efac-chantier">'
+    +        '<option value="">— Sélectionner —</option>'
+    +        chantiers.map(c=>'<option value="'+c.id+'"'+(chantierIdActuel===c.id?' selected':'')+'>'+(c.numero||'')+' — '+c.nom+'</option>').join('')
+    +      '</select>'
+    +    '</div>'
     +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+fac.date_facture+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
@@ -3380,6 +3401,8 @@ function delEfacLigne(i){ _efacLignes.splice(i,1); renderEfacLignes(); }
 
 async function saveEditFac(facId){
   if(_efacLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
+  const chantierId = el('efac-chantier').value;
+  if(!chantierId){ showToast("Chantier obligatoire", 'error'); return; }
 
   const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
@@ -3424,6 +3447,7 @@ async function saveEditFac(facId){
 
   const {error} = await sb.from('factures').update({
     numero_facture_fournisseur: el('efac-num').value,
+    chantier_id: chantierId,
     date_facture: el('efac-date').value,
     date_echeance: el('efac-echeance').value||null,
     montant_ht: totalHT,
@@ -3455,8 +3479,15 @@ async function creerNoteCredit(facId){
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
 
+  let chantierId = fac.chantier_id;
+  if(!chantierId && fac.po_id){
+    const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',fac.po_id).single();
+    chantierId = poRow?.chantier_id||null;
+  }
+
   const {data:newFac, error} = await sb.from('factures').insert({
     po_id: fac.po_id,
+    chantier_id: chantierId,
     numero_facture_fournisseur: 'AVOIR — '+(fac.numero_facture_fournisseur||''),
     date_facture: today(),
     date_echeance: null,
@@ -3493,8 +3524,15 @@ async function duplicateFacture(facId){
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
 
+  let chantierId = fac.chantier_id;
+  if(!chantierId && fac.po_id){
+    const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',fac.po_id).single();
+    chantierId = poRow?.chantier_id||null;
+  }
+
   const {data:newFac, error} = await sb.from('factures').insert({
     po_id: fac.po_id,
+    chantier_id: chantierId,
     numero_facture_fournisseur: (fac.numero_facture_fournisseur||'')+' (copie)',
     date_facture: today(),
     date_echeance: fac.date_echeance,
