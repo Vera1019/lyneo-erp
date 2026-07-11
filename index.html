@@ -1706,8 +1706,12 @@ async function savePO(marquerEnvoyee){
 }
 
 async function openPODetail(poId){
-  const po = _pos.find(p=>p.id===poId);
-  if(!po) return;
+  let po = _pos.find(p=>p.id===poId);
+  if(!po){
+    const {data} = await sb.from('purchase_orders_lyneo').select('*').eq('id',poId).single();
+    po = data;
+  }
+  if(!po){ showToast("Commande introuvable", 'error'); return; }
   const [lignesR,blsR,facsR,lignesBlR] = await Promise.all([
     sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre'),
     sb.from('bons_livraison').select('*,utilisateurs(nom,prenom)').eq('po_id',poId).order('date_reception'),
@@ -1934,13 +1938,13 @@ async function renderReceptions(){
       <div class="card-header"><h2>Historique des réceptions</h2></div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th></tr></thead>
+          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
           <tbody>
-            ${bls.length===0?'<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
+            ${bls.length===0?'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
             bls.map(b=>{
               const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
               const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
-              return '<tr>'
+              return '<tr style="cursor:pointer" onclick="openBLDetail(\''+b.id+'\')">'
                 +'<td><strong class="text-blue">'+b.numero_bl+'</strong></td>'
                 +'<td>'+(b.purchase_orders_lyneo?.numero||'—')+'</td>'
                 +'<td>'+(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
@@ -1948,12 +1952,64 @@ async function renderReceptions(){
                 +'<td>'+fmtDate(b.date_reception)+'</td>'
                 +'<td>'+(b.utilisateurs?.prenom||'')+' '+(b.utilisateurs?.nom||'')+'</td>'
                 +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
+                +'<td><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openBLDetail(\''+b.id+'\')"><i class="ti ti-eye"></i></button></td>'
                 +'</tr>';
             }).join('')}
           </tbody>
         </table>
       </div>
     </div>`;
+}
+
+async function openBLDetail(blId){
+  const {data:bl} = await sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)),utilisateurs(nom,prenom)').eq('id',blId).single();
+  if(!bl){ showToast("Réception introuvable", 'error'); return; }
+
+  const {data:lignesBL} = await sb.from('lignes_bl').select('*,lignes_po(description,reference_article,unite,quantite,prix_unitaire_ht)').eq('bl_id',blId);
+  const lignes = lignesBL||[];
+
+  const statutLabel = bl.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
+  const statutClass = bl.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>Réception ${bl.numero_bl}</h3><span style="font-size:12px;color:var(--gray-5)">${bl.purchase_orders_lyneo?.numero||''} — ${bl.purchase_orders_lyneo?.fournisseurs?.nom||''}</span></div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-grid" style="margin-bottom:20px">
+        <div class="info-item"><label>Chantier</label><span>${bl.purchase_orders_lyneo?.chantiers_lyneo?.nom||'—'}</span></div>
+        <div class="info-item"><label>Date de réception</label><span>${fmtDate(bl.date_reception)}</span></div>
+        <div class="info-item"><label>Reçu par</label><span>${bl.utilisateurs?.prenom||''} ${bl.utilisateurs?.nom||''}</span></div>
+        <div class="info-item"><label>Statut</label><span><span class="badge badge-${statutClass}">${statutLabel}</span></span></div>
+      </div>
+      ${bl.observations?`<div style="margin-bottom:20px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${bl.observations}</p></div>`:''}
+      <strong style="font-size:13px">Lignes reçues dans cette réception (${lignes.length})</strong>
+      <div style="overflow-x:auto;margin-top:8px">
+        <table style="width:100%;border-collapse:collapse;min-width:520px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Référence</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Commandé</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Reçu (cette livraison)</th>
+          </tr></thead>
+          <tbody>
+            ${lignes.length===0 ? '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--gray-4)">Aucune ligne enregistrée pour cette réception</td></tr>' :
+            lignes.map(l=>`<tr>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${l.lignes_po?.description||'—'}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${l.lignes_po?.reference_article||'—'}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.lignes_po?.quantite||'—'} ${l.lignes_po?.unite||''}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--green)">${l.quantite_recue} ${l.lignes_po?.unite||''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+        ${bl.purchase_orders_lyneo?.numero?`<button class="btn btn-primary" onclick="closeModal();openPODetail('${bl.po_id}')"><i class="ti ti-eye"></i> Voir la commande</button>`:''}
+      </div>
+    </div>
+  </div></div>`);
 }
 
 function openBLModal(){
@@ -2388,11 +2444,21 @@ async function loadLignesPourFac(poId){
   section.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray-5)"><i class="ti ti-loader" style="font-size:24px"></i><p style="margin-top:6px">Chargement...</p></div>';
 
   const {data:lignes} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
+
+  // Charger les quantités déjà reçues pour cette commande (comme dans "Générer facture")
+  const {data:blsData} = await sb.from('bons_livraison').select('id').eq('po_id',poId);
+  const blIds = (blsData||[]).map(b=>b.id);
+  let dejRecu = {};
+  if(blIds.length>0){
+    const {data:ligBL} = await sb.from('lignes_bl').select('ligne_po_id,quantite_recue').in('bl_id',blIds);
+    (ligBL||[]).forEach(lb=>{ dejRecu[lb.ligne_po_id]=(dejRecu[lb.ligne_po_id]||0)+parseFloat(lb.quantite_recue||0); });
+  }
+
   _facLignesPO = (lignes||[]).map(l=>({
     id: l.id,
     description: l.description,
     reference_article: l.reference_article||'',
-    quantite: parseFloat(l.quantite)||0,
+    quantite: dejRecu[l.id]||0, // par défaut : la quantité déjà reçue (0 si rien n'a encore été livré)
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
     taux_tva: parseFloat(l.taux_tva)||17
