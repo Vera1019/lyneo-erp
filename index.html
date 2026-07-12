@@ -2945,6 +2945,7 @@ async function renderDevis(search=''){
               <td style="text-align:right;font-weight:700">${fmt(d.montant_ttc)}</td>
               <td><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openDevisDetail('${d.id}')" title="Voir"><i class="ti ti-eye"></i></button>
+                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteDevis('${d.id}','${d.numero}')" title="Supprimer"><i class="ti ti-trash"></i></button>
               </div></td>
             </tr>`).join('')}
           </tbody>
@@ -3111,7 +3112,7 @@ async function openDevisModal(d=null){
 
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveDevis('${d?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
+        <button class="btn btn-primary" id="btn-save-devis" onclick="this.disabled=true;saveDevis('${d?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
   </div></div>`);
@@ -3122,8 +3123,8 @@ async function openDevisModal(d=null){
 
 async function saveDevis(id){
   const client_id = el('dv-client').value;
-  if(!client_id){ showToast("Client obligatoire", 'error'); return; }
-  if(_devisLignes.principal.some(r=>!r.description)){ showToast("Toutes les lignes/sections doivent avoir une désignation", 'error'); return; }
+  if(!client_id){ showToast("Client obligatoire", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
+  if(_devisLignes.principal.some(r=>!r.description)){ showToast("Toutes les lignes/sections doivent avoir une désignation", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
 
   const totalHT = devisBlocTotal(_devisLignes.principal);
   const totalTVA = _devisLignes.principal.filter(r=>r.type==='ligne').reduce((a,r)=>a+(parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0)*(parseFloat(r.taux_tva)||0)/100,0);
@@ -3145,11 +3146,11 @@ async function saveDevis(id){
   let devisId = id;
   if(id){
     const {error} = await sb.from('devis').update(header).eq('id',id);
-    if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+    if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
   } else {
     const {data:num} = await sb.rpc('generate_devis_number');
     const {data:newDevis, error} = await sb.from('devis').insert({...header, numero:num, cree_par:currentUser.id}).select().single();
-    if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+    if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
     devisId = newDevis.id;
   }
 
@@ -3232,12 +3233,22 @@ async function openDevisDetail(devisId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-ghost" onclick="closeModal();openDevisModal(_devis.find(x=>x.id==='${d.id}'))"><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-success" onclick="changerStatutDevis('${d.id}','accepte')"><i class="ti ti-check"></i> Marquer accepté</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-danger" onclick="changerStatutDevis('${d.id}','refuse')"><i class="ti ti-x"></i> Marquer refusé</button>`:''}
       </div>
     </div>
   </div></div>`);
+}
+
+async function deleteDevis(devisId, numero){
+  if(!confirm(`Supprimer définitivement le devis ${numero} ? Les lignes et documents attachés seront aussi supprimés. Cette action est irréversible.`)) return;
+  const {error} = await sb.from('devis').delete().eq('id',devisId);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  showToast('Devis supprimé');
+  closeModal();
+  renderDevis();
 }
 
 async function changerStatutDevis(devisId, statut){
