@@ -3312,6 +3312,7 @@ async function deleteAnnexeDevis(id, devisId, url){
 // ── FACTURES CLIENTS ──────────────────────────────────────────
 let _facturesVente = [];
 let _venteLignes = [];
+let _venteLigneMode = 'devis'; // 'devis' (généré depuis un devis) ou 'libre' (lignes libres)
 
 async function renderFacturesVente(search=''){
   const {data} = await sb.from('factures_vente').select('*,clients(nom),chantiers_lyneo!chantier_id(nom,numero)').order('created_at',{ascending:false});
@@ -3356,6 +3357,7 @@ async function openNewFactureVenteLibre(){
   const clients = clientsData||[];
   const chantiers = chantiersData||[];
   _venteLignes = [{description:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+  _venteLigneMode = 'libre';
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle facture client</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -3485,6 +3487,7 @@ async function openGenerateFactureVente(chantierId){
   if(!chantier.client_id){ showToast("Ce chantier n'a pas de client lié", 'error'); return; }
 
   _venteLignes = [];
+  _venteLigneMode = 'devis';
   let devisInfo = null;
 
   // On cherche le devis lié dans les deux sens : soit chantier.devis_id (créé depuis le devis),
@@ -3600,7 +3603,7 @@ function renderVenteLignes(){
 }
 function addVenteLigne(){ _venteLignes.push({description:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderVenteLignes(); }
 function delVenteLigne(i){ _venteLignes.splice(i,1); renderVenteLignes(); }
-function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; renderVenteLignes(); }
+function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
 
 async function saveFactureVente(chantierId, clientId, devisId){
   if(_venteLignes.length===0 || _venteLignes.some(l=>!l.description)){
