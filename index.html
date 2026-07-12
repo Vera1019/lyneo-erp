@@ -1364,8 +1364,15 @@ async function saveChantier(id){
     showToast('Chantier mis à jour');
   } else {
     const {data:num} = await sb.rpc('generate_chantier_number');
-    await sb.from('chantiers_lyneo').insert({...data,numero:num});
-    showToast('Chantier créé — '+num);
+    const devisIdOrigine = window._chantierFromDevisId||null;
+    const {data:newChantier} = await sb.from('chantiers_lyneo').insert({...data,numero:num,devis_id:devisIdOrigine}).select().single();
+    if(devisIdOrigine && newChantier){
+      await sb.from('devis').update({chantier_id:newChantier.id}).eq('id',devisIdOrigine);
+      window._chantierFromDevisId = null;
+      showToast('Chantier créé et lié au devis — '+num);
+    } else {
+      showToast('Chantier créé — '+num);
+    }
   }
   closeModal(); renderChantiers();
 }
@@ -3242,7 +3249,8 @@ async function changerStatutDevis(devisId, statut){
     if(confirm("Devis accepté ! Voulez-vous créer le chantier correspondant maintenant ?")){
       closeModal();
       navigate('chantiers');
-      setTimeout(()=>openChantierModal(),300);
+      window._chantierFromDevisId = devisId;
+      setTimeout(()=>openChantierModal({nom:d.objet||('Chantier — '+d.numero), client_id:d.client_id}),300);
       return;
     }
   }
