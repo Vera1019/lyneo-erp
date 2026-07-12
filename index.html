@@ -3178,6 +3178,13 @@ async function saveDevis(id){
   }
 
   showToast(id?'Devis mis à jour':'Devis créé — '+header.objet);
+
+  // Synchronise le lien dans les deux sens : si un chantier est choisi ici,
+  // ce chantier doit aussi savoir qu'il vient de ce devis.
+  if(header.chantier_id){
+    await sb.from('chantiers_lyneo').update({devis_id:devisId}).eq('id',header.chantier_id);
+  }
+
   closeModal();
   renderDevis();
 }
@@ -3348,13 +3355,25 @@ async function openGenerateFactureVente(chantierId){
   _venteLignes = [];
   let devisInfo = null;
 
-  if(chantier.devis_id){
-    const {data:devis} = await sb.from('devis').select('*').eq('id',chantier.devis_id).single();
+  // On cherche le devis lié dans les deux sens : soit chantier.devis_id (créé depuis le devis),
+  // soit devis.chantier_id (lié en éditant le devis) — pour ne jamais rater la liaison.
+  let devisId = chantier.devis_id||null;
+  if(!devisId){
+    const {data:devisParChantier} = await sb.from('devis').select('id').eq('chantier_id',chantierId).eq('statut','accepte').order('created_at',{ascending:false}).limit(1);
+    if(devisParChantier && devisParChantier.length>0){
+      devisId = devisParChantier[0].id;
+      // Synchronise le lien dans l'autre sens pour la prochaine fois
+      await sb.from('chantiers_lyneo').update({devis_id:devisId}).eq('id',chantierId);
+    }
+  }
+
+  if(devisId){
+    const {data:devis} = await sb.from('devis').select('*').eq('id',devisId).single();
     devisInfo = devis;
-    const {data:lignesDevis} = await sb.from('lignes_devis').select('*').eq('devis_id',chantier.devis_id).eq('bloc','principal').eq('type','ligne').order('ordre');
+    const {data:lignesDevis} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).eq('bloc','principal').eq('type','ligne').order('ordre');
 
     // Quantités déjà facturées pour chaque ligne du devis, toutes factures non annulées confondues
-    const {data:facsExistantes} = await sb.from('factures_vente').select('id').eq('devis_id',chantier.devis_id).neq('statut','annulee');
+    const {data:facsExistantes} = await sb.from('factures_vente').select('id').eq('devis_id',devisId).neq('statut','annulee');
     const facIds = (facsExistantes||[]).map(f=>f.id);
     let dejaFacture = {};
     if(facIds.length>0){
@@ -3420,7 +3439,7 @@ async function openGenerateFactureVente(chantierId){
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" id="btn-save-fv" onclick="this.disabled=true;saveFactureVente('${chantierId}','${chantier.client_id}',${chantier.devis_id?`'${chantier.devis_id}'`:null})"><i class="ti ti-check"></i> Créer la facture</button>
+        <button class="btn btn-primary" id="btn-save-fv" onclick="this.disabled=true;saveFactureVente('${chantierId}','${chantier.client_id}',${devisId?`'${devisId}'`:null})"><i class="ti ti-check"></i> Créer la facture</button>
       </div>
     </div>
   </div></div>`);
