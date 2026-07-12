@@ -3356,7 +3356,7 @@ async function openNewFactureVenteLibre(){
   ]);
   const clients = clientsData||[];
   const chantiers = chantiersData||[];
-  _venteLignes = [{description:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+  _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
   _venteLigneMode = 'libre';
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
@@ -3393,6 +3393,7 @@ async function openNewFactureVenteLibre(){
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:560px">
           <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Réf.</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
@@ -3430,6 +3431,7 @@ function renderVenteLignesLibre(){
   const body = el('vente-lignes-body');
   if(!body) return;
   body.innerHTML = _venteLignes.map((l,i)=>`<tr>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="number" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
@@ -3472,7 +3474,7 @@ async function saveFactureVenteLibre(){
 
   await sb.from('lignes_facture_vente').insert(_venteLignes.map((l,i)=>({
     facture_vente_id: fac.id, ligne_devis_id: null, ordre: i+1,
-    description: l.description, unite: l.unite, quantite: parseFloat(l.quantite)||0,
+    description: l.description, reference_article: l.reference_article||'', unite: l.unite, quantite: parseFloat(l.quantite)||0,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
   })));
 
@@ -3523,6 +3525,7 @@ async function openGenerateFactureVente(chantierId){
       return {
         ligne_devis_id: l.id,
         description: l.description,
+        reference_article: '',
         unite: l.unite||'u',
         quantite_devis: qteDevis,
         deja_facture: qteFacturee,
@@ -3559,6 +3562,7 @@ async function openGenerateFactureVente(chantierId){
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:680px">
           <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Réf.</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Devis</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Déjà fact.</th>
@@ -3585,6 +3589,7 @@ function renderVenteLignes(){
   const body = el('vente-lignes-body');
   if(!body) return;
   body.innerHTML = _venteLignes.map((l,i)=>`<tr>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.quantite_devis!==undefined?l.quantite_devis+' '+l.unite:'—'}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.deja_facture!==undefined?l.deja_facture+' '+l.unite:'—'}</td>
@@ -3601,7 +3606,7 @@ function renderVenteLignes(){
     <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
-function addVenteLigne(){ _venteLignes.push({description:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderVenteLignes(); }
+function addVenteLigne(){ _venteLignes.push({description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderVenteLignes(); }
 function delVenteLigne(i){ _venteLignes.splice(i,1); renderVenteLignes(); }
 function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
 
@@ -3628,13 +3633,111 @@ async function saveFactureVente(chantierId, clientId, devisId){
 
   await sb.from('lignes_facture_vente').insert(_venteLignes.map((l,i)=>({
     facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: i+1,
-    description: l.description, unite: l.unite, quantite: parseFloat(l.quantite)||0,
+    description: l.description, reference_article: l.reference_article||'', unite: l.unite, quantite: parseFloat(l.quantite)||0,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
   })));
 
   showToast('Facture client créée — '+num);
   closeModal();
   openChantierDetail(chantierId,'fac_vente');
+}
+
+async function downloadPDF_FactureVente(facId){
+  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero),devis(numero)').eq('id',facId).single();
+  if(!f){ showToast("Facture introuvable", 'error'); return; }
+  const {data:lignes} = await sb.from('lignes_facture_vente').select('*').eq('facture_vente_id',facId).order('ordre');
+
+  const client = f.clients||{};
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>${f.numero}</title>
+  <style>
+    body{font-family:Arial,sans-serif;font-size:12px;color:#222;margin:0;padding:20px}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}
+    .header h1{font-size:15px;color:#0D2137;margin:0 0 4px}
+    .header p{margin:0;color:#0D2137;font-size:11px}
+    .header-right{text-align:right}
+    .header-right h2{font-size:22px;color:#0D2137;margin:0 0 6px;letter-spacing:1px}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+    .box{background:#f5f7f9;padding:12px 16px;border-radius:4px}
+    .box label{font-size:10px;font-weight:700;text-transform:uppercase;color:#777;display:block;margin-bottom:4px}
+    .ref-row{display:flex;background:#f5f7f9;border-radius:4px;margin-bottom:20px;overflow:hidden}
+    .ref-row div{flex:1;padding:10px 14px;border-right:1px solid #e5e7eb}
+    .ref-row div:last-child{border-right:none}
+    .ref-row label{font-size:10px;font-weight:700;text-transform:uppercase;color:#777;display:block;margin-bottom:2px}
+    .section-title{font-size:12px;font-weight:700;color:#0D2137;text-transform:uppercase;letter-spacing:.5px;margin:0 0 10px;border-bottom:2px solid #0D2137;padding-bottom:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    th{background:#0D2137;color:#fff;padding:8px 10px;text-align:left;font-size:11px}
+    td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}
+    tr:nth-child(even) td{background:#f9fafb}
+    .totaux{display:flex;justify-content:flex-end;margin-bottom:20px}
+    .totaux-box{min-width:240px;background:#f5f7f9;padding:12px 16px;border-radius:4px}
+    .t-row{display:flex;justify-content:space-between;padding:3px 0}
+    .t-total{border-top:2px solid #ddd;margin-top:6px;padding-top:6px;font-weight:700;font-size:15px;color:#0D2137}
+    .reglement{background:#f5f7f9;padding:14px 16px;border-radius:4px;font-size:11px;color:#333;margin-bottom:20px}
+    .reglement strong{color:#0D2137}
+    .footer{color:#888;text-align:center;font-size:10px;border-top:1px solid #eee;padding-top:10px;margin-top:20px}
+    @media print{body{padding:0}}
+  </style></head><body>
+  <div class="header">
+    <div><h1>LYNEO</h1><p>Électricité — Luxembourg</p></div>
+    <div class="header-right">
+      <h2>FACTURE</h2>
+      <p>N° Facture : <strong>${f.numero}</strong></p>
+      <p>Date émission : ${fmtDate(f.date_creation)}</p>
+      <p>Date échéance : ${fmtDate(f.date_echeance)}</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="box"><label>Facturé à</label>
+      <strong>${client.nom||'—'}</strong><br>
+      ${client.adresse||''}<br>
+      ${(client.code_postal||'')+' '+(client.ville||'')}<br>
+      ${client.email||''}
+    </div>
+    <div class="box"><label>Chantier</label>
+      <strong>${f.chantiers_lyneo?.nom||'—'}</strong><br>
+      ${f.chantiers_lyneo?.numero||''}
+    </div>
+  </div>
+
+  <div class="ref-row">
+    <div><label>Référence</label>${f.devis?.numero||'—'}</div>
+    <div><label>Type de facture</label>${f.type_facture||'—'}</div>
+    <div><label>Modalité</label>${client.conditions_paiement||'30 jours'}</div>
+  </div>
+
+  <div class="section-title">Détail des prestations &amp; fournitures</div>
+  <table>
+    <thead><tr><th>Réf. article</th><th>Description</th><th style="text-align:right">Qté</th><th style="text-align:right">P.U. HT</th><th style="text-align:right">Total HT</th></tr></thead>
+    <tbody>${(lignes||[]).map(l=>`<tr>
+      <td>${l.reference_article||''}</td>
+      <td>${l.description}</td>
+      <td style="text-align:right">${l.quantite} ${l.unite||''}</td>
+      <td style="text-align:right">${fmt(l.prix_unitaire_ht)}</td>
+      <td style="text-align:right;font-weight:600">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+      </tr>`).join('')}</tbody>
+  </table>
+
+  <div class="totaux"><div class="totaux-box">
+    <div class="t-row"><span>Sous-total HT</span><span>${fmt(f.total_ht)}</span></div>
+    <div class="t-row"><span>TVA</span><span>${fmt(f.total_tva)}</span></div>
+    <div class="t-row t-total"><span>TOTAL</span><span>${fmt(f.total_ttc)}</span></div>
+  </div></div>
+
+  ${f.observations?`<div class="reglement" style="margin-bottom:12px"><strong>Observations :</strong> ${f.observations}</div>`:''}
+
+  <div class="reglement">
+    <strong>INFORMATIONS DE RÈGLEMENT</strong><br>
+    Banque : LU89 0099 7800 0161 1797 &nbsp;|&nbsp; BIC : CCRALULL<br>
+    Référence à indiquer : N° Facture ${f.numero}
+  </div>
+
+  <div class="footer">LYNEO s.à.r.l — 5, Z.A. Gadderscheier, L-4570 Niederkorn &nbsp;|&nbsp; TVA : LU37560222 &nbsp;|&nbsp; Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+  <script>window.onload=()=>{window.print()}<\/script>
+  </body></html>`);
+  win.document.close();
 }
 
 async function openFactureVenteDetail(facId){
@@ -3680,6 +3783,7 @@ async function openFactureVenteDetail(facId){
       ${f.observations?`<div style="margin-top:16px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${f.observations}</p></div>`:''}
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+        <button class="btn btn-secondary" onclick="downloadPDF_FactureVente('${f.id}')"><i class="ti ti-file-download"></i> PDF</button>
         <button class="btn btn-danger" onclick="deleteFactureVente('${f.id}','${f.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${f.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutFactureVente('${f.id}','envoyee')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
         ${['envoyee','payee_partiel'].includes(f.statut)?`<button class="btn btn-success" onclick="changerStatutFactureVente('${f.id}','payee')"><i class="ti ti-check"></i> Marquer payée</button>`:''}
