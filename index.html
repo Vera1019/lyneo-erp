@@ -3323,6 +3323,7 @@ async function renderFacturesVente(search=''){
       <div class="page-header-left"><h1>Factures clients</h1><p>Facturation et encaissements</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFacturesVente(this.value)" value="${search}"/></div>
+        <button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button>
       </div>
     </div>
     <div class="card">
@@ -3330,7 +3331,7 @@ async function renderFacturesVente(search=''){
         <table>
           <thead><tr><th>N°</th><th>Client</th><th>Chantier</th><th>Type</th><th>Date</th><th>Statut</th><th>Total TTC</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client — générez-en une depuis le chantier concerné</p></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client</p><button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button></div></td></tr>' :
             items.map(f=>`<tr style="cursor:pointer" onclick="openFactureVenteDetail('${f.id}')">
               <td><strong class="text-blue">${f.numero}</strong></td>
               <td>${f.clients?.nom||'—'}</td>
@@ -3345,6 +3346,137 @@ async function renderFacturesVente(search=''){
         </table>
       </div>
     </div>`;
+}
+
+async function openNewFactureVenteLibre(){
+  const [{data:clientsData},{data:chantiersData}] = await Promise.all([
+    sb.from('clients').select('id,nom').eq('actif',true).order('nom'),
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id').order('nom')
+  ]);
+  const clients = clientsData||[];
+  const chantiers = chantiersData||[];
+  _venteLignes = [{description:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>Nouvelle facture client</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Client *</label>
+          <select id="fvl-client" onchange="filtrerChantiersParClient()">
+            <option value="">— Sélectionner —</option>
+            ${clients.map(c=>`<option value="${c.id}">${c.nom}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Chantier</label>
+          <select id="fvl-chantier">
+            <option value="">— Aucun —</option>
+            ${chantiers.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}">${c.numero||''} — ${c.nom}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Type de facture</label>
+          <select id="fv-type">
+            <option value="acompte">Acompte</option>
+            <option value="situation">Situation de travaux</option>
+            <option value="solde">Solde</option>
+            <option value="libre" selected>Libre</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
+        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <strong style="font-size:13px">Lignes à facturer</strong>
+        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+      </div>
+      <div style="overflow-x:auto;max-width:100%">
+        <table style="width:100%;border-collapse:collapse;min-width:560px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Qté</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
+            <th style="width:34px"></th>
+          </tr></thead>
+          <tbody id="vente-lignes-body"></tbody>
+        </table>
+      </div>
+      <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
+      <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="btn-save-fv" onclick="this.disabled=true;saveFactureVenteLibre()"><i class="ti ti-check"></i> Créer la facture</button>
+      </div>
+    </div>
+  </div></div>`);
+  renderVenteLignesLibre();
+}
+
+function filtrerChantiersParClient(){
+  const clientId = el('fvl-client').value;
+  const select = el('fvl-chantier');
+  if(!select) return;
+  Array.from(select.options).forEach(opt=>{
+    if(!opt.value){ opt.style.display=''; return; }
+    opt.style.display = (!clientId || opt.dataset.client===clientId) ? '' : 'none';
+  });
+  // Si le chantier sélectionné actuellement n'appartient pas au client choisi, on réinitialise
+  const current = select.options[select.selectedIndex];
+  if(current && current.value && clientId && current.dataset.client!==clientId) select.value='';
+}
+
+function renderVenteLignesLibre(){
+  const body = el('vente-lignes-body');
+  if(!body) return;
+  body.innerHTML = _venteLignes.map((l,i)=>`<tr>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="number" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_venteLignes.length>1?`<button onclick="delVenteLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
+  </tr>`).join('');
+  const totalHT = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const box = el('vente-totaux');
+  if(box) box.innerHTML = `
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+}
+function delVenteLigneLibre(i){ _venteLignes.splice(i,1); renderVenteLignesLibre(); }
+
+async function saveFactureVenteLibre(){
+  const clientId = el('fvl-client').value;
+  const chantierId = el('fvl-chantier').value||null;
+  if(!clientId){ showToast("Client obligatoire", 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
+  if(_venteLignes.length===0 || _venteLignes.some(l=>!l.description)){
+    showToast("Ajoutez au moins une ligne avec description", 'error');
+    const b=el('btn-save-fv'); if(b) b.disabled=false;
+    return;
+  }
+  const totalHT = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const {data:num} = await sb.rpc('generate_facture_vente_number');
+
+  const {data:fac, error} = await sb.from('factures_vente').insert({
+    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: null,
+    type_facture: el('fv-type').value,
+    date_creation: el('fv-date').value,
+    date_echeance: el('fv-echeance').value||null,
+    total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
+    statut: 'brouillon', cree_par: currentUser.id,
+    observations: el('fv-obs').value
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
+
+  await sb.from('lignes_facture_vente').insert(_venteLignes.map((l,i)=>({
+    facture_vente_id: fac.id, ligne_devis_id: null, ordre: i+1,
+    description: l.description, unite: l.unite, quantite: parseFloat(l.quantite)||0,
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
+  })));
+
+  showToast('Facture client créée — '+num);
+  closeModal();
+  renderFacturesVente();
 }
 
 async function openGenerateFactureVente(chantierId){
