@@ -3099,22 +3099,57 @@ function _parseNumFR(v){
   return isNaN(n) ? null : n;
 }
 
-function parseDevisExcelRows(rows){
+// Repère la ligne d'en-tête (celle qui contient "Désignation") et déduit la position
+// réelle de chaque colonne — au lieu de supposer que les colonnes sont toujours A/B/C/D/E.
+function detectDevisColumns(rows){
+  for(let i=0;i<Math.min(rows.length,25);i++){
+    const row = rows[i]||[];
+    for(let j=0;j<row.length;j++){
+      const cell = row[j];
+      if(cell && /^d[ée]signation$/i.test(String(cell).trim())){
+        let uteCol=-1, qteCol=-1, puCol=-1, totalCol=-1;
+        row.forEach((c,idx)=>{
+          const s = c?String(c).trim().toLowerCase().replace(/\s|\n/g,''):'';
+          if(/^ut[ée]$/.test(s)) uteCol=idx;
+          else if(/^qt[ée]$/.test(s)) qteCol=idx;
+          else if(/^total$|prixtotal/.test(s)) totalCol=idx;
+          else if(/^pv|prixunitaire|p\.?u\.?/.test(s)) puCol=idx;
+        });
+        return {headerRowIdx:i, descCol:j, uteCol, qteCol, puCol, totalCol};
+      }
+    }
+  }
+  return null;
+}
+
+function parseDevisExcelRows(rows, cols){
+  cols = cols || {descCol:0, uteCol:1, qteCol:2, puCol:3, totalCol:4};
   const result = [];
   let inOptions = false;
   for(const row of rows){
-    const a = row[0], b = row[1], c = row[2], d = row[3];
-    const desc = (a===null||a===undefined) ? '' : String(a).trim();
+    // Le texte d'une ligne de titre/section est parfois décalé d'une colonne
+    // par rapport aux lignes de détail (colonnes fusionnées) — on regarde
+    // aussi la colonne juste avant si celle détectée est vide.
+    let raw = row[cols.descCol];
+    if((raw===null||raw===undefined||String(raw).trim()==='') && cols.descCol>0){
+      raw = row[cols.descCol-1];
+    }
+    const desc = (raw===null||raw===undefined) ? '' : String(raw).trim();
+
+    // Le marqueur "OPTIONS" peut aussi être décalé — on regarde toute la ligne
+    if(row.some(c=>c && /^options?\b/i.test(String(c).trim()))){ inOptions = true; continue; }
+
     if(!desc) continue; // ligne vide
     if(/^d[ée]signation$/i.test(desc)) continue; // en-tête du tableau
     if(/^total$/i.test(desc)) continue; // ligne de total final
-    if(/^options?\b/i.test(desc)){ inOptions = true; continue; } // marqueur "OPTIONS" (si présent)
+    if(/^n[°o]$/i.test(desc)) continue; // parfois "N°" est répété comme en-tête
 
-    const qte = _parseNumFR(c);
-    const pu = _parseNumFR(d);
+    const qte = cols.qteCol>=0 ? _parseNumFR(row[cols.qteCol]) : null;
+    const pu = cols.puCol>=0 ? _parseNumFR(row[cols.puCol]) : null;
     const bloc = inOptions ? 'option' : 'principal';
     if(qte!==null && pu!==null){
-      result.push({bloc, type:'ligne', description:desc, unite:(b?String(b).trim():'u')||'u', quantite:qte, prix_unitaire_ht:pu, taux_tva:17});
+      const unite = cols.uteCol>=0 && row[cols.uteCol] ? String(row[cols.uteCol]).trim() : 'u';
+      result.push({bloc, type:'ligne', description:desc, unite:unite||'u', quantite:qte, prix_unitaire_ht:pu, taux_tva:17});
     } else {
       // Titre de section, sous-titre, ou note sans prix — importé comme ligne de section
       // (subtotal recalculé automatiquement à partir des lignes suivantes)
@@ -3122,6 +3157,23 @@ function parseDevisExcelRows(rows){
     }
   }
   return result;
+}
+
+// Un classeur Excel peut avoir plusieurs feuilles (page de garde, résumé, détail...).
+// On essaie chaque feuille et on garde celle qui donne le plus de lignes de détail reconnues.
+function parseDevisWorkbook(wb){
+  let meilleur = {parsed:[], nbLignes:-1, feuille:null};
+  for(const nomFeuille of wb.SheetNames){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomFeuille], {header:1, defval:null});
+    const cols = detectDevisColumns(rows);
+    if(!cols) continue; // cette feuille n'a pas de tableau de lignes (ex: page de garde, synthèse)
+    const parsed = parseDevisExcelRows(rows, cols);
+    const nbLignes = parsed.filter(r=>r.type==='ligne').length;
+    if(nbLignes > meilleur.nbLignes){
+      meilleur = {parsed, nbLignes, feuille:nomFeuille};
+    }
+  }
+  return meilleur;
 }
 
 async function importDevisExcelDansModal(file){
@@ -3132,10 +3184,8 @@ async function importDevisExcelDansModal(file){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null});
-      const parsed = parseDevisExcelRows(rows);
-      if(parsed.length===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
+      const {parsed, nbLignes, feuille} = parseDevisWorkbook(wb);
+      if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       // Ajoute les lignes importées à la suite de celles déjà présentes dans le formulaire
       _devisLignes.principal = [..._devisLignes.principal, ...parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>r)];
@@ -3143,8 +3193,7 @@ async function importDevisExcelDansModal(file){
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
 
-      const nbLignes = parsed.filter(r=>r.type==='ligne').length;
-      showToast(`${nbLignes} ligne(s) importée(s) — vérifiez et complétez avant d'enregistrer`);
+      showToast(`${nbLignes} ligne(s) importée(s) (feuille "${feuille}") — vérifiez et complétez avant d'enregistrer`);
     }catch(err){
       showToast('Erreur import: '+err.message, 'error');
     }
@@ -3160,10 +3209,8 @@ async function importDevisExcel(file){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null});
-      const parsed = parseDevisExcelRows(rows);
-      if(parsed.length===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
+      const {parsed, nbLignes, feuille} = parseDevisWorkbook(wb);
+      if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       await openDevisModal();
       _devisLignes.principal = parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>r);
@@ -3171,9 +3218,8 @@ async function importDevisExcel(file){
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
 
-      const nbLignes = parsed.filter(r=>r.type==='ligne').length;
       const nbOptions = _devisLignes.option.length;
-      showToast(`${nbLignes} ligne(s) importée(s)`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+' — vérifiez et complétez avant d\'enregistrer');
+      showToast(`${nbLignes} ligne(s) importée(s) (feuille "${feuille}")`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+' — vérifiez et complétez avant d\'enregistrer');
       if(nbOptions===0){
         setTimeout(()=>showToast("Astuce : votre fichier ne marque pas où commencent les Options — tout a été importé dans le bloc principal. Déplacez manuellement les lignes concernées si besoin.", 'error'), 1200);
       }
