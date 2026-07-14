@@ -3923,10 +3923,12 @@ function updateAcompteMontant(){
   const resultBox = el('fv-acompte-resultat');
   if(!devisInfo || !resultBox) return;
   const pct = parseFloat(el('fv-acompte-pct')?.value)||0;
-  const totalHT = (parseFloat(devisInfo.montant_ht)||0) * pct/100;
+  const qte = Math.round(pct)/100;
+  const totalHT = (parseFloat(devisInfo.montant_ht)||0) * qte;
   const tauxTva = devisInfo.montant_ht>0 ? (parseFloat(devisInfo.montant_tva)/parseFloat(devisInfo.montant_ht))*100 : 17;
   const totalTVA = totalHT * tauxTva/100;
-  resultBox.innerHTML = `<strong>Montant de l'acompte :</strong> ${fmt(totalHT)} HT &nbsp;+&nbsp; ${fmt(totalTVA)} TVA &nbsp;=&nbsp; <strong style="color:var(--blue);font-size:16px">${fmt(totalHT+totalTVA)} TTC</strong>`;
+  resultBox.innerHTML = `<div style="font-size:12px;color:var(--gray-6);margin-bottom:4px">La ligne facturée sera : <strong>${qte.toFixed(2)}</strong> % &nbsp;×&nbsp; <strong>${fmt(devisInfo.montant_ht)}</strong> (montant total HT du devis)</div>
+    <strong>Montant de l'acompte :</strong> ${fmt(totalHT)} HT &nbsp;+&nbsp; ${fmt(totalTVA)} TVA &nbsp;=&nbsp; <strong style="color:var(--blue);font-size:16px">${fmt(totalHT+totalTVA)} TTC</strong>`;
 }
 
 function renderVenteLignes(){
@@ -3963,15 +3965,14 @@ async function saveFactureVente(chantierId, clientId, devisId){
     if(!devisInfo){ showToast("Un devis lié est nécessaire pour facturer un acompte", 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
     const pct = parseFloat(el('fv-acompte-pct')?.value)||0;
     if(pct<=0){ showToast("Le pourcentage d'acompte doit être supérieur à 0", 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
-    const montantHT = (parseFloat(devisInfo.montant_ht)||0) * pct/100;
     const tauxTva = devisInfo.montant_ht>0 ? (parseFloat(devisInfo.montant_tva)/parseFloat(devisInfo.montant_ht))*100 : 17;
     lignesAFacturer = [{
       ligne_devis_id: null,
-      description: `Acompte ${pct}% — Devis ${devisInfo.numero}`,
+      description: `Acompte sur devis ${devisInfo.numero} (${pct}% du montant total HT)`,
       reference_article: '',
-      unite: 'forfait',
-      quantite: 1,
-      prix_unitaire_ht: montantHT,
+      unite: '%',
+      quantite: Math.round(pct)/100, // ex: 30% → 0,30
+      prix_unitaire_ht: parseFloat(devisInfo.montant_ht)||0, // montant total HT du devis, non réduit
       taux_tva: Math.round(tauxTva)
     }];
   } else {
