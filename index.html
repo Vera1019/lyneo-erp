@@ -2951,10 +2951,36 @@ async function openClientDetail(clientId){
   // Chantiers liés — d'abord par client_id (liaison réelle), puis par nom
   // (pour les chantiers créés avant cette liaison)
   const [byIdR, byNameR] = await Promise.all([
-    sb.from('chantiers_lyneo').select('id,numero,nom,statut').eq('client_id',client.id),
-    sb.from('chantiers_lyneo').select('id,numero,nom,statut').ilike('client','%'+client.nom+'%').is('client_id',null)
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut,code_pointages').eq('client_id',client.id),
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut,code_pointages').ilike('client','%'+client.nom+'%').is('client_id',null)
   ]);
   const chantiers = [...(byIdR.data||[]), ...(byNameR.data||[])];
+  const chantierIds = chantiers.map(c=>c.id);
+  const chantierMap = {}; chantiers.forEach(c=>chantierMap[c.id]=c);
+
+  // Factures clients, bons de commande et factures fournisseur liés à ces chantiers
+  const [facsVenteR, posR, facsFournR] = await Promise.all([
+    sb.from('factures_vente').select('*').eq('client_id',client.id).order('date_creation',{ascending:false}),
+    chantierIds.length>0 ? sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('created_at',{ascending:false}) : Promise.resolve({data:[]}),
+    chantierIds.length>0 ? sb.from('factures').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('date_facture',{ascending:false}) : Promise.resolve({data:[]})
+  ]);
+  const facsVente = facsVenteR.data||[];
+  const pos = posR.data||[];
+  const facsFourn = facsFournR.data||[];
+
+  // Heures encodées, par chantier (via le système de pointages)
+  let heuresParChantier = [];
+  const chantiersAvecCode = chantiers.filter(c=>c.code_pointages);
+  if(chantiersAvecCode.length>0){
+    const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
+    for(const c of chantiersAvecCode){
+      const ptChantier = (ptChantiers||[]).find(pc=>pc.code===c.code_pointages || pc.nom?.toLowerCase()===c.code_pointages?.toLowerCase());
+      if(!ptChantier) continue;
+      const {data:picages} = await sbPT.from('picages').select('heures').eq('chantier_id',ptChantier.id);
+      const total = (picages||[]).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+      if(total>0) heuresParChantier.push({chantier:c, heures:total});
+    }
+  }
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -2969,13 +2995,69 @@ async function openClientDetail(clientId){
         <div class="info-item"><label>Conditions de paiement</label><span>${client.conditions_paiement||'—'}</span></div>
       </div>
       ${client.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${client.notes}</p></div>`:''}
+
       <strong style="font-size:13px">Chantiers liés (${chantiers.length})</strong>
-      <div style="margin-top:8px">
+      <div style="margin-top:8px;margin-bottom:20px">
         ${chantiers.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun chantier trouvé pour ce client</p>' :
           chantiers.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff;cursor:pointer" onclick="closeModal();openChantierDetail('${c.id}')">
             <span>${c.numero||''} — ${c.nom}</span>${bCH ? bCH(c.statut) : ''}
           </div>`).join('')}
       </div>
+
+      <strong style="font-size:13px">Heures encodées</strong>
+      <div style="margin-top:8px;margin-bottom:20px">
+        ${heuresParChantier.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune heure encodée pour ce client</p>' :
+          `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Total heures</th></tr></thead>
+            <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${h.chantier.numero||''} — ${h.chantier.nom}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
+          </table>`}
+      </div>
+
+      <strong style="font-size:13px">Factures clients (${facsVente.length})</strong>
+      <div style="margin-top:8px;margin-bottom:20px">
+        ${facsVente.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune facture émise pour ce client</p>' :
+          `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
+            <tbody>${facsVente.map(f=>`<tr style="cursor:pointer" onclick="closeModal();openFactureVenteDetail('${f.id}')">
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${f.numero}</strong></td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${chantierMap[f.chantier_id]?(chantierMap[f.chantier_id].numero||'')+' — '+chantierMap[f.chantier_id].nom:'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(f.date_creation)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(f.total_ttc)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bFV(f.statut)}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
+      </div>
+
+      <strong style="font-size:13px">Bons de commande fournisseurs liés (${pos.length})</strong>
+      <div style="margin-top:8px;margin-bottom:20px">
+        ${pos.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune commande pour les chantiers de ce client</p>' :
+          `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Fournisseur</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
+            <tbody>${pos.map(p=>`<tr style="cursor:pointer" onclick="closeModal();openPODetail('${p.id}')">
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${p.numero}</strong></td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${p.fournisseurs?.nom||'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${chantierMap[p.chantier_id]?(chantierMap[p.chantier_id].numero||'')+' — '+chantierMap[p.chantier_id].nom:'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(p.total_ttc)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bPO(p.statut)}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
+      </div>
+
+      <strong style="font-size:13px">Factures fournisseurs liées (${facsFourn.length})</strong>
+      <div style="margin-top:8px;margin-bottom:20px">
+        ${facsFourn.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune facture fournisseur pour les chantiers de ce client</p>' :
+          `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Fournisseur</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
+            <tbody>${facsFourn.map(f=>`<tr style="cursor:pointer" onclick="closeModal();openFacDetail('${f.id}')">
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${f.numero_facture_fournisseur}</strong></td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${f.fournisseurs?.nom||'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${chantierMap[f.chantier_id]?(chantierMap[f.chantier_id].numero||'')+' — '+chantierMap[f.chantier_id].nom:'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(f.montant_ttc)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bFA(f.statut)}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
+      </div>
+
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-primary" onclick="closeModal();editClientById('${client.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -3089,6 +3171,27 @@ async function renderDevis(search=''){
         </table>
       </div>
     </div>`;
+}
+
+function renderDevisLignesReadOnly(arr){
+  if(!arr || arr.length===0) return '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--gray-4)">Aucune ligne</td></tr>';
+  return arr.map((r,i)=>{
+    if(r.type==='section'){
+      const subtotal = devisSectionSubtotal(arr,i);
+      return `<tr style="background:var(--gray-1)">
+        <td colspan="4" style="padding:7px 10px;border-bottom:1px solid var(--gray-3);font-weight:700;text-transform:uppercase;font-size:12.5px">${r.description}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid var(--gray-3);text-align:right;font-weight:700">${fmt(subtotal)}</td>
+      </tr>`;
+    }
+    const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${r.description}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:center;color:var(--gray-5)">${r.unite||''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-5)">${r.quantite}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-5)">${fmt(r.prix_unitaire_ht)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(total)}</td>
+    </tr>`;
+  }).join('');
 }
 
 function devisSectionSubtotal(arr, sectionIdx){
@@ -3335,6 +3438,9 @@ async function openDevisDetail(devisId){
   const {data:d} = await sb.from('devis').select('*,clients(nom,email,telephone),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
   if(!d){ showToast("Devis introuvable", 'error'); return; }
   const {data:anexos} = await sb.from('anexos_devis').select('*').eq('devis_id',devisId).order('created_at',{ascending:false});
+  const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
+  const lignesPrincipal = (lignesData||[]).filter(l=>l.bloc==='principal');
+  const lignesOption = (lignesData||[]).filter(l=>l.bloc==='option');
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -3352,6 +3458,36 @@ async function openDevisDetail(devisId){
         <div class="info-item"><label>Acompte</label><span>${d.conditions_acompte_pct}%</span></div>
         <div class="info-item"><label>Conditions</label><span>${d.conditions_paiement||'—'}</span></div>
       </div>
+
+      <strong style="font-size:13px">Lignes du devis</strong>
+      <div style="overflow-x:auto;margin-top:8px;margin-bottom:16px">
+        <table style="width:100%;border-collapse:collapse;min-width:500px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Désignation</th>
+            <th style="padding:7px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:60px">Uté</th>
+            <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:70px">Qté</th>
+            <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">PV Unitaire</th>
+            <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Prix Total</th>
+          </tr></thead>
+          <tbody>${renderDevisLignesReadOnly(lignesPrincipal)}</tbody>
+        </table>
+      </div>
+
+      ${lignesOption.length>0?`
+      <strong style="font-size:13px">Options (non comprises)</strong>
+      <div style="overflow-x:auto;margin-top:8px;margin-bottom:16px">
+        <table style="width:100%;border-collapse:collapse;min-width:500px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Désignation</th>
+            <th style="padding:7px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:60px">Uté</th>
+            <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:70px">Qté</th>
+            <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">PV Unitaire</th>
+            <th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Prix Total</th>
+          </tr></thead>
+          <tbody>${renderDevisLignesReadOnly(lignesOption)}</tbody>
+        </table>
+      </div>`:''}
+
       <div class="totaux" style="margin-bottom:20px"><div class="totaux-box">
         <div class="totaux-row"><span>Total HT</span><span>${fmt(d.montant_ht)}</span></div>
         <div class="totaux-row"><span>TVA</span><span>${fmt(d.montant_tva)}</span></div>
@@ -3678,6 +3814,8 @@ async function openGenerateFactureVente(chantierId){
     });
   }
 
+  window._devisInfoForFv = devisInfo;
+
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
       <div><h3>Nouvelle facture client</h3><span style="font-size:12px;color:var(--gray-5)">${chantier.nom}${devisInfo?' — depuis devis '+devisInfo.numero:' — sans devis lié'}</span></div>
@@ -3686,7 +3824,7 @@ async function openGenerateFactureVente(chantierId){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Type de facture</label>
-          <select id="fv-type">
+          <select id="fv-type" onchange="toggleFvAcompteMode()">
             <option value="acompte">Acompte</option>
             <option value="situation" selected>Situation de travaux</option>
             <option value="solde">Solde</option>
@@ -3696,6 +3834,18 @@ async function openGenerateFactureVente(chantierId){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
       </div>
+
+      <div id="fv-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+        ${!devisInfo?'<p style="font-size:13px;color:var(--gray-6)">Un devis lié est nécessaire pour calculer un acompte automatiquement. Passez en "Libre" ou "Situation" pour facturer sans devis.</p>':`
+        <div class="form-grid">
+          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct||30}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
+          <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
+        </div>
+        <div style="margin-top:10px;font-size:14px" id="fv-acompte-resultat"></div>
+        `}
+      </div>
+
+      <div id="fv-lignes-section">
       ${!devisInfo?'<div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Ce chantier n\'a pas de devis lié — ajoutez les lignes manuellement.</div>':''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
@@ -3717,6 +3867,7 @@ async function openGenerateFactureVente(chantierId){
         </table>
       </div>
       <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
+      </div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -3725,6 +3876,26 @@ async function openGenerateFactureVente(chantierId){
     </div>
   </div></div>`);
   renderVenteLignes();
+}
+
+function toggleFvAcompteMode(){
+  const isAcompte = el('fv-type').value==='acompte';
+  const acompteBlock = el('fv-acompte-block');
+  const lignesSection = el('fv-lignes-section');
+  if(acompteBlock) acompteBlock.style.display = isAcompte ? 'block' : 'none';
+  if(lignesSection) lignesSection.style.display = isAcompte ? 'none' : 'block';
+  if(isAcompte) updateAcompteMontant();
+}
+
+function updateAcompteMontant(){
+  const devisInfo = window._devisInfoForFv;
+  const resultBox = el('fv-acompte-resultat');
+  if(!devisInfo || !resultBox) return;
+  const pct = parseFloat(el('fv-acompte-pct')?.value)||0;
+  const totalHT = (parseFloat(devisInfo.montant_ht)||0) * pct/100;
+  const tauxTva = devisInfo.montant_ht>0 ? (parseFloat(devisInfo.montant_tva)/parseFloat(devisInfo.montant_ht))*100 : 17;
+  const totalTVA = totalHT * tauxTva/100;
+  resultBox.innerHTML = `<strong>Montant de l'acompte :</strong> ${fmt(totalHT)} HT &nbsp;+&nbsp; ${fmt(totalTVA)} TVA &nbsp;=&nbsp; <strong style="color:var(--blue);font-size:16px">${fmt(totalHT+totalTVA)} TTC</strong>`;
 }
 
 function renderVenteLignes(){
@@ -3753,18 +3924,41 @@ function delVenteLigne(i){ _venteLignes.splice(i,1); renderVenteLignes(); }
 function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
 
 async function saveFactureVente(chantierId, clientId, devisId){
-  if(_venteLignes.length===0 || _venteLignes.some(l=>!l.description)){
-    showToast("Ajoutez au moins une ligne avec description", 'error');
-    const b=el('btn-save-fv'); if(b) b.disabled=false;
-    return;
+  const typeFacture = el('fv-type').value;
+  let lignesAFacturer;
+
+  if(typeFacture==='acompte'){
+    const devisInfo = window._devisInfoForFv;
+    if(!devisInfo){ showToast("Un devis lié est nécessaire pour facturer un acompte", 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
+    const pct = parseFloat(el('fv-acompte-pct')?.value)||0;
+    if(pct<=0){ showToast("Le pourcentage d'acompte doit être supérieur à 0", 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
+    const montantHT = (parseFloat(devisInfo.montant_ht)||0) * pct/100;
+    const tauxTva = devisInfo.montant_ht>0 ? (parseFloat(devisInfo.montant_tva)/parseFloat(devisInfo.montant_ht))*100 : 17;
+    lignesAFacturer = [{
+      ligne_devis_id: null,
+      description: `Acompte ${pct}% — Devis ${devisInfo.numero}`,
+      reference_article: '',
+      unite: 'forfait',
+      quantite: 1,
+      prix_unitaire_ht: montantHT,
+      taux_tva: Math.round(tauxTva)
+    }];
+  } else {
+    if(_venteLignes.length===0 || _venteLignes.some(l=>!l.description)){
+      showToast("Ajoutez au moins une ligne avec description", 'error');
+      const b=el('btn-save-fv'); if(b) b.disabled=false;
+      return;
+    }
+    lignesAFacturer = _venteLignes;
   }
-  const totalHT = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+
+  const totalHT = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   const {data:num} = await sb.rpc('generate_facture_vente_number');
 
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisId||null,
-    type_facture: el('fv-type').value,
+    type_facture: typeFacture,
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
@@ -3773,7 +3967,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
 
-  await sb.from('lignes_facture_vente').insert(_venteLignes.map((l,i)=>({
+  await sb.from('lignes_facture_vente').insert(lignesAFacturer.map((l,i)=>({
     facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: i+1,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite, quantite: parseFloat(l.quantite)||0,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
