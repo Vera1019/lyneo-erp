@@ -4046,6 +4046,10 @@ async function downloadPDF_FactureVente(facId){
     .reglement{background:#EAF6F8;padding:14px 16px;border-radius:6px;font-size:11px;color:#333;margin-bottom:20px;border-left:4px solid #76C8D5}
     .reglement strong{color:#106B9E}
     .footer{color:#888;text-align:center;font-size:10px;border-top:1px solid #eee;padding-top:10px;margin-top:20px}
+    .cgv{page-break-before:always;padding-top:10px}
+    .cgv h3{font-size:16px;color:#106B9E;margin:0 0 16px;text-align:center;letter-spacing:.5px}
+    .cgv h4{font-size:12px;color:#106B9E;margin:14px 0 4px}
+    .cgv p{font-size:10px;line-height:1.5;color:#333;margin:0 0 4px;text-align:justify}
     @media print{body{padding:0}}
   </style></head><body>
   <div class="header">
@@ -4059,20 +4063,23 @@ async function downloadPDF_FactureVente(facId){
   </div>
 
   <div class="two-col">
+    <div class="box"><label>Émetteur</label>
+      <strong>LYNEO s.à.r.l</strong><br>
+      5, Z.A. Gadderscheier<br>
+      L-4570 Niederkorn<br>
+      TVA : LU37560222
+    </div>
     <div class="box"><label>Facturé à</label>
       <strong>${client.nom||'—'}</strong><br>
       ${client.adresse||''}<br>
       ${(client.code_postal||'')+' '+(client.ville||'')}<br>
       ${client.email||''}
     </div>
-    <div class="box"><label>Chantier</label>
-      <strong>${f.chantiers_lyneo?.nom||'—'}</strong><br>
-      ${f.chantiers_lyneo?.numero||''}
-    </div>
   </div>
 
   <div class="ref-row">
     <div><label>Référence</label>${f.devis?.numero||'—'}</div>
+    <div><label>Chantier</label>${f.chantiers_lyneo?.nom||'—'}</div>
     <div><label>Type de facture</label>${f.type_facture||'—'}</div>
     <div><label>Modalité</label>${client.conditions_paiement||'30 jours'}</div>
   </div>
@@ -4104,6 +4111,35 @@ async function downloadPDF_FactureVente(facId){
   </div>
 
   <div class="footer">LYNEO s.à.r.l — 5, Z.A. Gadderscheier, L-4570 Niederkorn &nbsp;|&nbsp; TVA : LU37560222 &nbsp;|&nbsp; Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+
+  <div class="cgv">
+    <h3>CONDITIONS GÉNÉRALES DE VENTE — LYNEO SARL</h3>
+    <h4>Article 1 : Champ d'application</h4>
+    <p>Les présentes conditions générales de vente s'appliquent, sans restriction ni réserve, à l'ensemble des ventes de produits et des prestations de services proposées par la société Lyneo SARL. Toute commande passée auprès de Lyneo SARL emporte acceptation pleine, entière et sans réserve du client aux présentes conditions et renonciation de sa part à ses propres conditions générales d'achat ou tout autre document contradictoire. Lyneo SARL se réserve le droit de modifier ses conditions générales à tout moment ; les modifications donneront lieu à une nouvelle version qui sera applicable aux commandes passées ultérieurement à leur publication.</p>
+    <h4>Article 2 : Offres et Devis</h4>
+    <p>Les offres et devis émis par Lyneo SARL sont valables pour une durée de 2 mois à compter de leur date d'émission. Le contrat est valablement conclu dès réception par Lyneo SARL du devis dûment paraphé sur chaque page et signé par le client, accompagné de la mention manuscrite « Lu et approuvé, bon pour accord », du nom du signataire en texte clair et du cachet commercial de l'entreprise. Lyneo SARL se réserve expressément le droit de réévaluer et d'ajuster son offre tarifaire si l'exécution des travaux est programmée au-delà d'un délai de 6 mois après la validation initiale de la commande.</p>
+    <h4>Article 3 : Prix et Conditions d'Exécution</h4>
+    <p>Les prix des prestations et matériels sont exprimés en euros (€), hors taxes (HT). La TVA applicable est celle en vigueur au Grand-Duché de Luxembourg au moment du fait générateur de la facturation. Les tarifs sont établis selon les conditions économiques actuelles ; Lyneo SARL se réserve la faculté de les réviser sans préavis jusqu'à la conclusion du contrat. Nos prix sont établis pour des travaux exécutés durant les jours ouvrés selon les horaires suivants : de 07h00 à 12h00 et de 12h30 à 15h30. Toute intervention effectuée en dehors de ces plages horaires ou sous contrainte d'horaires restreints fera l'objet d'une majoration au titre d'indemnité compensatrice pour frais supplémentaires. Les prix sont strictement subordonnés à l'exactitude des informations fournies par le client concernant la configuration du site. En cas d'informations manquantes ou erronées, ou de contraintes imprévues subies sur site, les charges complémentaires induites seront facturées au temps réel passé.</p>
+    <h4>Article 4 : Conditions de Paiement</h4>
+    <p>Le règlement des prestations s'effectue au Siège Social de Lyneo SARL selon l'échelonnement suivant : un acompte de 30% TTC du montant total de la commande, payable par virement sous 8 jours nets après acceptation du devis — le démarrage des travaux est conditionné par l'encaissement effectif de cet acompte ; le solde est payable à 30 jours nets à compter de la date d'émission de la facture. Un escompte de 3% est accordé pour tout paiement effectué dans un délai de 5 jours suivant la date de réception de la facture. Conformément à la Loi du 18 avril 2004 relative aux délais de paiement et aux intérêts de retard, tout retard de paiement entraînera de plein droit et sans mise en demeure préalable l'application d'intérêts moratoires au taux prévu par ladite loi pour les transactions commerciales (taux semi-annuel publié par la Banque Centrale du Luxembourg). En sus de ces intérêts, une indemnité forfaitaire de 40 € pour frais de recouvrement sera systématiquement appliquée, conformément aux dispositions légales du Grand-Duché de Luxembourg.</p>
+    <h4>Article 5 : Réserve de propriété</h4>
+    <p>La société Lyneo SARL conserve la propriété exclusive des matériels, fournitures et installations jusqu'au paiement intégral du prix en principal, intérêts et accessoires. Jusqu'au complet règlement, il est interdit au client de transformer, d'incorporer ou de revendre lesdits matériels sans l'accord exprès de Lyneo SARL. Nonobstant cette clause, le client assume les risques de perte ou de détérioration des biens dès la livraison. Cette clause de réserve de propriété est stipulée conformément aux dispositions de la Loi du 31 mars 2000.</p>
+    <h4>Article 6 : Obligations du Client</h4>
+    <p>Le client s'engage à garantir aux techniciens un accès libre, sécurisé et sans délai au chantier durant les heures de travail ; à fournir gratuitement l'alimentation en courant électrique nécessaire via une installation conforme aux normes ; à signaler de manière précise et préalable l'emplacement des conduites, tuyauteries, fils électriques ou téléphoniques encastrés dans les parois ; et à prendre toutes les mesures de protection nécessaires pour les meubles, objets fragiles et revêtements afin d'éviter toute dégradation. Lyneo SARL décline toute responsabilité en cas de dommages dus à l'inobservation de ces mesures par le client.</p>
+    <h4>Article 7 : Installations existantes</h4>
+    <p>La responsabilité de Lyneo SARL ne saurait être engagée pour des dysfonctionnements résultant de la vétusté, de la non-conformité ou de défauts des installations préexistantes du client. Tout travail nécessaire à la mise en conformité de l'existant ou au raccordement à un circuit de terre conforme aux normes fera l'objet d'une facturation complémentaire.</p>
+    <h4>Article 8 : Réception des travaux</h4>
+    <p>La réception intervient dès la fin des prestations ou la mise en service. Le client dispose d'un délai de 8 jours suivant la réception pour formuler, par écrit, toute réclamation concernant des vices apparents ou une non-conformité. Passé ce délai, les travaux sont réputés acceptés sans réserve.</p>
+    <h4>Article 9 : Garantie</h4>
+    <p>Lyneo SARL accorde une garantie contractuelle de 12 mois à compter de la mise en service (pièces et main-d'œuvre). Par exception, les batteries et chargeurs bénéficient d'une garantie limitée à 4 mois. La garantie se limite strictement à la réparation ou au remplacement des éléments défectueux. Sont expressément exclus : les dommages causés par des éléments naturels (foudre, inondations, surtensions) ; les modifications ou réparations effectuées par le client ou un tiers sans accord écrit ; le défaut d'entretien ou une utilisation anormale ; et les contrôles préventifs périodiques, lesquels doivent faire l'objet d'un contrat de maintenance séparé.</p>
+    <h4>Article 10 : Responsabilité</h4>
+    <p>Lyneo SARL est soumise à une obligation de moyens dans l'exécution de ses prestations. Sa responsabilité est strictement limitée au montant hors taxes des travaux concernés par le litige, à l'exclusion de toute indemnisation pour dommages indirects ou immatériels.</p>
+    <h4>Article 11 : Force Majeure</h4>
+    <p>La responsabilité de Lyneo SARL ne pourra être engagée en cas de force majeure telle que reconnue par la jurisprudence luxembourgeoise (catastrophes naturelles, grèves, pénuries de matières premières, etc.). La survenance d'un tel événement suspend de plein droit les délais d'exécution.</p>
+    <h4>Article 12 : Litiges et Juridiction</h4>
+    <p>Les présentes conditions générales sont régies par le droit luxembourgeois. En cas de contestation ou litiges, le Tribunal de Luxembourg est, de convention expresse, seul compétent, nonobstant pluralité de défendeurs ou appel en garantie.</p>
+  </div>
+
   <script>window.onload=()=>{window.print()}<\/script>
   </body></html>`);
   win.document.close();
