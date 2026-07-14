@@ -4112,9 +4112,8 @@ async function downloadPDF_FactureVente(facId){
 
   <div class="section-title">Détail des prestations &amp; fournitures</div>
   <table>
-    <thead><tr><th>Réf. article</th><th>Description</th><th style="text-align:right">Qté</th><th style="text-align:right">P.U. HT</th><th style="text-align:right">Total HT</th></tr></thead>
+    <thead><tr><th>Description</th><th style="text-align:right">Qté</th><th style="text-align:right">P.U. HT</th><th style="text-align:right">Total HT</th></tr></thead>
     <tbody>${(lignes||[]).map(l=>`<tr>
-      <td>${l.reference_article||''}</td>
       <td>${l.description}</td>
       <td style="text-align:right">${l.quantite} ${l.unite||''}</td>
       <td style="text-align:right">${fmt(l.prix_unitaire_ht)}</td>
