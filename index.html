@@ -1336,6 +1336,7 @@ async function openChantierModal(r=null){
           ${clients.length===0?'<span style="font-size:11px;color:var(--gray-5)">Aucun client enregistré — <a href="#" onclick="closeModal();navigate(\'clients\');return false" style="color:var(--blue)">créer un client</a></span>':''}
         </div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
+        <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
           <option value="actif" ${r?.statut==='actif'?'selected':''}>Actif</option>
@@ -1361,7 +1362,7 @@ async function saveChantier(id){
   if(!nom||!clientId){ showToast("Nom et client obligatoires",'error'); return; }
   const {data:clientRow} = await sb.from('clients').select('nom').eq('id',clientId).single();
   const cpModal = el('ch-code-pt-modal');
-  const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
     showToast('Chantier mis à jour');
@@ -4011,7 +4012,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
 }
 
 async function downloadPDF_FactureVente(facId){
-  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero),devis(numero)').eq('id',facId).single();
+  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
   if(!f){ showToast("Facture introuvable", 'error'); return; }
   const {data:lignes} = await sb.from('lignes_facture_vente').select('*').eq('facture_vente_id',facId).order('ordre');
 
@@ -4053,7 +4054,7 @@ async function downloadPDF_FactureVente(facId){
     @media print{body{padding:0}}
   </style></head><body>
   <div class="header">
-    <div><img src="data:image/png;base64,${LYNEO_LOGO_B64}" alt="LYNEO"/><p>Électricité — Luxembourg</p></div>
+    <div><img src="data:image/png;base64,${LYNEO_LOGO_B64}" alt="LYNEO"/></div>
     <div class="header-right">
       <h2>FACTURE</h2>
       <p>N° Facture : <strong>${f.numero}</strong></p>
@@ -4079,7 +4080,7 @@ async function downloadPDF_FactureVente(facId){
 
   <div class="ref-row">
     <div><label>Référence</label>${f.devis?.numero||'—'}</div>
-    <div><label>Chantier</label>${f.chantiers_lyneo?.nom||'—'}</div>
+    <div><label>Lieu d'intervention</label>${f.chantiers_lyneo?.site_intervention || f.chantiers_lyneo?.adresse || f.chantiers_lyneo?.nom || '—'}</div>
     <div><label>Type de facture</label>${f.type_facture||'—'}</div>
     <div><label>Modalité</label>${client.conditions_paiement||'30 jours'}</div>
   </div>
