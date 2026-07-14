@@ -962,16 +962,19 @@ async function openChantierDetail(chantierId, tab){
   const totalCmds = pos.reduce((a,p)=>a+(p.total_ttc||0),0);
 
   // Load factures fournisseur and vente for this chantier
-  const [facsFournR, facsVenteR] = await Promise.all([
+  const [facsFournR, facsVenteR, devisR] = await Promise.all([
     sb.from('factures').select('*').eq('chantier_id', chantierId).order('created_at',{ascending:false}),
-    Promise.resolve(sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})).catch(()=>({data:[]}))
+    Promise.resolve(sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})).catch(()=>({data:[]})),
+    sb.from('devis').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
   ]);
   const facsFourn = facsFournR.data||[];
   const facsVente = facsVenteR.data||[];
+  const devisChantier = devisR.data||[];
 
   const tabs = [
     {id:'info', label:'Informations', icon:'ti-info-circle'},
-    {id:'commandes', label:'Commandes ('+pos.length+')', icon:'ti-shopping-cart'},
+    {id:'devis', label:'Devis ('+devisChantier.length+')', icon:'ti-file-description'},
+    {id:'commandes', label:'Commandes fournisseur ('+pos.length+')', icon:'ti-shopping-cart'},
     {id:'fac_fourn', label:'Fact. fourn. ('+facsFourn.length+')', icon:'ti-file-invoice'},
     {id:'fac_vente', label:'Fact. clients ('+facsVente.length+')', icon:'ti-receipt'},
     {id:'heures', label:'Heures', icon:'ti-clock'},
@@ -1116,7 +1119,27 @@ async function openChantierDetail(chantierId, tab){
       + '<div style="padding:12px 0;font-size:13px;color:var(--gray-6);text-align:right"><strong>Total TTC facturé : </strong>'
       + fmt(facsVente.reduce((a,f)=>a+(f.total_ttc||0),0))+'</div>');
 
-  const tabContent = {info:tabInfo, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
+  const tabDevis = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();openDevisModal({chantier_id:'${chantierId}',client_id:'${chantier.client_id||''}'})"><i class="ti ti-plus"></i> Nouveau devis</button></div>`
+    + (devisChantier.length===0
+      ? '<div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>Aucun devis pour ce chantier</p></div>'
+      : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+        + '<thead><tr style="background:var(--gray-1)">'
+        + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N°</th>'
+        + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Objet</th>'
+        + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
+        + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Montant TTC</th>'
+        + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Statut</th>'
+        + '</tr></thead><tbody>'
+        + devisChantier.map(d=>'<tr style="cursor:pointer" onclick="closeModal();openDevisDetail(\''+d.id+'\')">'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+d.numero+'</strong></td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(d.objet||'—')+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(d.date_devis)+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(d.montant_ttc)+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bDV(d.statut)+'</td>'
+            +'</tr>').join('')
+        + '</tbody></table></div>');
+
+  const tabContent = {info:tabInfo, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -3695,6 +3718,7 @@ async function openNewFactureVenteLibre(){
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
+        <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" placeholder="N° de commande client, ou autre référence..."/></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
@@ -3774,6 +3798,7 @@ async function saveFactureVenteLibre(){
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: chantierId, devis_id: null,
     type_facture: el('fv-type').value,
+    reference_client: el('fv-reference').value,
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
@@ -3865,6 +3890,7 @@ async function openGenerateFactureVente(chantierId){
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
+        <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${devisInfo?devisInfo.numero:''}" placeholder="N° de commande client, ou autre référence..."/></div>
       </div>
 
       <div id="fv-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px">
@@ -3992,6 +4018,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisId||null,
     type_facture: typeFacture,
+    reference_client: el('fv-reference').value,
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
@@ -4079,7 +4106,6 @@ async function downloadPDF_FactureVente(facId){
   </div>
 
   <div class="ref-row">
-    <div><label>Référence</label>${f.devis?.numero||'—'}</div>
     <div><label>Lieu d'intervention</label>${f.chantiers_lyneo?.site_intervention || f.chantiers_lyneo?.adresse || f.chantiers_lyneo?.nom || '—'}</div>
     <div><label>Type de facture</label>${f.type_facture||'—'}</div>
     <div><label>Modalité</label>${client.conditions_paiement||'30 jours'}</div>
@@ -4159,6 +4185,7 @@ async function openFactureVenteDetail(facId){
     <div class="modal-body">
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Type</label><span>${f.type_facture}</span></div>
+        <div class="info-item"><label>Référence</label><span>${f.reference_client||'—'}</span></div>
         <div class="info-item"><label>Date</label><span>${fmtDate(f.date_creation)}</span></div>
         <div class="info-item"><label>Échéance</label><span>${fmtDate(f.date_echeance)}</span></div>
         <div class="info-item"><label>Statut</label><span>${bFV(f.statut)}</span></div>
