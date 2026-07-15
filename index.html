@@ -3112,8 +3112,8 @@ function detectDevisColumns(rows){
           const s = c?String(c).trim().toLowerCase().replace(/\s|\n/g,''):'';
           if(/^ut[ée]$/.test(s)) uteCol=idx;
           else if(/^qt[ée]$/.test(s)) qteCol=idx;
-          else if(/^total$|prixtotal/.test(s)) totalCol=idx;
-          else if(/^pv|prixunitaire|p\.?u\.?/.test(s)) puCol=idx;
+          else if(/total/.test(s)) totalCol=idx;
+          else if(/^pv$|unitaire|p\.?u\.?/.test(s)) puCol=idx;
         });
         return {headerRowIdx:i, descCol:j, uteCol, qteCol, puCol, totalCol};
       }
