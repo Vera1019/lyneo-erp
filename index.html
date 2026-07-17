@@ -173,6 +173,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .badge-validee{background:#D1FAE5;color:#065F46}
 .badge-litige{background:#FEE2E2;color:#991B1B}
 .badge-avoir{background:#EDE9FE;color:#5B21B6}
+.badge-nouvelle{background:#FEF3C7;color:#92400E}
+.badge-attribuee{background:#FFEDD5;color:#9A3412}
+.badge-encours{background:#DBEAFE;color:#1D4ED8}
+.badge-terminee{background:#D1FAE5;color:#065F46}
 .badge-oui{background:#D1FAE5;color:#065F46}
 .badge-non{background:#FEE2E2;color:#991B1B}
 .badge-payee_partiel{background:#FEF3C7;color:#92400E}
@@ -501,6 +505,7 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="nav-section">Référentiels</div>
       <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
       <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
+      <div class="nav-item" onclick="navigate('interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions (SAV)</div>
 
       <div id="nav-admin-section" class="hidden">
         <div class="nav-section">Administration</div>
@@ -584,6 +589,9 @@ function bCH(s){ return `<span class="badge badge-${s}">${STATUT_CH[s]||s}</span
 const STATUT_DV = {brouillon:'Brouillon', envoye:'Envoyé', accepte:'Accepté', refuse:'Refusé', expire:'Expiré'};
 function bDV(s){ return `<span class="badge badge-${s}">${STATUT_DV[s]||s}</span>`; }
 function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
+const STATUT_SAV = {nouvelle:'Nouvelle', attribuee:'Attribuée', encours:'En cours', terminee:'Terminée — à facturer', facturee:'Facturée'};
+function bSAV(s){ return `<span class="badge badge-${s}">${STATUT_SAV[s]||s}</span>`; }
+const ARTICLES_SAV = ["Main d'œuvre","Frais de déplacement","Matériel","Astreinte","Sous-traitance","Divers"];
 
 function showToast(msg, type='success') {
   const t = document.createElement('div');
@@ -666,7 +674,7 @@ function initApp(){
 }
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',interventions_sav:'Interventions (SAV)'};
 
 function navigate(page){
   currentPage = page;
@@ -674,7 +682,7 @@ function navigate(page){
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
   el('topbar-title').textContent = PAGE_TITLES[page]||'';
-  const pages = {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH};
+  const pages = {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,interventions_sav:renderInterventionsSAV};
   if(pages[page]) pages[page]();
 }
 
@@ -4683,6 +4691,456 @@ async function deleteEmploye(employeId){
   showToast('Employé supprimé');
   closeModal();
   renderEmployesRH();
+}
+
+// ── INTERVENTIONS (SAV) ───────────────────────────────────────
+let _interventionsSAV = [];
+let _sav_venteLignes = [];
+
+async function renderInterventionsSAV(search='', filterStatut='encours'){
+  const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
+  _interventionsSAV = data||[];
+
+  let items = _interventionsSAV;
+  if(filterStatut==='astreinte') items = items.filter(i=>i.astreinte);
+  else if(filterStatut==='encours') items = items.filter(i=>i.statut!=='facturee');
+  else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
+  if(search){
+    const q = search.toLowerCase();
+    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')).toLowerCase().includes(q));
+  }
+
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Suivi des interventions et facturation</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
+        <button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      ${[['encours','Actives'],['astreinte','Astreintes'],['toutes','Toutes']].map(([k,label])=>
+        `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV('${search}','${k}')">${label}</button>`
+      ).join('')}
+    </div>
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table>
+          <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${items.length===0 ? '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
+            items.map(i=>`<tr style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
+              <td><strong class="text-blue">${i.ref}</strong></td>
+              <td>${i.clients?.nom||'—'}</td>
+              <td>${i.nom_site?'<strong>'+i.nom_site+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ (i.adresse_site||'') +'</span>':(i.adresse_site||'—')}</td>
+              <td>${i.employes_rh?(i.employes_rh.prenom||'')+' '+(i.employes_rh.nom||''):(i.technicien_nom||'—')}</td>
+              <td>${bSAV(i.statut)}</td>
+              <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
+              <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button></div></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function openInterventionModal(r=null){
+  const isEdit = !!r;
+  const [{data:clientsData},{data:employesData}] = await Promise.all([
+    sb.from('clients').select('id,nom,email,telephone,adresse').eq('actif',true).order('nom'),
+    sb.from('employes_rh').select('id,nom,prenom,email').eq('actif',true).order('nom')
+  ]);
+  const clientsList = clientsData||[];
+  const employesList = employesData||[];
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>${isEdit?'Modifier — '+r.ref:'Nouvelle intervention'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Client *</label>
+          <select id="int-client" onchange="prefillClientIntervention()">
+            <option value="">— Sélectionner —</option>
+            ${clientsList.map(c=>`<option value="${c.id}" data-email="${c.email||''}" data-tel="${c.telephone||''}" data-adresse="${(c.adresse||'').replace(/"/g,'&quot;')}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Date / heure prévue</label><input type="datetime-local" id="int-date" value="${r?.date_intervention?r.date_intervention.slice(0,16):''}"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="int-tel" value="${r?.telephone||''}"/></div>
+        <div class="form-group"><label class="field-label">Email</label><input id="int-email" value="${r?.email||''}"/></div>
+        <div class="form-group full"><label class="field-label">Adresse du client (siège)</label><input id="int-adresse-client" value="${r?.adresse_client||''}"/></div>
+        <div class="form-group"><label class="field-label">Nom du site d'intervention</label><input id="int-nom-site" value="${r?.nom_site||''}" placeholder="Ex: Entrepôt, Magasin Belval..."/></div>
+        <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${r?.adresse_site||''}"/></div>
+      </div>
+
+      <div class="form-group full" style="margin-bottom:16px"><label class="field-label">Description du problème</label><textarea id="int-description" placeholder="Panne signalée, symptômes, équipement concerné...">${r?.description||''}</textarea></div>
+
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Technicien (employé)</label>
+          <select id="int-technicien-id" onchange="prefillTechnicienIntervention()">
+            <option value="">— Aucun / non listé —</option>
+            ${employesList.map(e=>`<option value="${e.id}" data-email="${e.email||''}" ${r?.technicien_id===e.id?'selected':''}>${e.prenom||''} ${e.nom}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="field-label">Nom technicien (si non listé)</label><input id="int-technicien-nom" value="${r?.technicien_nom||''}"/></div>
+        <div class="form-group"><label class="field-label">Email technicien</label><input id="int-email-technicien" value="${r?.email_technicien||''}"/></div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:12px;${r?.astreinte?'background:#FEF2F2;border-color:var(--red)':''}">
+        <input type="checkbox" id="int-astreinte" ${r?.astreinte?'checked':''} style="width:18px;height:18px"/>
+        <div><strong style="font-size:13px">Astreinte</strong><div style="font-size:12px;color:var(--gray-5)">Intervention urgente hors horaires — un supplément sera pré-rempli à la facturation.</div></div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:16px">
+        <input type="checkbox" id="int-offre-requise" ${r?.offre_requise?'checked':''} onchange="el('int-offre-statut-wrap').style.display=this.checked?'block':'none'" style="width:18px;height:18px"/>
+        <div><strong style="font-size:13px">Suivi d'une offre / devis</strong><div style="font-size:12px;color:var(--gray-5)">À activer si un montant doit être validé par le client avant de poursuivre.</div></div>
+      </div>
+      <div id="int-offre-statut-wrap" style="display:${r?.offre_requise?'block':'none'};margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Statut de l'offre</label>
+          <select id="int-offre-statut">
+            <option value="en_attente" ${r?.offre_statut==='en_attente'?'selected':''}>En attente d'envoi</option>
+            <option value="envoyee" ${r?.offre_statut==='envoyee'?'selected':''}>Envoyée au client</option>
+            <option value="acceptee" ${r?.offre_statut==='acceptee'?'selected':''}>Acceptée</option>
+            <option value="refusee" ${r?.offre_statut==='refusee'?'selected':''}>Refusée</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="btn-save-int" onclick="this.disabled=true;saveIntervention('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+
+function prefillClientIntervention(){
+  const sel = el('int-client');
+  const opt = sel.options[sel.selectedIndex];
+  if(!opt || !opt.value) return;
+  if(!el('int-email').value) el('int-email').value = opt.dataset.email||'';
+  if(!el('int-tel').value) el('int-tel').value = opt.dataset.tel||'';
+  if(!el('int-adresse-client').value) el('int-adresse-client').value = opt.dataset.adresse||'';
+}
+function prefillTechnicienIntervention(){
+  const sel = el('int-technicien-id');
+  const opt = sel.options[sel.selectedIndex];
+  if(opt && opt.value) el('int-email-technicien').value = opt.dataset.email||'';
+}
+
+async function saveIntervention(id){
+  const clientId = el('int-client').value;
+  if(!clientId){ showToast("Client obligatoire", 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+
+  const data = {
+    client_id: clientId,
+    telephone: el('int-tel').value,
+    email: el('int-email').value,
+    adresse_client: el('int-adresse-client').value,
+    nom_site: el('int-nom-site').value,
+    adresse_site: el('int-adresse-site').value,
+    description: el('int-description').value,
+    date_intervention: el('int-date').value||null,
+    technicien_id: el('int-technicien-id').value||null,
+    technicien_nom: el('int-technicien-nom').value,
+    email_technicien: el('int-email-technicien').value,
+    astreinte: el('int-astreinte').checked,
+    offre_requise: el('int-offre-requise').checked,
+    offre_statut: el('int-offre-statut')?.value||'en_attente'
+  };
+
+  if(id){
+    const {error} = await sb.from('interventions_sav').update(data).eq('id',id);
+    if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+    showToast('Intervention mise à jour');
+  } else {
+    const {data:ref} = await sb.rpc('generate_intervention_number');
+    const numero = parseInt((ref.match(/\d+$/)||['0'])[0]);
+    const {error} = await sb.from('interventions_sav').insert({...data, ref, numero, statut:'nouvelle', cree_par:currentUser.id});
+    if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+
+    // Tentative de création automatique du code dans le système de pointages,
+    // pour que le technicien puisse le sélectionner immédiatement.
+    let codePointagesOk = false;
+    try{
+      const clientSel = el('int-client');
+      const clientNom = clientSel.options[clientSel.selectedIndex]?.text || '';
+      const {error: ptErr} = await sbPT.from('chantiers').insert({code: ref, nom: `${ref} — ${clientNom}`});
+      if(!ptErr) codePointagesOk = true;
+    }catch(e){ /* système de pointages indisponible pour le moment */ }
+
+    showToast('Intervention créée — '+ref + (codePointagesOk ? ' (code déjà disponible pour le pointage)' : ' — pensez à créer aussi le code dans le système de pointages'));
+  }
+  closeModal();
+  renderInterventionsSAV();
+}
+
+async function changerStatutIntervention(id, statut){
+  const {error} = await sb.from('interventions_sav').update({statut}).eq('id',id);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  showToast('Statut : '+STATUT_SAV[statut]);
+  openInterventionDetail(id);
+}
+
+async function emailClientIntervention(interventionId){
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom)').eq('id',interventionId).single();
+  if(!i){ showToast("Intervention introuvable", 'error'); return; }
+  if(!i.email){ showToast("Aucun email enregistré pour ce client", 'error'); return; }
+  const sujet = `${i.clients?.nom||''} - Prise en compte de votre demande d'intervention n° ${i.ref}`;
+  const corps = `Bonjour,\n\nVotre demande d'intervention n° ${i.ref} a bien été prise en compte.\nAdresse concernée : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}\n${i.date_intervention?'Date prévue : '+new Date(i.date_intervention).toLocaleString('fr-FR')+'\n':''}\nMerci pour votre confiance.`;
+  window.location.href = `mailto:${i.email}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+  await sb.from('interventions_sav').update({notif_client:true}).eq('id',i.id);
+  openInterventionDetail(i.id);
+}
+async function emailTechnicienIntervention(interventionId){
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').eq('id',interventionId).single();
+  if(!i){ showToast("Intervention introuvable", 'error'); return; }
+  const emailTech = i.email_technicien;
+  if(!emailTech){ showToast("Aucun email enregistré pour le technicien", 'error'); return; }
+  const sujet = `${i.astreinte?'[ASTREINTE] ':''}Nouvelle intervention à planifier - n° ${i.ref}`;
+  const technom = i.employes_rh ? (i.employes_rh.prenom+' '+i.employes_rh.nom) : (i.technicien_nom||'');
+  const corps = `Bonjour ${technom},\n\nUne intervention vous a été attribuée :\n\nClient : ${i.clients?.nom||''}\nTéléphone : ${i.telephone||'non renseigné'}\nAdresse : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}\nDate prévue : ${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'à confirmer'}\n${i.astreinte?'\n⚠ Intervention en astreinte - traitement prioritaire requis.\n':''}\nDescription :\n${i.description||'non renseignée'}`;
+  window.location.href = `mailto:${emailTech}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+  await sb.from('interventions_sav').update({notif_technicien:true, statut: 'attribuee'}).eq('id',i.id);
+  openInterventionDetail(i.id);
+}
+
+async function addRemarqueIntervention(interventionId){
+  const input = el('int-remarque-input');
+  if(!input.value.trim()) return;
+  await sb.from('remarques_intervention').insert({intervention_id:interventionId, texte:input.value.trim(), cree_par:currentUser.id});
+  openInterventionDetail(interventionId);
+}
+
+async function uploadAnexoIntervention(files, interventionId, categorie){
+  if(!files||files.length===0) return;
+  let successCount = 0;
+  for(const file of files){
+    if(file.size > 10*1024*1024){ showToast(`${file.name} dépasse 10MB — ignoré`,'error'); continue; }
+    const path = `interventions/${interventionId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+    const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(upErr){ showToast('Erreur upload: '+upErr.message,'error'); continue; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    const {error:insErr} = await sb.from('anexos_intervention').insert({intervention_id:interventionId, categorie, nome_ficheiro:file.name, url:urlData.publicUrl, tamanho:file.size, tipo:file.type, carregado_por:currentUser.id});
+    if(!insErr) successCount++;
+  }
+  if(successCount>0) showToast(successCount>1?`${successCount} fichier(s) ajouté(s)`:'Fichier ajouté');
+  openInterventionDetail(interventionId);
+}
+async function deleteAnexoIntervention(id, interventionId){
+  if(!confirm('Supprimer ce fichier ?')) return;
+  await sb.from('anexos_intervention').delete().eq('id',id);
+  openInterventionDetail(interventionId);
+}
+
+async function deleteIntervention(id){
+  if(!confirm("Supprimer définitivement cette intervention ? Cette action est irréversible.")) return;
+  const {error} = await sb.from('interventions_sav').delete().eq('id',id);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  showToast('Intervention supprimée');
+  closeModal();
+  renderInterventionsSAV();
+}
+
+async function openInterventionDetail(interventionId){
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,email,telephone),employes_rh(nom,prenom,email)').eq('id',interventionId).single();
+  if(!i){ showToast("Intervention introuvable", 'error'); return; }
+  const [{data:remarques},{data:anexos},{data:facturesLiees}] = await Promise.all([
+    sb.from('remarques_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
+    sb.from('anexos_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
+    sb.from('factures_vente').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false})
+  ]);
+  const photos = (anexos||[]).filter(a=>a.categorie==='photo');
+  const documents = (anexos||[]).filter(a=>a.categorie!=='photo');
+  const technicienLabel = i.employes_rh ? (i.employes_rh.prenom||'')+' '+i.employes_rh.nom : (i.technicien_nom||'—');
+  const statusOrder = ['nouvelle','attribuee','encours','terminee','facturee'];
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3>${i.ref}</h3><span style="font-size:12px;color:var(--gray-5)">${i.clients?.nom||''} ${i.astreinte?' — ⚡ Astreinte':''}</span></div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+        ${statusOrder.map(s=>`<button class="btn btn-sm ${i.statut===s?'btn-primary':'btn-secondary'}" onclick="changerStatutIntervention('${i.id}','${s}')">${STATUT_SAV[s]}</button>`).join('')}
+      </div>
+
+      <div class="info-grid" style="margin-bottom:20px">
+        <div class="info-item"><label>Client</label><span>${i.clients?.nom||'—'}</span></div>
+        <div class="info-item"><label>Téléphone / Email</label><span>${i.telephone||'—'} ${i.email?' · '+i.email:''}</span></div>
+        <div class="info-item"><label>Site d'intervention</label><span>${i.nom_site?i.nom_site+' — ':''}${i.adresse_site||'—'}</span></div>
+        <div class="info-item"><label>Date prévue</label><span>${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'—'}</span></div>
+        <div class="info-item"><label>Technicien</label><span>${technicienLabel}</span></div>
+        <div class="info-item"><label>Notifications</label><span>${i.notif_client?'✓ Client notifié':'○ Client non notifié'} · ${i.notif_technicien?'✓ Technicien notifié':'○ Technicien non notifié'}</span></div>
+      </div>
+      ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${i.description}</p></div>`:''}
+
+      <div class="form-actions" style="margin-bottom:20px">
+        <button class="btn btn-ghost" onclick="closeModal();openInterventionModal(_interventionsSAV.find(x=>x.id==='${i.id}'))"><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-secondary" onclick="emailClientIntervention('${i.id}')"><i class="ti ti-mail"></i> Email client</button>
+        <button class="btn btn-secondary" onclick="emailTechnicienIntervention('${i.id}')"><i class="ti ti-mail"></i> Email technicien</button>
+        <button class="btn btn-danger" onclick="deleteIntervention('${i.id}')"><i class="ti ti-trash"></i> Supprimer</button>
+      </div>
+
+      <strong style="font-size:13px">Photos</strong>
+      <div style="margin-top:8px;border:2px dashed var(--gray-3);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('int-photo-input').click()">
+        <i class="ti ti-camera" style="font-size:22px;color:var(--gray-4)"></i>
+        <p style="font-size:12px;color:var(--gray-5);margin-top:4px">Cliquez pour ajouter des photos</p>
+        <input type="file" id="int-photo-input" accept="image/*" multiple style="display:none" onchange="uploadAnexoIntervention(this.files,'${interventionId}','photo')"/>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 20px">
+        ${photos.map(p=>`<div style="position:relative;width:80px;height:80px;border-radius:6px;overflow:hidden;border:1px solid var(--gray-3)">
+          <img src="${p.url}" style="width:100%;height:100%;object-fit:cover"/>
+          <div onclick="deleteAnexoIntervention('${p.id}','${interventionId}')" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px">✕</div>
+        </div>`).join('')||'<p style="font-size:13px;color:var(--gray-4)">Aucune photo</p>'}
+      </div>
+
+      <strong style="font-size:13px">Documents</strong>
+      <div style="margin-top:8px;border:2px dashed var(--gray-3);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('int-doc-input').click()">
+        <i class="ti ti-upload" style="font-size:22px;color:var(--gray-4)"></i>
+        <p style="font-size:12px;color:var(--gray-5);margin-top:4px">Cliquez pour joindre des documents (PDF, devis, rapport...)</p>
+        <input type="file" id="int-doc-input" multiple style="display:none" onchange="uploadAnexoIntervention(this.files,'${interventionId}','document')"/>
+      </div>
+      <div style="margin:10px 0 20px">
+        ${documents.map(d=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+          <span style="font-size:13px"><i class="ti ti-file"></i> ${d.nome_ficheiro}</span>
+          <div style="display:flex;gap:6px">
+            <a href="${d.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i></a>
+            <button class="btn btn-danger btn-sm" onclick="deleteAnexoIntervention('${d.id}','${interventionId}')"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>`).join('')||'<p style="font-size:13px;color:var(--gray-4)">Aucun document</p>'}
+      </div>
+
+      <strong style="font-size:13px">Remarques</strong>
+      <div style="margin-top:8px;margin-bottom:8px">
+        ${(remarques||[]).map(r=>`<div style="background:var(--gray-1);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px;font-size:12.5px">${r.texte}<div style="color:var(--gray-5);font-size:10.5px;margin-top:3px">${new Date(r.created_at).toLocaleString('fr-FR')}</div></div>`).join('')||'<p style="font-size:13px;color:var(--gray-4)">Aucune remarque</p>'}
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:20px">
+        <input id="int-remarque-input" placeholder="Ajouter une remarque..." style="flex:1;padding:8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px" onkeydown="if(event.key==='Enter')addRemarqueIntervention('${interventionId}')"/>
+        <button class="btn btn-secondary" onclick="addRemarqueIntervention('${interventionId}')">Ajouter</button>
+      </div>
+
+      <strong style="font-size:13px">Facturation</strong>
+      <div style="margin-top:8px">
+        ${(facturesLiees||[]).length===0?'<p style="font-size:13px;color:var(--gray-4)">Aucune facture créée pour cette intervention</p>':
+          facturesLiees.map(f=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--gray-2);font-size:13px">
+            <strong class="text-blue" style="cursor:pointer" onclick="closeModal();openFactureVenteDetail('${f.id}')">${f.numero}</strong>
+            <span>${bFV(f.statut)}</span>
+            <span style="font-weight:700">${fmt(f.total_ttc)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+        <button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionId}')"><i class="ti ti-plus"></i> Créer une facture pour cette intervention</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+
+// ── FACTURATION SAV (réutilise factures_vente) ────────────────
+async function openFactureSAVModal(interventionId){
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,tarifs_sav)').eq('id',interventionId).single();
+  if(!i){ showToast("Intervention introuvable", 'error'); return; }
+  const tarifs = i.clients?.tarifs_sav || {};
+
+  _sav_venteLignes = [];
+  if(i.astreinte){
+    _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:17});
+  }
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>Facturer l'intervention ${i.ref}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
+        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance"/></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <strong style="font-size:13px">Lignes à facturer</strong>
+        <button class="btn btn-secondary btn-sm" onclick="addSavLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+      </div>
+      <div style="overflow-x:auto;max-width:100%">
+        <table style="width:100%;border-collapse:collapse;min-width:600px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:140px">Catégorie</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:70px">Qté</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
+            <th style="width:34px"></th>
+          </tr></thead>
+          <tbody id="sav-lignes-body"></tbody>
+        </table>
+      </div>
+      <div class="totaux"><div class="totaux-box" id="sav-totaux"></div></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="btn-save-sav" onclick="this.disabled=true;saveFactureSAV('${interventionId}','${i.client_id}')"><i class="ti ti-check"></i> Créer la facture</button>
+      </div>
+    </div>
+  </div></div>`);
+  renderSavLignes(tarifs);
+}
+
+function renderSavLignes(tarifs){
+  tarifs = tarifs||{};
+  const body = el('sav-lignes-body');
+  if(!body) return;
+  body.innerHTML = _sav_venteLignes.map((l,idx)=>`<tr>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updSavLigne(${idx},'categorie',this.value,true)">${ARTICLES_SAV.map(a=>`<option ${l.categorie===a?'selected':''}>${a}</option>`).join('')}</select></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="number" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delSavLigne(${idx})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
+  </tr>`).join('');
+  const totalHT = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const box = el('sav-totaux');
+  if(box) box.innerHTML = `
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+}
+function addSavLigne(){ _sav_venteLignes.push({categorie:ARTICLES_SAV[0],description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderSavLignes(); }
+function delSavLigne(i){ _sav_venteLignes.splice(i,1); renderSavLignes(); }
+async function updSavLigne(idx,field,value,isTarif){
+  _sav_venteLignes[idx][field]=value;
+  if(isTarif && field==='categorie'){
+    // Recharge le tarif client pour cette catégorie si disponible (le formulaire ne le sait pas ici, donc pas de préremplissage automatique au changement)
+  }
+  renderSavLignes();
+}
+
+async function saveFactureSAV(interventionId, clientId){
+  if(_sav_venteLignes.length===0 || _sav_venteLignes.some(l=>!l.description)){
+    showToast("Ajoutez au moins une ligne avec description", 'error');
+    const b=el('btn-save-sav'); if(b) b.disabled=false;
+    return;
+  }
+  const totalHT = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const {data:num} = await sb.rpc('generate_facture_vente_number');
+
+  const {data:fac, error} = await sb.from('factures_vente').insert({
+    numero: num, client_id: clientId, chantier_id: null, devis_id: null, intervention_id: interventionId,
+    type_facture: 'sav',
+    date_creation: el('fv-date').value,
+    date_echeance: el('fv-echeance').value||null,
+    total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
+    statut: 'brouillon', cree_par: currentUser.id
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return; }
+
+  await sb.from('lignes_facture_vente').insert(_sav_venteLignes.map((l,idx)=>({
+    facture_vente_id: fac.id, ordre: idx+1, categorie: l.categorie,
+    description: l.description, reference_article: l.reference_article||'', unite: l.unite,
+    quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
+  })));
+
+  await sb.from('interventions_sav').update({statut:'facturee'}).eq('id',interventionId);
+
+  showToast('Facture créée — '+num);
+  closeModal();
+  openInterventionDetail(interventionId);
 }
 
 async function renderUtilisateurs(){
