@@ -507,6 +507,7 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
       <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
       <div class="nav-item" onclick="navigate('interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions (SAV)</div>
+      <div class="nav-item" onclick="window.open('https://lyneo-pointages.pages.dev','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
 
       <div id="nav-admin-section" class="hidden">
         <div class="nav-section">Administration</div>
@@ -1507,6 +1508,19 @@ async function saveCodePointages(chantierId){
   if(code) loadHeuresChantier({id:chantierId, code_pointages:code});
 }
 
+let _heuresWeekOffset = 0;
+let _heuresChantierCache = null;
+
+function getMonday(offsetWeeks){
+  const d = new Date();
+  d.setDate(d.getDate() + offsetWeeks*7);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day===0?-6:1); // recule jusqu'au lundi
+  const monday = new Date(d.setDate(diff));
+  monday.setHours(0,0,0,0);
+  return monday;
+}
+
 async function loadHeuresChantier(chantier){
   const container = el('heures-content');
   if(!container) return;
@@ -1536,92 +1550,93 @@ async function loadHeuresChantier(chantier){
     return;
   }
 
-  // Récupérer les picages pour ce chantier
+  _heuresChantierCache = {chantier, ptChantier};
+  _heuresWeekOffset = 0;
+  await renderHeuresSemaine();
+}
+
+async function changerSemaineHeures(delta){
+  _heuresWeekOffset += delta;
+  await renderHeuresSemaine();
+}
+
+async function renderHeuresSemaine(){
+  const container = el('heures-content');
+  if(!container || !_heuresChantierCache) return;
+  const {ptChantier} = _heuresChantierCache;
+
+  const monday = getMonday(_heuresWeekOffset);
+  const days = Array.from({length:7}, (_,i)=>{ const d = new Date(monday); d.setDate(d.getDate()+i); return d; });
+  const sunday = days[6];
+  const isoDay = d => d.toISOString().slice(0,10);
+
   const {data:picages} = await sbPT.from('picages')
     .select('*,employes(nom)')
     .eq('chantier_id', ptChantier.id)
-    .order('date', {ascending:false});
-
+    .gte('date', isoDay(monday))
+    .lte('date', isoDay(sunday))
+    .order('date',{ascending:true});
   const pics = picages||[];
-  if(pics.length===0){
-    container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
-      <i class="ti ti-clock" style="font-size:36px;display:block;margin-bottom:12px"></i>
-      <p>Aucune heure enregistrée pour ce chantier.</p>
-    </div>`;
-    return;
-  }
 
-  // Calculer totaux par employé
+  // Grille employé x jour
   const parEmploye = {};
   pics.forEach(p=>{
     const nom = p.employes?.nom || 'Inconnu';
-    if(!parEmploye[nom]) parEmploye[nom] = {heures:0, jours:new Set()};
-    parEmploye[nom].heures += parseFloat(p.heures)||0;
-    parEmploye[nom].jours.add(p.date);
+    if(!parEmploye[nom]) parEmploye[nom] = {};
+    parEmploye[nom][p.date] = (parEmploye[nom][p.date]||0) + (parseFloat(p.heures)||0);
   });
-
-  const totalHeures = pics.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
-  const totalJours = new Set(pics.map(p=>p.date)).size;
-
-  // Dernières 10 entrées
-  const dernieres = pics.slice(0,10);
+  const employes = Object.keys(parEmploye).sort();
+  const totalSemaine = pics.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+  const dayNames = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  const semaineLabel = `${monday.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})} — ${sunday.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})}`;
 
   container.innerHTML = `
-    <!-- STATS HEURES -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-      <div style="background:var(--blue-light);border-radius:var(--radius);padding:16px;text-align:center">
-        <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;margin-bottom:4px">Total heures</div>
-        <div style="font-size:28px;font-weight:700;color:var(--blue)">${totalHeures.toFixed(1)}h</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(-1)"><i class="ti ti-chevron-left"></i> Semaine préc.</button>
+      <div style="text-align:center">
+        <div style="font-weight:700;font-size:14px">${semaineLabel}</div>
+        <div style="font-size:12px;color:var(--gray-5)">${_heuresWeekOffset===0?'Semaine en cours':(_heuresWeekOffset<0?'Il y a '+(-_heuresWeekOffset)+' semaine(s)':'Dans '+_heuresWeekOffset+' semaine(s)')} · Total : <strong style="color:var(--blue)">${totalSemaine.toFixed(1)}h</strong></div>
       </div>
-      <div style="background:var(--green-light);border-radius:var(--radius);padding:16px;text-align:center">
-        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;margin-bottom:4px">Jours travaillés</div>
-        <div style="font-size:28px;font-weight:700;color:var(--green)">${totalJours}</div>
-      </div>
-      <div style="background:var(--orange-light);border-radius:var(--radius);padding:16px;text-align:center">
-        <div style="font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;margin-bottom:4px">Employés actifs</div>
-        <div style="font-size:28px;font-weight:700;color:var(--orange)">${Object.keys(parEmploye).length}</div>
-      </div>
+      <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(1)">Semaine suiv. <i class="ti ti-chevron-right"></i></button>
     </div>
 
-    <!-- PAR EMPLOYÉ -->
-    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Heures par employé</div>
-    <div style="margin-bottom:20px">
-      ${Object.entries(parEmploye).sort((a,b)=>b[1].heures-a[1].heures).map(([nom,d])=>{
-        const pct = Math.round((d.heures/totalHeures)*100);
-        return `<div style="margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:13px;font-weight:500">${nom}</span>
-            <span style="font-size:13px;font-weight:700;color:var(--blue)">${d.heures.toFixed(1)}h</span>
-          </div>
-          <div style="background:var(--gray-2);border-radius:4px;height:8px;overflow:hidden">
-            <div style="background:var(--blue);height:100%;width:${pct}%;border-radius:4px;transition:width .5s"></div>
-          </div>
-          <div style="font-size:11px;color:var(--gray-5);margin-top:2px">${d.jours.size} jour(s) — ${pct}% du total</div>
-        </div>`;
-      }).join('')}
-    </div>
+    ${employes.length===0 ? '<div style="text-align:center;padding:32px;color:var(--gray-4)"><i class="ti ti-clock" style="font-size:32px;display:block;margin-bottom:8px"></i><p>Aucune heure encodée pour cette semaine.</p></div>' : `
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;min-width:560px">
+        <thead><tr>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3);text-transform:uppercase">Employé</th>
+          ${days.map((d,i)=>`<th style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">${dayNames[i]}<br><span style="font-weight:400">${d.getDate()}/${d.getMonth()+1}</span></th>`).join('')}
+          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3);text-transform:uppercase">Total</th>
+        </tr></thead>
+        <tbody>
+          ${employes.map(nom=>{
+            const rowTotal = days.reduce((a,d)=>a+(parEmploye[nom][isoDay(d)]||0),0);
+            return `<tr>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);font-weight:600">${nom}</td>
+              ${days.map(d=>{
+                const h = parEmploye[nom][isoDay(d)];
+                return `<td style="padding:8px 6px;border-bottom:1px solid var(--gray-2);text-align:center;${h?'font-weight:600;color:var(--blue)':'color:var(--gray-3)'}">${h?h.toFixed(1):'—'}</td>`;
+              }).join('')}
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${rowTotal.toFixed(1)}h</td>
+            </tr>`;
+          }).join('')}
+          <tr style="background:var(--gray-1)">
+            <td style="padding:8px 10px;font-weight:700">Total jour</td>
+            ${days.map(d=>{
+              const t = employes.reduce((a,nom)=>a+(parEmploye[nom][isoDay(d)]||0),0);
+              return `<td style="padding:8px 6px;text-align:center;font-weight:700">${t?t.toFixed(1):'—'}</td>`;
+            }).join('')}
+            <td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--blue)">${totalSemaine.toFixed(1)}h</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`}
 
-    <!-- DERNIÈRES ENTRÉES -->
-    <div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">10 dernières entrées</div>
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr>
-        <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Date</th>
-        <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Employé</th>
-        <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">Heures</th>
-      </tr></thead>
-      <tbody>
-        ${dernieres.map(p=>{
-          const h = parseFloat(p.heures).toFixed(1);
-          const nom = p.employes?.nom||'—';
-          return '<tr>'
-            + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">'+fmtDate(p.date)+'</td>'
-            + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">'+nom+'</td>'
-            + '<td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">'+h+'h</td>'
-            + '</tr>';
-        }).join('')}
-      </tbody>
-    </table>`;
+    <div style="margin-top:20px;text-align:center">
+      <a href="#" onclick="window.open('https://lyneo-pointages.pages.dev','_blank');return false" class="btn btn-secondary btn-sm"><i class="ti ti-external-link"></i> Ouvrir le système de pointages (modifier/ajouter)</a>
+    </div>`;
 }
+
 
 async function handleDropChantier(event, chantierId){
   event.preventDefault();
@@ -1696,6 +1711,7 @@ async function openChantierModal(r=null){
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
+        <div class="form-group"><label class="field-label">Numéro ${r?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: FRAIS GENERAUX"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
           <option value="actif" ${r?.statut==='actif'?'selected':''}>Actif</option>
           <option value="pause" ${r?.statut==='pause'?'selected':''}>En pause</option>
@@ -1720,12 +1736,14 @@ async function saveChantier(id){
   if(!nom||!clientId){ showToast("Nom et client obligatoires",'error'); return; }
   const {data:clientRow} = await sb.from('clients').select('nom').eq('id',clientId).single();
   const cpModal = el('ch-code-pt-modal');
+  const numeroManuel = el('ch-numero').value.trim();
   const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
+    if(numeroManuel) data.numero = numeroManuel;
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
     showToast('Chantier mis à jour');
   } else {
-    const {data:num} = await sb.rpc('generate_chantier_number');
+    const num = numeroManuel || (await sb.rpc('generate_chantier_number')).data;
     const devisIdOrigine = window._chantierFromDevisId||null;
     const {data:newChantier} = await sb.from('chantiers_lyneo').insert({...data,numero:num,devis_id:devisIdOrigine}).select().single();
     if(devisIdOrigine && newChantier){
@@ -2138,6 +2156,7 @@ async function openPODetail(poId){
         <button class="btn btn-warning btn-sm" onclick="closeModal();openEditPO('${poId}')"><i class="ti ti-edit"></i> Modifier</button>
         ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
         ${['rec_partielle','rec_totale'].includes(po.statut)?`<button class="btn btn-success btn-sm" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-file-invoice"></i> Générer facture</button>`:''}
+        <button class="btn btn-danger btn-sm" onclick="deletePO('${poId}','${po.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
@@ -2233,6 +2252,107 @@ LYNEO`);
     window.location.href = `mailto:${fournisseur.email}?subject=${subject}&body=${body}`;
     showToast("Pensez à joindre le PDF téléchargé/imprimé à l'email");
   }, 400);
+}
+
+const MODALITES_DEVIS = {
+  facturation: "Acompte de 40% du montant global exigible immédiatement à la commande (préalable au démarrage). Facturation par situations de travaux mensuelles selon l'avancement constaté. Solde : règlement final dès la mise en service effective des installations. Délai de paiement : 30 jours nets à réception de facture.",
+  cadreLegal: "Réserve de propriété : le vendeur conserve la pleine propriété des biens livrés jusqu'au paiement intégral du prix (principal et accessoires). Le défaut de paiement peut entraîner la revendication immédiate des biens. Révision des prix : tarifs révisables selon l'évolution de l'indice STATEC à la date de facturation. Validité : cette offre est valable 1 mois à compter de sa date d'émission."
+};
+
+async function downloadExcel_Devis(devisId){
+  if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
+  const {data:d} = await sb.from('devis').select('*,clients(nom,adresse,code_postal,ville,telephone,email),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
+  if(!d){ showToast("Devis introuvable", 'error'); return; }
+  const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
+  const client = d.clients||{};
+  showToast('Génération du fichier Excel...');
+
+  const lignesPrincipal = (lignesData||[]).filter(l=>l.bloc==='principal');
+  const lignesOption = (lignesData||[]).filter(l=>l.bloc==='option');
+  const dateStr = d.date_devis ? new Date(d.date_devis).toLocaleDateString('fr-FR') : '';
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Onglet 1 : Page initial (page de garde) ──
+  const wsInit = XLSX.utils.aoa_to_sheet([
+    [null,null,null,null,null,null,null,null,'DEVIS'],
+    [null,null,null,null,null,null,null,'N°',d.numero],
+    [null,null,null,null,null,null,null,'le,',dateStr],
+    [null,'Affaire:',d.chantiers_lyneo?.nom||'',null,null,null,null,'Nom:',client.nom||''],
+    [null,'N° de devis:',d.numero,null,null,null,null,'Adresse:',client.adresse||''],
+    [null,'Objet:',d.objet||'',null,null,null,null,'Code Postal:',((client.code_postal||'')+' '+(client.ville||'')).trim()],
+    [null,'Correspondant:',d.correspondant||'',null,null,null,null,'Téléphone:',client.telephone||''],
+    [null,null,null,null,null,null,null,'Email:',client.email||''],
+    [null,null,d.correspondant||''],
+  ]);
+  wsInit['!cols'] = [{wch:3},{wch:16},{wch:22},{wch:3},{wch:3},{wch:3},{wch:3},{wch:14},{wch:28}];
+  XLSX.utils.book_append_sheet(wb, wsInit, 'Page initial');
+
+  // ── Onglet 2 : DEVIS (détail des lignes) ──
+  const rowsDevis = [
+    ['DETAIL DES PRESTATIONS & FOURNITURES'],
+    [null,'N°','Désignation','Uté','Qté','PV Unitaire','Prix Total']
+  ];
+  let secNum = 0;
+  const toRowsExcel = (arr)=>{
+    arr.forEach((r,idx)=>{
+      if(r.type==='section'){
+        secNum++;
+        const subtotal = devisSectionSubtotal(arr, idx);
+        rowsDevis.push([null, String(secNum), r.description, null, null, null, subtotal]);
+      } else {
+        const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
+        rowsDevis.push([null, secNum+'.'+((rowsDevis.length)), r.description, r.unite, parseFloat(r.quantite)||0, parseFloat(r.prix_unitaire_ht)||0, total]);
+      }
+    });
+  };
+  toRowsExcel(lignesPrincipal);
+  rowsDevis.push([null,null,'Prix de vente total',null,null,null,d.montant_ht]);
+  rowsDevis.push([null,null,'TVA 17%',null,null,null,d.montant_tva]);
+  rowsDevis.push([null,null,'Total TTC',null,null,null,d.montant_ttc]);
+  if(lignesOption.length>0){
+    rowsDevis.push([]);
+    rowsDevis.push(['OPTIONS (NON COMPRISES DANS LE PRIX CI-DESSUS)']);
+    rowsDevis.push([null,'N°','Désignation','Uté','Qté','PV Unitaire','Prix Total']);
+    let secOpt = 0;
+    lignesOption.forEach((r,idx)=>{
+      if(r.type==='section'){
+        secOpt++;
+        rowsDevis.push([null, String(secOpt), r.description, null, null, null, devisSectionSubtotal(lignesOption, idx)]);
+      } else {
+        const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
+        rowsDevis.push([null, null, r.description, r.unite, parseFloat(r.quantite)||0, parseFloat(r.prix_unitaire_ht)||0, total]);
+      }
+    });
+  }
+  const wsDevis = XLSX.utils.aoa_to_sheet(rowsDevis);
+  wsDevis['!cols'] = [{wch:3},{wch:6},{wch:55},{wch:8},{wch:8},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsDevis, 'DEVIS');
+
+  // ── Onglet 3 : Modalités (contenu fixe) ──
+  const wsModalites = XLSX.utils.aoa_to_sheet([
+    ['1. Modalités de Facturation et Paiement'],
+    [MODALITES_DEVIS.facturation],
+    [],
+    ['2. Cadre Légal et Indexation Économique'],
+    [MODALITES_DEVIS.cadreLegal],
+    [],
+    ['3. Approbation et Signatures'],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [null,"Le Chargé d'affaire",null,null,'Le client'],
+    [null,d.correspondant||'']
+  ]);
+  wsModalites['!cols'] = [{wch:3},{wch:90}];
+  XLSX.utils.book_append_sheet(wb, wsModalites, 'Modalités');
+
+  XLSX.writeFile(wb, `${d.numero}.xlsx`);
+  showToast('Fichier Excel téléchargé — vérifiez le contenu avant envoi (mise en forme simplifiée par rapport à votre modèle habituel).');
 }
 
 async function downloadPDF_Devis(devisId){
@@ -3163,6 +3283,39 @@ function previewFacFiles(files){
     +'</div>').join('');
 }
 
+// Recalcule le statut de facturation d'une commande fournisseur, sans jamais
+// bloquer la génération d'une facture supplémentaire tant que tout n'est pas
+// réellement facturé (même en cas de réceptions/factures multiples et partielles).
+async function recalcStatutFacturationPO(poId){
+  const {data:po} = await sb.from('purchase_orders_lyneo').select('statut').eq('id',poId).single();
+  if(!po) return;
+
+  const {data:lignesPo} = await sb.from('lignes_po').select('id,quantite').eq('po_id',poId);
+  const {data:lignesFactureData} = await sb.from('lignes_facture').select('ligne_po_id,quantite,factures!facture_id!inner(statut)').eq('factures.po_id',poId);
+
+  const qteFacturee = {};
+  (lignesFactureData||[]).forEach(l=>{
+    if(!l.ligne_po_id) return;
+    if(['annulee','avoir'].includes(l.factures?.statut)) return; // n'entrent pas dans le calcul
+    qteFacturee[l.ligne_po_id] = (qteFacturee[l.ligne_po_id]||0) + (parseFloat(l.quantite)||0);
+  });
+
+  const toutFacture = (lignesPo||[]).length>0 && (lignesPo||[]).every(l=>
+    (qteFacturee[l.id]||0) >= (parseFloat(l.quantite)||0) - 0.001
+  );
+
+  if(toutFacture){
+    await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',poId);
+  } else if(po.statut==='facturee'){
+    // Était marquée facturée à tort (ancien comportement) — on la remet dans un
+    // état cohérent avec sa réception, pour que "Générer facture" redevienne possible.
+    const {data:blsData} = await sb.from('bons_livraison').select('statut_reception').eq('po_id',poId);
+    const statutReception = (blsData||[]).length===0 ? 'envoyee'
+      : (blsData||[]).every(b=>b.statut_reception==='complet') ? 'rec_totale' : 'rec_partielle';
+    await sb.from('purchase_orders_lyneo').update({statut:statutReception}).eq('id',poId);
+  }
+}
+
 async function saveFac(){
   const po_id = el('fac-po')?.value;
   const num = el('fac-num')?.value.trim();
@@ -3191,6 +3344,7 @@ async function saveFac(){
   if(fac && _facLignesPO.length>0){
     const {error:lignesErr} = await sb.from('lignes_facture').insert(_facLignesPO.map((l,i)=>({
       facture_id: fac.id, ordre: i+1,
+      ligne_po_id: l.id||null,
       description: l.description,
       reference_article: l.reference_article||'',
       quantite: parseFloat(l.quantite)||0,
@@ -3201,7 +3355,7 @@ async function saveFac(){
     if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
 
-  await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',po_id);
+  await recalcStatutFacturationPO(po_id);
 
   if(_facFilesNew.length>0 && fac){
     for(const file of _facFilesNew){
@@ -4039,6 +4193,7 @@ async function openDevisDetail(devisId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_Devis('${d.id}')"><i class="ti ti-file-download"></i> PDF</button>
+        <button class="btn btn-secondary" onclick="downloadExcel_Devis('${d.id}')"><i class="ti ti-file-spreadsheet"></i> Excel</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
@@ -5651,6 +5806,24 @@ function validateFacMontant(){
 
 // ── EDIT PO ──────────────────────────────────────────────────
 // Allows editing PO at any stage before rec_totale/facturee/payee
+async function deletePO(poId, numero){
+  if(!confirm(`Supprimer définitivement la commande ${numero} ? Cette action est irréversible.`)) return;
+  // On supprime d'abord les lignes de la commande elle-même
+  await sb.from('lignes_po').delete().eq('po_id',poId);
+  const {error} = await sb.from('purchase_orders_lyneo').delete().eq('id',poId);
+  if(error){
+    if(error.message && /foreign key|violates/i.test(error.message)){
+      showToast("Impossible de supprimer : il existe déjà des réceptions ou factures liées à cette commande. Annulez-la plutôt, ou supprimez d'abord les documents liés.", 'error');
+    } else {
+      showToast('Erreur: '+error.message, 'error');
+    }
+    return;
+  }
+  showToast('Commande supprimée');
+  closeModal();
+  renderPOS();
+}
+
 async function openEditPO(poId){
   let po = _pos.find(p=>p.id===poId);
   if(!po){
@@ -5976,6 +6149,7 @@ async function saveFacFromPO(poId){
   if(fac && _facFromPoLignes.length>0){
     const {error:lignesErr} = await sb.from('lignes_facture').insert(_facFromPoLignes.map((l,i)=>({
       facture_id: fac.id, ordre: i+1,
+      ligne_po_id: l.ligne_po_id||null,
       description: l.description,
       reference_article: l.reference_article||'',
       quantite: parseFloat(l.quantite)||0,
@@ -5986,7 +6160,7 @@ async function saveFacFromPO(poId){
     if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
 
-  await sb.from('purchase_orders_lyneo').update({statut:'facturee'}).eq('id',poId);
+  await recalcStatutFacturationPO(poId);
 
   // Upload files if any
   if(_facFilesNew && _facFilesNew.length>0 && fac){
