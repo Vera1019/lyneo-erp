@@ -552,12 +552,16 @@ html,body{max-width:100vw;overflow-x:hidden}
 // ── CONFIG SUPABASE ──────────────────────────────────────────
 const SUPA_URL = 'https://uhqbdbxfpiinihfilcpe.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVocWJkYnhmcGlpbmloZmlsY3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzU4ODQsImV4cCI6MjA5ODExMTg4NH0.b7seaNoLiQH9N0JyUGJJTq4Uu87VDr3aC1q4PAjUNuE';
-const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+});
 
 // Supabase Pointages (base séparée)
 const SB_PT_URL = 'https://eqnidlvbmbfzauevhcnb.supabase.co';
 const SB_PT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxbmlkbHZibWJmemF1ZXZoY25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0MDYyNDAsImV4cCI6MjA5Nzk4MjI0MH0.Hi_rCmkmZ8eBBa3b7Ti0XvC-G27Q7G0mNAulpftL2MU';
-const sbPT = supabase.createClient(SB_PT_URL, SB_PT_KEY);
+const sbPT = supabase.createClient(SB_PT_URL, SB_PT_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+});
 
 // ── ÉTAT GLOBAL ──────────────────────────────────────────────
 let currentUser = null;
@@ -856,6 +860,51 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
       });
     }
 
+    // ── Page de clôture (Modalités) : même en-tête/pied de page que le reste du document ──
+    drawModalitesPage(headerCfg, cfg){
+      this.newPage();
+      this.drawHeader(headerCfg);
+
+      if(cfg.synthese){
+        this.drawSectionTitle('Synthèse financière contractuelle');
+        this.drawTotals(cfg.synthese);
+        if(cfg.montantEnLettres){
+          this.ensureSpace(20);
+          this.line('Montant TTC en toutes lettres :', this.margin, 9, {bold:true}, 12);
+          wrapText(cfg.montantEnLettres, this.font, 9, this.W-2*this.margin).forEach(l=>{
+            this.ensureSpace(12);
+            this.line(l, this.margin, 9, {color:'text'}, 12);
+          });
+          this.y -= 8;
+        }
+      }
+
+      (cfg.sections||[]).forEach((sec,idx)=>{
+        this.ensureSpace(30);
+        this.line(`${idx+1}. ${sec.title}`, this.margin, 11, {bold:true, color:'brand'}, 8);
+        this.page.drawLine({start:{x:this.margin,y:this.y+4}, end:{x:this.W-this.margin,y:this.y+4}, thickness:1, color:this.color('accent')});
+        this.y -= 8;
+        wrapText(sec.text, this.font, 9, this.W-2*this.margin).forEach(l=>{
+          this.ensureSpace(13);
+          this.line(l, this.margin, 9, {color:'text'}, 13);
+        });
+        this.y -= 10;
+      });
+
+      if(cfg.signatures){
+        this.ensureSpace(90);
+        this.line(`${(cfg.sections||[]).length+1}. Approbation et Signatures`, this.margin, 11, {bold:true, color:'brand'}, 20);
+        const colW = (this.W - 2*this.margin - 30)/2;
+        cfg.signatures.forEach((s,i)=>{
+          const sx = this.margin + i*(colW+30);
+          this.page.drawText(s.label, {x:sx, y:this.y, size:9.5, font:this.fontBold, color:this.color('text')});
+          if(s.name) this.page.drawText(s.name, {x:sx, y:this.y-16, size:9, font:this.font, color:this.color('text')});
+          this.page.drawLine({start:{x:sx,y:this.y-50}, end:{x:sx+colW,y:this.y-50}, thickness:0.7, color:this.color('gray')});
+        });
+        this.y -= 70;
+      }
+    }
+
     // ── Pied de page + numérotation, à appeler une fois tout le contenu généré ──
     finalizeFooters(){
       const pages = this.pdfDoc.getPages();
@@ -882,6 +931,10 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     doc.drawHeader(config);
     if(config.boxes) doc.drawBoxes(config.boxes);
     if(config.refRow) doc.drawRefStrip(config.refRow);
+    if(config.pageBreakAfterIntro){
+      doc.newPage();
+      doc.drawHeader(config);
+    }
     if(config.sectionTitle) doc.drawSectionTitle(config.sectionTitle);
     if(config.table) doc.drawTable(config.table);
     if(config.totals) doc.drawTotals(config.totals);
@@ -894,6 +947,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     }
     if(config.notesBlock) doc.drawTextBlock(config.notesBlock.title, config.notesBlock.text);
     if(config.paymentBlock) doc.drawTextBlock(config.paymentBlock.title, config.paymentBlock.lines.join('\n'));
+    if(config.modalitesPage) doc.drawModalitesPage(config, config.modalitesPage);
     if(config.extraPages){
       config.extraPages.forEach(p=> doc.drawLongTextPage(p.title, p.articles));
     }
@@ -969,12 +1023,19 @@ async function doLogin() {
       return;
     }
     currentUser = data;
-    sessionStorage.setItem('lyneo_user', JSON.stringify(data));
-    initApp();
+    try{ sessionStorage.setItem("lyneo_user", JSON.stringify(data)); }catch(storageErr){ console.warn("Session non persistee (navigateur restrictif) :", storageErr); }
   } catch(e) {
-    console.error('Login error:', e);
+    console.error("Login error:", e);
     showLoginError('Erreur de connexion: ' + e.message);
     if(btn){ btn.disabled=false; btn.textContent='Se connecter'; }
+    return;
+  }
+  try{
+    initApp();
+  }catch(uiErr){
+    console.error("Erreur au chargement de l'interface (login pourtant reussi) :", uiErr);
+    var lp = el('login-page'); if(lp) lp.classList.add('hidden');
+    var al = el('app-layout'); if(al) al.classList.remove('hidden');
   }
 }
 
@@ -2431,6 +2492,23 @@ async function downloadPDF_Devis(devisId){
     }];
   }
 
+  config.pageBreakAfterIntro = true;
+  config.modalitesPage = {
+    synthese: [
+      {label:'Total Hors Taxes (HT)', value: fmt(d.montant_ht)},
+      {label:'TVA', value: fmt(d.montant_tva)},
+      {label:'Total Toutes Taxes Comprises (TTC)', value: fmt(d.montant_ttc), bold:true}
+    ],
+    sections: [
+      {title:'Modalités de Facturation et Paiement', text: MODALITES_DEVIS.facturation},
+      {title:'Cadre Légal et Indexation Économique', text: MODALITES_DEVIS.cadreLegal}
+    ],
+    signatures: [
+      {label:"Le Chargé d'affaire", name: d.correspondant||''},
+      {label:'Le client', name:''}
+    ]
+  };
+
   try{
     const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, config);
     await baixarPdfBytes(bytes, `${d.numero}.pdf`);
@@ -2599,7 +2677,7 @@ async function openBLDetail(blId){
 }
 
 function openBLModal(){
-  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${p.chantiers?.nom})</option>`).join('');
+  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${p.chantiers_lyneo?.nom||'—'})</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle réception</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
@@ -4193,7 +4271,6 @@ async function openDevisDetail(devisId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_Devis('${d.id}')"><i class="ti ti-file-download"></i> PDF</button>
-        <button class="btn btn-secondary" onclick="downloadExcel_Devis('${d.id}')"><i class="ti ti-file-spreadsheet"></i> Excel</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
@@ -5082,30 +5159,51 @@ async function openEmployeDetail(employeId){
     }catch(e){ /* système de pointages indisponible pour le moment */ }
   }
 
+  const initiales = ((emp.prenom||'')[0]||'')+((emp.nom||'')[0]||'');
+  const profileRow = (label,value)=>`<div style="display:flex;padding:9px 0;border-bottom:1px solid var(--gray-2)">
+      <span style="width:220px;flex-shrink:0;font-size:12.5px;color:var(--gray-5)">${label}</span>
+      <span style="font-size:13px;color:var(--gray-8);font-weight:500">${value||'—'}</span>
+    </div>`;
+  const profileSection = (title,rowsHtml)=>`<div style="margin-bottom:22px">
+      <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">${title}</div>
+      <div>${rowsHtml}</div>
+    </div>`;
+
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>${emp.prenom||''} ${emp.nom}</h3><span style="font-size:12px;color:var(--gray-5)">${emp.poste||''}</span></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initiales.toUpperCase()||'?'}</div>
+        <div><h3 style="margin:0">${emp.prenom||''} ${emp.nom}</h3><span style="font-size:12px;color:var(--gray-5)">${emp.poste||'—'} ${emp.actif===false?' · <span style=\"color:var(--red)\">Inactif</span>':''}</span></div>
+      </div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <div class="info-grid" style="margin-bottom:12px">
-        <div class="info-item"><label>Email</label><span>${emp.email||'—'}</span></div>
-        <div class="info-item"><label>Téléphone</label><span>${emp.telephone||'—'}</span></div>
-        <div class="info-item"><label>Adresse</label><span>${emp.adresse||'—'} ${emp.code_postal||''} ${emp.ville||''}</span></div>
-        <div class="info-item"><label>Date de naissance</label><span>${fmtDate(emp.date_naissance)} ${emp.lieu_naissance?'— '+emp.lieu_naissance:''}</span></div>
-        <div class="info-item"><label>État civil</label><span>${emp.etat_civil||'—'}</span></div>
-        <div class="info-item"><label>Enfants à charge</label><span>${emp.nombre_enfants_charge??0}</span></div>
-        <div class="info-item"><label>Matricule CNS</label><span>${emp.matricule_cns||'—'}</span></div>
-        <div class="info-item"><label>Permis de conduire</label><span>${emp.numero_permis_conduire||'—'} ${emp.date_validite_permis?"(valable jusqu'au "+fmtDate(emp.date_validite_permis)+')':''}</span></div>
-        <div class="info-item"><label>Type de contrat</label><span>${emp.type_contrat||'—'}</span></div>
-        <div class="info-item"><label>Date d'embauche</label><span>${fmtDate(emp.date_embauche)}</span></div>
-        <div class="info-item"><label>Salaire</label><span>${emp.salaire?fmt(emp.salaire):'—'}</span></div>
-        <div class="info-item"><label>RIB</label><span>${emp.rib||'—'}</span></div>
-        <div class="info-item"><label>Carte d'impôt</label><span>${emp.carte_impot||'—'}</span></div>
-        <div class="info-item"><label>Visite médicale valable jusqu'au</label><span>${fmtDate(emp.visite_medicale_valable_jusquau)}</span></div>
-        <div class="info-item"><label>Tailles</label><span>Haut: ${emp.taille_haut||'—'} · Bas: ${emp.taille_bas||'—'} · Pointure: ${emp.pointure||'—'}</span></div>
-        <div class="info-item"><label>Lié au pointage</label><span>${emp.pointage_employe_nom||'— (non lié)'}</span></div>
-      </div>
+      ${profileSection('Contact', 
+        profileRow('Email', emp.email) +
+        profileRow('Téléphone', emp.telephone) +
+        profileRow('Adresse', [emp.adresse, emp.code_postal, emp.ville].filter(Boolean).join(' '))
+      )}
+      ${profileSection('Identité',
+        profileRow('Date de naissance', (fmtDate(emp.date_naissance)||'')+(emp.lieu_naissance?' — '+emp.lieu_naissance:'')) +
+        profileRow('État civil', emp.etat_civil) +
+        profileRow('Enfants à charge', emp.nombre_enfants_charge??0) +
+        profileRow('Matricule CNS', emp.matricule_cns) +
+        profileRow('Permis de conduire', emp.numero_permis_conduire ? emp.numero_permis_conduire+(emp.date_validite_permis?" (valable jusqu'au "+fmtDate(emp.date_validite_permis)+')':'') : '')
+      )}
+      ${profileSection('Emploi',
+        profileRow('Type de contrat', emp.type_contrat) +
+        profileRow("Date d'embauche", fmtDate(emp.date_embauche)) +
+        profileRow('Salaire', emp.salaire?fmt(emp.salaire):'') +
+        profileRow('RIB', emp.rib) +
+        profileRow("Carte d'impôt", emp.carte_impot) +
+        profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau))
+      )}
+      ${profileSection('Équipement',
+        profileRow('Tailles', `Haut : ${emp.taille_haut||'—'} · Bas : ${emp.taille_bas||'—'} · Pointure : ${emp.pointure||'—'}`)
+      )}
+      ${profileSection('Système de pointages',
+        profileRow('Employé lié', emp.pointage_employe_nom)
+      )}
       ${emp.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${emp.notes}</p></div>`:''}
 
       <strong style="font-size:13px">Heures encodées (pointages)</strong>
