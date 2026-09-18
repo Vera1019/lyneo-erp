@@ -1279,12 +1279,47 @@ async function renderDashboard(){
     </div>`;
 }
 
+// ── Ordenação genérica de tabelas (clicar no cabeçalho da coluna) ──
+let _sortState = {};
+function toggleSort(tableId, key, rerenderFn){
+  const cur = _sortState[tableId] || {key:null, dir:1};
+  if(cur.key === key) cur.dir *= -1;
+  else { cur.key = key; cur.dir = 1; }
+  _sortState[tableId] = cur;
+  rerenderFn();
+}
+function sortItems(items, tableId){
+  const s = _sortState[tableId];
+  if(!s || !s.key) return items;
+  return [...items].sort((a,b)=>{
+    let va = a[s.key], vb = b[s.key];
+    if(va===null||va===undefined) va='';
+    if(vb===null||vb===undefined) vb='';
+    if(typeof va==='string') va=va.toLowerCase();
+    if(typeof vb==='string') vb=vb.toLowerCase();
+    if(va<vb) return -1*s.dir;
+    if(va>vb) return 1*s.dir;
+    return 0;
+  });
+}
+function sortArrow(tableId, key){
+  const s = _sortState[tableId];
+  if(!s || s.key!==key) return '<i class="ti ti-arrows-sort" style="font-size:11px;opacity:.35;margin-left:3px"></i>';
+  return s.dir===1 ? '<i class="ti ti-sort-ascending" style="font-size:11px;margin-left:3px"></i>' : '<i class="ti ti-sort-descending" style="font-size:11px;margin-left:3px"></i>';
+}
+function sortableTh(label, tableId, key, rerenderCall){
+  return `<th style="cursor:pointer;user-select:none" onclick="toggleSort('${tableId}','${key}',()=>${rerenderCall})">${label}${sortArrow(tableId,key)}</th>`;
+}
+
+let _chantiersSearchAtual = '';
 async function renderChantiers(search=''){
+  _chantiersSearchAtual = search;
   if(!search) {
     const {data} = await sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false});
     _chantiers = data||[];
   }
-  const items = search ? _chantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : _chantiers;
+  let items = search ? _chantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : _chantiers;
+  items = sortItems(items, 'chantiers');
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Chantiers</h1><p>Gestion des projets et chantiers</p></div>
@@ -1296,7 +1331,16 @@ async function renderChantiers(search=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>Numéro</th><th>Nom</th><th>Client</th><th>Chef chantier</th><th>Début</th><th>Fin prévue</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            ${sortableTh('Numéro','chantiers','numero',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Nom','chantiers','nom',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Client','chantiers','client',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Chef chantier','chantiers','chef_chantier',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Début','chantiers','date_debut',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Fin prévue','chantiers','date_fin_prevue',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Statut','chantiers','statut',"renderChantiers(_chantiersSearchAtual)")}
+            <th>Actions</th>
+          </tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
             items.map(r=>{
