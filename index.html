@@ -507,7 +507,7 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
       <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
       <div class="nav-item" onclick="navigate('interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions (SAV)</div>
-      <div class="nav-item" onclick="window.open('https://lyneo-pointages.pages.dev','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
+      <div class="nav-item" onclick="window.open('https://lyneo-pointages.netlify.app','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
 
       <div id="nav-admin-section" class="hidden">
         <div class="nav-section">Administration</div>
@@ -1694,7 +1694,7 @@ async function renderHeuresSemaine(){
     </div>`}
 
     <div style="margin-top:20px;text-align:center">
-      <a href="#" onclick="window.open('https://lyneo-pointages.pages.dev','_blank');return false" class="btn btn-secondary btn-sm"><i class="ti ti-external-link"></i> Ouvrir le système de pointages (modifier/ajouter)</a>
+      <a href="#" onclick="window.open('https://lyneo-pointages.netlify.app','_blank');return false" class="btn btn-secondary btn-sm"><i class="ti ti-external-link"></i> Ouvrir le système de pointages (modifier/ajouter)</a>
     </div>`;
 }
 
@@ -2469,7 +2469,7 @@ async function downloadPDF_Devis(devisId){
     notesBlock: d.observations ? {title:'Observations', text: d.observations} : null,
     paymentBlock: {
       title:'Conditions',
-      lines: [`Acompte : ${d.conditions_acompte_pct||30}% à la commande — Conditions de paiement : ${d.conditions_paiement||'30 jours'}`]
+      lines: [`Acompte : ${d.conditions_acompte_pct??30}% à la commande — Conditions de paiement : ${d.conditions_paiement||'30 jours'}`]
     },
     footerText: `LYNEO s.à.r.l — 5, Z.A. Gadderscheier, L-4570 Niederkorn | TVA : LU37560222 | Document généré le ${new Date().toLocaleDateString('fr-FR')}`
   };
@@ -3561,6 +3561,7 @@ function openClientModal(r=null){
         <div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
         <div class="form-group"><label class="field-label">N° TVA</label><input id="cl-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="cl-adresse" value="${r?.adresse||''}" placeholder="Rue et numéro"/></div>
+        <div class="form-group full"><label class="field-label">Adresse de livraison / intervention (si différente)</label><input id="cl-adresse-livraison" value="${r?.adresse_livraison||''}" placeholder="Complément affiché sur les factures, si différent de l'adresse principale"/></div>
         <div class="form-group"><label class="field-label">Code postal</label><input id="cl-cp" value="${r?.code_postal||''}" placeholder="L-1234"/></div>
         <div class="form-group"><label class="field-label">Ville</label><input id="cl-ville" value="${r?.ville||''}" placeholder="Luxembourg"/></div>
         <div class="form-group"><label class="field-label">Pays</label><input id="cl-pays" value="${r?.pays||'Luxembourg'}"/></div>
@@ -3595,6 +3596,7 @@ async function saveClient(id){
     telephone: el('cl-tel').value,
     numero_tva: el('cl-tva').value,
     adresse: el('cl-adresse').value,
+    adresse_livraison: el('cl-adresse-livraison').value,
     code_postal: el('cl-cp').value,
     ville: el('cl-ville').value,
     pays: el('cl-pays').value,
@@ -3667,6 +3669,7 @@ async function openClientDetail(clientId){
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Contact principal</label><span>${client.contact_principal||'—'}</span></div>
         <div class="info-item"><label>Adresse</label><span>${client.adresse||'—'} ${client.code_postal||''} ${client.ville||''}</span></div>
+        ${client.adresse_livraison?`<div class="info-item"><label>Adresse de livraison / intervention</label><span>${client.adresse_livraison}</span></div>`:''}
         <div class="info-item"><label>N° TVA</label><span>${client.numero_tva||'—'}</span></div>
         <div class="info-item"><label>Conditions de paiement</label><span>${client.conditions_paiement||'—'}</span></div>
       </div>
@@ -3960,12 +3963,17 @@ function renderDevisLignesBloc(bloc){
   const body = el('devis-lignes-'+bloc);
   if(!body) return;
   const arr = _devisLignes[bloc];
+  const moveBtns = (i)=>`<span style="display:inline-flex;flex-direction:column;line-height:0;margin-right:4px">
+      <button onclick="moveDevisRow('${bloc}',${i},-1)" ${i===0?'disabled':''} style="background:none;border:none;cursor:${i===0?'default':'pointer'};color:${i===0?'var(--gray-3)':'var(--gray-5)'};padding:1px"><i class="ti ti-chevron-up" style="font-size:13px"></i></button>
+      <button onclick="moveDevisRow('${bloc}',${i},1)" ${i===arr.length-1?'disabled':''} style="background:none;border:none;cursor:${i===arr.length-1?'default':'pointer'};color:${i===arr.length-1?'var(--gray-3)':'var(--gray-5)'};padding:1px"><i class="ti ti-chevron-down" style="font-size:13px"></i></button>
+    </span>`;
   body.innerHTML = arr.map((r,i)=>{
     if(r.type==='section'){
       const subtotal = devisSectionSubtotal(arr,i);
       return `<tr style="background:var(--gray-1)">
         <td colspan="4" style="padding:8px 10px;border-bottom:1px solid var(--gray-3)">
-          <input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" placeholder="Titre de la section..." style="width:100%;padding:4px 6px;border:none;background:transparent;font-weight:700;text-transform:uppercase;font-size:12.5px"/>
+          <div style="display:flex;align-items:center">${moveBtns(i)}
+          <input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" placeholder="Titre de la section..." style="width:100%;padding:4px 6px;border:none;background:transparent;font-weight:700;text-transform:uppercase;font-size:12.5px"/></div>
         </td>
         <td style="padding:8px 10px;border-bottom:1px solid var(--gray-3);text-align:right;font-weight:700">${fmt(subtotal)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid var(--gray-3);text-align:center"><button onclick="delDevisRow('${bloc}',${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
@@ -3973,7 +3981,7 @@ function renderDevisLignesBloc(bloc){
     }
     const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
     return `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><div style="display:flex;align-items:center">${moveBtns(i)}<input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></div></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input value="${r.unite}" onchange="updDevisRow('${bloc}',${i},'unite',this.value)" style="width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;text-align:center"/></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="number" min="0" step="1" value="${r.quantite}" onchange="updDevisRow('${bloc}',${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:110px"><input type="number" min="0" step="0.01" value="${r.prix_unitaire_ht}" onchange="updDevisRow('${bloc}',${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
@@ -3987,6 +3995,14 @@ function renderDevisLignesBloc(bloc){
     const box = el('devis-option-total');
     if(box) box.textContent = fmt(optTotal)+' HT';
   }
+}
+
+function moveDevisRow(bloc, i, direction){
+  const arr = _devisLignes[bloc];
+  const j = i+direction;
+  if(j<0 || j>=arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  renderDevisLignesBloc(bloc);
 }
 
 function addDevisSection(bloc){
@@ -4015,6 +4031,34 @@ function updateDevisTotaux(){
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
 
+function toggleNouveauClientInline(){
+  const box = el('dv-nouveau-client-inline');
+  if(!box) return;
+  const showing = box.style.display!=='none';
+  box.style.display = showing ? 'none' : 'block';
+  if(!showing){ const n = el('dv-nc-nom'); if(n) n.focus(); }
+}
+
+async function criarClienteInlineDevis(){
+  const nom = el('dv-nc-nom').value.trim();
+  if(!nom){ showToast("Nom du client obligatoire", 'error'); return; }
+  const {data:novoCliente, error} = await sb.from('clients').insert({
+    nom, email: el('dv-nc-email').value, telephone: el('dv-nc-tel').value, actif: true
+  }).select().single();
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+
+  const sel = el('dv-client');
+  const opt = document.createElement('option');
+  opt.value = novoCliente.id;
+  opt.textContent = novoCliente.nom;
+  sel.appendChild(opt);
+  sel.value = novoCliente.id;
+
+  toggleNouveauClientInline();
+  el('dv-nc-nom').value = ''; el('dv-nc-email').value = ''; el('dv-nc-tel').value = '';
+  showToast('Client "'+novoCliente.nom+'" créé et sélectionné');
+}
+
 async function openDevisModal(d=null){
   const isEdit = !!d;
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
@@ -4038,7 +4082,24 @@ async function openDevisModal(d=null){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Client *</label>
-          <select id="dv-client"><option value="">— Sélectionner —</option>${clients.map(c=>`<option value="${c.id}" ${d?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}</select>
+          <div style="display:flex;gap:6px">
+            <select id="dv-client" style="flex:1">
+              <option value="">— Sélectionner —</option>
+              ${clients.map(c=>`<option value="${c.id}" ${d?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleNouveauClientInline()" title="Créer un nouveau client"><i class="ti ti-plus"></i></button>
+          </div>
+          <div id="dv-nouveau-client-inline" style="display:none;background:var(--gray-1);border-radius:var(--radius);padding:12px;margin-top:8px">
+            <div class="form-grid">
+              <div class="form-group"><label class="field-label">Nom *</label><input id="dv-nc-nom" placeholder="Nom du client"/></div>
+              <div class="form-group"><label class="field-label">Email</label><input id="dv-nc-email" type="email"/></div>
+              <div class="form-group"><label class="field-label">Téléphone</label><input id="dv-nc-tel"/></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button type="button" class="btn btn-primary btn-sm" onclick="criarClienteInlineDevis()"><i class="ti ti-check"></i> Créer et sélectionner</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="toggleNouveauClientInline()">Annuler</button>
+            </div>
+          </div>
         </div>
         <div class="form-group"><label class="field-label">Chantier</label>
           <select id="dv-chantier"><option value="">— Aucun (pas encore créé) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${c.numero||''} — ${c.nom}</option>`).join('')}</select>
@@ -4452,41 +4513,42 @@ async function syncAcompteLibre(){
   const block = el('fvl-acompte-block');
   const chantierId = el('fvl-chantier')?.value;
 
+  if(!chantierId){
+    if(block) block.style.display = isAcompte ? 'block' : 'none';
+    if(isAcompte && block){ block.innerHTML = "<p style=\"font-size:13px;color:var(--gray-6)\">Choisissez un chantier ci-dessus pour calculer l'acompte à partir de son devis.</p>"; }
+    return;
+  }
+
+  const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
+  window._devisInfoForFv = devisInfo;
+
+  // Échéance calculée à partir des conditions de paiement du devis, pour tous les types
+  if(devisInfo){
+    const echeanceInput = el('fv-echeance');
+    if(echeanceInput && !echeanceInput.value){
+      const dateFacture = el('fv-date')?.value;
+      const echeance = calculerEcheanceDepuisConditions(dateFacture, devisInfo.conditions_paiement);
+      if(echeance) echeanceInput.value = echeance;
+    }
+  }
+
   if(!isAcompte){
     if(block) block.style.display = 'none';
-    _venteLignes = _venteLignes.filter(l=>!l._isAcompte);
-    if(_venteLignes.length===0) _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+    _venteLignes = lignes.length>0 ? lignes : [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+    window._venteLignesNormales = _venteLignes.slice();
     renderVenteLignesLibre();
     return;
   }
 
-  if(!chantierId){
-    if(block){ block.style.display='block'; block.innerHTML = '<p style="font-size:13px;color:var(--gray-6)">Choisissez un chantier ci-dessus pour calculer l\'acompte à partir de son devis.</p>'; }
-    return;
-  }
-
-  let devisInfo = null;
-  const {data:chantier} = await sb.from('chantiers_lyneo').select('devis_id').eq('id',chantierId).single();
-  let devisId = chantier?.devis_id||null;
-  if(!devisId){
-    const {data:devisParChantier} = await sb.from('devis').select('id').eq('chantier_id',chantierId).eq('statut','accepte').order('created_at',{ascending:false}).limit(1);
-    if(devisParChantier && devisParChantier.length>0) devisId = devisParChantier[0].id;
-  }
-  if(devisId){
-    const {data:d} = await sb.from('devis').select('*').eq('id',devisId).single();
-    devisInfo = d;
-  }
-  window._devisInfoForFv = devisInfo;
-
   if(!devisInfo){
-    if(block){ block.style.display='block'; block.innerHTML = '<p style="font-size:13px;color:var(--gray-6)">Ce chantier n\'a pas de devis accepté lié — impossible de calculer un acompte automatiquement. Ajoutez la ligne manuellement, ou passez en "Libre".</p>'; }
+    if(block){ block.style.display='block'; block.innerHTML = "<p style=\"font-size:13px;color:var(--gray-6)\">Ce chantier n'a pas de devis accepté lié — impossible de calculer un acompte automatiquement. Ajoutez la ligne manuellement, ou passez en \"Libre\".</p>"; }
     return;
   }
 
   if(block){
     block.style.display = 'block';
     block.innerHTML = `<div class="form-grid">
-      <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct||30}" min="0" max="100" step="1" oninput="updateAcompteMontantLibre()"/></div>
+      <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct??30}" min="0" max="100" step="1" oninput="updateAcompteMontantLibre()"/></div>
       <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
     </div>
     <div style="margin-top:6px;font-size:12px;color:var(--gray-6)">La ligne ci-dessous est calculée automatiquement à partir du pourcentage — vous pouvez l'ajuster librement.</div>`;
@@ -4589,58 +4651,74 @@ async function saveFactureVenteLibre(){
   renderFacturesVente();
 }
 
-async function openGenerateFactureVente(chantierId){
+// Trouve le devis lié à un chantier (dans les deux sens), calcule les quantités
+// restantes à facturer pour chaque ligne, et renvoie tout ce qu'il faut pour
+// pré-remplir n'importe quel formulaire de facture client (Acompte, Situation, Solde...).
+async function chargerDonneesDevisPourFacture(chantierId){
   const {data:chantier} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
-  if(!chantier){ showToast("Chantier introuvable", 'error'); return; }
-  if(!chantier.client_id){ showToast("Ce chantier n'a pas de client lié", 'error'); return; }
+  if(!chantier) return {devisInfo:null, lignes:[]};
 
-  _venteLignes = [];
-  _venteLigneMode = 'devis';
-  let devisInfo = null;
-
-  // On cherche le devis lié dans les deux sens : soit chantier.devis_id (créé depuis le devis),
-  // soit devis.chantier_id (lié en éditant le devis) — pour ne jamais rater la liaison.
   let devisId = chantier.devis_id||null;
   if(!devisId){
     const {data:devisParChantier} = await sb.from('devis').select('id').eq('chantier_id',chantierId).eq('statut','accepte').order('created_at',{ascending:false}).limit(1);
     if(devisParChantier && devisParChantier.length>0){
       devisId = devisParChantier[0].id;
-      // Synchronise le lien dans l'autre sens pour la prochaine fois
       await sb.from('chantiers_lyneo').update({devis_id:devisId}).eq('id',chantierId);
     }
   }
+  if(!devisId) return {devisInfo:null, lignes:[]};
 
-  if(devisId){
-    const {data:devis} = await sb.from('devis').select('*').eq('id',devisId).single();
-    devisInfo = devis;
-    const {data:lignesDevis} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).eq('bloc','principal').eq('type','ligne').order('ordre');
+  const {data:devis} = await sb.from('devis').select('*').eq('id',devisId).single();
+  const {data:lignesDevis} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).eq('bloc','principal').eq('type','ligne').order('ordre');
 
-    // Quantités déjà facturées pour chaque ligne du devis, toutes factures non annulées confondues
-    const {data:facsExistantes} = await sb.from('factures_vente').select('id').eq('devis_id',devisId).neq('statut','annulee');
-    const facIds = (facsExistantes||[]).map(f=>f.id);
-    let dejaFacture = {};
-    if(facIds.length>0){
-      const {data:lignesExistantes} = await sb.from('lignes_facture_vente').select('ligne_devis_id,quantite').in('facture_vente_id',facIds);
-      (lignesExistantes||[]).forEach(l=>{ if(l.ligne_devis_id) dejaFacture[l.ligne_devis_id]=(dejaFacture[l.ligne_devis_id]||0)+parseFloat(l.quantite||0); });
-    }
-
-    _venteLignes = (lignesDevis||[]).map(l=>{
-      const qteDevis = parseFloat(l.quantite)||0;
-      const qteFacturee = dejaFacture[l.id]||0;
-      const restant = Math.max(0, qteDevis - qteFacturee);
-      return {
-        ligne_devis_id: l.id,
-        description: l.description,
-        reference_article: '',
-        unite: l.unite||'u',
-        quantite_devis: qteDevis,
-        deja_facture: qteFacturee,
-        quantite: restant,
-        prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-        taux_tva: parseFloat(l.taux_tva)||17
-      };
-    });
+  const {data:facsExistantes} = await sb.from('factures_vente').select('id').eq('devis_id',devisId).neq('statut','annulee');
+  const facIds = (facsExistantes||[]).map(f=>f.id);
+  let dejaFacture = {};
+  if(facIds.length>0){
+    const {data:lignesExistantes} = await sb.from('lignes_facture_vente').select('ligne_devis_id,quantite').in('facture_vente_id',facIds);
+    (lignesExistantes||[]).forEach(l=>{ if(l.ligne_devis_id) dejaFacture[l.ligne_devis_id]=(dejaFacture[l.ligne_devis_id]||0)+parseFloat(l.quantite||0); });
   }
+
+  const lignes = (lignesDevis||[]).map(l=>{
+    const qteDevis = parseFloat(l.quantite)||0;
+    const qteFacturee = dejaFacture[l.id]||0;
+    const restant = Math.max(0, qteDevis - qteFacturee);
+    return {
+      ligne_devis_id: l.id,
+      description: l.description,
+      reference_article: '',
+      unite: l.unite||'u',
+      quantite_devis: qteDevis,
+      deja_facture: qteFacturee,
+      quantite: restant,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
+      taux_tva: parseFloat(l.taux_tva)||17
+    };
+  });
+  return {devisInfo:devis, lignes};
+}
+
+// Calcule une date d'échéance à partir d'une date de départ et des conditions de
+// paiement du devis (ex: "30 jours" -> +30 jours). Renvoie null si aucun nombre
+// n'est trouvé (le champ reste vide, à remplir à la main).
+function calculerEcheanceDepuisConditions(dateDepart, conditionsPaiement){
+  if(!conditionsPaiement) return null;
+  const match = String(conditionsPaiement).match(/\d+/);
+  if(!match) return null;
+  const jours = parseInt(match[0]);
+  const d = dateDepart ? new Date(dateDepart) : new Date();
+  d.setDate(d.getDate()+jours);
+  return d.toISOString().slice(0,10);
+}
+
+async function openGenerateFactureVente(chantierId){
+  const {data:chantier} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
+  if(!chantier){ showToast("Chantier introuvable", 'error'); return; }
+  if(!chantier.client_id){ showToast("Ce chantier n'a pas de client lié", 'error'); return; }
+
+  _venteLigneMode = 'devis';
+  const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
+  _venteLignes = lignes;
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
@@ -4668,7 +4746,7 @@ async function openGenerateFactureVente(chantierId){
       <div id="fv-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px">
         ${!devisInfo?'<p style="font-size:13px;color:var(--gray-6)">Un devis lié est nécessaire pour calculer un acompte automatiquement. Passez en "Libre" ou "Situation" pour facturer sans devis.</p>':`
         <div class="form-grid">
-          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct||30}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
+          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct??30}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
           <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
         </div>
         <div style="margin-top:6px;font-size:12px;color:var(--gray-6)">La ligne ci-dessous est calculée automatiquement à partir du pourcentage — vous pouvez l'ajuster librement avant de créer la facture.</div>
@@ -4824,7 +4902,7 @@ const CGV_ARTICLES = [
 ];
 
 async function downloadPDF_FactureVente(facId){
-  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
+  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,adresse_livraison,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
   if(!f){ showToast("Facture introuvable", 'error'); return; }
   const {data:lignes} = await sb.from('lignes_facture_vente').select('*').eq('facture_vente_id',facId).order('ordre');
   const client = f.clients||{};
@@ -4839,7 +4917,7 @@ async function downloadPDF_FactureVente(facId){
     ],
     boxes: [
       {label:'Émetteur', lines:['LYNEO s.à.r.l','5, Z.A. Gadderscheier','L-4570 Niederkorn','TVA : LU37560222']},
-      {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim(), client.email||'']}
+      {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim(), client.email||''].concat(client.adresse_livraison?['Livraison/intervention : '+client.adresse_livraison]:[])}
     ],
     refRow: [
       {label:"Lieu d'intervention", value: f.chantiers_lyneo?.site_intervention || f.chantiers_lyneo?.adresse || f.chantiers_lyneo?.nom || '—'},
