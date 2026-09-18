@@ -1835,6 +1835,23 @@ async function openChantierModal(r=null){
   </div></div>`);
 }
 
+// Rend un chantier actif disponible automatiquement dans le système de
+// pointages (comme dans Odoo) — sans que l'administratif ait besoin de le
+// recréer à la main dans l'autre application.
+async function sincronizarChantierPointages(chantierId, nom, statut, codeExistant){
+  if(statut!=='actif') return; // on ne synchronise que les chantiers actifs
+  if(codeExistant) return; // déjà lié — on ne touche pas à un lien déjà configuré
+  try{
+    const {data:chantierRow} = await sb.from('chantiers_lyneo').select('numero').eq('id',chantierId).single();
+    const codeGenere = chantierRow?.numero;
+    if(!codeGenere) return;
+    const {error:ptErr} = await sbPT.from('chantiers').insert({code:codeGenere, nom:codeGenere+' — '+nom});
+    if(!ptErr){
+      await sb.from('chantiers_lyneo').update({code_pointages:codeGenere}).eq('id',chantierId);
+    }
+  }catch(e){ /* système de pointages indisponible pour le moment — on n'empêche pas la sauvegarde du chantier */ }
+}
+
 async function saveChantier(id){
   const nom = el('ch-nom').value.trim();
   const clientId = el('ch-client-id').value;
@@ -1842,15 +1859,18 @@ async function saveChantier(id){
   const {data:clientRow} = await sb.from('clients').select('nom').eq('id',clientId).single();
   const cpModal = el('ch-code-pt-modal');
   const numeroManuel = el('ch-numero').value.trim();
-  const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:el('ch-statut').value,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  const statutAtual = el('ch-statut').value;
+  const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   if(id){
     if(numeroManuel) data.numero = numeroManuel;
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
+    await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
     showToast('Chantier mis à jour');
   } else {
     const num = numeroManuel || (await sb.rpc('generate_chantier_number')).data;
     const devisIdOrigine = window._chantierFromDevisId||null;
     const {data:newChantier} = await sb.from('chantiers_lyneo').insert({...data,numero:num,devis_id:devisIdOrigine}).select().single();
+    if(newChantier) await sincronizarChantierPointages(newChantier.id, nom, statutAtual, cpModal?.value);
     if(devisIdOrigine && newChantier){
       await sb.from('devis').update({chantier_id:newChantier.id}).eq('id',devisIdOrigine);
       window._chantierFromDevisId = null;
@@ -5213,6 +5233,20 @@ async function openEmployeModal(r=null){
   </div></div>`);
 }
 
+// Rend un employé actif disponible automatiquement dans le système de
+// pointages (comme dans Odoo) — l'employé doit d'abord être créé dans l'ERP,
+// et devient ensuite utilisable pour le pointage sans double saisie.
+async function sincronizarEmployePointages(employeId, nomCompleto, actif, pointageIdExistant){
+  if(!actif) return;
+  if(pointageIdExistant) return; // déjà lié à un employé pointages existant — on ne touche pas
+  try{
+    const {data:novoEmp, error:ptErr} = await sbPT.from('employes').insert({nom:nomCompleto}).select().single();
+    if(!ptErr && novoEmp){
+      await sb.from('employes_rh').update({pointage_employe_id:novoEmp.id, pointage_employe_nom:nomCompleto}).eq('id',employeId);
+    }
+  }catch(e){ /* système de pointages indisponible pour le moment — on n'empêche pas la sauvegarde de l'employé */ }
+}
+
 async function saveEmploye(id){
   const nom = el('emp-nom').value.trim();
   if(!nom){ showToast("Nom obligatoire", 'error'); const b=el('btn-save-emp'); if(b) b.disabled=false; return; }
@@ -5220,10 +5254,12 @@ async function saveEmploye(id){
   const pointageSelect = el('emp-pointage-id');
   const pointageId = pointageSelect.value||null;
   const pointageNom = pointageId ? pointageSelect.options[pointageSelect.selectedIndex].text : null;
+  const prenom = el('emp-prenom').value;
+  const actif = el('emp-actif').value==='1';
 
   const data = {
-    nom, prenom: el('emp-prenom').value, poste: el('emp-poste').value,
-    actif: el('emp-actif').value==='1',
+    nom, prenom, poste: el('emp-poste').value,
+    actif,
     adresse: el('emp-adresse').value, code_postal: el('emp-cp').value, ville: el('emp-ville').value,
     email: el('emp-email').value, telephone: el('emp-tel').value,
     date_naissance: el('emp-naissance').value||null, lieu_naissance: el('emp-lieu-naissance').value,
@@ -5238,10 +5274,16 @@ async function saveEmploye(id){
     notes: el('emp-notes').value
   };
 
-  const {error} = id
-    ? await sb.from('employes_rh').update(data).eq('id',id)
-    : await sb.from('employes_rh').insert(data);
+  let novoEmployeId = id;
+  const {data:savedRow, error} = id
+    ? await sb.from('employes_rh').update(data).eq('id',id).select().single()
+    : await sb.from('employes_rh').insert(data).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-emp'); if(b) b.disabled=false; return; }
+  novoEmployeId = savedRow?.id||id;
+
+  const nomCompleto = (prenom?prenom+' ':'')+nom;
+  await sincronizarEmployePointages(novoEmployeId, nomCompleto, actif, pointageId);
+
   showToast(id?'Employé mis à jour':'Employé créé');
   closeModal();
   renderEmployesRH();
