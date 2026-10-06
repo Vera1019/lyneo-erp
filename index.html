@@ -490,8 +490,11 @@ html,body{max-width:100vw;overflow-x:hidden}
       </div>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-section">Principal</div>
+      <div class="nav-section">Tableau de bord</div>
       <div class="nav-item active" onclick="navigate('dashboard')" id="nav-dashboard"><i class="ti ti-layout-dashboard"></i> Tableau de bord</div>
+
+      <div class="nav-section">Chantiers</div>
+      <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
 
       <div class="nav-section">Ventes</div>
       <div class="nav-item" onclick="navigate('clients')" id="nav-clients"><i class="ti ti-building-store"></i> Clients</div>
@@ -499,20 +502,21 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="nav-item" onclick="navigate('factures_vente')" id="nav-factures_vente"><i class="ti ti-receipt"></i> Factures clients</div>
 
       <div class="nav-section">Achats</div>
+      <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
       <div class="nav-item" onclick="navigate('pos')" id="nav-pos"><i class="ti ti-shopping-cart"></i> Bons de commande</div>
       <div class="nav-item" onclick="navigate('receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> Réceptions (BL)</div>
       <div class="nav-item" onclick="navigate('factures')" id="nav-factures"><i class="ti ti-file-invoice"></i> Factures fourn.</div>
 
-      <div class="nav-section">Référentiels</div>
-      <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
-      <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
-      <div class="nav-item" onclick="navigate('interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions (SAV)</div>
-      <div class="nav-item" onclick="window.open('https://lyneo-pointages.netlify.app','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
+      <div class="nav-section">SAV</div>
+      <div class="nav-item" onclick="navigate('interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions</div>
 
       <div id="nav-admin-section" class="hidden">
+        <div class="nav-section">Ressources humaines</div>
+        <div class="nav-item" onclick="navigate('employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</div>
+        <div class="nav-item" onclick="window.open('https://lyneo-pointages.netlify.app','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
+
         <div class="nav-section">Administration</div>
         <div class="nav-item" onclick="navigate('utilisateurs')" id="nav-utilisateurs"><i class="ti ti-user-cog"></i> Utilisateurs</div>
-        <div class="nav-item" onclick="navigate('employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</div>
       </div>
     </nav>
     <div class="sidebar-user">
@@ -1414,6 +1418,7 @@ async function openChantierDetail(chantierId, tab){
 
   const tabs = [
     {id:'info', label:'Informations', icon:'ti-info-circle'},
+    {id:'rentabilite', label:'Rentabilité', icon:'ti-chart-line'},
     {id:'devis', label:'Devis ('+devisChantier.length+')', icon:'ti-file-description'},
     {id:'commandes', label:'Commandes fournisseur ('+pos.length+')', icon:'ti-shopping-cart'},
     {id:'fac_fourn', label:'Fact. fourn. ('+facsFourn.length+')', icon:'ti-file-invoice'},
@@ -1580,7 +1585,72 @@ async function openChantierDetail(chantierId, tab){
             +'</tr>').join('')
         + '</tbody></table></div>');
 
-  const tabContent = {info:tabInfo, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
+  // ── Rentabilité — tout est calculé en direct ici, jamais stocké en base ──
+  const devisAcceptes = devisChantier.filter(d=>d.statut==='accepte');
+  const caDevisPrevu = devisAcceptes.reduce((a,d)=>a+(parseFloat(d.montant_ht)||0),0);
+
+  const facsVenteValides = facsVente.filter(f=>f.statut!=='annulee');
+  const caFacture = facsVenteValides.reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
+
+  const facsVentePayees = facsVente.filter(f=>f.statut==='payee');
+  const caEncaisse = facsVentePayees.reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
+  const nbFacturesPartielles = facsVente.filter(f=>f.statut==='payee_partiel').length;
+
+  const facsFournValides = facsFourn.filter(f=>f.statut!=='annulee');
+  const coutsAchats = facsFournValides.reduce((a,f)=>{
+    const montant = parseFloat(f.montant_ht)||0;
+    return a + (f.statut==='avoir' ? -montant : montant);
+  },0);
+
+  const margeBrute = caFacture - coutsAchats;
+  const margePct = caFacture>0 ? (margeBrute/caFacture*100) : null;
+  const avancementPct = caDevisPrevu>0 ? Math.min(100,(caFacture/caDevisPrevu*100)) : null;
+  const margeCouleur = margeBrute>=0 ? 'var(--green)' : 'var(--red)';
+
+  const statCard = (label, valeur, couleur, sub)=>`
+    <div style="background:${couleur}11;border:1px solid ${couleur}33;border-radius:var(--radius);padding:16px">
+      <div style="font-size:11px;font-weight:700;color:${couleur};text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">${label}</div>
+      <div style="font-size:22px;font-weight:700;color:var(--gray-8)">${valeur}</div>
+      ${sub?`<div style="font-size:11.5px;color:var(--gray-5);margin-top:4px">${sub}</div>`:''}
+    </div>`;
+
+  const tabRentabilite = `
+    ${devisAcceptes.length===0?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> Aucun devis accepté lié à ce chantier — le "CA Devis (prévu)" et le % d'avancement ne peuvent pas être calculés.</div>`:''}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+      ${statCard('CA Devis (prévu)', fmt(caDevisPrevu), 'var(--blue)', devisAcceptes.length+' devis accepté(s)')}
+      ${statCard('CA Facturé', fmt(caFacture), 'var(--blue)', avancementPct!==null?avancementPct.toFixed(0)+'% du prévu':'—')}
+      ${statCard('CA Encaissé', fmt(caEncaisse), 'var(--green)', nbFacturesPartielles>0?nbFacturesPartielles+' facture(s) partiellement payée(s) — non comptée(s) ici':'Factures marquées "Payée" uniquement')}
+      ${statCard('Coûts (achats/fournisseurs)', fmt(coutsAchats), 'var(--orange)', facsFournValides.length+' facture(s) fournisseur')}
+    </div>
+
+    ${avancementPct!==null?`
+    <div style="margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-5);margin-bottom:4px">
+        <span>Avancement de la facturation</span><span>${avancementPct.toFixed(0)}%</span>
+      </div>
+      <div style="background:var(--gray-2);border-radius:6px;height:10px;overflow:hidden">
+        <div style="background:var(--blue);height:100%;width:${avancementPct}%;border-radius:6px"></div>
+      </div>
+    </div>`:''}
+
+    <div style="background:${margeCouleur}11;border:2px solid ${margeCouleur}44;border-radius:var(--radius);padding:20px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:${margeCouleur};text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Marge brute</div>
+          <div style="font-size:11.5px;color:var(--gray-5)">CA Facturé − Coûts achats/fournisseurs</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:32px;font-weight:700;color:${margeCouleur}">${fmt(margeBrute)}</div>
+          <div style="font-size:15px;font-weight:600;color:${margeCouleur}">${margePct!==null?margePct.toFixed(1)+'%':'—'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-info"><i class="ti ti-info-circle"></i> Le coût de la main d'œuvre n'est pas encore inclus dans ce calcul — la marge réelle est donc probablement inférieure à ce qui est affiché ici. Tous les montants sont calculés en direct à partir des devis/factures existants, jamais mémorisés.</div>
+  `;
+
+  const tabContent = {info:tabInfo, rentabilite:tabRentabilite, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -1839,17 +1909,28 @@ async function openChantierModal(r=null){
 // pointages (comme dans Odoo) — sans que l'administratif ait besoin de le
 // recréer à la main dans l'autre application.
 async function sincronizarChantierPointages(chantierId, nom, statut, codeExistant){
-  if(statut!=='actif') return; // on ne synchronise que les chantiers actifs
-  if(codeExistant) return; // déjà lié — on ne touche pas à un lien déjà configuré
+  if(statut!=='actif') return {ok:false, motif:'inactif'};
+  if(codeExistant) return {ok:false, motif:'deja_lie'};
   try{
     const {data:chantierRow} = await sb.from('chantiers_lyneo').select('numero').eq('id',chantierId).single();
     const codeGenere = chantierRow?.numero;
-    if(!codeGenere) return;
+    if(!codeGenere) return {ok:false, motif:'sans_numero'};
     const {error:ptErr} = await sbPT.from('chantiers').insert({code:codeGenere, nom:codeGenere+' — '+nom});
-    if(!ptErr){
-      await sb.from('chantiers_lyneo').update({code_pointages:codeGenere}).eq('id',chantierId);
-    }
-  }catch(e){ /* système de pointages indisponible pour le moment — on n'empêche pas la sauvegarde du chantier */ }
+    if(ptErr) return {ok:false, motif:'erreur_pointages', detail:ptErr.message};
+    await sb.from('chantiers_lyneo').update({code_pointages:codeGenere}).eq('id',chantierId);
+    return {ok:true, code:codeGenere};
+  }catch(e){
+    return {ok:false, motif:'exception', detail:e.message};
+  }
+}
+
+function avisarSincronizacaoPointages(resultado){
+  if(resultado.ok){
+    showToast('✓ Synchronisé avec les pointages — code '+resultado.code);
+  } else if(resultado.motif==='erreur_pointages' || resultado.motif==='exception'){
+    showToast("⚠ Chantier enregistré, mais la synchronisation avec les pointages a échoué : "+(resultado.detail||'raison inconnue')+" — vous pouvez lier le code manuellement dans l'onglet Informations.", 'error');
+  }
+  // Pour 'inactif' / 'deja_lie' / 'sans_numero' : pas de message, ce sont des cas normaux, pas des erreurs.
 }
 
 async function saveChantier(id){
@@ -1864,13 +1945,15 @@ async function saveChantier(id){
   if(id){
     if(numeroManuel) data.numero = numeroManuel;
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
-    await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
+    const resultadoSync = await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
     showToast('Chantier mis à jour');
+    setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   } else {
     const num = numeroManuel || (await sb.rpc('generate_chantier_number')).data;
     const devisIdOrigine = window._chantierFromDevisId||null;
     const {data:newChantier} = await sb.from('chantiers_lyneo').insert({...data,numero:num,devis_id:devisIdOrigine}).select().single();
-    if(newChantier) await sincronizarChantierPointages(newChantier.id, nom, statutAtual, cpModal?.value);
+    let resultadoSync = {ok:false, motif:'non_cree'};
+    if(newChantier) resultadoSync = await sincronizarChantierPointages(newChantier.id, nom, statutAtual, cpModal?.value);
     if(devisIdOrigine && newChantier){
       await sb.from('devis').update({chantier_id:newChantier.id}).eq('id',devisIdOrigine);
       window._chantierFromDevisId = null;
@@ -1878,6 +1961,7 @@ async function saveChantier(id){
     } else {
       showToast('Chantier créé — '+num);
     }
+    setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   }
   closeModal(); renderChantiers();
 }
@@ -3700,15 +3784,17 @@ async function openClientDetail(clientId){
   const chantierIds = chantiers.map(c=>c.id);
   const chantierMap = {}; chantiers.forEach(c=>chantierMap[c.id]=c);
 
-  // Factures clients, bons de commande et factures fournisseur liés à ces chantiers
-  const [facsVenteR, posR, facsFournR] = await Promise.all([
+  // Factures clients, bons de commande, factures fournisseur et interventions SAV liées
+  const [facsVenteR, posR, facsFournR, interventionsR] = await Promise.all([
     sb.from('factures_vente').select('*').eq('client_id',client.id).order('date_creation',{ascending:false}),
     chantierIds.length>0 ? sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('created_at',{ascending:false}) : Promise.resolve({data:[]}),
-    chantierIds.length>0 ? sb.from('factures').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('date_facture',{ascending:false}) : Promise.resolve({data:[]})
+    chantierIds.length>0 ? sb.from('factures').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('date_facture',{ascending:false}) : Promise.resolve({data:[]}),
+    sb.from('interventions_sav').select('*').eq('client_id',client.id).order('created_at',{ascending:false})
   ]);
   const facsVente = facsVenteR.data||[];
   const pos = posR.data||[];
   const facsFourn = facsFournR.data||[];
+  const interventionsClient = interventionsR.data||[];
 
   // Heures encodées, par chantier (via le système de pointages)
   let heuresParChantier = [];
@@ -3745,6 +3831,21 @@ async function openClientDetail(clientId){
           chantiers.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff;cursor:pointer" onclick="closeModal();openChantierDetail('${c.id}')">
             <span>${c.numero||''} — ${c.nom}</span>${bCH ? bCH(c.statut) : ''}
           </div>`).join('')}
+      </div>
+
+      <strong style="font-size:13px">Interventions SAV (${interventionsClient.length})</strong>
+      <div style="margin-top:8px;margin-bottom:20px">
+        ${interventionsClient.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune intervention SAV pour ce client</p>' :
+          `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Réf.</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Site</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Facturée</th></tr></thead>
+            <tbody>${interventionsClient.map(i=>`<tr style="cursor:pointer" onclick="closeModal();openInterventionDetail('${i.id}')">
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${i.ref}</strong>${i.astreinte?' <span class="badge badge-litige" style="font-size:10px">⚡</span>':''}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.nom_site?i.nom_site+' — ':''}${i.adresse_site||'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.date_intervention?fmtDate(i.date_intervention):fmtDate(i.created_at)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bSAV(i.statut)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.statut==='facturee'?'<i class="ti ti-check" style="color:var(--green)"></i> Oui':'—'}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
       </div>
 
       <strong style="font-size:13px">Heures encodées</strong>
@@ -5237,14 +5338,16 @@ async function openEmployeModal(r=null){
 // pointages (comme dans Odoo) — l'employé doit d'abord être créé dans l'ERP,
 // et devient ensuite utilisable pour le pointage sans double saisie.
 async function sincronizarEmployePointages(employeId, nomCompleto, actif, pointageIdExistant){
-  if(!actif) return;
-  if(pointageIdExistant) return; // déjà lié à un employé pointages existant — on ne touche pas
+  if(!actif) return {ok:false, motif:'inactif'};
+  if(pointageIdExistant) return {ok:false, motif:'deja_lie'};
   try{
     const {data:novoEmp, error:ptErr} = await sbPT.from('employes').insert({nom:nomCompleto}).select().single();
-    if(!ptErr && novoEmp){
-      await sb.from('employes_rh').update({pointage_employe_id:novoEmp.id, pointage_employe_nom:nomCompleto}).eq('id',employeId);
-    }
-  }catch(e){ /* système de pointages indisponible pour le moment — on n'empêche pas la sauvegarde de l'employé */ }
+    if(ptErr) return {ok:false, motif:'erreur_pointages', detail:ptErr.message};
+    await sb.from('employes_rh').update({pointage_employe_id:novoEmp.id, pointage_employe_nom:nomCompleto}).eq('id',employeId);
+    return {ok:true};
+  }catch(e){
+    return {ok:false, motif:'exception', detail:e.message};
+  }
 }
 
 async function saveEmploye(id){
@@ -5282,7 +5385,8 @@ async function saveEmploye(id){
   novoEmployeId = savedRow?.id||id;
 
   const nomCompleto = (prenom?prenom+' ':'')+nom;
-  await sincronizarEmployePointages(novoEmployeId, nomCompleto, actif, pointageId);
+  const resultadoSync = await sincronizarEmployePointages(novoEmployeId, nomCompleto, actif, pointageId);
+  setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
 
   showToast(id?'Employé mis à jour':'Employé créé');
   closeModal();
