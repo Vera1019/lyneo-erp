@@ -576,6 +576,36 @@ const fmt = n => new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR'}
 const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 // Arrondi au centime et totaux d'une facture : HT = somme des lignes arrondies, TVA calculée par taux sur le HT arrondi
 const arrondi2 = x => Math.round(((Number(x)||0)+Number.EPSILON)*100)/100;
+// ── TVA ─────────────────────────────────────────────────────────
+// 0 % est un taux valide : on ne remplace par 17 que si le taux est vraiment absent (et non « 0 »).
+const TVA_TAUX = [17,14,8,3,0];
+function tvaNum(v, repli=17){ const n = parseFloat(v); return isNaN(n) ? repli : n; }
+// TVA par défaut selon le pays du client : Luxembourg (ou pays non renseigné) → 17 %, autre pays → 0 %. Toujours modifiable à la main.
+function tvaDefautPays(pays){
+  const p = String(pays||'').trim();
+  if(!p) return 17;
+  return /^(lu|lux|luxembourg|luxemburg|luxemburgo|grand[\s-]*duch[ée]\s+de\s+luxembourg)$/i.test(p) ? 17 : 0;
+}
+// <select> de taux (la valeur courante est ajoutée à la liste si elle n'y est pas)
+function tvaSelectHTML(val, onchangeJs){
+  const v = tvaNum(val);
+  const liste = TVA_TAUX.includes(v) ? TVA_TAUX : [...TVA_TAUX, v].sort((a,b)=>b-a);
+  return `<select onchange="${onchangeJs}" title="Taux de TVA de la ligne" style="width:100%;padding:5px 2px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">${liste.map(t=>`<option value="${t}" ${t===v?'selected':''}>${t} %</option>`).join('')}</select>`;
+}
+// Taux commun à toutes les lignes (ou '' si les lignes ont des taux différents)
+function tvaCommune(lignes){
+  const taux = [...new Set((lignes||[]).filter(l=>l.type!=='section').map(l=>tvaNum(l.taux_tva)))];
+  return taux.length===1 ? String(taux[0]) : '';
+}
+function tvaGlobaleSelectHTML(id, onchangeJs){
+  return `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-6)">TVA de toutes les lignes
+    <select id="${id}" onchange="${onchangeJs}" style="padding:4px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"><option value="">— par ligne</option>${TVA_TAUX.map(t=>`<option value="${t}">${t} %</option>`).join('')}</select></span>`;
+}
+// Libellé de la ligne TVA des totaux : « TVA 17% » si toutes les lignes ont le même taux, sinon « TVA »
+function libelleTvaLignes(lignes){
+  const t = tvaCommune(lignes);
+  return t==='' ? 'TVA' : 'TVA '+t+'%';
+}
 function totauxFacture(lignes){
   let ht = 0; const parTaux = {};
   (lignes||[]).forEach(l=>{
@@ -2450,7 +2480,7 @@ async function savePO(marquerEnvoyee){
     po_id:po.id, ordre:i+1, description:l.description, reference_article:l.reference_article,
     quantite:parseFloat(l.quantite)||0, unite:l.unite,
     prix_unitaire_ht:parseFloat(l.prix_unitaire_ht)||0,
-    taux_tva:parseFloat(l.taux_tva)||17
+    taux_tva:tvaNum(l.taux_tva)
   })));
   if(marquerEnvoyee===true){
     await sb.from('purchase_orders_lyneo').update({statut:'envoyee',envoye_le:new Date().toISOString()}).eq('id',po.id);
@@ -3407,7 +3437,7 @@ async function saveFacLibre(){
     facture_id: fac.id, ordre: i+1,
     description: l.description, reference_article: l.reference_article||'',
     quantite: parseFloat(l.quantite)||0, unite: l.unite,
-    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
   showToast('Facture créée — '+numero);
@@ -3534,7 +3564,7 @@ async function loadLignesPourFac(poId){
     quantite: dejRecu[l.id]||0, // par défaut : la quantité déjà reçue (0 si rien n'a encore été livré)
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-    taux_tva: parseFloat(l.taux_tva)||17
+    taux_tva: tvaNum(l.taux_tva)
   }));
 
   if(_facLignesPO.length===0){
@@ -3551,7 +3581,7 @@ function renderFacLignesEdit(){
   if(!section) return;
 
   const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
 
   let html = '<div style="border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden">'
     +'<div style="background:var(--navy);padding:10px 16px;display:flex;align-items:center;justify-content:space-between">'
@@ -3617,7 +3647,7 @@ function renderFacLignesEdit(){
 
 function updateFacTotaux(){
   const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
   if(el('fac-ht')) el('fac-ht').value = totalHT.toFixed(2);
   if(el('fac-tva')) el('fac-tva').value = totalTVA.toFixed(2);
   if(el('fac-ttc')) el('fac-ttc').value = (totalHT+totalTVA).toFixed(2);
@@ -3695,7 +3725,7 @@ async function saveFac(){
   if(!po_id||!num||!date){ showToast("Commande, N° facture et date obligatoires", 'error'); return; }
 
   const totalHT = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+  const totalTVA = _facLignesPO.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
 
   // Use manual values if lignes are empty
   const mHT = parseFloat(el('fac-ht')?.value)||totalHT;
@@ -3722,7 +3752,7 @@ async function saveFac(){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     })));
     if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
@@ -3912,7 +3942,7 @@ function majSelectClient(selectId, c){
   const avant = opt ? {email:opt.dataset.email||'', tel:opt.dataset.tel||'', adresse:opt.dataset.adresse||''} : null;
   if(!opt){ opt = document.createElement('option'); opt.value = c.id; sel.appendChild(opt); }
   opt.textContent = c.nom;
-  opt.dataset.email = c.email||''; opt.dataset.tel = c.telephone||''; opt.dataset.adresse = c.adresse||''; opt.dataset.cond = c.conditions_paiement||'';
+  opt.dataset.email = c.email||''; opt.dataset.tel = c.telephone||''; opt.dataset.adresse = c.adresse||''; opt.dataset.cond = c.conditions_paiement||''; opt.dataset.pays = c.pays||'';
   sel.value = c.id;
   // Formulaire d'intervention : si le client a été modifié, les champs repris de sa fiche suivent (sauf s'ils ont été retouchés à la main)
   if(selectId==='int-client' && avant){
@@ -4225,8 +4255,9 @@ async function importDevisExcelDansModal(file){
       if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       // Ajoute les lignes importées à la suite de celles déjà présentes dans le formulaire
-      _devisLignes.principal = [..._devisLignes.principal, ...parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>r)];
-      _devisLignes.option = [..._devisLignes.option, ...parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>r)];
+      const tvaDef = window._tvaDefautDoc??17;
+      _devisLignes.principal = [..._devisLignes.principal, ...parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
+      _devisLignes.option = [..._devisLignes.option, ...parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
 
@@ -4354,7 +4385,7 @@ function renderDevisLignesBloc(bloc){
     if(r.type==='section'){
       const subtotal = devisSectionSubtotal(arr,i);
       return `<tr style="background:var(--gray-1)">
-        <td colspan="4" style="padding:8px 10px;border-bottom:1px solid var(--gray-3)">
+        <td colspan="5" style="padding:8px 10px;border-bottom:1px solid var(--gray-3)">
           <div style="display:flex;align-items:center">${moveBtns(i)}
           <input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" placeholder="Titre de la section..." style="width:100%;padding:4px 6px;border:none;background:transparent;font-weight:700;text-transform:uppercase;font-size:12.5px"/></div>
         </td>
@@ -4368,10 +4399,12 @@ function renderDevisLignesBloc(bloc){
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input value="${r.unite}" onchange="updDevisRow('${bloc}',${i},'unite',this.value)" style="width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;text-align:center"/></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="number" min="0" step="1" value="${r.quantite}" onchange="updDevisRow('${bloc}',${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:110px"><input type="number" min="0" step="0.01" value="${r.prix_unitaire_ht}" onchange="updDevisRow('${bloc}',${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+      <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:74px">${tvaSelectHTML(r.taux_tva, `updDevisRow('${bloc}',${i},'taux_tva',this.value)`)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(total)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delDevisRow('${bloc}',${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   }).join('');
+  majTvaGlobaleDevis();
   if(bloc==='principal') updateDevisTotaux();
   else {
     const optTotal = devisBlocTotal(_devisLignes.option);
@@ -4389,11 +4422,11 @@ function moveDevisRow(bloc, i, direction){
 }
 
 function addDevisSection(bloc){
-  _devisLignes[bloc].push({type:'section', description:'', unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:17});
+  _devisLignes[bloc].push({type:'section', description:'', unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:window._tvaDefautDoc??17});
   renderDevisLignesBloc(bloc);
 }
 function addDevisLigne(bloc){
-  _devisLignes[bloc].push({type:'ligne', description:'', unite:'FF', quantite:1, prix_unitaire_ht:0, taux_tva:17});
+  _devisLignes[bloc].push({type:'ligne', description:'', unite:'FF', quantite:1, prix_unitaire_ht:0, taux_tva:window._tvaDefautDoc??17});
   renderDevisLignesBloc(bloc);
 }
 function delDevisRow(bloc,i){
@@ -4403,6 +4436,33 @@ function delDevisRow(bloc,i){
 function updDevisRow(bloc,i,field,val){
   _devisLignes[bloc][i][field]=val;
   renderDevisLignesBloc(bloc);
+}
+// Sélecteur « TVA de toutes les lignes » du devis : affiche le taux commun (ou « par ligne »)
+function majTvaGlobaleDevis(){
+  const sel = el('dv-tva-all'); if(!sel) return;
+  sel.value = tvaCommune([..._devisLignes.principal, ..._devisLignes.option].filter(l=>l.type==='ligne'));
+}
+function appliquerTvaGlobaleDevis(v){
+  if(v==='') return;
+  ['principal','option'].forEach(b=>_devisLignes[b].forEach(l=>{ l.taux_tva = Number(v); }));
+  renderDevisLignesBloc('principal'); renderDevisLignesBloc('option');
+}
+// Client choisi/changé : nouvelle TVA par défaut (17 % Luxembourg, 0 % ailleurs). Les lignes qui avaient encore l'ancien défaut suivent ;
+// celles modifiées à la main ne bougent pas.
+function majTvaDefautDevis(){
+  const o = el('dv-client')?.selectedOptions[0];
+  const ancien = window._tvaDefautDoc ?? 17;
+  const nouveau = (o && o.value) ? tvaDefautPays(o.dataset.pays) : 17;
+  window._tvaDefautDoc = nouveau;
+  if(nouveau!==ancien){
+    ['principal','option'].forEach(b=>_devisLignes[b].forEach(l=>{ if(tvaNum(l.taux_tva)===ancien) l.taux_tva = nouveau; }));
+    renderDevisLignesBloc('principal'); renderDevisLignesBloc('option');
+  }
+  const info = el('dv-tva-info');
+  if(info){
+    const pays = (o && o.value && o.dataset.pays) ? o.dataset.pays : '';
+    info.textContent = (o && o.value) ? `Pays du client : ${pays||'Luxembourg'} → TVA ${nouveau} % par défaut (modifiable ligne par ligne)` : '';
+  }
 }
 function updateDevisTotaux(){
   const totalHT = devisBlocTotal(_devisLignes.principal);
@@ -4417,11 +4477,14 @@ function updateDevisTotaux(){
 async function openDevisModal(d=null){
   const isEdit = !!d;
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
-    sb.from('clients').select('id,nom').eq('actif',true).order('nom'),
+    sb.from('clients').select('id,nom,pays').eq('actif',true).order('nom'),
     sb.from('chantiers_lyneo').select('id,numero,nom').order('nom')
   ]);
   const clients = clientsData||[];
   const chantiers = chantiersData||[];
+  // TVA par défaut du devis = celle du pays du client (17 % si Luxembourg ou non renseigné, 0 % sinon)
+  const clientDevis = d ? clients.find(c=>c.id===d.client_id) : null;
+  window._tvaDefautDoc = clientDevis ? tvaDefautPays(clientDevis.pays) : 17;
 
   if(isEdit){
     const {data:lignes} = await sb.from('lignes_devis').select('*').eq('devis_id',d.id).order('ordre');
@@ -4438,12 +4501,13 @@ async function openDevisModal(d=null){
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Client *</label>
           <div style="display:flex;gap:6px">
-            <select id="dv-client" style="flex:1">
+            <select id="dv-client" style="flex:1" onchange="majTvaDefautDevis()">
               <option value="">— Sélectionner —</option>
-              ${clients.map(c=>`<option value="${c.id}" ${d?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+              ${clients.map(c=>`<option value="${c.id}" data-pays="${(c.pays||'').replace(/"/g,'&quot;')}" ${d?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
             </select>
             ${boutonsClientRapide('dv-client')}
           </div>
+          <div id="dv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin-top:4px"></div>
         </div>
         <div class="form-group"><label class="field-label">Chantier</label>
           <select id="dv-chantier"><option value="">— Aucun (pas encore créé) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${c.numero||''} — ${c.nom}</option>`).join('')}</select>
@@ -4461,7 +4525,8 @@ async function openDevisModal(d=null){
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes du devis</strong>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          ${tvaGlobaleSelectHTML('dv-tva-all','appliquerTvaGlobaleDevis(this.value)')}
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dv-excel-input-modal').click()"><i class="ti ti-file-spreadsheet"></i> Importer Excel</button>
           <input type="file" id="dv-excel-input-modal" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcelDansModal(this.files[0]);this.value=''"/>
           <button class="btn btn-secondary btn-sm" onclick="addDevisSection('principal')"><i class="ti ti-folder-plus"></i> Section</button>
@@ -4475,6 +4540,7 @@ async function openDevisModal(d=null){
             <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:70px">Uté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:110px">PV Unitaire</th>
+            <th style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:74px">TVA</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:110px">Prix Total</th>
             <th style="width:34px"></th>
           </tr></thead>
@@ -4497,6 +4563,7 @@ async function openDevisModal(d=null){
             <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:70px">Uté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:110px">PV Unitaire</th>
+            <th style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:74px">TVA</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:110px">Prix Total</th>
             <th style="width:34px"></th>
           </tr></thead>
@@ -4516,6 +4583,7 @@ async function openDevisModal(d=null){
 
   renderDevisLignesBloc('principal');
   renderDevisLignesBloc('option');
+  majTvaDefautDevis();
 }
 
 async function saveDevis(id){
@@ -4566,7 +4634,7 @@ async function saveDevis(id){
         description: r.description,
         unite: r.unite||'', quantite: r.type==='ligne'?(parseFloat(r.quantite)||0):null,
         prix_unitaire_ht: r.type==='ligne'?(parseFloat(r.prix_unitaire_ht)||0):null,
-        taux_tva: parseFloat(r.taux_tva)||17
+        taux_tva: tvaNum(r.taux_tva)
       };
       if(r._db_id) await sb.from('lignes_devis').update(rowData).eq('id',r._db_id);
       else await sb.from('lignes_devis').insert(rowData);
@@ -4793,7 +4861,7 @@ async function renderFacturesVente(search=''){
 
 async function openNewFactureVenteLibre(){
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
-    sb.from('clients').select('id,nom,conditions_paiement').eq('actif',true).order('nom'),
+    sb.from('clients').select('id,nom,conditions_paiement,pays').eq('actif',true).order('nom'),
     sb.from('chantiers_lyneo').select('id,numero,nom,client_id').order('nom')
   ]);
   const clients = clientsData||[];
@@ -4802,6 +4870,7 @@ async function openNewFactureVenteLibre(){
   _venteLigneMode = 'libre';
   window._devisInfoForFv = null;   // pas de devis "hérité" d'une facture précédente
   window._condClientFv = '';
+  window._tvaDefautFv = 17; window._paysClientFv = ''; window._clientSelFv = false;
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle facture client</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -4811,7 +4880,7 @@ async function openNewFactureVenteLibre(){
           <div style="display:flex;gap:6px">
             <select id="fvl-client" style="flex:1" onchange="filtrerChantiersParClient()">
               <option value="">— Sélectionner —</option>
-              ${clients.map(c=>`<option value="${c.id}" data-cond="${c.conditions_paiement||''}">${c.nom}</option>`).join('')}
+              ${clients.map(c=>`<option value="${c.id}" data-cond="${c.conditions_paiement||''}" data-pays="${(c.pays||'').replace(/"/g,'&quot;')}">${c.nom}</option>`).join('')}
             </select>
             ${boutonsClientRapide('fvl-client')}
           </div>
@@ -4840,15 +4909,18 @@ async function openNewFactureVenteLibre(){
       ${blocAvancementHTML()}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
-        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('fv-tva-all','appliquerTvaGlobaleFv(this.value)')}
+        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       </div>
+      <div id="fv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px"></div>
       <div style="overflow-x:auto;max-width:100%">
-        <table style="width:100%;border-collapse:collapse;min-width:560px">
+        <table style="width:100%;border-collapse:collapse;min-width:640px">
           <thead><tr style="background:var(--gray-1)">
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:130px">Réf.</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
+            <th style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:76px">TVA</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
             <th style="width:34px"></th>
           </tr></thead>
@@ -4888,7 +4960,7 @@ async function syncAcompteLibre(){
 
   if(!isAcompte){
     if(block) block.style.display = 'none';
-    _venteLignes = lignes.length>0 ? lignes : [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+    _venteLignes = lignes.length>0 ? lignes : [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautFv??17}];
     window._venteLignesNormales = _venteLignes.slice();
     renderVenteLignesLibre();
     majBlocAvancement();
@@ -4982,7 +5054,7 @@ function updateAcompteMontantLibre(){
   if(!devisInfo) return;
   const pct = parseFloat(el('fv-acompte-pct')?.value)||0;
   const qte = Math.round(pct)/100;
-  const tauxTva = devisInfo.montant_ht>0 ? (parseFloat(devisInfo.montant_tva)/parseFloat(devisInfo.montant_ht))*100 : 17;
+  const tauxTva = tauxTvaDepuisDevis(devisInfo);
 
   const ligneAcompte = {
     ligne_devis_id: null,
@@ -4990,7 +5062,7 @@ function updateAcompteMontantLibre(){
     unite: '%',
     quantite: qte,
     prix_unitaire_ht: parseFloat(devisInfo.montant_ht)||0,
-    taux_tva: Math.round(tauxTva),
+    taux_tva: tauxTva,
     _isAcompte: true
   };
 
@@ -5016,6 +5088,15 @@ function filtrerChantiersParClient(){
   const co = el('fvl-client').selectedOptions[0];
   window._condClientFv = (co && co.value && co.dataset.cond) || '';
   majEcheanceAuto();
+  // TVA par défaut selon le pays du client : les lignes libres qui avaient encore l'ancien défaut suivent
+  const ancienTva = window._tvaDefautFv ?? 17;
+  window._clientSelFv = !!(co && co.value);
+  window._paysClientFv = (co && co.value && co.dataset.pays) || '';
+  window._tvaDefautFv = window._clientSelFv ? tvaDefautPays(window._paysClientFv) : 17;
+  if(window._tvaDefautFv!==ancienTva){
+    _venteLignes.forEach(l=>{ if(!l.ligne_devis_id && !l._isAcompte && tvaNum(l.taux_tva)===ancienTva) l.taux_tva = window._tvaDefautFv; });
+    renderVenteLignesLibre();
+  } else majTvaGlobaleFv();
 }
 
 function renderVenteLignesLibre(){
@@ -5026,6 +5107,7 @@ function renderVenteLignesLibre(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="number" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_venteLignes.length>1?`<button onclick="delVenteLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
   </tr>`).join('');
@@ -5035,6 +5117,7 @@ function renderVenteLignesLibre(){
     <div class="totaux-row"><span>Total HT</span><span>${fmt(tot.ht)}</span></div>
     <div class="totaux-row"><span>TVA</span><span>${fmt(tot.tva)}</span></div>
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(tot.ttc)}</span></div>`;
+  majTvaGlobaleFv();
 }
 function delVenteLigneLibre(i){ _venteLignes.splice(i,1); renderVenteLignesLibre(); }
 
@@ -5082,7 +5165,7 @@ async function saveFactureVenteLibre(){
   await sb.from('lignes_facture_vente').insert(_venteLignes.map((l,i)=>({
     facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: i+1,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite, quantite: parseFloat(l.quantite)||0,
-    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
   showToast('Facture client créée — '+num);
@@ -5145,7 +5228,7 @@ async function chargerLignesDevisRestantes(devisId){
       deja_facture: qteFacturee,
       quantite: restant,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     };
   });
   return {devisInfo:devis, lignes};
@@ -5186,8 +5269,11 @@ async function openGenerateFactureVente(chantierId){
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
-  const {data:clCond} = await sb.from('clients').select('conditions_paiement').eq('id',chantier.client_id).single();
+  const {data:clCond} = await sb.from('clients').select('conditions_paiement,pays').eq('id',chantier.client_id).single();
   window._condClientFv = (clCond && clCond.conditions_paiement) || '';
+  window._paysClientFv = (clCond && clCond.pays) || '';
+  window._tvaDefautFv = tvaDefautPays(window._paysClientFv);
+  window._clientSelFv = true;
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -5227,10 +5313,12 @@ async function openGenerateFactureVente(chantierId){
       ${!devisInfo?'<div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Ce chantier n\'a pas de devis lié — ajoutez les lignes manuellement.</div>':''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
-        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('fv-tva-all','appliquerTvaGlobaleFv(this.value)')}
+        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       </div>
+      <div id="fv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px"></div>
       <div style="overflow-x:auto;max-width:100%">
-        <table style="width:100%;border-collapse:collapse;min-width:680px">
+        <table style="width:100%;border-collapse:collapse;min-width:740px">
           <thead><tr style="background:var(--gray-1)">
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:130px">Réf.</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
@@ -5238,6 +5326,7 @@ async function openGenerateFactureVente(chantierId){
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Déjà fact.</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">À facturer</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
+            <th style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:76px">TVA</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
             <th style="width:34px"></th>
           </tr></thead>
@@ -5290,7 +5379,7 @@ function updateAcompteMontant(){
   if(!devisInfo) return;
   const pct = parseFloat(el('fv-acompte-pct')?.value)||0;
   const qte = Math.round(pct)/100;
-  const tauxTva = devisInfo.montant_ht>0 ? (parseFloat(devisInfo.montant_tva)/parseFloat(devisInfo.montant_ht))*100 : 17;
+  const tauxTva = tauxTvaDepuisDevis(devisInfo);
 
   const ligneAcompte = {
     ligne_devis_id: null,
@@ -5298,7 +5387,7 @@ function updateAcompteMontant(){
     unite: '%',
     quantite: qte,
     prix_unitaire_ht: parseFloat(devisInfo.montant_ht)||0,
-    taux_tva: Math.round(tauxTva)
+    taux_tva: tauxTva
   };
 
   // Remplace la ligne d'acompte existante (s'il y en a une) au lieu d'en ajouter une nouvelle à chaque changement
@@ -5320,6 +5409,7 @@ function renderVenteLignes(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.deja_facture!==undefined?l.deja_facture+' '+l.unite:'—'}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="number" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delVenteLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
   </tr>`).join('');
@@ -5329,8 +5419,28 @@ function renderVenteLignes(){
     <div class="totaux-row"><span>Total HT</span><span>${fmt(tot.ht)}</span></div>
     <div class="totaux-row"><span>TVA</span><span>${fmt(tot.tva)}</span></div>
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(tot.ttc)}</span></div>`;
+  majTvaGlobaleFv();
 }
-function addVenteLigne(){ _venteLignes.push({description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderVenteLignes(); }
+// Taux de TVA de l'acompte : celui du devis (TVA / HT) ; à défaut, TVA par défaut du pays du client
+function tauxTvaDepuisDevis(devisInfo){
+  const ht = parseFloat(devisInfo.montant_ht), tva = parseFloat(devisInfo.montant_tva);
+  if(ht>0 && !isNaN(tva)) return Math.round(tva/ht*100);
+  return window._tvaDefautFv ?? 17;
+}
+function infoTvaFv(){
+  const i = el('fv-tva-info'); if(!i) return;
+  i.textContent = window._clientSelFv ? `Pays du client : ${window._paysClientFv||'Luxembourg'} → TVA ${window._tvaDefautFv??17} % par défaut` : '';
+}
+function majTvaGlobaleFv(){
+  const sel = el('fv-tva-all'); if(sel) sel.value = tvaCommune(_venteLignes);
+  infoTvaFv();
+}
+function appliquerTvaGlobaleFv(v){
+  if(v==='') return;
+  _venteLignes.forEach(l=>{ l.taux_tva = Number(v); });
+  (_venteLigneMode==='libre' ? renderVenteLignesLibre : renderVenteLignes)();
+}
+function addVenteLigne(){ _venteLignes.push({description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautFv??17}); (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
 function delVenteLigne(i){ _venteLignes.splice(i,1); renderVenteLignes(); }
 function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
 
@@ -5364,7 +5474,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
   await sb.from('lignes_facture_vente').insert(lignesAFacturer.map((l,i)=>({
     facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: i+1,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite, quantite: parseFloat(l.quantite)||0,
-    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
   showToast('Facture client créée — '+num);
@@ -5433,7 +5543,7 @@ async function downloadPDF_FactureVente(facId){
     },
     totals: [
       {label:'Sous-total HT', value: fmt(f.total_ht)},
-      {label:'TVA', value: fmt(f.total_tva)},
+      {label: libelleTvaLignes(lignes), value: fmt(f.total_tva)},
       {label:'TOTAL', value: fmt(f.total_ttc), bold:true}
     ],
     notesBlock: f.observations ? {title:'Observations', text: f.observations} : null,
@@ -6438,11 +6548,13 @@ async function openInterventionDetail(interventionId){
 
 // ── FACTURATION SAV (réutilise factures_vente) ────────────────
 async function openFactureSAVModal(interventionId){
-  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,tarifs_sav,conditions_paiement)').eq('id',interventionId).single();
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,tarifs_sav,conditions_paiement,pays)').eq('id',interventionId).single();
   if(!i){ showToast("Intervention introuvable", 'error'); return; }
   const tarifs = i.clients?.tarifs_sav || {};
   window._condClientFv = i.clients?.conditions_paiement || '';
   window._devisInfoForFv = null;
+  window._paysClientSav = i.clients?.pays || '';
+  window._tvaDefautSav = tvaDefautPays(window._paysClientSav);
 
   _sav_venteLignes = [];
   // Contexte mémorisé pour saveFactureSAV : devis d'origine et centre de coûts de l'intervention
@@ -6462,7 +6574,7 @@ async function openFactureSAVModal(interventionId){
   }
   echeanceDefaut = calculerEcheanceDepuisConditions(today(), condPaiementFv()) || '';
   if(!devisInfoSav && i.astreinte){
-    _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:17});
+    _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:window._tvaDefautSav??17});
   }
   const toutFacture = devisInfoSav && _sav_venteLignes.length>0 && _sav_venteLignes.every(l=>(parseFloat(l.quantite)||0)===0);
 
@@ -6477,8 +6589,10 @@ async function openFactureSAVModal(interventionId){
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
-        <button class="btn btn-secondary btn-sm" onclick="addSavLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('sav-tva-all','appliquerTvaGlobaleSav(this.value)')}
+        <button class="btn btn-secondary btn-sm" onclick="addSavLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       </div>
+      <div id="sav-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px">Pays du client : ${i.clients?.pays||'Luxembourg'} → TVA ${tvaDefautPays(i.clients?.pays)} % par défaut (modifiable ligne par ligne)</div>
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:600px">
           <thead><tr style="background:var(--gray-1)">
@@ -6486,6 +6600,7 @@ async function openFactureSAVModal(interventionId){
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:70px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
+            <th style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:76px">TVA</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
             <th style="width:34px"></th>
           </tr></thead>
@@ -6511,6 +6626,7 @@ function renderSavLignes(tarifs){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${String(l.description||'').replace(/"/g,'&quot;')}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${l.unite||''} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="number" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updSavLigne(${idx},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delSavLigne(${idx})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
   </tr>`).join('');
@@ -6521,8 +6637,14 @@ function renderSavLignes(tarifs){
     <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
     <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+  const g = el('sav-tva-all'); if(g) g.value = tvaCommune(_sav_venteLignes);
 }
-function addSavLigne(){ _sav_venteLignes.push({categorie:ARTICLES_SAV[0],description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderSavLignes(); }
+function addSavLigne(){ _sav_venteLignes.push({categorie:ARTICLES_SAV[0],description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautSav??17}); renderSavLignes(); }
+function appliquerTvaGlobaleSav(v){
+  if(v==='') return;
+  _sav_venteLignes.forEach(l=>{ l.taux_tva = Number(v); });
+  renderSavLignes();
+}
 function delSavLigne(i){ _sav_venteLignes.splice(i,1); renderSavLignes(); }
 async function updSavLigne(idx,field,value,isTarif){
   _sav_venteLignes[idx][field]=value;
@@ -6564,7 +6686,7 @@ async function saveFactureSAV(interventionId, clientId){
   await sb.from('lignes_facture_vente').insert(lignesAFacturer.map((l,idx)=>({
     facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: idx+1, categorie: l.categorie,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite,
-    quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
+    quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
   await sb.from('interventions_sav').update({statut:'facturee'}).eq('id',interventionId);
@@ -6864,7 +6986,7 @@ async function saveEditPO(poId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     }).eq('id', l._db_id);
     if(updErr){ showToast('Erreur: '+updErr.message, 'error'); return; }
   }
@@ -6878,7 +7000,7 @@ async function saveEditPO(poId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     })));
     if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
   }
@@ -6920,7 +7042,7 @@ async function openFacFromPO(poId){
     quantite: dejRecu[l.id]||0, // par défaut : la quantité déjà reçue (0 si rien n'a encore été livré)
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-    taux_tva: parseFloat(l.taux_tva)||17,
+    taux_tva: tvaNum(l.taux_tva),
     total_ht: parseFloat(l.total_ht)||0
   }));
 
@@ -6932,7 +7054,7 @@ async function openFacFromPO(poId){
 
   const renderFacLines = () => {
     const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-    const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+    const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
     const tbody = el('fac-po-lines-body');
     if(!tbody) return;
     tbody.innerHTML = _facFromPoLignes.map((l,i)=>{
@@ -6974,7 +7096,7 @@ async function openFacFromPO(poId){
   window.renderFacPOLines = renderFacLines;
 
   const totalHT0 = _facFromPoLignes.reduce((a,l)=>a+l.total_ht,0);
-  const totalTVA0 = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+  const totalTVA0 = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
@@ -7049,7 +7171,7 @@ async function saveFacFromPO(poId){
   if(!num||!date){ showToast("N° facture et date obligatoires", 'error'); return; }
 
   const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||17)/100,0);
+  const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id,fournisseur_id').eq('id',poId).single();
 
@@ -7078,7 +7200,7 @@ async function saveFacFromPO(poId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     })));
     if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
@@ -7145,7 +7267,7 @@ async function openEditFacLignes(facId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite||'u',
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     }));
   }
 
@@ -7261,7 +7383,7 @@ async function saveEditFac(facId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     }).eq('id', l._db_id);
     if(updErr){ showToast('Erreur: '+updErr.message, 'error'); return; }
   }
@@ -7275,7 +7397,7 @@ async function saveEditFac(facId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: parseFloat(l.taux_tva)||17
+      taux_tva: tvaNum(l.taux_tva)
     })));
     if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
   }
