@@ -4903,6 +4903,7 @@ async function openNewFactureVenteLibre(){
             ${chantiers.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}">${c.numero||''} — ${c.nom}</option>`).join('')}
           </select>
         </div>
+        <div class="form-group full" id="fvl-devis-wrap" style="display:none"></div>
         <div class="form-group"><label class="field-label">Type de facture</label>
           <select id="fv-type" onchange="syncAcompteLibre()">
             <option value="acompte">Acompte</option>
@@ -4955,17 +4956,28 @@ async function syncAcompteLibre(){
   const block = el('fvl-acompte-block');
   const chantierId = el('fvl-chantier')?.value;
 
+  const wrap = el('fvl-devis-wrap');
   if(!chantierId){
     window._devisInfoForFv = null;
+    window._devisChantierFv = null;
+    if(wrap){ wrap.style.display='none'; wrap.innerHTML=''; }
     if(block) block.style.display = isAcompte ? 'block' : 'none';
     if(isAcompte && block){ block.innerHTML = "<p style=\"font-size:13px;color:var(--gray-6)\">Choisissez un chantier ci-dessus pour calculer l'acompte à partir de son devis.</p>"; }
     majBlocAvancement();
     return;
   }
 
-  const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
+  // Devis choisi dans la liste, tant qu'on reste sur le même chantier (sinon : choix automatique)
+  const devisChoisi = (window._devisChantierFv===chantierId && el('fv-devis')) ? el('fv-devis').value : null;
+  const {devisInfo, lignes, devisListe} = await chargerDonneesDevisPourFacture(chantierId, devisChoisi);
+  window._devisChantierFv = chantierId;
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = lignes.slice();
+  // Le chantier a plusieurs devis : sélecteur « Devis à facturer »
+  if(wrap){
+    if(devisListe && devisListe.length>1){ wrap.style.display=''; wrap.innerHTML = devisSelectFvHTML(devisListe, devisInfo?devisInfo.id:'', 'syncAcompteLibre()'); }
+    else { wrap.style.display='none'; wrap.innerHTML=''; }
+  }
 
   // Échéance : conditions du client (ou, à défaut, du devis), pour tous les types
   majEcheanceAuto();
@@ -5193,23 +5205,102 @@ async function saveFactureVenteLibre(){
   rafraichirPage();
 }
 
-// Trouve le devis lié à un chantier (dans les deux sens), calcule les quantités
-// restantes à facturer pour chaque ligne, et renvoie tout ce qu'il faut pour
-// pré-remplir n'importe quel formulaire de facture client (Acompte, Situation, Solde...).
-async function chargerDonneesDevisPourFacture(chantierId){
-  const {data:chantier} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
-  if(!chantier) return {devisInfo:null, lignes:[]};
+// Liste les devis qu'on peut facturer pour un chantier : ceux qui lui sont rattachés (devis.chantier_id)
+// et le devis d'origine du chantier (chantier.devis_id), sauf les devis refusés ou expirés.
+// Le devis d'origine vient en premier, puis les autres par numéro.
+async function listerDevisFacturablesChantier(chantier){
+  const {data:parChantier} = await sb.from('devis').select('id,numero,objet,statut,montant_ht,conditions_paiement,created_at').eq('chantier_id',chantier.id);
+  let liste = (parChantier||[]).slice();
+  if(chantier.devis_id && !liste.some(d=>d.id===chantier.devis_id)){
+    const {data:origine} = await sb.from('devis').select('id,numero,objet,statut,montant_ht,conditions_paiement,created_at').eq('id',chantier.devis_id).single();
+    if(origine) liste.push(origine);
+  }
+  liste = liste.filter(d=>!['refuse','expire'].includes(d.statut));
+  liste.sort((a,b)=> (a.id===chantier.devis_id ? -1 : 0) - (b.id===chantier.devis_id ? -1 : 0) || String(a.numero||'').localeCompare(String(b.numero||'')));
+  return liste;
+}
 
-  let devisId = chantier.devis_id||null;
-  if(!devisId){
-    const {data:devisParChantier} = await sb.from('devis').select('id').eq('chantier_id',chantierId).eq('statut','accepte').order('created_at',{ascending:false}).limit(1);
-    if(devisParChantier && devisParChantier.length>0){
-      devisId = devisParChantier[0].id;
-      await sb.from('chantiers_lyneo').update({devis_id:devisId}).eq('id',chantierId);
+// Trouve le devis à facturer pour un chantier, calcule les quantités restantes à facturer
+// pour chaque ligne, et renvoie tout ce qu'il faut pour pré-remplir n'importe quel formulaire
+// de facture client (Acompte, Situation, Solde...).
+// Un chantier peut avoir plusieurs devis : devisIdChoisi permet d'en choisir un. Sans choix, on prend
+// le devis d'origine du chantier s'il reste quelque chose à facturer dessus, sinon le premier devis qui en a encore.
+async function chargerDonneesDevisPourFacture(chantierId, devisIdChoisi){
+  const {data:chantier} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
+  if(!chantier) return {devisInfo:null, lignes:[], devisListe:[]};
+
+  const devisListe = await listerDevisFacturablesChantier(chantier);
+  if(!devisListe.length) return {devisInfo:null, lignes:[], devisListe:[]};
+
+  let choisi = (devisIdChoisi && devisListe.some(d=>d.id===devisIdChoisi)) ? devisIdChoisi : null;
+  let donnees = null;
+  if(!choisi){
+    if(devisListe.length===1) choisi = devisListe[0].id;
+    else {
+      for(const d of devisListe){
+        const r = await chargerLignesDevisRestantes(d.id);
+        const resteHT = (r.lignes||[]).reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+        if(resteHT>0.005){ choisi = d.id; donnees = r; break; }
+      }
+      if(!choisi) choisi = devisListe[0].id;   // tout est déjà facturé : on reste sur le devis d'origine
     }
   }
-  if(!devisId) return {devisInfo:null, lignes:[]};
-  return chargerLignesDevisRestantes(devisId);
+  if(!donnees) donnees = await chargerLignesDevisRestantes(choisi);
+  // Le chantier n'avait pas de devis d'origine : on lui rattache le devis retenu (comme avant)
+  if(!chantier.devis_id && donnees.devisInfo && donnees.devisInfo.statut==='accepte'){
+    await sb.from('chantiers_lyneo').update({devis_id:donnees.devisInfo.id}).eq('id',chantierId);
+  }
+  return {...donnees, devisListe};
+}
+
+// Sélecteur « Devis à facturer » (affiché seulement quand le chantier a plusieurs devis)
+function devisSelectFvHTML(liste, selId, onchangeJs){
+  const esc = v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return `<label class="field-label">Devis à facturer <span style="font-weight:400;text-transform:none">(ce chantier a ${liste.length} devis)</span></label>
+    <select id="fv-devis" onchange="${onchangeJs}">${liste.map(d=>`<option value="${d.id}"${d.id===selId?' selected':''}>${esc(d.numero)} — ${esc((d.objet||'').slice(0,50))} — ${fmt(d.montant_ht)} HT${d.statut && d.statut!=='accepte' ? ' ('+esc(STATUT_DV[d.statut]||d.statut)+')' : ''}</option>`).join('')}</select>`;
+}
+
+// Rappel des acomptes déjà facturés sur un devis (pour ne pas facturer deux fois la même part)
+async function alerteAcomptesFvHTML(devisInfo){
+  if(!devisInfo) return '';
+  const {data:ac} = await sb.from('factures_vente').select('numero,total_ht').eq('devis_id',devisInfo.id).eq('type_facture','acompte').neq('statut','annulee');
+  const acomptesDeja = ac||[];
+  if(!acomptesDeja.length) return '';
+  const sommeAc = acomptesDeja.reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
+  const acomptePct = parseFloat(devisInfo.montant_ht)>0 ? Math.round(sommeAc/parseFloat(devisInfo.montant_ht)*1000)/10 : 0;
+  return `<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Acompte déjà facturé sur ce devis : ${acomptesDeja.map(a=>a.numero+' ('+fmt(a.total_ht)+' HT)').join(', ')}${acomptePct?' = '+acomptePct+' % du devis':''}. Cette part est déjà décomptée de « À facturer » : la quantité proposée est ce qu'il reste à facturer.</div>`;
+}
+
+// Contenu du bloc « Acompte » du formulaire de facture de chantier
+function acompteInnerFv(devisInfo){
+  if(!devisInfo) return '<p style="font-size:13px;color:var(--gray-6)">Un devis lié est nécessaire pour calculer un acompte automatiquement. Passez en "Libre" ou "Situation" pour facturer sans devis.</p>';
+  return `<div class="form-grid">
+          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct??30}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
+          <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
+        </div>
+        <div style="margin-top:6px;font-size:12px;color:var(--gray-6)">La ligne ci-dessous est calculée automatiquement à partir du pourcentage — vous pouvez l'ajuster librement avant de créer la facture.</div>`;
+}
+
+// Le chantier a plusieurs devis : on change de devis dans le formulaire « Nouvelle facture client » (facture de chantier)
+async function changerDevisFv(devisId){
+  const ancien = window._devisInfoForFv;
+  const {devisInfo, lignes} = await chargerLignesDevisRestantes(devisId);
+  if(!devisInfo){ showToast("Devis introuvable", 'error'); return; }
+  window._devisInfoForFv = devisInfo;
+  window._venteLignesNormales = lignes.slice();
+  // la référence suit le devis tant qu'elle n'a pas été modifiée à la main
+  const ref = el('fv-reference');
+  if(ref && (!ref.value.trim() || (ancien && ref.value===ancien.numero))) ref.value = devisInfo.numero;
+  const titre = el('fv-devis-titre'); if(titre) titre.textContent = (window._chantierNomFv||'')+' — depuis devis '+devisInfo.numero;
+  const al = el('fv-acompte-alerte'); if(al) al.innerHTML = await alerteAcomptesFvHTML(devisInfo);
+  const blk = el('fv-acompte-block'); if(blk) blk.innerHTML = acompteInnerFv(devisInfo);
+  // l'avancement et sa référence (« Avancement N ») se recalculent pour ce devis
+  if(el('fv-avanc-ref')) el('fv-avanc-ref').value = '';
+  if(el('fv-avanc-pct')) el('fv-avanc-pct').value = '';
+  if(el('fv-type').value==='acompte') updateAcompteMontant();
+  else { _venteLignes = lignes.slice(); renderVenteLignes(); }
+  majEcheanceAuto();
+  majBlocAvancement();
 }
 
 // Charge un devis précis et calcule, pour chacune de ses lignes, la quantité qui reste
@@ -5275,17 +5366,12 @@ async function openGenerateFactureVente(chantierId){
   if(!chantier.client_id){ showToast("Ce chantier n'a pas de client lié", 'error'); return; }
 
   _venteLigneMode = 'devis';
-  const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
+  const {devisInfo, lignes, devisListe} = await chargerDonneesDevisPourFacture(chantierId);
   _venteLignes = lignes;
-  const devisId = devisInfo ? devisInfo.id : null;   // utilisé par le bouton "Créer la facture" ci-dessous
+  const devisId = devisInfo ? devisInfo.id : null;   // le devis réellement utilisé est lu au moment de créer (window._devisInfoForFv)
   // Acomptes déjà facturés sur ce devis : rappel pour ne pas facturer deux fois la même part au solde
-  let acomptesDeja = [], acomptePct = 0;
-  if(devisInfo){
-    const {data:ac} = await sb.from('factures_vente').select('numero,total_ht').eq('devis_id',devisInfo.id).eq('type_facture','acompte').neq('statut','annulee');
-    acomptesDeja = ac||[];
-    const sommeAc = acomptesDeja.reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
-    acomptePct = parseFloat(devisInfo.montant_ht)>0 ? Math.round(sommeAc/parseFloat(devisInfo.montant_ht)*1000)/10 : 0;
-  }
+  const alerteAcomptes = await alerteAcomptesFvHTML(devisInfo);
+  window._chantierNomFv = chantier.nom;
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
@@ -5297,12 +5383,13 @@ async function openGenerateFactureVente(chantierId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>Nouvelle facture client</h3><span style="font-size:12px;color:var(--gray-5)">${chantier.nom}${devisInfo?' — depuis devis '+devisInfo.numero:' — sans devis lié'}</span></div>
+      <div><h3>Nouvelle facture client</h3><span id="fv-devis-titre" style="font-size:12px;color:var(--gray-5)">${chantier.nom}${devisInfo?' — depuis devis '+devisInfo.numero:' — sans devis lié'}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      ${acomptesDeja.length?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Acompte déjà facturé sur ce devis : ${acomptesDeja.map(a=>a.numero+' ('+fmt(a.total_ht)+' HT)').join(', ')}${acomptePct?' = '+acomptePct+' % du devis':''}. Cette part est déjà décomptée de « À facturer » : la quantité proposée est ce qu'il reste à facturer.</div>`:''}
+      <div id="fv-acompte-alerte">${alerteAcomptes}</div>
       <div class="form-grid" style="margin-bottom:16px">
+        ${devisListe.length>1 ? `<div class="form-group full">${devisSelectFvHTML(devisListe, devisInfo?devisInfo.id:'', 'changerDevisFv(this.value)')}</div>` : ''}
         <div class="form-group"><label class="field-label">Type de facture</label>
           <select id="fv-type" onchange="toggleFvAcompteMode()">
             <option value="acompte">Acompte</option>
@@ -5319,13 +5406,7 @@ async function openGenerateFactureVente(chantierId){
       </div>
 
       <div id="fv-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px">
-        ${!devisInfo?'<p style="font-size:13px;color:var(--gray-6)">Un devis lié est nécessaire pour calculer un acompte automatiquement. Passez en "Libre" ou "Situation" pour facturer sans devis.</p>':`
-        <div class="form-grid">
-          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct??30}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
-          <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
-        </div>
-        <div style="margin-top:6px;font-size:12px;color:var(--gray-6)">La ligne ci-dessous est calculée automatiquement à partir du pourcentage — vous pouvez l'ajuster librement avant de créer la facture.</div>
-        `}
+        ${acompteInnerFv(devisInfo)}
       </div>
 
       ${blocAvancementHTML()}
@@ -5466,6 +5547,8 @@ function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; (_venteLigneMode==='libre'?
 
 async function saveFactureVente(chantierId, clientId, devisId){
   const typeFacture = el('fv-type').value;
+  // le chantier peut avoir plusieurs devis : on prend celui qui est choisi dans le formulaire
+  devisId = (window._devisInfoForFv && window._devisInfoForFv.id) || devisId || null;
 
   if(_venteLignes.length===0 || _venteLignes.some(l=>!l.description)){
     showToast("Ajoutez au moins une ligne avec description", 'error');
