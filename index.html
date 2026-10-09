@@ -4819,6 +4819,7 @@ async function openNewFactureVenteLibre(){
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
       <div id="fvl-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px"></div>
+      ${blocAvancementHTML()}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
         <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
@@ -4826,7 +4827,7 @@ async function openNewFactureVenteLibre(){
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:560px">
           <thead><tr style="background:var(--gray-1)">
-            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Réf.</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:130px">Réf.</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
@@ -4856,11 +4857,13 @@ async function syncAcompteLibre(){
     window._devisInfoForFv = null;
     if(block) block.style.display = isAcompte ? 'block' : 'none';
     if(isAcompte && block){ block.innerHTML = "<p style=\"font-size:13px;color:var(--gray-6)\">Choisissez un chantier ci-dessus pour calculer l'acompte à partir de son devis.</p>"; }
+    majBlocAvancement();
     return;
   }
 
   const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
   window._devisInfoForFv = devisInfo;
+  window._venteLignesNormales = lignes.slice();
 
   // Échéance calculée à partir des conditions de paiement du devis, pour tous les types
   if(devisInfo){
@@ -4877,9 +4880,11 @@ async function syncAcompteLibre(){
     _venteLignes = lignes.length>0 ? lignes : [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
     window._venteLignesNormales = _venteLignes.slice();
     renderVenteLignesLibre();
+    majBlocAvancement();
     return;
   }
 
+  majBlocAvancement();
   if(!devisInfo){
     if(block){ block.style.display='block'; block.innerHTML = "<p style=\"font-size:13px;color:var(--gray-6)\">Ce chantier n'a pas de devis accepté lié — impossible de calculer un acompte automatiquement. Ajoutez la ligne manuellement, ou passez en \"Libre\".</p>"; }
     return;
@@ -4896,6 +4901,71 @@ async function syncAcompteLibre(){
   updateAcompteMontantLibre();
 }
 
+// ── Avancement : appliquer X % du devis à toutes les lignes (situation / solde) ──
+function blocAvancementHTML(){
+  return `<div id="fv-avanc-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px">
+    <div class="form-grid">
+      <div class="form-group"><label class="field-label">Avancement (% du devis)</label><input type="number" id="fv-avanc-pct" min="0" max="100" step="any" placeholder="Ex: 40"/></div>
+      <div class="form-group"><label class="field-label">Réf. des lignes</label><input id="fv-avanc-ref" placeholder="Ex: Avancement 1"/></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+      <button type="button" class="btn btn-secondary btn-sm" id="fv-avanc-btn" onclick="appliquerAvancement()"><i class="ti ti-percentage"></i> Appliquer à toutes les lignes</button>
+      <span id="fv-avanc-info" style="font-size:12px;color:var(--gray-6)"></span>
+    </div>
+  </div>`;
+}
+
+// Affiche/masque le bloc selon le type de facture, et indique ce qui reste à facturer sur le devis
+function majBlocAvancement(){
+  const b = el('fv-avanc-block'); if(!b) return;
+  const t = el('fv-type')?.value;
+  const lg = (_venteLignes||[]).filter(l=>l.quantite_devis!==undefined);
+  const ok = (t==='situation'||t==='solde') && window._devisInfoForFv && lg.length>0;
+  b.style.display = ok ? 'block' : 'none';
+  if(!ok) return;
+  let base=0, reste=0;
+  lg.forEach(l=>{ const pu=parseFloat(l.prix_unitaire_ht)||0, qd=parseFloat(l.quantite_devis)||0;
+    base += qd*pu; reste += Math.max(0, qd-(parseFloat(l.deja_facture)||0))*pu; });
+  const info = el('fv-avanc-info');
+  if(info) info.textContent = base>0 ? `Reste à facturer sur le devis : ${Math.round(reste/base*1000)/10} %` : '';
+  preRemplirAvancement();
+}
+
+// Propose « Avancement N » (N = nombre de factures de situation déjà faites sur ce devis + 1)
+async function preRemplirAvancement(){
+  const d = window._devisInfoForFv, inp = el('fv-avanc-ref');
+  if(!d || !inp || inp.value) return;
+  const {data} = await sb.from('factures_vente').select('id').eq('devis_id',d.id).eq('type_facture','situation').neq('statut','annulee');
+  if(el('fv-avanc-ref') && !el('fv-avanc-ref').value) el('fv-avanc-ref').value = 'Avancement '+((data||[]).length+1);
+}
+
+function appliquerAvancement(){
+  const pct = parseFloat(el('fv-avanc-pct')?.value);
+  if(!(pct>0) || pct>100){ showToast('Indiquez un pourcentage entre 0 et 100', 'error'); return; }
+  const ref = (el('fv-avanc-ref')?.value||'').trim();
+  let n=0, plafonnees=0;
+  _venteLignes.forEach(l=>{
+    if(l._isAcompte || l.quantite_devis===undefined) return;
+    const qd = parseFloat(l.quantite_devis)||0;
+    const reste = Math.max(0, Math.round((qd-(parseFloat(l.deja_facture)||0))*10000)/10000);
+    let q = Math.round(qd*pct/100*10000)/10000;
+    if(q>reste){ q = reste; plafonnees++; }
+    l.quantite = q; if(ref) l.reference_article = ref; n++;
+  });
+  if(!n){ showToast('Aucune ligne du devis à ajuster', 'error'); return; }
+  (_venteLigneMode==='libre' ? renderVenteLignesLibre : renderVenteLignes)();
+  showToast(`${pct} % appliqué à ${n} ligne(s)`+(plafonnees?` — ${plafonnees} limitée(s) à ce qui reste`:''));
+}
+
+// Textes de la ligne d'acompte : Réf. article « Acompte 30% à la commande » + description = intitulé de la prestation du devis
+// (la ligne du devis s'il n'y en a qu'une, sinon l'objet du devis, sinon « Acompte sur devis N° »).
+function textesLigneAcompte(devisInfo, pct){
+  const lignes = window._venteLignesNormales||[];
+  const desc = (lignes.length===1 && lignes[0].description) ? lignes[0].description
+             : ((devisInfo.objet||'').trim() || `Acompte sur devis ${devisInfo.numero}`);
+  return {reference_article: `Acompte ${pct}% à la commande`, description: desc};
+}
+
 function updateAcompteMontantLibre(){
   const devisInfo = window._devisInfoForFv;
   if(!devisInfo) return;
@@ -4905,8 +4975,7 @@ function updateAcompteMontantLibre(){
 
   const ligneAcompte = {
     ligne_devis_id: null,
-    description: `Acompte sur devis ${devisInfo.numero} (${pct}%)`,
-    reference_article: '',
+    ...textesLigneAcompte(devisInfo, pct),
     unite: '%',
     quantite: qte,
     prix_unitaire_ht: parseFloat(devisInfo.montant_ht)||0,
@@ -5037,14 +5106,14 @@ async function chargerLignesDevisRestantes(devisId){
   const {data:facsExistantes} = await sb.from('factures_vente').select('id,type_facture,total_ht').eq('devis_id',devisId).neq('statut','annulee');
   const facIds = (facsExistantes||[]).map(f=>f.id);
   let dejaFacture = {};
-  let acompteHT = 0;   // acomptes facturés en une seule ligne « % » (sans lien avec une ligne du devis)
+  let acompteHT = 0;   // factures (acompte / situation / solde) dont les lignes ne sont liées à aucune ligne du devis (ex: ligne unique « Avancement 1 » ou « Acompte 30 % ») : comptées au prorata du montant HT
   if(facIds.length>0){
     const {data:lignesExistantes} = await sb.from('lignes_facture_vente').select('facture_vente_id,ligne_devis_id,quantite').in('facture_vente_id',facIds);
     (lignesExistantes||[]).forEach(l=>{ if(l.ligne_devis_id) dejaFacture[l.ligne_devis_id]=(dejaFacture[l.ligne_devis_id]||0)+parseFloat(l.quantite||0); });
     const liees = new Set((lignesExistantes||[]).filter(l=>l.ligne_devis_id).map(l=>l.facture_vente_id));
-    (facsExistantes||[]).forEach(f=>{ if(f.type_facture==='acompte' && !liees.has(f.id)) acompteHT += parseFloat(f.total_ht)||0; });
+    (facsExistantes||[]).forEach(f=>{ if(['acompte','situation','solde'].includes(f.type_facture) && !liees.has(f.id)) acompteHT += parseFloat(f.total_ht)||0; });
   }
-  // Part du devis déjà couverte par les acomptes (ex: 30 %) : décomptée de chaque ligne, pour ne pas la refacturer
+  // Part du devis déjà couverte par ces factures (ex: acompte 30 %) : décomptée de chaque ligne, pour ne pas la refacturer
   const montantDevis = parseFloat(devis.montant_ht)||0;
   const partAcomptes = montantDevis>0 ? Math.min(1, Math.round(acompteHT/montantDevis*10000)/10000) : 0;
 
@@ -5134,6 +5203,7 @@ async function openGenerateFactureVente(chantierId){
         `}
       </div>
 
+      ${blocAvancementHTML()}
       <div id="fv-lignes-section">
       ${!devisInfo?'<div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Ce chantier n\'a pas de devis lié — ajoutez les lignes manuellement.</div>':''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -5143,7 +5213,7 @@ async function openGenerateFactureVente(chantierId){
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:680px">
           <thead><tr style="background:var(--gray-1)">
-            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Réf.</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:130px">Réf.</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Devis</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:90px">Déjà fact.</th>
@@ -5166,6 +5236,7 @@ async function openGenerateFactureVente(chantierId){
   </div></div>`);
   renderVenteLignes();
   majEcheanceAuto();
+  majBlocAvancement();
 }
 
 // Échéance proposée = date de facture + délai des conditions de paiement du devis (si le champ n'a pas été modifié à la main)
@@ -5188,6 +5259,7 @@ function toggleFvAcompteMode(){
     _venteLignes = (window._venteLignesNormales||[]).slice();
     renderVenteLignes();
   }
+  majBlocAvancement();
 }
 
 function updateAcompteMontant(){
@@ -5199,8 +5271,7 @@ function updateAcompteMontant(){
 
   const ligneAcompte = {
     ligne_devis_id: null,
-    description: `Acompte sur devis ${devisInfo.numero} (${pct}%)`,
-    reference_article: '',
+    ...textesLigneAcompte(devisInfo, pct),
     unite: '%',
     quantite: qte,
     prix_unitaire_ht: parseFloat(devisInfo.montant_ht)||0,
@@ -5220,7 +5291,7 @@ function renderVenteLignes(){
   const body = el('vente-lignes-body');
   if(!body) return;
   body.innerHTML = _venteLignes.map((l,i)=>`<tr>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:130px"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.quantite_devis!==undefined?l.quantite_devis+' '+l.unite:'—'}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.deja_facture!==undefined?l.deja_facture+' '+l.unite:'—'}</td>
@@ -5335,7 +5406,7 @@ async function downloadPDF_FactureVente(facId){
         {header:'P.U. HT', width:90, align:'right'},
         {header:'Total HT', width:90, align:'right'}
       ]),
-      rows: (lignes||[]).map(l=>({cells:(avecRefArticle?[l.reference_article||'']:[]).concat([l.description, `${l.quantite} ${l.unite||''}`.trim(), fmt(l.prix_unitaire_ht), fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))])}))
+      rows: (lignes||[]).map(l=>({cells:(avecRefArticle?[l.reference_article||'']:[]).concat([l.description, `${String(l.quantite).replace('.',',')} ${(l.unite==='%'||l.unite==='u')?'':(l.unite||'')}`.trim(), fmt(l.prix_unitaire_ht), fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))])}))
     },
     totals: [
       {label:'Sous-total HT', value: fmt(f.total_ht)},
