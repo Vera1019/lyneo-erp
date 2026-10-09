@@ -574,6 +574,19 @@ let currentPage = 'dashboard';
 // ── UTILS ────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR'}).format(n||0);
 const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+// Arrondi au centime et totaux d'une facture : HT = somme des lignes arrondies, TVA calculée par taux sur le HT arrondi
+const arrondi2 = x => Math.round(((Number(x)||0)+Number.EPSILON)*100)/100;
+function totauxFacture(lignes){
+  let ht = 0; const parTaux = {};
+  (lignes||[]).forEach(l=>{
+    const lht = arrondi2((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0));
+    ht += lht;
+    const t = parseFloat(l.taux_tva)||0;
+    parTaux[t] = (parTaux[t]||0) + lht;
+  });
+  const tva = Object.entries(parTaux).reduce((a,[t,base])=>a+arrondi2(base*parseFloat(t)/100),0);
+  return {ht:arrondi2(ht), tva:arrondi2(tva), ttc:arrondi2(ht+tva)};
+}
 const today = () => new Date().toISOString().split('T')[0];
 const el = id => document.getElementById(id);
 const qs = sel => document.querySelector(sel);
@@ -745,7 +758,11 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
       items.forEach((it,i)=>{
         const bx = this.margin + i*w;
         this.page.drawText(it.label.toUpperCase(), {x:bx+10, y:this.y-13, size:7.5, font:this.fontBold, color:this.color('accent')});
-        this.page.drawText(String(it.value||'—'), {x:bx+10, y:this.y-26, size:9.5, font:this.font, color:this.color('white')});
+        // Valeur tronquée avec « … » si elle dépasse la largeur de sa case (la bande peut avoir 3 ou 4 cases)
+        let txt = String(it.value||'—');
+        const maxW = w - 16;
+        while(txt.length>1 && this.font.widthOfTextAtSize(txt, 9.5) > maxW) txt = txt.slice(0,-2).trimEnd()+'…';
+        this.page.drawText(txt, {x:bx+10, y:this.y-26, size:9.5, font:this.font, color:this.color('white')});
       });
       this.y -= h + 18;
     }
@@ -4757,6 +4774,7 @@ async function openNewFactureVenteLibre(){
   const chantiers = chantiersData||[];
   _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
   _venteLigneMode = 'libre';
+  window._devisInfoForFv = null;   // pas de devis "hérité" d'une facture précédente
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle facture client</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -4785,6 +4803,8 @@ async function openNewFactureVenteLibre(){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = numérotation automatique)</span></label><input id="fv-numero" placeholder="Ex: FA-20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
       <div id="fvl-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -4821,6 +4841,7 @@ async function syncAcompteLibre(){
   const chantierId = el('fvl-chantier')?.value;
 
   if(!chantierId){
+    window._devisInfoForFv = null;
     if(block) block.style.display = isAcompte ? 'block' : 'none';
     if(isAcompte && block){ block.innerHTML = "<p style=\"font-size:13px;color:var(--gray-6)\">Choisissez un chantier ci-dessus pour calculer l'acompte à partir de son devis.</p>"; }
     return;
@@ -4912,15 +4933,26 @@ function renderVenteLignesLibre(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_venteLignes.length>1?`<button onclick="delVenteLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
   </tr>`).join('');
-  const totalHT = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const tot = totauxFacture(_venteLignes);
   const box = el('vente-totaux');
   if(box) box.innerHTML = `
-    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
-    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
-    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(tot.ht)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(tot.tva)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(tot.ttc)}</span></div>`;
 }
 function delVenteLigneLibre(i){ _venteLignes.splice(i,1); renderVenteLignesLibre(); }
+
+// Numéro de la facture : saisi à la main (facture déjà émise ailleurs, ex: FA-20260701) ou automatique
+async function numeroFactureVenteChoisi(){
+  const manuel = (el('fv-numero')?.value||'').trim();
+  if(!manuel){
+    const {data} = await sb.rpc('generate_facture_vente_number');
+    return {num:data};
+  }
+  const {data:dup} = await sb.from('factures_vente').select('id').eq('numero',manuel).limit(1);
+  if(dup && dup.length) return {erreur:`Le numéro ${manuel} existe déjà — choisissez-en un autre`};
+  return {num:manuel};
+}
 
 async function saveFactureVenteLibre(){
   const clientId = el('fvl-client').value;
@@ -4931,24 +4963,28 @@ async function saveFactureVenteLibre(){
     const b=el('btn-save-fv'); if(b) b.disabled=false;
     return;
   }
-  const totalHT = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
-  const {data:num} = await sb.rpc('generate_facture_vente_number');
+  const tot = totauxFacture(_venteLignes);
+  const choixNum = await numeroFactureVenteChoisi();
+  if(choixNum.erreur){ showToast(choixNum.erreur, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
+  const num = choixNum.num;
+  // Devis d'origine : seulement si la facture reprend le devis (acompte, ou lignes du devis) — pas pour une facture libre
+  const typeFac = el('fv-type').value;
+  const devisLie = (chantierId && window._devisInfoForFv && (typeFac==='acompte' || _venteLignes.some(l=>l.ligne_devis_id))) ? window._devisInfoForFv.id : null;
 
   const {data:fac, error} = await sb.from('factures_vente').insert({
-    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: null,
-    type_facture: el('fv-type').value,
+    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisLie,
+    type_facture: typeFac,
     reference_client: el('fv-reference').value,
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
-    total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
-    statut: 'brouillon', cree_par: currentUser.id,
+    total_ht: tot.ht, total_tva: tot.tva, total_ttc: tot.ttc,
+    statut: el('fv-statut')?.value||'brouillon', cree_par: currentUser.id,
     observations: el('fv-obs').value
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
 
   await sb.from('lignes_facture_vente').insert(_venteLignes.map((l,i)=>({
-    facture_vente_id: fac.id, ligne_devis_id: null, ordre: i+1,
+    facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: i+1,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite, quantite: parseFloat(l.quantite)||0,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
   })));
@@ -5035,6 +5071,12 @@ async function openGenerateFactureVente(chantierId){
   const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
   _venteLignes = lignes;
   const devisId = devisInfo ? devisInfo.id : null;   // utilisé par le bouton "Créer la facture" ci-dessous
+  // Acomptes déjà facturés sur ce devis : rappel pour ne pas facturer deux fois la même part au solde
+  let acomptesDeja = [];
+  if(devisInfo){
+    const {data:ac} = await sb.from('factures_vente').select('numero,total_ht').eq('devis_id',devisInfo.id).eq('type_facture','acompte').neq('statut','annulee');
+    acomptesDeja = ac||[];
+  }
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
@@ -5045,6 +5087,7 @@ async function openGenerateFactureVente(chantierId){
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
+      ${acomptesDeja.length?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Acompte déjà facturé sur ce devis : ${acomptesDeja.map(a=>a.numero+' ('+fmt(a.total_ht)+' HT)').join(', ')}. Pour une facture de situation ou de solde, ajoutez une ligne négative « Acompte déjà facturé » pour le déduire.</div>`:''}
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Type de facture</label>
           <select id="fv-type" onchange="toggleFvAcompteMode()">
@@ -5057,6 +5100,8 @@ async function openGenerateFactureVente(chantierId){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${devisInfo?devisInfo.numero:''}" placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = numérotation automatique)</span></label><input id="fv-numero" placeholder="Ex: FA-20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
 
       <div id="fv-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px">
@@ -5153,13 +5198,12 @@ function renderVenteLignes(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delVenteLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
   </tr>`).join('');
-  const totalHT = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const tot = totauxFacture(_venteLignes);
   const box = el('vente-totaux');
   if(box) box.innerHTML = `
-    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
-    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
-    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(tot.ht)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(tot.tva)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(tot.ttc)}</span></div>`;
 }
 function addVenteLigne(){ _venteLignes.push({description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}); renderVenteLignes(); }
 function delVenteLigne(i){ _venteLignes.splice(i,1); renderVenteLignes(); }
@@ -5175,9 +5219,10 @@ async function saveFactureVente(chantierId, clientId, devisId){
   }
   const lignesAFacturer = _venteLignes;
 
-  const totalHT = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
-  const {data:num} = await sb.rpc('generate_facture_vente_number');
+  const tot = totauxFacture(lignesAFacturer);
+  const choixNum = await numeroFactureVenteChoisi();
+  if(choixNum.erreur){ showToast(choixNum.erreur, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
+  const num = choixNum.num;
 
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisId||null,
@@ -5185,8 +5230,8 @@ async function saveFactureVente(chantierId, clientId, devisId){
     reference_client: el('fv-reference').value,
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
-    total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
-    statut: 'brouillon', cree_par: currentUser.id,
+    total_ht: tot.ht, total_tva: tot.tva, total_ttc: tot.ttc,
+    statut: el('fv-statut')?.value||'brouillon', cree_par: currentUser.id,
     observations: el('fv-obs').value
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
@@ -5244,6 +5289,7 @@ async function downloadPDF_FactureVente(facId){
       {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim(), client.email||''].concat(client.adresse_livraison?['Livraison/intervention : '+client.adresse_livraison]:[])}
     ],
     refRow: [
+      ...(f.reference_client ? [{label:'Référence / N° commande', value: f.reference_client}] : []),
       {label:"Lieu d'intervention", value: lieuIntervention},
       {label:'Type de facture', value: f.type_facture||'—'},
       {label:'Modalité', value: client.conditions_paiement||'30 jours'}
