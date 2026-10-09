@@ -3981,18 +3981,42 @@ function parseDevisExcelRows(rows, cols){
 // Un classeur Excel peut avoir plusieurs feuilles (page de garde, résumé, détail...).
 // On essaie chaque feuille et on garde celle qui donne le plus de lignes de détail reconnues.
 function parseDevisWorkbook(wb){
-  let meilleur = {parsed:[], nbLignes:-1, feuille:null};
-  for(const nomFeuille of wb.SheetNames){
+  // Les feuilles masquées (ex: "Page 2" du modèle Lyneo) contiennent souvent un ancien
+  // devis resté dans le fichier : on ne les utilise qu'en tout dernier recours.
+  const metas = (wb.Workbook && wb.Workbook.Sheets) || [];
+  const estMasquee = (nom)=>{ const m = metas.find(s=>s.name===nom); return !!(m && m.Hidden); };
+
+  const essayer = (nomFeuille)=>{
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomFeuille], {header:1, defval:null});
     const cols = detectDevisColumns(rows);
-    if(!cols) continue; // cette feuille n'a pas de tableau de lignes (ex: page de garde, synthèse)
+    if(!cols) return null; // cette feuille n'a pas de tableau de lignes (ex: page de garde, synthèse)
     const parsed = parseDevisExcelRows(rows, cols);
-    const nbLignes = parsed.filter(r=>r.type==='ligne').length;
-    if(nbLignes > meilleur.nbLignes){
-      meilleur = {parsed, nbLignes, feuille:nomFeuille};
+    return {parsed, nbLignes:parsed.filter(r=>r.type==='ligne').length, feuille:nomFeuille};
+  };
+  const meilleurDe = (noms)=>{
+    let meilleur = {parsed:[], nbLignes:-1, feuille:null};
+    for(const nom of noms){
+      const r = essayer(nom);
+      if(r && r.nbLignes > meilleur.nbLignes) meilleur = r;
     }
+    return meilleur;
+  };
+
+  const visibles = wb.SheetNames.filter(n=>!estMasquee(n));
+  const masquees = wb.SheetNames.filter(estMasquee);
+
+  // 1. La feuille nommée "DEVIS" (celle du modèle Lyneo et de l'export de l'ERP) a la priorité
+  const nomDevis = visibles.find(n=>/^devis$/i.test(n.trim()));
+  if(nomDevis){
+    const r = essayer(nomDevis);
+    if(r && r.nbLignes>0) return r;
   }
-  return meilleur;
+  // 2. Sinon, la feuille visible avec le plus de lignes de détail reconnues
+  const m1 = meilleurDe(visibles);
+  if(m1.nbLignes>0) return m1;
+  // 3. Dernier recours : les feuilles masquées
+  const m2 = meilleurDe(masquees);
+  return m2.nbLignes>m1.nbLignes ? m2 : m1;
 }
 
 async function importDevisExcelDansModal(file){
@@ -4012,7 +4036,7 @@ async function importDevisExcelDansModal(file){
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
 
-      showToast(`${nbLignes} ligne(s) importée(s) (feuille "${feuille}") — vérifiez et complétez avant d'enregistrer`);
+      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}" — vérifiez et complétez avant d'enregistrer`);
     }catch(err){
       showToast('Erreur import: '+err.message, 'error');
     }
@@ -4038,7 +4062,7 @@ async function importDevisExcel(file){
       renderDevisLignesBloc('option');
 
       const nbOptions = _devisLignes.option.length;
-      showToast(`${nbLignes} ligne(s) importée(s) (feuille "${feuille}")`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+' — vérifiez et complétez avant d\'enregistrer');
+      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+' — vérifiez et complétez avant d\'enregistrer');
       if(nbOptions===0){
         setTimeout(()=>showToast("Astuce : votre fichier ne marque pas où commencent les Options — tout a été importé dans le bloc principal. Déplacez manuellement les lignes concernées si besoin.", 'error'), 1200);
       }
@@ -4062,7 +4086,7 @@ async function renderDevis(search=''){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderDevis(this.value)" value="${search}"/></div>
         <button class="btn btn-secondary" onclick="document.getElementById('devis-excel-input').click()"><i class="ti ti-file-spreadsheet"></i> Importer Excel</button>
-        <input type="file" id="devis-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcel(this.files[0])"/>
+        <input type="file" id="devis-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcel(this.files[0]);this.value=''"/>
         <button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>
       </div>
     </div>
@@ -4284,7 +4308,7 @@ async function openDevisModal(d=null){
         <strong style="font-size:13px">Lignes du devis</strong>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dv-excel-input-modal').click()"><i class="ti ti-file-spreadsheet"></i> Importer Excel</button>
-          <input type="file" id="dv-excel-input-modal" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcelDansModal(this.files[0])"/>
+          <input type="file" id="dv-excel-input-modal" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcelDansModal(this.files[0]);this.value=''"/>
           <button class="btn btn-secondary btn-sm" onclick="addDevisSection('principal')"><i class="ti ti-folder-plus"></i> Section</button>
           <button class="btn btn-secondary btn-sm" onclick="addDevisLigne('principal')"><i class="ti ti-plus"></i> Ligne</button>
         </div>
