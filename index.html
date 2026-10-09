@@ -1573,14 +1573,14 @@ async function openChantierDetail(chantierId, tab){
         + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N°</th>'
         + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Objet</th>'
         + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
-        + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Montant TTC</th>'
+        + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Montant HT</th>'
         + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Statut</th>'
         + '</tr></thead><tbody>'
         + devisChantier.map(d=>'<tr style="cursor:pointer" onclick="closeModal();openDevisDetail(\''+d.id+'\')">'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+d.numero+'</strong></td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(d.objet||'—')+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(d.date_devis)+'</td>'
-            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(d.montant_ttc)+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(d.montant_ht)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bDV(d.statut)+'</td>'
             +'</tr>').join('')
         + '</tbody></table></div>');
@@ -4069,7 +4069,7 @@ async function renderDevis(search=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N°</th><th>Client</th><th>Chantier</th><th>Objet</th><th>Date</th><th>Statut</th><th>Montant TTC</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Client</th><th>Chantier</th><th>Objet</th><th>Date</th><th>Statut</th><th>Montant HT</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>Aucun devis trouvé</p><button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button></div></td></tr>' :
             items.map(d=>`<tr style="cursor:pointer" onclick="openDevisDetail('${d.id}')">
@@ -4079,7 +4079,7 @@ async function renderDevis(search=''){
               <td>${d.objet||'—'}</td>
               <td>${fmtDate(d.date_devis)}</td>
               <td>${bDV(d.statut)}</td>
-              <td style="text-align:right;font-weight:700">${fmt(d.montant_ttc)}</td>
+              <td style="text-align:right;font-weight:700">${fmt(d.montant_ht)}</td>
               <td><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openDevisDetail('${d.id}')" title="Voir"><i class="ti ti-eye"></i></button>
                 <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteDevis('${d.id}','${d.numero}')" title="Supprimer"><i class="ti ti-trash"></i></button>
