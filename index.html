@@ -1351,7 +1351,7 @@ async function renderChantiers(search=''){
               const enRetard = r.date_fin_prevue && r.date_fin_prevue < new Date().toISOString().split('T')[0] && r.statut==='actif';
               return `<tr style="cursor:pointer${enRetard?';border-left:3px solid var(--red)':''}" onclick="openChantierDetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
-              <td><strong>${r.nom}</strong>${enRetard?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">En retard</span>':''}</td>
+              <td><strong>${r.nom}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}${enRetard?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">En retard</span>':''}</td>
               <td>${r.client}</td>
               <td>${r.chef_chantier||'—'}</td>
               <td>${fmtDate(r.date_debut)}</td>
@@ -1886,7 +1886,14 @@ async function openChantierModal(r=null){
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
-        <div class="form-group"><label class="field-label">Numéro ${r?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: FRAIS GENERAUX"/></div>
+        <div class="form-group"><label class="field-label">Numéro ${r?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FRAIS GENERAUX"/></div>
+        <div class="form-group"><label class="field-label">Type de centre de coûts</label>
+          <select id="ch-type" data-had="${r&&r.type_centre!==undefined?'1':''}">
+            <option value="chantier" ${(r?.type_centre||'chantier')==='chantier'?'selected':''}>Chantier</option>
+            <option value="sav" ${r?.type_centre==='sav'?'selected':''}>SAV (interventions, dépannages)</option>
+            <option value="interne" ${r?.type_centre==='interne'?'selected':''}>Interne (frais généraux)</option>
+          </select>
+        </div>
         <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
           <option value="actif" ${r?.statut==='actif'?'selected':''}>Actif</option>
           <option value="pause" ${r?.statut==='pause'?'selected':''}>En pause</option>
@@ -1942,6 +1949,10 @@ async function saveChantier(id){
   const numeroManuel = el('ch-numero').value.trim();
   const statutAtual = el('ch-statut').value;
   const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  // Le type n'est envoyé que s'il est différent de "chantier" ou si la colonne existe déjà
+  // (data-had) : ainsi la sauvegarde ne casse pas si la migration SQL n'a pas encore été exécutée.
+  const typeSel = el('ch-type');
+  if(typeSel && (typeSel.value!=='chantier' || typeSel.dataset.had==='1')) data.type_centre = typeSel.value;
   if(id){
     if(numeroManuel) data.numero = numeroManuel;
     await sb.from('chantiers_lyneo').update(data).eq('id',id);
@@ -4443,6 +4454,9 @@ async function openDevisDetail(devisId){
   const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
   const lignesPrincipal = (lignesData||[]).filter(l=>l.bloc==='principal');
   const lignesOption = (lignesData||[]).filter(l=>l.bloc==='option');
+  // Intervention SAV déjà créée à partir de ce devis (requête tolérante si la colonne n'existe pas encore)
+  const {data:intervLiees} = await sb.from('interventions_sav').select('id,ref,statut').eq('devis_id',devisId);
+  const interventionLiee = (intervLiees||[])[0]||null;
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -4453,6 +4467,7 @@ async function openDevisDetail(devisId){
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Client</label><span>${d.clients?.nom||'—'}</span></div>
         <div class="info-item"><label>Chantier</label><span>${d.chantiers_lyneo?.nom||'— (pas encore créé)'}</span></div>
+        <div class="info-item"><label>Intervention SAV</label><span>${interventionLiee?`<a href="#" onclick="closeModal();openInterventionDetail('${interventionLiee.id}');return false" style="color:var(--blue);font-weight:600">${interventionLiee.ref}</a> ${bSAV(interventionLiee.statut)}`:'—'}</span></div>
         <div class="info-item"><label>Correspondant</label><span>${d.correspondant||'—'}</span></div>
         <div class="info-item"><label>Date</label><span>${fmtDate(d.date_devis)}</span></div>
         <div class="info-item"><label>Validité</label><span>${d.validite_jours} jours</span></div>
@@ -4523,6 +4538,8 @@ async function openDevisDetail(devisId){
         <button class="btn btn-secondary" onclick="downloadPDF_Devis('${d.id}')"><i class="ti ti-file-download"></i> PDF</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
+        ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
+        ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-success" onclick="changerStatutDevis('${d.id}','accepte')"><i class="ti ti-check"></i> Marquer accepté</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-danger" onclick="changerStatutDevis('${d.id}','refuse')"><i class="ti ti-x"></i> Marquer refusé</button>`:''}
@@ -4856,8 +4873,16 @@ async function chargerDonneesDevisPourFacture(chantierId){
     }
   }
   if(!devisId) return {devisInfo:null, lignes:[]};
+  return chargerLignesDevisRestantes(devisId);
+}
 
+// Charge un devis précis et calcule, pour chacune de ses lignes, la quantité qui reste
+// à facturer (quantité du devis moins ce qui figure déjà sur les factures non annulées).
+// Utilisé par la facturation d'un chantier (via chargerDonneesDevisPourFacture) et par
+// la facturation d'une intervention SAV liée à un devis.
+async function chargerLignesDevisRestantes(devisId){
   const {data:devis} = await sb.from('devis').select('*').eq('id',devisId).single();
+  if(!devis) return {devisInfo:null, lignes:[]};
   const {data:lignesDevis} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).eq('bloc','principal').eq('type','ligne').order('ordre');
 
   const {data:facsExistantes} = await sb.from('factures_vente').select('id').eq('devis_id',devisId).neq('statut','annulee');
@@ -4908,6 +4933,7 @@ async function openGenerateFactureVente(chantierId){
   _venteLigneMode = 'devis';
   const {devisInfo, lignes} = await chargerDonneesDevisPourFacture(chantierId);
   _venteLignes = lignes;
+  const devisId = devisInfo ? devisInfo.id : null;   // utilisé par le bouton "Créer la facture" ci-dessous
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
@@ -5097,6 +5123,14 @@ async function downloadPDF_FactureVente(facId){
   const client = f.clients||{};
   showToast('Génération du PDF...');
 
+  // Facture SAV : le lieu d'intervention est le site de l'intervention (le chantier éventuel
+  // n'est ici qu'un centre de coûts interne, il ne doit pas apparaître sur la facture du client).
+  let lieuIntervention = f.chantiers_lyneo?.site_intervention || f.chantiers_lyneo?.adresse || f.chantiers_lyneo?.nom || '—';
+  if(f.intervention_id){
+    const {data:iv} = await sb.from('interventions_sav').select('nom_site,adresse_site').eq('id',f.intervention_id).single();
+    lieuIntervention = (iv ? [iv.nom_site, iv.adresse_site].filter(Boolean).join(' — ') : '') || '—';
+  }
+
   const config = {
     docType: 'FACTURE',
     dates: [
@@ -5109,7 +5143,7 @@ async function downloadPDF_FactureVente(facId){
       {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim(), client.email||''].concat(client.adresse_livraison?['Livraison/intervention : '+client.adresse_livraison]:[])}
     ],
     refRow: [
-      {label:"Lieu d'intervention", value: f.chantiers_lyneo?.site_intervention || f.chantiers_lyneo?.adresse || f.chantiers_lyneo?.nom || '—'},
+      {label:"Lieu d'intervention", value: lieuIntervention},
       {label:'Type de facture', value: f.type_facture||'—'},
       {label:'Modalité', value: client.conditions_paiement||'30 jours'}
     ],
@@ -5642,14 +5676,30 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     </div>`;
 }
 
+// Ouvre le formulaire d'intervention. `r` peut être une intervention existante (avec id)
+// ou simplement des valeurs de départ (ex: depuis un devis : client, description, devis_id...).
 async function openInterventionModal(r=null){
-  const isEdit = !!r;
-  const [{data:clientsData},{data:employesData}] = await Promise.all([
+  const isEdit = !!(r && r.id);
+  const [{data:clientsData},{data:employesData},{data:devisData},{data:centresData},{data:devisPris}] = await Promise.all([
     sb.from('clients').select('id,nom,email,telephone,adresse').eq('actif',true).order('nom'),
-    sb.from('employes_rh').select('id,nom,prenom,email').eq('actif',true).order('nom')
+    sb.from('employes_rh').select('id,nom,prenom,email').eq('actif',true).order('nom'),
+    sb.from('devis').select('id,numero,objet,client_id,montant_ht,statut').neq('statut','refuse').order('numero',{ascending:false}),
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id').eq('type_centre','sav').neq('statut','termine').order('numero'),
+    sb.from('interventions_sav').select('id,ref,devis_id').not('devis_id','is',null)
   ]);
   const clientsList = clientsData||[];
   const employesList = employesData||[];
+  const devisList = devisData||[];
+  const centresList = centresData||[];
+  // Un devis déjà lié à une autre intervention n'est plus proposé (une intervention par devis)
+  const devisPrisMap = {};
+  (devisPris||[]).forEach(x=>{ if(!isEdit || x.id!==r.id) devisPrisMap[x.devis_id] = x.ref; });
+  const devisOpts = devisList.map(d=>{
+    const prisPar = devisPrisMap[d.id];
+    const label = `${d.numero} — ${(d.objet||'').slice(0,45)} — ${fmt(d.montant_ht)} HT (${STATUT_DV[d.statut]||d.statut})${prisPar?' — déjà lié à '+prisPar:''}`;
+    return `<option value="${d.id}" data-client="${d.client_id||''}" data-objet="${(d.objet||'').replace(/"/g,'&quot;')}" data-statut="${d.statut||''}" ${prisPar?'disabled':''} ${r?.devis_id===d.id?'selected':''}>${label}</option>`;
+  }).join('');
+  const centresOpts = centresList.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}" ${r?.chantier_id===c.id?'selected':''}>${c.numero||''} — ${c.nom}</option>`).join('');
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>${isEdit?'Modifier — '+r.ref:'Nouvelle intervention'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -5667,6 +5717,19 @@ async function openInterventionModal(r=null){
         <div class="form-group full"><label class="field-label">Adresse du client (siège)</label><input id="int-adresse-client" value="${r?.adresse_client||''}"/></div>
         <div class="form-group"><label class="field-label">Nom du site d'intervention</label><input id="int-nom-site" value="${r?.nom_site||''}" placeholder="Ex: Entrepôt, Magasin Belval..."/></div>
         <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${r?.adresse_site||''}"/></div>
+        <div class="form-group full"><label class="field-label">Devis lié (la facture reprendra les lignes du devis)</label>
+          <select id="int-devis" data-had="${r&&r.devis_id!==undefined?'1':''}" onchange="prefillDepuisDevisIntervention()">
+            <option value="">— Aucun devis —</option>
+            ${devisOpts}
+          </select>
+        </div>
+        <div class="form-group full"><label class="field-label">Centre de coûts SAV</label>
+          <select id="int-centre" data-had="${r&&r.chantier_id!==undefined?'1':''}">
+            <option value="">— Aucun —</option>
+            ${centresOpts}
+          </select>
+          ${centresList.length===0?'<span style="font-size:11px;color:var(--gray-5)">Aucun centre de coûts SAV — créez-les dans Chantiers (type "SAV"), par ex. SAV 1 et SAV 2.</span>':''}
+        </div>
       </div>
 
       <div class="form-group full" style="margin-bottom:16px"><label class="field-label">Description du problème</label><textarea id="int-description" placeholder="Panne signalée, symptômes, équipement concerné...">${r?.description||''}</textarea></div>
@@ -5708,6 +5771,31 @@ async function openInterventionModal(r=null){
       </div>
     </div>
   </div></div>`);
+  // Client déjà connu (ex: depuis un devis) : reprend téléphone, email et adresse de sa fiche
+  if(!isEdit && r && r.client_id) prefillClientIntervention();
+  filtrerDevisIntervention();
+  prefillCentreIntervention();
+}
+
+// Depuis un devis : ouvre le formulaire d'intervention déjà rempli (client, description, devis lié)
+async function creerInterventionDepuisDevis(devisId){
+  const {data:d} = await sb.from('devis').select('id,numero,objet,client_id,statut').eq('id',devisId).single();
+  if(!d){ showToast("Devis introuvable", 'error'); return; }
+  const mapStatut = {brouillon:'en_attente', envoye:'envoyee', accepte:'acceptee', refuse:'refusee', expire:'refusee'};
+  closeModal();
+  navigate('interventions_sav');
+  setTimeout(()=>openInterventionModal({
+    client_id: d.client_id, description: d.objet||'', devis_id: d.id,
+    offre_requise: true, offre_statut: mapStatut[d.statut]||'en_attente'
+  }), 300);
+}
+
+// Ouvre le formulaire de modification à partir de l'id (fonctionne aussi quand la liste
+// des interventions n'a pas été chargée, par ex. en arrivant depuis un devis ou une fiche client)
+async function editInterventionById(id){
+  const {data} = await sb.from('interventions_sav').select('*').eq('id',id).single();
+  if(!data){ showToast("Intervention introuvable", 'error'); return; }
+  openInterventionModal(data);
 }
 
 function prefillClientIntervention(){
@@ -5717,6 +5805,44 @@ function prefillClientIntervention(){
   if(!el('int-email').value) el('int-email').value = opt.dataset.email||'';
   if(!el('int-tel').value) el('int-tel').value = opt.dataset.tel||'';
   if(!el('int-adresse-client').value) el('int-adresse-client').value = opt.dataset.adresse||'';
+  filtrerDevisIntervention();
+  prefillCentreIntervention();
+}
+
+// N'affiche dans la liste des devis que ceux du client choisi
+function filtrerDevisIntervention(){
+  const clientId = el('int-client').value;
+  const sel = el('int-devis');
+  if(!sel) return;
+  Array.from(sel.options).forEach(o=>{
+    if(!o.value){ o.style.display=''; return; }
+    o.style.display = (!clientId || o.dataset.client===clientId) ? '' : 'none';
+  });
+  const cur = sel.options[sel.selectedIndex];
+  if(cur && cur.value && clientId && cur.dataset.client!==clientId) sel.value='';
+}
+
+// Si un centre de coûts SAV est rattaché au client choisi (ex: SAV 2 = Delhaize), il est proposé par défaut
+function prefillCentreIntervention(){
+  const clientId = el('int-client').value;
+  const sel = el('int-centre');
+  if(!sel || sel.value || !clientId) return;
+  const match = Array.from(sel.options).find(o=>o.value && o.dataset.client===clientId);
+  if(match) sel.value = match.value;
+}
+
+// Choisir un devis reprend le client, la description et l'état de l'offre
+function prefillDepuisDevisIntervention(){
+  const sel = el('int-devis');
+  const opt = sel.options[sel.selectedIndex];
+  if(!opt || !opt.value) return;
+  const clientId = opt.dataset.client;
+  if(clientId && el('int-client').value!==clientId){ el('int-client').value = clientId; prefillClientIntervention(); }
+  if(!el('int-description').value.trim() && opt.dataset.objet) el('int-description').value = opt.dataset.objet;
+  const mapStatut = {brouillon:'en_attente', envoye:'envoyee', accepte:'acceptee', refuse:'refusee', expire:'refusee'};
+  el('int-offre-requise').checked = true;
+  el('int-offre-statut-wrap').style.display = 'block';
+  el('int-offre-statut').value = mapStatut[opt.dataset.statut]||'en_attente';
 }
 function prefillTechnicienIntervention(){
   const sel = el('int-technicien-id');
@@ -5744,6 +5870,11 @@ async function saveIntervention(id){
     offre_requise: el('int-offre-requise').checked,
     offre_statut: el('int-offre-statut')?.value||'en_attente'
   };
+  // Devis et centre de coûts : envoyés seulement s'ils sont choisis (ou déjà présents), pour ne
+  // pas casser la sauvegarde tant que la migration SQL n'a pas été exécutée.
+  const devisSel = el('int-devis'), centreSel = el('int-centre');
+  if(devisSel && (devisSel.value || devisSel.dataset.had==='1')) data.devis_id = devisSel.value||null;
+  if(centreSel && (centreSel.value || centreSel.dataset.had==='1')) data.chantier_id = centreSel.value||null;
 
   if(id){
     const {error} = await sb.from('interventions_sav').update(data).eq('id',id);
@@ -5846,6 +5977,26 @@ async function openInterventionDetail(interventionId){
     sb.from('anexos_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
     sb.from('factures_vente').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false})
   ]);
+  // Devis d'origine, centre de coûts et heures pointées. Requêtes séparées : elles ne cassent
+  // rien si les colonnes n'existent pas encore ou si le système de pointages est indisponible.
+  let devisLie = null, centreSav = null, heuresPointees = null;
+  if(i.devis_id){
+    const {data:dv} = await sb.from('devis').select('id,numero,objet,statut,montant_ht').eq('id',i.devis_id).single();
+    devisLie = dv||null;
+  }
+  if(i.chantier_id){
+    const {data:ce} = await sb.from('chantiers_lyneo').select('id,numero,nom').eq('id',i.chantier_id).single();
+    centreSav = ce||null;
+  }
+  try{
+    // Le code de pointage d'une intervention est sa référence (créé à l'enregistrement de l'intervention)
+    const {data:ptRows} = await sbPT.from('chantiers').select('id').eq('code',i.ref).limit(1);
+    const ptCh = ptRows && ptRows[0];
+    if(ptCh){
+      const {data:pics} = await sbPT.from('picages').select('heures').eq('chantier_id',ptCh.id);
+      heuresPointees = (pics||[]).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+    }
+  }catch(e){ /* système de pointages indisponible */ }
   const photos = (anexos||[]).filter(a=>a.categorie==='photo');
   const documents = (anexos||[]).filter(a=>a.categorie!=='photo');
   const technicienLabel = i.employes_rh ? (i.employes_rh.prenom||'')+' '+i.employes_rh.nom : (i.technicien_nom||'—');
@@ -5868,11 +6019,14 @@ async function openInterventionDetail(interventionId){
         <div class="info-item"><label>Date prévue</label><span>${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'—'}</span></div>
         <div class="info-item"><label>Technicien</label><span>${technicienLabel}</span></div>
         <div class="info-item"><label>Notifications</label><span>${i.notif_client?'✓ Client notifié':'○ Client non notifié'} · ${i.notif_technicien?'✓ Technicien notifié':'○ Technicien non notifié'}</span></div>
+        <div class="info-item"><label>Devis</label><span>${devisLie?`<a href="#" onclick="closeModal();openDevisDetail('${devisLie.id}');return false" style="color:var(--blue);font-weight:600">${devisLie.numero}</a> — ${fmt(devisLie.montant_ht)} HT ${bDV(devisLie.statut)}`:'—'}</span></div>
+        <div class="info-item"><label>Centre de coûts</label><span>${centreSav?(centreSav.numero||'')+' — '+centreSav.nom:'—'}</span></div>
+        <div class="info-item"><label>Heures pointées</label><span>${heuresPointees!==null?heuresPointees.toFixed(1)+' h':'—'}</span></div>
       </div>
       ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${i.description}</p></div>`:''}
 
       <div class="form-actions" style="margin-bottom:20px">
-        <button class="btn btn-ghost" onclick="closeModal();openInterventionModal(_interventionsSAV.find(x=>x.id==='${i.id}'))"><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-ghost" onclick="closeModal();editInterventionById('${i.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-secondary" onclick="emailClientIntervention('${i.id}')"><i class="ti ti-mail"></i> Email client</button>
         <button class="btn btn-secondary" onclick="emailTechnicienIntervention('${i.id}')"><i class="ti ti-mail"></i> Email technicien</button>
         <button class="btn btn-danger" onclick="deleteIntervention('${i.id}')"><i class="ti ti-trash"></i> Supprimer</button>
@@ -5927,7 +6081,7 @@ async function openInterventionDetail(interventionId){
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
-        <button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionId}')"><i class="ti ti-plus"></i> Créer une facture pour cette intervention</button>
+        <button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionId}')"><i class="ti ti-plus"></i> ${devisLie?'Facturer depuis le devis '+devisLie.numero:'Créer une facture pour cette intervention'}</button>
       </div>
     </div>
   </div></div>`);
@@ -5940,16 +6094,34 @@ async function openFactureSAVModal(interventionId){
   const tarifs = i.clients?.tarifs_sav || {};
 
   _sav_venteLignes = [];
-  if(i.astreinte){
+  // Contexte mémorisé pour saveFactureSAV : devis d'origine et centre de coûts de l'intervention
+  window._savFacCtx = {devisId:null, devisNumero:'', chantierId:i.chantier_id||null};
+  let echeanceDefaut = '';
+  let devisInfoSav = null;
+  if(i.devis_id){
+    // Facturation à partir du devis : on reprend ses lignes avec les quantités qui restent à facturer
+    const {devisInfo, lignes} = await chargerLignesDevisRestantes(i.devis_id);
+    if(devisInfo){
+      devisInfoSav = devisInfo;
+      window._savFacCtx.devisId = devisInfo.id;
+      window._savFacCtx.devisNumero = devisInfo.numero||'';
+      _sav_venteLignes = lignes.map(l=>({...l, categorie:'Divers', reference_article:''}));
+      echeanceDefaut = calculerEcheanceDepuisConditions(today(), devisInfo.conditions_paiement) || '';
+    }
+  }
+  if(!devisInfoSav && i.astreinte){
     _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:17});
   }
+  const toutFacture = devisInfoSav && _sav_venteLignes.length>0 && _sav_venteLignes.every(l=>(parseFloat(l.quantite)||0)===0);
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Facturer l'intervention ${i.ref}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
+      ${devisInfoSav?`<div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Lignes reprises du devis <strong>${devisInfoSav.numero}</strong> (${fmt(devisInfoSav.montant_ht)} HT), avec les quantités qui restent à facturer. Vous pouvez les ajuster ou ajouter des lignes (ex: astreinte, déplacement).</div>`:''}
+      ${toutFacture?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Toutes les lignes de ce devis ont déjà été facturées (quantités à 0). Ajoutez une ligne si vous devez facturer autre chose.</div>`:''}
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance"/></div>
+        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value="${echeanceDefaut}"/></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
@@ -5984,7 +6156,7 @@ function renderSavLignes(tarifs){
   if(!body) return;
   body.innerHTML = _sav_venteLignes.map((l,idx)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updSavLigne(${idx},'categorie',this.value,true)">${ARTICLES_SAV.map(a=>`<option ${l.categorie===a?'selected':''}>${a}</option>`).join('')}</select></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${String(l.description||'').replace(/"/g,'&quot;')}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${l.unite||''} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="number" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
@@ -6014,13 +6186,22 @@ async function saveFactureSAV(interventionId, clientId){
     const b=el('btn-save-sav'); if(b) b.disabled=false;
     return;
   }
-  const totalHT = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  // Les lignes du devis déjà entièrement facturées (quantité 0) ne sont pas recopiées sur la facture
+  const lignesAFacturer = _sav_venteLignes.filter(l=>!(l.ligne_devis_id && (parseFloat(l.quantite)||0)===0));
+  if(lignesAFacturer.length===0){
+    showToast("Rien à facturer : toutes les lignes du devis sont déjà facturées", 'error');
+    const b=el('btn-save-sav'); if(b) b.disabled=false;
+    return;
+  }
+  const totalHT = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   const {data:num} = await sb.rpc('generate_facture_vente_number');
 
+  const ctx = window._savFacCtx || {};
   const {data:fac, error} = await sb.from('factures_vente').insert({
-    numero: num, client_id: clientId, chantier_id: null, devis_id: null, intervention_id: interventionId,
+    numero: num, client_id: clientId, chantier_id: ctx.chantierId||null, devis_id: ctx.devisId||null, intervention_id: interventionId,
     type_facture: 'sav',
+    reference_client: ctx.devisNumero||'',
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
@@ -6028,8 +6209,8 @@ async function saveFactureSAV(interventionId, clientId){
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return; }
 
-  await sb.from('lignes_facture_vente').insert(_sav_venteLignes.map((l,idx)=>({
-    facture_vente_id: fac.id, ordre: idx+1, categorie: l.categorie,
+  await sb.from('lignes_facture_vente').insert(lignesAFacturer.map((l,idx)=>({
+    facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: idx+1, categorie: l.categorie,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite,
     quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: parseFloat(l.taux_tva)||17
   })));
