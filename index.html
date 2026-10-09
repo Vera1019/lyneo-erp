@@ -2005,11 +2005,13 @@ async function openChantierModal(r=null){
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="${r&&r.type_centre==='sav'?'Ex: Dépannage Delhaize':'Ex: Rénovation Bâtiment A'}"/></div>
         <div class="form-group"><label class="field-label">Client *</label>
-          <select id="ch-client-id">
-            <option value="">— Sélectionner un client —</option>
-            ${clientOpts}
-          </select>
-          ${clients.length===0?'<span style="font-size:11px;color:var(--gray-5)">Aucun client enregistré — <a href="#" onclick="closeModal();navigate(\'clients\');return false" style="color:var(--blue)">créer un client</a></span>':''}
+          <div style="display:flex;gap:6px">
+            <select id="ch-client-id" style="flex:1">
+              <option value="">— Sélectionner un client —</option>
+              ${clientOpts}
+            </select>
+            ${boutonsClientRapide('ch-client-id')}
+          </div>
         </div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
@@ -3838,10 +3840,13 @@ async function renderClients(search=''){
   }, 50);
 }
 
-function openClientModal(r=null){
+// selectId (facultatif) : le formulaire s'ouvre PAR-DESSUS le formulaire en cours (intervention, devis…),
+// sans le fermer ni perdre ce qui est saisi, puis sélectionne le client dans la liste d'origine.
+function openClientModal(r=null, selectId=null){
   const isEdit = !!r;
-  showModal(`<div class="modal-overlay"><div class="modal">
-    <div class="modal-header"><h3>${isEdit?'Modifier client':'Nouveau client'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+  const fermer = selectId ? 'fermerClientRapide()' : 'closeModal()';
+  const html = `<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${isEdit?'Modifier client':'Nouveau client'}</h3><button class="modal-close" onclick="${fermer}"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${r?.nom||''}" placeholder="Nom de la société ou du client"/></div>
@@ -3868,14 +3873,53 @@ function openClientModal(r=null){
         <div class="form-group full"><label class="field-label">Notes</label><textarea id="cl-notes" placeholder="Informations complémentaires...">${r?.notes||''}</textarea></div>
       </div>
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveClient('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
+        <button class="btn btn-secondary" onclick="${fermer}">Annuler</button>
+        <button class="btn btn-primary" onclick="saveClient('${r?.id||''}'${selectId?`,'${selectId}'`:''})"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
-  </div></div>`);
+  </div></div>`;
+  if(!selectId){ showModal(html); return; }
+  let c = el('client-rapide-container');
+  if(!c){ c = document.createElement('div'); c.id = 'client-rapide-container'; document.body.appendChild(c); }
+  c.innerHTML = html;
+  const ov = c.querySelector('.modal-overlay');
+  ov.style.zIndex = 300;
+  ov.addEventListener('click', function(e){ if(e.target===this) fermerClientRapide(); });
+  const n = el('cl-nom'); if(n) n.focus();
+}
+function fermerClientRapide(){ const c = el('client-rapide-container'); if(c) c.innerHTML = ''; }
+
+// Boutons « + » (nouveau client) et « crayon » (modifier le client sélectionné) à mettre à côté de n'importe quelle liste de clients
+function boutonsClientRapide(selectId){
+  return `<button type="button" class="btn btn-secondary btn-sm" onclick="nouveauClientRapide('${selectId}')" title="Créer un nouveau client" style="white-space:nowrap"><i class="ti ti-plus"></i> Nouveau</button>`
+       + `<button type="button" class="btn btn-secondary btn-sm" onclick="modifierClientRapide('${selectId}')" title="Modifier le client sélectionné" style="white-space:nowrap"><i class="ti ti-pencil"></i> Modifier</button>`;
+}
+function nouveauClientRapide(selectId){ openClientModal(null, selectId); }
+async function modifierClientRapide(selectId){
+  const id = el(selectId)?.value;
+  if(!id){ showToast("Sélectionnez d'abord un client dans la liste", 'error'); return; }
+  const {data:c} = await sb.from('clients').select('*').eq('id',id).single();
+  if(!c){ showToast("Client introuvable", 'error'); return; }
+  openClientModal(c, selectId);
+}
+// Met à jour la liste d'origine (ajoute ou renomme l'option), sélectionne le client et relance son « onchange »
+function majSelectClient(selectId, c){
+  const sel = el(selectId); if(!sel) return;
+  let opt = Array.from(sel.options).find(o=>o.value===String(c.id));
+  const avant = opt ? {email:opt.dataset.email||'', tel:opt.dataset.tel||'', adresse:opt.dataset.adresse||''} : null;
+  if(!opt){ opt = document.createElement('option'); opt.value = c.id; sel.appendChild(opt); }
+  opt.textContent = c.nom;
+  opt.dataset.email = c.email||''; opt.dataset.tel = c.telephone||''; opt.dataset.adresse = c.adresse||'';
+  sel.value = c.id;
+  // Formulaire d'intervention : si le client a été modifié, les champs repris de sa fiche suivent (sauf s'ils ont été retouchés à la main)
+  if(selectId==='int-client' && avant){
+    const maj = (id,old,nv)=>{ const f=el(id); if(f && (f.value===old || !f.value)) f.value = nv; };
+    maj('int-email', avant.email, c.email||''); maj('int-tel', avant.tel, c.telephone||''); maj('int-adresse-client', avant.adresse, c.adresse||'');
+  }
+  sel.dispatchEvent(new Event('change'));
 }
 
-async function saveClient(id){
+async function saveClient(id, selectId=null){
   const nom = el('cl-nom').value.trim();
   if(!nom){ showToast('Nom obligatoire','error'); return; }
   const data = {
@@ -3893,10 +3937,16 @@ async function saveClient(id){
     actif: el('cl-actif').value==='1',
     notes: el('cl-notes').value
   };
-  const {error} = id
-    ? await sb.from('clients').update(data).eq('id',id)
-    : await sb.from('clients').insert(data);
+  const {data:saved, error} = id
+    ? await sb.from('clients').update(data).eq('id',id).select().single()
+    : await sb.from('clients').insert(data).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(selectId){
+    fermerClientRapide();
+    majSelectClient(selectId, {...data, id: (saved&&saved.id)||id});
+    showToast(id?'Client mis à jour':'Client "'+nom+'" créé et sélectionné');
+    return;
+  }
   showToast(id?'Client mis à jour':'Client créé');
   closeModal(); renderClients();
 }
@@ -4361,34 +4411,6 @@ function updateDevisTotaux(){
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
 
-function toggleNouveauClientInline(){
-  const box = el('dv-nouveau-client-inline');
-  if(!box) return;
-  const showing = box.style.display!=='none';
-  box.style.display = showing ? 'none' : 'block';
-  if(!showing){ const n = el('dv-nc-nom'); if(n) n.focus(); }
-}
-
-async function criarClienteInlineDevis(){
-  const nom = el('dv-nc-nom').value.trim();
-  if(!nom){ showToast("Nom du client obligatoire", 'error'); return; }
-  const {data:novoCliente, error} = await sb.from('clients').insert({
-    nom, email: el('dv-nc-email').value, telephone: el('dv-nc-tel').value, actif: true
-  }).select().single();
-  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
-
-  const sel = el('dv-client');
-  const opt = document.createElement('option');
-  opt.value = novoCliente.id;
-  opt.textContent = novoCliente.nom;
-  sel.appendChild(opt);
-  sel.value = novoCliente.id;
-
-  toggleNouveauClientInline();
-  el('dv-nc-nom').value = ''; el('dv-nc-email').value = ''; el('dv-nc-tel').value = '';
-  showToast('Client "'+novoCliente.nom+'" créé et sélectionné');
-}
-
 async function openDevisModal(d=null){
   const isEdit = !!d;
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
@@ -4417,18 +4439,7 @@ async function openDevisModal(d=null){
               <option value="">— Sélectionner —</option>
               ${clients.map(c=>`<option value="${c.id}" ${d?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
             </select>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleNouveauClientInline()" title="Créer un nouveau client"><i class="ti ti-plus"></i></button>
-          </div>
-          <div id="dv-nouveau-client-inline" style="display:none;background:var(--gray-1);border-radius:var(--radius);padding:12px;margin-top:8px">
-            <div class="form-grid">
-              <div class="form-group"><label class="field-label">Nom *</label><input id="dv-nc-nom" placeholder="Nom du client"/></div>
-              <div class="form-group"><label class="field-label">Email</label><input id="dv-nc-email" type="email"/></div>
-              <div class="form-group"><label class="field-label">Téléphone</label><input id="dv-nc-tel"/></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button type="button" class="btn btn-primary btn-sm" onclick="criarClienteInlineDevis()"><i class="ti ti-check"></i> Créer et sélectionner</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="toggleNouveauClientInline()">Annuler</button>
-            </div>
+            ${boutonsClientRapide('dv-client')}
           </div>
         </div>
         <div class="form-group"><label class="field-label">Chantier</label>
@@ -4793,10 +4804,13 @@ async function openNewFactureVenteLibre(){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Client *</label>
-          <select id="fvl-client" onchange="filtrerChantiersParClient()">
-            <option value="">— Sélectionner —</option>
-            ${clients.map(c=>`<option value="${c.id}">${c.nom}</option>`).join('')}
-          </select>
+          <div style="display:flex;gap:6px">
+            <select id="fvl-client" style="flex:1" onchange="filtrerChantiersParClient()">
+              <option value="">— Sélectionner —</option>
+              ${clients.map(c=>`<option value="${c.id}">${c.nom}</option>`).join('')}
+            </select>
+            ${boutonsClientRapide('fvl-client')}
+          </div>
         </div>
         <div class="form-group"><label class="field-label">Chantier</label>
           <select id="fvl-chantier" onchange="filtrerChantiersParClient();syncAcompteLibre()">
@@ -6026,10 +6040,13 @@ async function openInterventionModal(r=null){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Client *</label>
-          <select id="int-client" onchange="prefillClientIntervention()">
-            <option value="">— Sélectionner —</option>
-            ${clientsList.map(c=>`<option value="${c.id}" data-email="${c.email||''}" data-tel="${c.telephone||''}" data-adresse="${(c.adresse||'').replace(/"/g,'&quot;')}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
-          </select>
+          <div style="display:flex;gap:6px">
+            <select id="int-client" style="flex:1" onchange="prefillClientIntervention()">
+              <option value="">— Sélectionner —</option>
+              ${clientsList.map(c=>`<option value="${c.id}" data-email="${c.email||''}" data-tel="${c.telephone||''}" data-adresse="${(c.adresse||'').replace(/"/g,'&quot;')}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+            </select>
+            ${boutonsClientRapide('int-client')}
+          </div>
         </div>
         <div class="form-group"><label class="field-label">Date / heure prévue</label><input type="datetime-local" id="int-date" value="${r?.date_intervention?r.date_intervention.slice(0,16):''}"/></div>
         <div class="form-group"><label class="field-label">Téléphone</label><input id="int-tel" value="${r?.telephone||''}"/></div>
