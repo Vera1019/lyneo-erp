@@ -4914,7 +4914,7 @@ async function openNewFactureVenteLibre(){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" placeholder="N° de commande client, ou autre référence..."/></div>
-        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = numérotation automatique)</span></label><input id="fv-numero" placeholder="Ex: FA-20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
       <div id="fvl-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px"></div>
@@ -5133,12 +5133,20 @@ function renderVenteLignesLibre(){
 }
 function delVenteLigneLibre(i){ _venteLignes.splice(i,1); renderVenteLignesLibre(); }
 
-// Numéro de la facture : saisi à la main (facture déjà émise ailleurs, ex: FA-20260701) ou automatique
+// Prochain numéro automatique : FA + AAAA + MM + n° d'ordre dans le mois (ex. FA20260801),
+// selon la DATE DE LA FACTURE. Calculé par la fonction SQL (voir numeracao-facturas-clientes.sql).
+// Si la fonction n'a pas encore été mise à jour dans Supabase, on retombe sur l'ancienne (sans date).
+async function prochainNumeroFactureVente(dateFacture){
+  let r = await sb.rpc('generate_facture_vente_number', {p_date: dateFacture || today()});
+  if(r.error) r = await sb.rpc('generate_facture_vente_number');
+  return r.data;
+}
+
+// Numéro de la facture : saisi à la main (facture déjà émise ailleurs, ex: FA20260701) ou automatique
 async function numeroFactureVenteChoisi(){
   const manuel = (el('fv-numero')?.value||'').trim();
   if(!manuel){
-    const {data} = await sb.rpc('generate_facture_vente_number');
-    return {num:data};
+    return {num: await prochainNumeroFactureVente(el('fv-date')?.value)};
   }
   const {data:dup} = await sb.from('factures_vente').select('id').eq('numero',manuel).limit(1);
   if(dup && dup.length) return {erreur:`Le numéro ${manuel} existe déjà — choisissez-en un autre`};
@@ -5306,7 +5314,7 @@ async function openGenerateFactureVente(chantierId){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${devisInfo?devisInfo.numero:''}" placeholder="N° de commande client, ou autre référence..."/></div>
-        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = numérotation automatique)</span></label><input id="fv-numero" placeholder="Ex: FA-20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
 
@@ -5644,7 +5652,7 @@ async function openEditFactureVente(facId){
     <div class="modal-header"><div><h3>Modifier la facture</h3><span style="font-size:12px;color:var(--gray-5)">${a(f.numero)} — ${a(f.clients?.nom||'')} — ${fmt(f.total_ttc)} TTC</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">N° de facture *</label><input id="efv-numero" value="${a(f.numero)}" placeholder="Ex: FA-20260801"/></div>
+        <div class="form-group"><label class="field-label">N° de facture *</label><input id="efv-numero" value="${a(f.numero)}" placeholder="Ex: FA20260801"/></div>
         <div class="form-group"><label class="field-label">Statut</label>
           <select id="efv-statut">${Object.entries(STATUT_FV).map(([k,v])=>`<option value="${k}"${f.statut===k?' selected':''}>${v}</option>`).join('')}</select></div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efv-date" value="${a((f.date_creation||'').slice(0,10))}"/></div>
@@ -6649,6 +6657,7 @@ async function openFactureSAVModal(interventionId){
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'"/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
@@ -6732,7 +6741,9 @@ async function saveFactureSAV(interventionId, clientId){
   }
   const totalHT = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
-  const {data:num} = await sb.rpc('generate_facture_vente_number');
+  const choixNum = await numeroFactureVenteChoisi();
+  if(choixNum.erreur){ showToast(choixNum.erreur, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return; }
+  const num = choixNum.num;
 
   const ctx = window._savFacCtx || {};
   const {data:fac, error} = await sb.from('factures_vente').insert({
