@@ -1138,8 +1138,20 @@ function navigate(page){
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
   el('topbar-title').textContent = PAGE_TITLES[page]||'';
-  const pages = {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,interventions_sav:renderInterventionsSAV};
-  if(pages[page]) pages[page]();
+  const rendu = pageRenderers()[page];
+  if(rendu) rendu();
+}
+
+function pageRenderers(){
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,interventions_sav:renderInterventionsSAV};
+}
+
+// Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
+// qui est affichée derrière — pas une autre page : sinon la liste d'une autre page s'afficherait
+// sous le titre de la page courante (ex. liste des factures sous "Interventions (SAV)").
+function rafraichirPage(){
+  const rendu = pageRenderers()[currentPage];
+  return rendu ? rendu() : undefined;
 }
 
 // ── DASHBOARD ────────────────────────────────────────────────
@@ -3442,7 +3454,7 @@ async function saveFacLibre(){
 
   showToast('Facture créée — '+numero);
   closeModal();
-  await renderFactures();
+  await rafraichirPage();
   openFacDetail(fac.id);
 }
 
@@ -4650,7 +4662,7 @@ async function saveDevis(id){
   }
 
   closeModal();
-  renderDevis();
+  rafraichirPage();
 }
 
 async function editDevisById(devisId){
@@ -4766,7 +4778,7 @@ async function deleteDevis(devisId, numero){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Devis supprimé');
   closeModal();
-  renderDevis();
+  rafraichirPage();
 }
 
 async function changerStatutDevis(devisId, statut){
@@ -4784,7 +4796,7 @@ async function changerStatutDevis(devisId, statut){
     }
   }
   closeModal();
-  renderDevis();
+  rafraichirPage();
 }
 
 async function uploadAnnexesDevis(files, devisId){
@@ -5170,7 +5182,7 @@ async function saveFactureVenteLibre(){
 
   showToast('Facture client créée — '+num);
   closeModal();
-  renderFacturesVente();
+  rafraichirPage();
 }
 
 // Trouve le devis lié à un chantier (dans les deux sens), calcule les quantités
@@ -5625,7 +5637,7 @@ async function changerStatutFactureVente(facId, statut){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Facture marquée : '+(STATUT_FV[statut]||statut));
   closeModal();
-  renderFacturesVente();
+  rafraichirPage();
 }
 
 async function deleteFactureVente(facId, numero){
@@ -5634,7 +5646,7 @@ async function deleteFactureVente(facId, numero){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Facture supprimée');
   closeModal();
-  renderFacturesVente();
+  rafraichirPage();
 }
 
 
@@ -6358,7 +6370,7 @@ async function saveIntervention(id){
     showToast('Intervention créée — '+ref + (codePointagesOk ? ' (code déjà disponible pour le pointage)' : ' — pensez à créer aussi le code dans le système de pointages'));
   }
   closeModal();
-  renderInterventionsSAV();
+  rafraichirPage();
 }
 
 async function changerStatutIntervention(id, statut){
@@ -6425,7 +6437,7 @@ async function deleteIntervention(id){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Intervention supprimée');
   closeModal();
-  renderInterventionsSAV();
+  rafraichirPage();
 }
 
 async function openInterventionDetail(interventionId){
@@ -6828,7 +6840,7 @@ async function annulerPO(poId){
   if(!confirm('Êtes-vous sûr de vouloir annuler cette commande ?')) return;
   await sb.from('purchase_orders_lyneo').update({statut:'annulee'}).eq('id',poId);
   showToast('Commande annulée');
-  renderPOS();
+  rafraichirPage();
 }
 
 // ── VALIDATION MONTANT FACTURE ────────────────────────────────
@@ -6866,7 +6878,7 @@ async function deletePO(poId, numero){
   }
   showToast('Commande supprimée');
   closeModal();
-  renderPOS();
+  rafraichirPage();
 }
 
 async function openEditPO(poId){
@@ -7007,7 +7019,7 @@ async function saveEditPO(poId){
 
   showToast("Commande mise à jour");
   closeModal();
-  await renderPOS();
+  await rafraichirPage();
 }
 
 // ── GÉNÉRER FACTURE DEPUIS PO ─────────────────────────────────
@@ -7223,7 +7235,7 @@ async function saveFacFromPO(poId){
   }
   _facFilesNew = [];
   closeModal();
-  renderFactures();
+  rafraichirPage();
 }
 
 // ── EDIT FACTURE FOURNISSEUR ──────────────────────────────────
@@ -7416,7 +7428,7 @@ async function saveEditFac(facId){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast("Facture mise à jour");
   closeModal();
-  renderFactures();
+  rafraichirPage();
 }
 
 async function annulerFacture(facId){
@@ -7427,7 +7439,7 @@ async function annulerFacture(facId){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Facture annulée');
   closeModal();
-  renderFactures();
+  rafraichirPage();
 }
 
 // ── NOTE DE CRÉDIT (AVOIR) ────────────────────────────────────
