@@ -6179,6 +6179,16 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
   _interventionsSAV = data||[];
 
+  // N° des devis liés aux interventions (requête séparée : la liste s'affiche même si elle échoue)
+  const devisMap = {};
+  const devisIds = [...new Set(_interventionsSAV.map(i=>i.devis_id).filter(Boolean))];
+  if(devisIds.length){
+    try{
+      const {data:dvs} = await sb.from('devis').select('id,numero,objet,statut,montant_ht').in('id',devisIds);
+      (dvs||[]).forEach(d=>{ devisMap[d.id] = d; });
+    }catch(e){}
+  }
+
   // Centres de coûts SAV (SAV 1, SAV 2...) — requêtes séparées et protégées : sans effet si la migration n'est pas faite
   if(!search || !_savCentresCache){
     let centres = [];
@@ -6215,7 +6225,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
   if(search){
     const q = search.toLowerCase();
-    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresMap[i.chantier_id]||'')).toLowerCase().includes(q));
+    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresMap[i.chantier_id]||'')+(devisMap[i.devis_id]?.numero||'')).toLowerCase().includes(q));
   }
 
   const carteCentre = (c)=>{
@@ -6249,7 +6259,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="page-header">
       <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
         <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
         <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
       </div>
@@ -6264,13 +6274,14 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
             items.map(i=>`<tr style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
               <td><strong class="text-blue">${i.ref}</strong></td>
               <td>${i.clients?.nom||'—'}</td>
               <td>${i.nom_site?'<strong>'+i.nom_site+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ (i.adresse_site||'') +'</span>':(i.adresse_site||'—')}</td>
+              <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${String(devisMap[i.devis_id].objet||'').replace(/"/g,'&quot;')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
               <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6)">'+centresMap[i.chantier_id]+'</span>':'—'}</td>
               <td>${i.employes_rh?(i.employes_rh.prenom||'')+' '+(i.employes_rh.nom||''):(i.technicien_nom||'—')}</td>
               <td>${bSAV(i.statut)}</td>
