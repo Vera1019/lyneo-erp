@@ -1074,6 +1074,7 @@ const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisse
 
 function navigate(page){
   currentPage = page;
+  if(page==='interventions_sav') _savCentreFiltre = '';   // on arrive toujours sur la vue complète
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
@@ -1323,7 +1324,10 @@ async function renderChantiers(search=''){
     const {data} = await sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false});
     _chantiers = data||[];
   }
-  let items = search ? _chantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : _chantiers;
+  // Les centres de coûts SAV (SAV 1, SAV 2...) vivent dans le module Interventions : ils ne sont pas listés ici.
+  const centresSav = _chantiers.filter(c=>c.type_centre==='sav');
+  const baseChantiers = _chantiers.filter(c=>c.type_centre!=='sav');
+  let items = search ? baseChantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : baseChantiers;
   items = sortItems(items, 'chantiers');
   el('page-content').innerHTML = `
     <div class="page-header">
@@ -1333,6 +1337,7 @@ async function renderChantiers(search=''){
         <button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button>
       </div>
     </div>
+    ${centresSav.length?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${centresSav.length} centre${centresSav.length>1?'s':''} de coûts SAV (${centresSav.map(c=>c.numero).sort().join(', ')}) — gérés dans <a href="#" onclick="navigate('interventions_sav');return false" style="color:var(--blue);font-weight:600">Interventions</a>, avec leurs interventions.</div>`:''}
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
@@ -1370,6 +1375,17 @@ async function renderChantiers(search=''){
 }
 
 // sbPT moved to top
+
+// Requête .in() découpée en petits paquets : évite les URL trop longues quand il y a beaucoup d'identifiants
+async function selectInChunks(client, table, cols, col, ids, size=40){
+  const out = [];
+  const liste = [...new Set((ids||[]).filter(x=>x!==null && x!==undefined && x!==''))];
+  for(let i=0;i<liste.length;i+=size){
+    const {data,error} = await client.from(table).select(cols).in(col, liste.slice(i,i+size));
+    if(!error && data) out.push(...data);
+  }
+  return out;
+}
 
 async function openChantierDetail(chantierId, tab){
   tab = tab || 'info';
@@ -1421,6 +1437,8 @@ async function openChantierDetail(chantierId, tab){
   // cassent rien si la migration n'est pas encore faite ou si le système de pointages est indisponible.
   let intervCentre = [];
   const intervDevis = {}, intervHeures = {}, intervFact = {};
+  let heuresCentre = 0;   // heures pointées directement sur le code du centre (ex: le code « SAV 2 »)
+  const estSav = chantier.type_centre==='sav';
   try{
     const {data:ivs} = await sb.from('interventions_sav').select('*').eq('chantier_id',chantierId).order('ref',{ascending:true});
     intervCentre = ivs||[];
@@ -1428,27 +1446,38 @@ async function openChantierDetail(chantierId, tab){
   if(intervCentre.length){
     try{
       const dIds = [...new Set(intervCentre.map(i=>i.devis_id).filter(Boolean))];
-      if(dIds.length){
-        const {data:dvs} = await sb.from('devis').select('id,numero,montant_ht,statut').in('id',dIds);
-        (dvs||[]).forEach(d=>{ intervDevis[d.id] = d; });
+      (await selectInChunks(sb,'devis','id,numero,montant_ht,statut','id',dIds)).forEach(d=>{ intervDevis[d.id] = d; });
+    }catch(e){}
+    try{
+      const fvs = await selectInChunks(sb,'factures_vente','id,intervention_id,total_ht,statut','intervention_id',intervCentre.map(i=>i.id));
+      fvs.filter(f=>f.statut!=='annulee').forEach(f=>{ intervFact[f.intervention_id] = (intervFact[f.intervention_id]||0) + (parseFloat(f.total_ht)||0); });
+    }catch(e){}
+  }
+  if(intervCentre.length || (estSav && chantier.code_pointages)){
+    try{
+      // Heures : le code de pointage d'une intervention est sa référence (SAV26001...) ;
+      // les techniciens peuvent aussi pointer directement sur le code du centre (ex: SAV 2).
+      const ptCh = await selectInChunks(sbPT,'chantiers','id,code','code',intervCentre.map(i=>i.ref));
+      let ptCentre = null;
+      if(estSav && chantier.code_pointages){
+        const {data:pc} = await sbPT.from('chantiers').select('id,code').eq('code',chantier.code_pointages).limit(1);
+        ptCentre = pc && pc[0] || null;
       }
-    }catch(e){}
-    try{
-      const {data:fvs} = await sb.from('factures_vente').select('id,intervention_id,total_ht,statut').in('intervention_id',intervCentre.map(i=>i.id));
-      (fvs||[]).filter(f=>f.statut!=='annulee').forEach(f=>{ intervFact[f.intervention_id] = (intervFact[f.intervention_id]||0) + (parseFloat(f.total_ht)||0); });
-    }catch(e){}
-    try{
-      // Le code de pointage d'une intervention est sa référence (SAV26001...)
-      const {data:ptCh} = await sbPT.from('chantiers').select('id,code').in('code',intervCentre.map(i=>i.ref));
-      if(ptCh && ptCh.length){
+      const tous = ptCentre ? [...ptCh, ptCentre] : ptCh;
+      if(tous.length){
         const refParPt = new Map(ptCh.map(c=>[String(c.id),c.code]));
         ptCh.forEach(c=>{ intervHeures[c.code] = 0; });
-        const {data:pics} = await sbPT.from('picages').select('chantier_id,heures').in('chantier_id',ptCh.map(c=>c.id));
-        (pics||[]).forEach(p=>{ const ref = refParPt.get(String(p.chantier_id)); if(ref) intervHeures[ref] += (parseFloat(p.heures)||0); });
+        const pics = await selectInChunks(sbPT,'picages','chantier_id,heures','chantier_id',tous.map(c=>c.id));
+        pics.forEach(p=>{
+          const h = parseFloat(p.heures)||0;
+          const ref = refParPt.get(String(p.chantier_id));
+          if(ref) intervHeures[ref] += h;
+          else if(ptCentre && String(p.chantier_id)===String(ptCentre.id)) heuresCentre += h;
+        });
       }
     }catch(e){ /* système de pointages indisponible */ }
   }
-  const montreInterventions = chantier.type_centre==='sav' || intervCentre.length>0;
+  const montreInterventions = estSav || intervCentre.length>0;
 
   const tabs = [
     {id:'info', label:'Informations', icon:'ti-info-circle'},
@@ -1690,16 +1719,17 @@ async function openChantierDetail(chantierId, tab){
   const totDevisInt = intervCentre.reduce((a,i)=>a+(parseFloat(intervDevis[i.devis_id]?.montant_ht)||0),0);
   const totFactInt = intervCentre.reduce((a,i)=>a+(intervFact[i.id]||0),0);
   const totHeuresInt = intervCentre.reduce((a,i)=>a+(intervHeures[i.ref]||0),0);
+  const totHeuresTout = totHeuresInt + heuresCentre;
   const tabInterventions = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();navigate('interventions_sav');setTimeout(()=>openInterventionModal({client_id:'${chantier.client_id||''}',chantier_id:'${chantierId}'}),300)"><i class="ti ti-plus"></i> Nouvelle intervention</button></div>`
-    + (intervCentre.length===0
-      ? `<div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention dans ce centre de coûts</p><p style="font-size:12px;color:var(--gray-5)">Dans une intervention, choisissez ce centre dans « Centre de coûts SAV ».</p></div>`
-      : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+    + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
           ${statCard('Interventions', String(intervCentre.length), 'var(--blue)', intervCentre.filter(i=>i.statut==='facturee').length+' facturée(s)')}
           ${statCard('Devis (HT)', fmt(totDevisInt), 'var(--blue)', 'montant des devis liés')}
           ${statCard('Facturé (HT)', fmt(totFactInt), 'var(--green)', 'factures clients non annulées')}
-          ${statCard('Heures pointées', totHeuresInt.toFixed(1)+' h', 'var(--orange)', 'codes SAV26… du système de pointages')}
-        </div>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
+          ${statCard('Heures pointées', totHeuresTout.toFixed(1)+' h', 'var(--orange)', chantier.code_pointages ? heuresCentre.toFixed(1)+' h sur « '+chantier.code_pointages+' » + '+totHeuresInt.toFixed(1)+' h sur les interventions' : 'codes SAV26… des interventions (centre pas encore lié aux pointages)')}
+        </div>`
+    + (intervCentre.length===0
+      ? `<div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention dans ce centre de coûts</p><p style="font-size:12px;color:var(--gray-5)">Dans une intervention, choisissez ce centre dans « Centre de coûts SAV ».</p></div>`
+      : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
           <thead><tr style="background:var(--gray-1)">${thI('N°')}${thI('Site')}${thI('Date')}${thI('Devis')}${thI('Statut')}${thI('Heures','right')}${thI('Facturé HT','right')}</tr></thead><tbody>`
         + intervCentre.map(i=>{
             const dv = intervDevis[i.devis_id];
@@ -1714,6 +1744,7 @@ async function openChantierDetail(chantierId, tab){
               +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+(intervFact[i.id]?fmt(intervFact[i.id]):'—')+'</td>'
               +'</tr>';
           }).join('')
+        + (heuresCentre>0 ? '<tr style="background:var(--gray-1)"><td colspan="5" style="padding:9px 12px;font-size:12.5px;color:var(--gray-6)">Heures pointées directement sur le centre « '+chantier.code_pointages+' » (sans intervention précise)</td><td style="padding:9px 12px;text-align:right">'+heuresCentre.toFixed(1)+' h</td><td></td></tr>' : '')
         + '</tbody></table></div>');
 
   const tabContent = {info:tabInfo, interventions:tabInterventions, rentabilite:tabRentabilite, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
@@ -1934,15 +1965,16 @@ async function deleteAnnexeChantier(id, chantierId, url){
 }
 
 async function openChantierModal(r=null){
-  const isEdit = !!r;
+  // r peut être un chantier existant (avec id) ou seulement des valeurs de départ (nouveau chantier / nouveau centre SAV)
+  const isEdit = !!(r && r.id);
   const {data:clientsData} = await sb.from('clients').select('id,nom').eq('actif',true).order('nom');
   const clients = clientsData||[];
   const clientOpts = clients.map(c=>`<option value="${c.id}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal">
-    <div class="modal-header"><h3>${isEdit?'Modifier chantier':'Nouveau chantier'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-header"><h3>${isEdit?(r.type_centre==='sav'?'Modifier le centre SAV':'Modifier chantier'):(r&&r.type_centre==='sav'?'Nouveau centre SAV':'Nouveau chantier')}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="Ex: Rénovation Bâtiment A"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="${r&&r.type_centre==='sav'?'Ex: Dépannage Delhaize':'Ex: Rénovation Bâtiment A'}"/></div>
         <div class="form-group"><label class="field-label">Client *</label>
           <select id="ch-client-id">
             <option value="">— Sélectionner un client —</option>
@@ -1953,7 +1985,7 @@ async function openChantierModal(r=null){
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
-        <div class="form-group"><label class="field-label">Numéro ${r?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FRAIS GENERAUX"/></div>
+        <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FG"/></div>
         <div class="form-group"><label class="field-label">Type de centre de coûts</label>
           <select id="ch-type" data-had="${r&&r.type_centre!==undefined?'1':''}">
             <option value="chantier" ${(r?.type_centre||'chantier')==='chantier'?'selected':''}>Chantier</option>
@@ -2041,7 +2073,9 @@ async function saveChantier(id){
     }
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   }
-  closeModal(); renderChantiers();
+  closeModal();
+  // Un centre SAV se crée/modifie depuis le module Interventions : on y reste
+  if(currentPage==='interventions_sav') renderInterventionsSAV(); else renderChantiers();
 }
 
 // ── FOURNISSEURS ─────────────────────────────────────────────
@@ -5695,22 +5729,50 @@ async function deleteEmploye(employeId){
 // ── INTERVENTIONS (SAV) ───────────────────────────────────────
 let _interventionsSAV = [];
 let _sav_venteLignes = [];
+let _savCentreFiltre = '';        // '' = tous · id d'un centre SAV · '__aucun' = interventions sans centre SAV
+let _savCentresCache = null;      // {centres, facParCentre} — rechargé quand on ne tape pas dans la recherche
+
+// Filtre la liste sur un centre de coûts SAV (clic sur sa carte) ; un second clic enlève le filtre
+function filtrerCentreSAV(id){
+  _savCentreFiltre = (id && _savCentreFiltre===id) ? '' : id;
+  renderInterventionsSAV('', _savCentreFiltre ? 'toutes' : 'encours');
+}
 
 async function renderInterventionsSAV(search='', filterStatut='encours'){
   const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
   _interventionsSAV = data||[];
 
-  // Centre de coûts (SAV 1, SAV 2...) de chaque intervention — requête séparée, sans effet si la migration n'est pas faite
+  // Centres de coûts SAV (SAV 1, SAV 2...) — requêtes séparées et protégées : sans effet si la migration n'est pas faite
+  if(!search || !_savCentresCache){
+    let centres = [];
+    const facParCentre = {};
+    try{
+      const {data:cs} = await sb.from('chantiers_lyneo').select('*').eq('type_centre','sav').order('numero');
+      centres = cs||[];
+      if(centres.length){
+        const {data:fvs} = await sb.from('factures_vente').select('chantier_id,total_ht,statut').in('chantier_id',centres.map(c=>c.id));
+        (fvs||[]).filter(f=>f.statut!=='annulee').forEach(f=>{ facParCentre[f.chantier_id] = (facParCentre[f.chantier_id]||0) + (parseFloat(f.total_ht)||0); });
+      }
+    }catch(e){}
+    _savCentresCache = {centres, facParCentre};
+  }
+  const {centres, facParCentre} = _savCentresCache;
   const centresMap = {};
-  try{
-    const cIds = [...new Set(_interventionsSAV.map(i=>i.chantier_id).filter(Boolean))];
-    if(cIds.length){
-      const {data:cs} = await sb.from('chantiers_lyneo').select('id,numero').in('id',cIds);
-      (cs||[]).forEach(c=>{ centresMap[c.id] = c.numero; });
-    }
-  }catch(e){}
+  centres.forEach(c=>{ centresMap[c.id] = c.numero; });
+  const centreFiltre = centres.find(c=>c.id===_savCentreFiltre) || null;
+  const aUnCentre = i => !!(i.chantier_id && centresMap[i.chantier_id]);
+
+  // Chiffres par centre (cartes du haut de page)
+  const stat = {};
+  _interventionsSAV.forEach(i=>{
+    const k = aUnCentre(i) ? i.chantier_id : '__aucun';
+    const s = stat[k] = stat[k] || {total:0, afacturer:0};
+    s.total++; if(i.statut==='terminee') s.afacturer++;
+  });
 
   let items = _interventionsSAV;
+  if(_savCentreFiltre==='__aucun') items = items.filter(i=>!aUnCentre(i));
+  else if(_savCentreFiltre) items = items.filter(i=>i.chantier_id===_savCentreFiltre);
   if(filterStatut==='astreinte') items = items.filter(i=>i.astreinte);
   else if(filterStatut==='encours') items = items.filter(i=>i.statut!=='facturee');
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
@@ -5719,18 +5781,48 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresMap[i.chantier_id]||'')).toLowerCase().includes(q));
   }
 
+  const carteCentre = (c)=>{
+    const s = stat[c.id] || {total:0, afacturer:0};
+    const actif = _savCentreFiltre===c.id;
+    return `<div onclick="filtrerCentreSAV('${c.id}')" style="cursor:pointer;background:#fff;border:2px solid ${actif?'var(--blue)':'var(--gray-3)'};border-radius:var(--radius);padding:14px 16px;flex:1 1 240px;max-width:360px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div><div style="font-size:16px;font-weight:700;color:var(--blue)">${c.numero}</div><div style="font-size:12.5px;color:var(--gray-6)">${c.nom}</div><div style="font-size:11.5px;color:var(--gray-5)">${c.client||''}</div></div>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openChantierDetail('${c.id}','interventions')" title="Fiche du centre de coûts : interventions, rentabilité, factures, heures"><i class="ti ti-folder-open"></i> Fiche</button>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--gray-6);flex-wrap:wrap">
+        <span><strong style="font-size:15px;color:var(--gray-8)">${s.total}</strong> intervention${s.total>1?'s':''}</span>
+        <span><strong style="font-size:15px;color:${s.afacturer?'var(--orange)':'var(--gray-8)'}">${s.afacturer}</strong> à facturer</span>
+        <span><strong style="font-size:15px;color:var(--green)">${fmt(facParCentre[c.id]||0)}</strong> facturé HT</span>
+      </div>
+    </div>`;
+  };
+  const sansCentre = stat['__aucun'];
+  const cartesCentres = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;align-items:stretch">
+      ${centres.filter(c=>c.statut!=='termine').map(carteCentre).join('')}
+      ${sansCentre?`<div onclick="filtrerCentreSAV('__aucun')" style="cursor:pointer;background:var(--gray-1);border:2px ${_savCentreFiltre==='__aucun'?'solid var(--blue)':'dashed var(--gray-3)'};border-radius:var(--radius);padding:14px 16px;flex:0 1 240px">
+        <div style="font-size:14px;font-weight:700;color:var(--gray-6)">Sans centre de coûts</div>
+        <div style="font-size:12px;color:var(--gray-5);margin-top:4px"><strong>${sansCentre.total}</strong> intervention${sansCentre.total>1?'s':''} — absente${sansCentre.total>1?'s':''} du fichier de la direction financière tant qu'un centre n'est pas choisi</div>
+      </div>`:''}
+    </div>
+    ${centres.length===0?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> Aucun centre de coûts SAV pour l'instant. Créez-les avec « Nouveau centre SAV » (ex : SAV 1, SAV 2) : chaque intervention y est rattachée, avec ses heures, ses devis et ses factures.</div>`:''}`;
+  const nouvelleIntArg = centreFiltre ? `{client_id:'${centreFiltre.client_id||''}',chantier_id:'${centreFiltre.id}'}` : '';
+
   el('page-content').innerHTML = `
     <div class="page-header">
-      <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Suivi des interventions et facturation</p></div>
+      <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
-        <button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
+        <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
+        <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
+    ${cartesCentres}
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
       ${[['encours','Actives'],['astreinte','Astreintes'],['toutes','Toutes']].map(([k,label])=>
         `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV('${search}','${k}')">${label}</button>`
       ).join('')}
+      ${_savCentreFiltre?`<button class="btn btn-sm btn-secondary" onclick="filtrerCentreSAV('')" title="Enlever le filtre"><i class="ti ti-filter"></i> Centre : ${_savCentreFiltre==='__aucun'?'sans centre':(centresMap[_savCentreFiltre]||'?')} <i class="ti ti-x"></i></button>`:''}
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -5806,7 +5898,7 @@ async function openInterventionModal(r=null){
             <option value="">— Aucun —</option>
             ${centresOpts}
           </select>
-          ${centresList.length===0?'<span style="font-size:11px;color:var(--gray-5)">Aucun centre de coûts SAV — créez-les dans Chantiers (type "SAV"), par ex. SAV 1 et SAV 2.</span>':''}
+          ${centresList.length===0?'<span style="font-size:11px;color:var(--gray-5)">Aucun centre de coûts SAV — créez-les avec « Nouveau centre SAV » en haut de la page Interventions, par ex. SAV 1 et SAV 2.</span>':''}
         </div>
       </div>
 
