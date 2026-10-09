@@ -5623,6 +5623,8 @@ async function openFactureVenteDetail(facId){
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_FactureVente('${f.id}')"><i class="ti ti-file-download"></i> PDF</button>
         <button class="btn btn-danger" onclick="deleteFactureVente('${f.id}','${f.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
+        <button class="btn btn-secondary" onclick="openEditFactureVente('${f.id}')"><i class="ti ti-edit"></i> Modifier</button>
+        ${['payee','annulee'].includes(f.statut)?`<button class="btn btn-secondary" onclick="changerStatutFactureVente('${f.id}','envoyee')"><i class="ti ti-arrow-back-up"></i> Rouvrir (envoyée)</button>`:''}
         ${f.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutFactureVente('${f.id}','envoyee')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
         ${['envoyee','payee_partiel'].includes(f.statut)?`<button class="btn btn-success" onclick="changerStatutFactureVente('${f.id}','payee')"><i class="ti ti-check"></i> Marquer payée</button>`:''}
         ${f.statut==='envoyee'?`<button class="btn btn-secondary" onclick="changerStatutFactureVente('${f.id}','payee_partiel')"><i class="ti ti-cash"></i> Paiement partiel</button>`:''}
@@ -5630,6 +5632,55 @@ async function openFactureVenteDetail(facId){
       </div>
     </div>
   </div></div>`);
+}
+
+// Modifier l'en-tête d'une facture client (n°, statut, dates, référence, observations).
+// Les lignes et les montants ne changent pas ici.
+async function openEditFactureVente(facId){
+  const {data:f} = await sb.from('factures_vente').select('*,clients(nom)').eq('id',facId).single();
+  if(!f){ showToast("Facture introuvable", 'error'); return; }
+  const a = v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><div><h3>Modifier la facture</h3><span style="font-size:12px;color:var(--gray-5)">${a(f.numero)} — ${a(f.clients?.nom||'')} — ${fmt(f.total_ttc)} TTC</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">N° de facture *</label><input id="efv-numero" value="${a(f.numero)}" placeholder="Ex: FA-20260801"/></div>
+        <div class="form-group"><label class="field-label">Statut</label>
+          <select id="efv-statut">${Object.entries(STATUT_FV).map(([k,v])=>`<option value="${k}"${f.statut===k?' selected':''}>${v}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efv-date" value="${a((f.date_creation||'').slice(0,10))}"/></div>
+        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efv-echeance" value="${a((f.date_echeance||'').slice(0,10))}"/></div>
+        <div class="form-group full"><label class="field-label">Référence</label><input id="efv-reference" value="${a(f.reference_client)}" placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="efv-obs">${a(f.observations)}</textarea></div>
+      </div>
+      <div class="alert alert-info" style="margin-top:12px"><i class="ti ti-info-circle"></i> Les lignes et les montants ne se modifient pas ici. En cas d'erreur de montant, supprimez la facture et recréez-la.</div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="openFactureVenteDetail('${f.id}')">Annuler</button>
+        <button class="btn btn-primary" id="btn-save-efv" onclick="saveEditFactureVente('${f.id}')"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+
+async function saveEditFactureVente(facId){
+  const numero = (el('efv-numero').value||'').trim();
+  const date = el('efv-date').value;
+  if(!numero){ showToast("Le n° de facture est obligatoire", 'error'); return; }
+  if(!date){ showToast("La date de facture est obligatoire", 'error'); return; }
+  const b = el('btn-save-efv'); if(b) b.disabled = true;
+  const {data:dup} = await sb.from('factures_vente').select('id').eq('numero',numero).neq('id',facId).limit(1);
+  if(dup && dup.length){ showToast(`Le numéro ${numero} existe déjà — choisissez-en un autre`, 'error'); if(b) b.disabled=false; return; }
+  const {error} = await sb.from('factures_vente').update({
+    numero,
+    statut: el('efv-statut').value,
+    date_creation: date,
+    date_echeance: el('efv-echeance').value||null,
+    reference_client: el('efv-reference').value,
+    observations: el('efv-obs').value
+  }).eq('id',facId);
+  if(error){ showToast('Erreur: '+error.message, 'error'); if(b) b.disabled=false; return; }
+  showToast('Facture modifiée — '+numero);
+  rafraichirPage();
+  openFactureVenteDetail(facId);
 }
 
 async function changerStatutFactureVente(facId, statut){
