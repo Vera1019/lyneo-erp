@@ -6657,7 +6657,9 @@ async function openFactureSAVModal(interventionId){
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'"/></div>
+        <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${String(window._savFacCtx?.devisNumero||'').replace(/"/g,'&quot;')}" placeholder="N° de commande client, ou autre référence..."/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
@@ -6680,6 +6682,7 @@ async function openFactureSAVModal(interventionId){
         </table>
       </div>
       <div class="totaux"><div class="totaux-box" id="sav-totaux"></div></div>
+      <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
         <button class="btn btn-primary" id="btn-save-sav" onclick="this.disabled=true;saveFactureSAV('${interventionId}','${i.client_id}')"><i class="ti ti-check"></i> Créer la facture</button>
@@ -6749,11 +6752,12 @@ async function saveFactureSAV(interventionId, clientId){
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: ctx.chantierId||null, devis_id: ctx.devisId||null, intervention_id: interventionId,
     type_facture: 'sav',
-    reference_client: ctx.devisNumero||'',
+    reference_client: el('fv-reference') ? el('fv-reference').value : (ctx.devisNumero||''),
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
-    statut: 'brouillon', cree_par: currentUser.id
+    statut: el('fv-statut')?.value||'brouillon', cree_par: currentUser.id,
+    observations: el('fv-obs')?.value||''
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return; }
 
