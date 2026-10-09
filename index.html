@@ -2004,7 +2004,7 @@ async function openChantierModal(r=null){
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="${r&&r.type_centre==='sav'?'Ex: Dépannage Delhaize':'Ex: Rénovation Bâtiment A'}"/></div>
-        <div class="form-group"><label class="field-label">Client *</label>
+        <div class="form-group"><label class="field-label">Client <span style="font-weight:400;text-transform:none">(facultatif pour un centre SAV « clients divers » ou interne)</span></label>
           <div style="display:flex;gap:6px">
             <select id="ch-client-id" style="flex:1">
               <option value="">— Sélectionner un client —</option>
@@ -2073,12 +2073,15 @@ function avisarSincronizacaoPointages(resultado){
 async function saveChantier(id){
   const nom = el('ch-nom').value.trim();
   const clientId = el('ch-client-id').value;
-  if(!nom||!clientId){ showToast("Nom et client obligatoires",'error'); return; }
-  const {data:clientRow} = await sb.from('clients').select('nom').eq('id',clientId).single();
+  // Un centre SAV « clients divers » (ex: SAV 1) ou interne (ex: FG) n'a pas de client fixe : client facultatif
+  const typeChoisi = el('ch-type') ? el('ch-type').value : 'chantier';
+  const clientFacultatif = typeChoisi==='sav' || typeChoisi==='interne';
+  if(!nom || (!clientId && !clientFacultatif)){ showToast(clientFacultatif ? "Nom obligatoire" : "Nom et client obligatoires",'error'); return; }
+  const {data:clientRow} = clientId ? await sb.from('clients').select('nom').eq('id',clientId).single() : {data:null};
   const cpModal = el('ch-code-pt-modal');
   const numeroManuel = el('ch-numero').value.trim();
   const statutAtual = el('ch-statut').value;
-  const data = {nom,client_id:clientId,client:clientRow?.nom||'',adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   // Le type n'est envoyé que s'il est différent de "chantier" ou si la colonne existe déjà
   // (data-had) : ainsi la sauvegarde ne casse pas si la migration SQL n'a pas encore été exécutée.
   const typeSel = el('ch-type');
@@ -3909,7 +3912,7 @@ function majSelectClient(selectId, c){
   const avant = opt ? {email:opt.dataset.email||'', tel:opt.dataset.tel||'', adresse:opt.dataset.adresse||''} : null;
   if(!opt){ opt = document.createElement('option'); opt.value = c.id; sel.appendChild(opt); }
   opt.textContent = c.nom;
-  opt.dataset.email = c.email||''; opt.dataset.tel = c.telephone||''; opt.dataset.adresse = c.adresse||'';
+  opt.dataset.email = c.email||''; opt.dataset.tel = c.telephone||''; opt.dataset.adresse = c.adresse||''; opt.dataset.cond = c.conditions_paiement||'';
   sel.value = c.id;
   // Formulaire d'intervention : si le client a été modifié, les champs repris de sa fiche suivent (sauf s'ils ont été retouchés à la main)
   if(selectId==='int-client' && avant){
@@ -4790,7 +4793,7 @@ async function renderFacturesVente(search=''){
 
 async function openNewFactureVenteLibre(){
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
-    sb.from('clients').select('id,nom').eq('actif',true).order('nom'),
+    sb.from('clients').select('id,nom,conditions_paiement').eq('actif',true).order('nom'),
     sb.from('chantiers_lyneo').select('id,numero,nom,client_id').order('nom')
   ]);
   const clients = clientsData||[];
@@ -4798,6 +4801,7 @@ async function openNewFactureVenteLibre(){
   _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
   _venteLigneMode = 'libre';
   window._devisInfoForFv = null;   // pas de devis "hérité" d'une facture précédente
+  window._condClientFv = '';
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle facture client</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -4807,7 +4811,7 @@ async function openNewFactureVenteLibre(){
           <div style="display:flex;gap:6px">
             <select id="fvl-client" style="flex:1" onchange="filtrerChantiersParClient()">
               <option value="">— Sélectionner —</option>
-              ${clients.map(c=>`<option value="${c.id}">${c.nom}</option>`).join('')}
+              ${clients.map(c=>`<option value="${c.id}" data-cond="${c.conditions_paiement||''}">${c.nom}</option>`).join('')}
             </select>
             ${boutonsClientRapide('fvl-client')}
           </div>
@@ -4826,8 +4830,8 @@ async function openNewFactureVenteLibre(){
             <option value="libre" selected>Libre</option>
           </select>
         </div>
-        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value=""/></div>
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" placeholder="N° de commande client, ou autre référence..."/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = numérotation automatique)</span></label><input id="fv-numero" placeholder="Ex: FA-20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
@@ -4879,15 +4883,8 @@ async function syncAcompteLibre(){
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = lignes.slice();
 
-  // Échéance calculée à partir des conditions de paiement du devis, pour tous les types
-  if(devisInfo){
-    const echeanceInput = el('fv-echeance');
-    if(echeanceInput && !echeanceInput.value){
-      const dateFacture = el('fv-date')?.value;
-      const echeance = calculerEcheanceDepuisConditions(dateFacture, devisInfo.conditions_paiement);
-      if(echeance) echeanceInput.value = echeance;
-    }
-  }
+  // Échéance : conditions du client (ou, à défaut, du devis), pour tous les types
+  majEcheanceAuto();
 
   if(!isAcompte){
     if(block) block.style.display = 'none';
@@ -5015,6 +5012,10 @@ function filtrerChantiersParClient(){
   // Si le chantier sélectionné actuellement n'appartient pas au client choisi, on réinitialise
   const current = select.options[select.selectedIndex];
   if(current && current.value && clientId && current.dataset.client!==clientId) select.value='';
+  // Conditions de paiement du client choisi → échéance automatique
+  const co = el('fvl-client').selectedOptions[0];
+  window._condClientFv = (co && co.value && co.dataset.cond) || '';
+  majEcheanceAuto();
 }
 
 function renderVenteLignesLibre(){
@@ -5156,8 +5157,10 @@ async function chargerLignesDevisRestantes(devisId){
 function calculerEcheanceDepuisConditions(dateDepart, conditionsPaiement){
   if(!conditionsPaiement) return null;
   const match = String(conditionsPaiement).match(/\d+/);
-  if(!match) return null;
-  const jours = parseInt(match[0]);
+  // « Immédiat », « à réception », « comptant » : échéance = date de la facture
+  const immediat = !match && /imm[ée]diat|r[ée]ception|comptant/i.test(String(conditionsPaiement));
+  if(!match && !immediat) return null;
+  const jours = immediat ? 0 : parseInt(match[0]);
   const d = dateDepart ? new Date(dateDepart) : new Date();
   d.setDate(d.getDate()+jours);
   return d.toISOString().slice(0,10);
@@ -5183,6 +5186,8 @@ async function openGenerateFactureVente(chantierId){
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
+  const {data:clCond} = await sb.from('clients').select('conditions_paiement').eq('id',chantier.client_id).single();
+  window._condClientFv = (clCond && clCond.conditions_paiement) || '';
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -5201,7 +5206,7 @@ async function openGenerateFactureVente(chantierId){
           </select>
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
-        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du devis ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${devisInfo?devisInfo.numero:''}" placeholder="N° de commande client, ou autre référence..."/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = numérotation automatique)</span></label><input id="fv-numero" placeholder="Ex: FA-20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
@@ -5253,12 +5258,16 @@ async function openGenerateFactureVente(chantierId){
   majBlocAvancement();
 }
 
-// Échéance proposée = date de facture + délai des conditions de paiement du devis (si le champ n'a pas été modifié à la main)
+// Conditions de paiement à appliquer : celles de la FICHE CLIENT (ex: « 30 jours »), à défaut celles du devis lié
+function condPaiementFv(){
+  return window._condClientFv || (window._devisInfoForFv && window._devisInfoForFv.conditions_paiement) || '';
+}
+// Échéance proposée = date de facture + délai de ces conditions. Recalculée quand la date ou le client change,
+// sauf si la date d'échéance a été saisie à la main (cas particulier : on la modifie manuellement).
 function majEcheanceAuto(){
   const inp = el('fv-echeance'); if(!inp) return;
   if(inp.dataset.auto==='0' && inp.value) return;
-  const d = window._devisInfoForFv;
-  const e = d ? calculerEcheanceDepuisConditions(el('fv-date')?.value, d.conditions_paiement) : null;
+  const e = calculerEcheanceDepuisConditions(el('fv-date')?.value, condPaiementFv());
   inp.value = e||'';
   inp.dataset.auto = '1';
 }
@@ -5950,7 +5959,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     const actif = _savCentreFiltre===c.id;
     return `<div onclick="filtrerCentreSAV('${c.id}')" style="cursor:pointer;background:#fff;border:2px solid ${actif?'var(--blue)':'var(--gray-3)'};border-radius:var(--radius);padding:14px 16px;flex:1 1 240px;max-width:360px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div><div style="font-size:16px;font-weight:700;color:var(--blue)">${c.numero}</div><div style="font-size:12.5px;color:var(--gray-6)">${c.nom}</div><div style="font-size:11.5px;color:var(--gray-5)">${c.client||''}</div></div>
+        <div><div style="font-size:16px;font-weight:700;color:var(--blue)">${c.numero}</div><div style="font-size:12.5px;color:var(--gray-6)">${c.nom}</div><div style="font-size:11.5px;color:var(--gray-5)">${c.client||'Clients divers'}</div></div>
         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openChantierDetail('${c.id}','interventions')" title="Fiche du centre de coûts : interventions, rentabilité, factures, heures"><i class="ti ti-folder-open"></i> Fiche</button>
       </div>
       <div style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--gray-6);flex-wrap:wrap">
@@ -6165,7 +6174,10 @@ function prefillCentreIntervention(){
   const sel = el('int-centre');
   if(!sel || sel.value || !clientId) return;
   const match = Array.from(sel.options).find(o=>o.value && o.dataset.client===clientId);
-  if(match) sel.value = match.value;
+  if(match){ sel.value = match.value; return; }
+  // Pas de centre propre à ce client : centre SAV « clients divers » (le seul sans client), s'il n'y en a qu'un
+  const divers = Array.from(sel.options).filter(o=>o.value && !o.dataset.client);
+  if(divers.length===1) sel.value = divers[0].value;
 }
 
 // Choisir un devis reprend le client, la description et l'état de l'offre
@@ -6426,9 +6438,11 @@ async function openInterventionDetail(interventionId){
 
 // ── FACTURATION SAV (réutilise factures_vente) ────────────────
 async function openFactureSAVModal(interventionId){
-  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,tarifs_sav)').eq('id',interventionId).single();
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,tarifs_sav,conditions_paiement)').eq('id',interventionId).single();
   if(!i){ showToast("Intervention introuvable", 'error'); return; }
   const tarifs = i.clients?.tarifs_sav || {};
+  window._condClientFv = i.clients?.conditions_paiement || '';
+  window._devisInfoForFv = null;
 
   _sav_venteLignes = [];
   // Contexte mémorisé pour saveFactureSAV : devis d'origine et centre de coûts de l'intervention
@@ -6443,9 +6457,10 @@ async function openFactureSAVModal(interventionId){
       window._savFacCtx.devisId = devisInfo.id;
       window._savFacCtx.devisNumero = devisInfo.numero||'';
       _sav_venteLignes = lignes.map(l=>({...l, categorie:'Divers', reference_article:''}));
-      echeanceDefaut = calculerEcheanceDepuisConditions(today(), devisInfo.conditions_paiement) || '';
+      window._devisInfoForFv = devisInfo;
     }
   }
+  echeanceDefaut = calculerEcheanceDepuisConditions(today(), condPaiementFv()) || '';
   if(!devisInfoSav && i.astreinte){
     _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:17});
   }
@@ -6457,8 +6472,8 @@ async function openFactureSAVModal(interventionId){
       ${devisInfoSav?`<div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Lignes reprises du devis <strong>${devisInfoSav.numero}</strong> (${fmt(devisInfoSav.montant_ht)} HT), avec les quantités qui restent à facturer. Vous pouvez les ajuster ou ajouter des lignes (ex: astreinte, déplacement).</div>`:''}
       ${toutFacture?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Toutes les lignes de ce devis ont déjà été facturées (quantités à 0). Ajoutez une ligne si vous devez facturer autre chose.</div>`:''}
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fv-echeance" value="${echeanceDefaut}"/></div>
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'"/></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
