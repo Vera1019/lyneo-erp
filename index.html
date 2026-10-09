@@ -1315,6 +1315,7 @@ function sortableTh(label, tableId, key, rerenderCall){
   return `<th style="cursor:pointer;user-select:none" onclick="toggleSort('${tableId}','${key}',()=>${rerenderCall})">${label}${sortArrow(tableId,key)}</th>`;
 }
 
+let _chantiers = [];   // cache de la liste des chantiers (déclaré ici : openChantierDetail peut être appelé avant d'avoir ouvert la page Chantiers)
 let _chantiersSearchAtual = '';
 async function renderChantiers(search=''){
   _chantiersSearchAtual = search;
@@ -1416,8 +1417,42 @@ async function openChantierDetail(chantierId, tab){
   const facsVente = facsVenteR.data||[];
   const devisChantier = devisR.data||[];
 
+  // Interventions SAV rattachées à ce centre de coûts. Requêtes séparées et protégées : elles ne
+  // cassent rien si la migration n'est pas encore faite ou si le système de pointages est indisponible.
+  let intervCentre = [];
+  const intervDevis = {}, intervHeures = {}, intervFact = {};
+  try{
+    const {data:ivs} = await sb.from('interventions_sav').select('*').eq('chantier_id',chantierId).order('ref',{ascending:true});
+    intervCentre = ivs||[];
+  }catch(e){ intervCentre = []; }
+  if(intervCentre.length){
+    try{
+      const dIds = [...new Set(intervCentre.map(i=>i.devis_id).filter(Boolean))];
+      if(dIds.length){
+        const {data:dvs} = await sb.from('devis').select('id,numero,montant_ht,statut').in('id',dIds);
+        (dvs||[]).forEach(d=>{ intervDevis[d.id] = d; });
+      }
+    }catch(e){}
+    try{
+      const {data:fvs} = await sb.from('factures_vente').select('id,intervention_id,total_ht,statut').in('intervention_id',intervCentre.map(i=>i.id));
+      (fvs||[]).filter(f=>f.statut!=='annulee').forEach(f=>{ intervFact[f.intervention_id] = (intervFact[f.intervention_id]||0) + (parseFloat(f.total_ht)||0); });
+    }catch(e){}
+    try{
+      // Le code de pointage d'une intervention est sa référence (SAV26001...)
+      const {data:ptCh} = await sbPT.from('chantiers').select('id,code').in('code',intervCentre.map(i=>i.ref));
+      if(ptCh && ptCh.length){
+        const refParPt = new Map(ptCh.map(c=>[String(c.id),c.code]));
+        ptCh.forEach(c=>{ intervHeures[c.code] = 0; });
+        const {data:pics} = await sbPT.from('picages').select('chantier_id,heures').in('chantier_id',ptCh.map(c=>c.id));
+        (pics||[]).forEach(p=>{ const ref = refParPt.get(String(p.chantier_id)); if(ref) intervHeures[ref] += (parseFloat(p.heures)||0); });
+      }
+    }catch(e){ /* système de pointages indisponible */ }
+  }
+  const montreInterventions = chantier.type_centre==='sav' || intervCentre.length>0;
+
   const tabs = [
     {id:'info', label:'Informations', icon:'ti-info-circle'},
+    ...(montreInterventions ? [{id:'interventions', label:'Interventions ('+intervCentre.length+')', icon:'ti-tool'}] : []),
     {id:'rentabilite', label:'Rentabilité', icon:'ti-chart-line'},
     {id:'devis', label:'Devis ('+devisChantier.length+')', icon:'ti-file-description'},
     {id:'commandes', label:'Commandes fournisseur ('+pos.length+')', icon:'ti-shopping-cart'},
@@ -1650,7 +1685,38 @@ async function openChantierDetail(chantierId, tab){
     <div class="alert alert-info"><i class="ti ti-info-circle"></i> Le coût de la main d'œuvre n'est pas encore inclus dans ce calcul — la marge réelle est donc probablement inférieure à ce qui est affiché ici. Tous les montants sont calculés en direct à partir des devis/factures existants, jamais mémorisés.</div>
   `;
 
-  const tabContent = {info:tabInfo, rentabilite:tabRentabilite, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
+  // ── ONGLET INTERVENTIONS (centres de coûts SAV) ──
+  const thI = (txt, align) => `<th style="padding:9px 12px;text-align:${align||'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">${txt}</th>`;
+  const totDevisInt = intervCentre.reduce((a,i)=>a+(parseFloat(intervDevis[i.devis_id]?.montant_ht)||0),0);
+  const totFactInt = intervCentre.reduce((a,i)=>a+(intervFact[i.id]||0),0);
+  const totHeuresInt = intervCentre.reduce((a,i)=>a+(intervHeures[i.ref]||0),0);
+  const tabInterventions = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();navigate('interventions_sav');setTimeout(()=>openInterventionModal({client_id:'${chantier.client_id||''}',chantier_id:'${chantierId}'}),300)"><i class="ti ti-plus"></i> Nouvelle intervention</button></div>`
+    + (intervCentre.length===0
+      ? `<div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention dans ce centre de coûts</p><p style="font-size:12px;color:var(--gray-5)">Dans une intervention, choisissez ce centre dans « Centre de coûts SAV ».</p></div>`
+      : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+          ${statCard('Interventions', String(intervCentre.length), 'var(--blue)', intervCentre.filter(i=>i.statut==='facturee').length+' facturée(s)')}
+          ${statCard('Devis (HT)', fmt(totDevisInt), 'var(--blue)', 'montant des devis liés')}
+          ${statCard('Facturé (HT)', fmt(totFactInt), 'var(--green)', 'factures clients non annulées')}
+          ${statCard('Heures pointées', totHeuresInt.toFixed(1)+' h', 'var(--orange)', 'codes SAV26… du système de pointages')}
+        </div>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
+          <thead><tr style="background:var(--gray-1)">${thI('N°')}${thI('Site')}${thI('Date')}${thI('Devis')}${thI('Statut')}${thI('Heures','right')}${thI('Facturé HT','right')}</tr></thead><tbody>`
+        + intervCentre.map(i=>{
+            const dv = intervDevis[i.devis_id];
+            const h = intervHeures[i.ref];
+            return '<tr style="cursor:pointer" onclick="closeModal();openInterventionDetail(\''+i.id+'\')">'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+i.ref+'</strong></td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(i.nom_site||i.adresse_site||'—')+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(i.date_intervention?fmtDate(String(i.date_intervention).slice(0,10)):'—')+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(dv?dv.numero+' — '+fmt(dv.montant_ht):'—')+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bSAV(i.statut)+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'+(h!==undefined?h.toFixed(1)+' h':'—')+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+(intervFact[i.id]?fmt(intervFact[i.id]):'—')+'</td>'
+              +'</tr>';
+          }).join('')
+        + '</tbody></table></div>');
+
+  const tabContent = {info:tabInfo, interventions:tabInterventions, rentabilite:tabRentabilite, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -1705,6 +1771,7 @@ async function loadHeuresChantier(chantier){
       <i class="ti ti-link-off" style="font-size:36px;display:block;margin-bottom:12px"></i>
       <p style="margin-bottom:12px">Ce chantier n'est pas encore lié au système de pointages.</p>
       <p style="font-size:12px">Allez dans l'onglet <strong>Informations</strong> et entrez le code chantier.</p>
+      ${chantier.type_centre==='sav'?`<p style="font-size:12px;margin-top:10px">Les heures des interventions SAV se trouvent dans l'onglet <strong>Interventions</strong>.</p>`:''}
     </div>`;
     return;
   }
@@ -5633,13 +5700,23 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
   _interventionsSAV = data||[];
 
+  // Centre de coûts (SAV 1, SAV 2...) de chaque intervention — requête séparée, sans effet si la migration n'est pas faite
+  const centresMap = {};
+  try{
+    const cIds = [...new Set(_interventionsSAV.map(i=>i.chantier_id).filter(Boolean))];
+    if(cIds.length){
+      const {data:cs} = await sb.from('chantiers_lyneo').select('id,numero').in('id',cIds);
+      (cs||[]).forEach(c=>{ centresMap[c.id] = c.numero; });
+    }
+  }catch(e){}
+
   let items = _interventionsSAV;
   if(filterStatut==='astreinte') items = items.filter(i=>i.astreinte);
   else if(filterStatut==='encours') items = items.filter(i=>i.statut!=='facturee');
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
   if(search){
     const q = search.toLowerCase();
-    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')).toLowerCase().includes(q));
+    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresMap[i.chantier_id]||'')).toLowerCase().includes(q));
   }
 
   el('page-content').innerHTML = `
@@ -5658,13 +5735,14 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
             items.map(i=>`<tr style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
               <td><strong class="text-blue">${i.ref}</strong></td>
               <td>${i.clients?.nom||'—'}</td>
               <td>${i.nom_site?'<strong>'+i.nom_site+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ (i.adresse_site||'') +'</span>':(i.adresse_site||'—')}</td>
+              <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6)">'+centresMap[i.chantier_id]+'</span>':'—'}</td>
               <td>${i.employes_rh?(i.employes_rh.prenom||'')+' '+(i.employes_rh.nom||''):(i.technicien_nom||'—')}</td>
               <td>${bSAV(i.statut)}</td>
               <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
