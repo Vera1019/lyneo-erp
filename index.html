@@ -1966,10 +1966,11 @@ async function selectInChunks(client, table, cols, col, ids, size=40){
 
 // Pointages d'un chantier du système de pointages (employé, date, heures). Lus par pages de 1000 lignes
 // (limite de Supabase par requête) pour que les totaux restent exacts quand les pointages s'accumulent.
-async function lirePicagesChantier(ptChantierId){
+async function lirePicagesChantier(ptChantierIds){
+  const ids = Array.isArray(ptChantierIds) ? ptChantierIds : [ptChantierIds];
   const out = [];
   for(let debut=0; ; debut+=1000){
-    const {data,error} = await sbPT.from('picages').select('employe_id,date,heures').eq('chantier_id', ptChantierId).order('id',{ascending:true}).range(debut, debut+999);
+    const {data,error} = await sbPT.from('picages').select('employe_id,date,heures').in('chantier_id', ids).order('id',{ascending:true}).range(debut, debut+999);
     if(error) throw error;
     const lignes = data||[];
     out.push(...lignes);
@@ -1981,10 +1982,11 @@ async function sommeHeuresPointages(ptChantierId){
   return (await lirePicagesChantier(ptChantierId)).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
 }
 // Pointages d'une période (avec le nom de l'employé), pour la vue « Mois »
-async function lirePicagesPeriode(ptChantierId, debut, fin){
+async function lirePicagesPeriode(ptChantierIds, debut, fin){
+  const ids = Array.isArray(ptChantierIds) ? ptChantierIds : [ptChantierIds];
   const out = [];
   for(let d0=0; ; d0+=1000){
-    const {data,error} = await sbPT.from('picages').select('*,employes(nom)').eq('chantier_id', ptChantierId).gte('date',debut).lte('date',fin).order('id',{ascending:true}).range(d0, d0+999);
+    const {data,error} = await sbPT.from('picages').select('*,employes(nom)').in('chantier_id', ids).gte('date',debut).lte('date',fin).order('id',{ascending:true}).range(d0, d0+999);
     if(error) throw error;
     const lignes = data||[];
     out.push(...lignes);
@@ -2019,17 +2021,36 @@ function coutDesPicages(picages, parPt){
   });
   return {cout, heuresSansCout, nbSansCout:sans.size};
 }
+// Tous les chantiers du système de pointages, lus par pages de 1000 (limite de Supabase par requête)
+async function lireChantiersPointages(){
+  const out = [];
+  for(let d0=0; ; d0+=1000){
+    const {data,error} = await sbPT.from('chantiers').select('id,code,nom').order('id',{ascending:true}).range(d0, d0+999);
+    if(error) throw error;
+    const l = data||[];
+    out.push(...l);
+    if(l.length<1000) break;
+  }
+  return out;
+}
 // Tout ce que l'écran d'un chantier doit savoir des heures : cumul, pointages, coût. Calculé une seule fois à l'ouverture.
-// null = chantier introuvable dans les pointages (lancer une exception si le système est indisponible).
-async function calculerStatsHeures(chantier){
-  const codePt = String(chantier.code_pointages);
-  const {data:ptRows} = await sbPT.from('chantiers').select('id,code,nom');
-  const ptChantier = (ptRows||[]).find(c=> c.code===codePt || (c.nom||'').toLowerCase()===codePt.toLowerCase());
-  if(!ptChantier) return null;
-  const picages = await lirePicagesChantier(ptChantier.id);
+// Pour un centre SAV, on additionne les heures pointées sur le code du centre (ex: DELDEPAN) ET sur le code de chacune de
+// ses interventions (SAV26001…, créés automatiquement avec l'intervention) : le coût du centre est ainsi complet.
+// null = rien trouvé dans les pointages (lance une exception si le système est indisponible).
+async function calculerStatsHeures(chantier, refsInterventions){
+  const codePt = chantier.code_pointages ? String(chantier.code_pointages) : '';
+  const refs = new Set((refsInterventions||[]).filter(Boolean).map(String));
+  if(!codePt && !refs.size) return null;
+  const ptRows = await lireChantiersPointages();
+  const ptChantier = codePt ? ((ptRows||[]).find(c=> c.code===codePt || (c.nom||'').toLowerCase()===codePt.toLowerCase()) || null) : null;
+  const ptIds = new Set(ptChantier ? [ptChantier.id] : []);
+  (ptRows||[]).forEach(c=>{ if(refs.has(String(c.code))) ptIds.add(c.id); });
+  if(!ptIds.size) return null;
+  const ids = [...ptIds];
+  const picages = await lirePicagesChantier(ids);
   const cumul = picages.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
   const couts = await chargerCoutsHoraires();
-  const stats = {ptChantier, picages, cumul, coutEtat:couts.etat, parPt:couts.parPt, cout:null, heuresSansCout:0, nbSansCout:0};
+  const stats = {ptChantier, ptIds:ids, picages, cumul, coutEtat:couts.etat, parPt:couts.parPt, cout:null, heuresSansCout:0, nbSansCout:0};
   if(couts.etat==='ok') Object.assign(stats, coutDesPicages(picages, couts.parPt));
   return stats;
 }
@@ -2133,9 +2154,9 @@ async function openChantierDetail(chantierId, tab){
   // Heures pointées cumulées, affichées sur l'onglet « Heures » comme le nombre de devis ou de factures sur les autres.
   // null = chantier pas encore lié au système de pointages (ou système indisponible) : l'onglet reste sans nombre.
   let heuresCumul = null, statsHeures = null;
-  if(chantier.code_pointages){
+  if(chantier.code_pointages || (estSav && intervCentre.length)){
     try{
-      statsHeures = await calculerStatsHeures(chantier);
+      statsHeures = await calculerStatsHeures(chantier, estSav ? intervCentre.map(i=>i.ref) : []);
       if(statsHeures) heuresCumul = statsHeures.cumul;
     }catch(e){ statsHeures = null; heuresCumul = null; }
   }
@@ -2525,7 +2546,7 @@ async function loadHeuresChantier(chantier, stats){
   const container = el('heures-content');
   if(!container) return;
 
-  if(!chantier.code_pointages){
+  if(!chantier.code_pointages && !(stats && stats.ptIds && stats.ptIds.length)){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
       <i class="ti ti-link-off" style="font-size:36px;display:block;margin-bottom:12px"></i>
       <p style="margin-bottom:12px">Ce chantier n'est pas encore lié au système de pointages.</p>
@@ -2536,16 +2557,17 @@ async function loadHeuresChantier(chantier, stats){
   }
 
   // Chercher le chantier dans la base pointages par code
-  let ptChantier = stats && stats.ptChantier;
-  if(!ptChantier){
+  let ptIds = stats && stats.ptIds;
+  if(!ptIds || !ptIds.length){
     const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
-    ptChantier = (ptChantiers||[]).find(c=>
+    const trouve = (ptChantiers||[]).find(c=>
       c.code === chantier.code_pointages ||
       c.nom?.toLowerCase() === chantier.code_pointages?.toLowerCase()
     );
+    ptIds = trouve ? [trouve.id] : null;
   }
 
-  if(!ptChantier){
+  if(!ptIds){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
       <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:12px;color:var(--orange)"></i>
       <p>Code "<strong>${chantier.code_pointages}</strong>" introuvable dans le système de pointages.</p>
@@ -2555,7 +2577,7 @@ async function loadHeuresChantier(chantier, stats){
   }
 
   if(stats===undefined){ try{ stats = await calculerStatsHeures(chantier); }catch(e){ stats = null; } }
-  _heuresChantierCache = {chantier, ptChantier, stats: stats||null};
+  _heuresChantierCache = {chantier, ptIds, stats: stats||null};
   _heuresWeekOffset = 0;
   // Mois affiché au départ : le dernier mois où des heures ont été pointées (sinon le mois en cours)
   const dates = ((stats&&stats.picages)||[]).map(p=>String(p.date||'').slice(0,7)).filter(d=>/^\d{4}-\d{2}$/.test(d));
@@ -2592,12 +2614,12 @@ async function choisirMoisHeures(ym){
 async function renderHeuresMois(){
   const zone = el('heures-vue');
   if(!zone || !_heuresChantierCache) return;
-  const {ptChantier, stats} = _heuresChantierCache;
+  const {ptIds, stats} = _heuresChantierCache;
   const ym = _heuresMois;
   const [a,m] = ym.split('-').map(Number);
   const nbJours = new Date(Date.UTC(a,m,0)).getUTCDate();
   let pics = [], erreur = false;
-  try{ pics = await lirePicagesPeriode(ptChantier.id, ym+'-01', ym+'-'+String(nbJours).padStart(2,'0')); }catch(e){ erreur = true; }
+  try{ pics = await lirePicagesPeriode(ptIds, ym+'-01', ym+'-'+String(nbJours).padStart(2,'0')); }catch(e){ erreur = true; }
 
   const parPt = (stats && stats.coutEtat==='ok') ? stats.parPt : null;
   const parEmploye = {};
@@ -2676,7 +2698,7 @@ async function changerSemaineHeures(delta){
 async function renderHeuresSemaine(){
   const container = el('heures-vue');
   if(!container || !_heuresChantierCache) return;
-  const {ptChantier} = _heuresChantierCache;
+  const {ptIds} = _heuresChantierCache;
 
   const monday = getMonday(_heuresWeekOffset);
   const days = Array.from({length:7}, (_,i)=>{ const d = new Date(monday); d.setDate(d.getDate()+i); return d; });
@@ -2685,7 +2707,7 @@ async function renderHeuresSemaine(){
 
   const {data:picages} = await sbPT.from('picages')
     .select('*,employes(nom)')
-    .eq('chantier_id', ptChantier.id)
+    .in('chantier_id', ptIds)
     .gte('date', isoDay(monday))
     .lte('date', isoDay(sunday))
     .order('date',{ascending:true});
