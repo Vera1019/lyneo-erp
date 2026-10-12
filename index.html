@@ -1964,6 +1964,81 @@ async function selectInChunks(client, table, cols, col, ids, size=40){
   return out;
 }
 
+// Pointages d'un chantier du système de pointages (employé, date, heures). Lus par pages de 1000 lignes
+// (limite de Supabase par requête) pour que les totaux restent exacts quand les pointages s'accumulent.
+async function lirePicagesChantier(ptChantierId){
+  const out = [];
+  for(let debut=0; ; debut+=1000){
+    const {data,error} = await sbPT.from('picages').select('employe_id,date,heures').eq('chantier_id', ptChantierId).order('id',{ascending:true}).range(debut, debut+999);
+    if(error) throw error;
+    const lignes = data||[];
+    out.push(...lignes);
+    if(lignes.length<1000) break;
+  }
+  return out;
+}
+async function sommeHeuresPointages(ptChantierId){
+  return (await lirePicagesChantier(ptChantierId)).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+}
+// Pointages d'une période (avec le nom de l'employé), pour la vue « Mois »
+async function lirePicagesPeriode(ptChantierId, debut, fin){
+  const out = [];
+  for(let d0=0; ; d0+=1000){
+    const {data,error} = await sbPT.from('picages').select('*,employes(nom)').eq('chantier_id', ptChantierId).gte('date',debut).lte('date',fin).order('id',{ascending:true}).range(d0, d0+999);
+    if(error) throw error;
+    const lignes = data||[];
+    out.push(...lignes);
+    if(lignes.length<1000) break;
+  }
+  return out;
+}
+
+// Coût employeur par heure de chaque employé du système de pointages (clé = id de l'employé dans les pointages).
+// Réservé aux personnes qui ont accès aux salaires : pour les autres, rien n'est lu ni affiché.
+async function chargerCoutsHoraires(){
+  if(!peutVoirSalaires()) return {etat:'masque', parPt:{}};
+  try{
+    const [emps, rems] = await Promise.all([
+      sb.from('employes_rh').select('id,pointage_employe_id'),
+      sb.from('employes_remuneration').select('*')
+    ]);
+    if(emps.error || rems.error) return {etat:'aucun', parPt:{}};
+    const coutParEmploye = {};
+    (rems.data||[]).forEach(r=>{ const c = parseFloat(r.cout_horaire); if(!isNaN(c)) coutParEmploye[r.employe_id] = c; });
+    const parPt = {};
+    (emps.data||[]).forEach(e=>{ if(e.pointage_employe_id!=null && coutParEmploye[e.id]!==undefined) parPt[String(e.pointage_employe_id)] = coutParEmploye[e.id]; });
+    return {etat: Object.keys(parPt).length ? 'ok' : 'aucun', parPt};
+  }catch(e){ return {etat:'aucun', parPt:{}}; }
+}
+// Coût d'un lot de pointages ; les heures d'un employé sans coût horaire ne sont pas chiffrées (elles sont signalées)
+function coutDesPicages(picages, parPt){
+  let cout = 0, heuresSansCout = 0; const sans = new Set();
+  (picages||[]).forEach(p=>{
+    const h = parseFloat(p.heures)||0, c = parPt[String(p.employe_id)];
+    if(c===undefined){ heuresSansCout += h; sans.add(String(p.employe_id)); } else cout += h*c;
+  });
+  return {cout, heuresSansCout, nbSansCout:sans.size};
+}
+// Tout ce que l'écran d'un chantier doit savoir des heures : cumul, pointages, coût. Calculé une seule fois à l'ouverture.
+// null = chantier introuvable dans les pointages (lancer une exception si le système est indisponible).
+async function calculerStatsHeures(chantier){
+  const codePt = String(chantier.code_pointages);
+  const {data:ptRows} = await sbPT.from('chantiers').select('id,code,nom');
+  const ptChantier = (ptRows||[]).find(c=> c.code===codePt || (c.nom||'').toLowerCase()===codePt.toLowerCase());
+  if(!ptChantier) return null;
+  const picages = await lirePicagesChantier(ptChantier.id);
+  const cumul = picages.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+  const couts = await chargerCoutsHoraires();
+  const stats = {ptChantier, picages, cumul, coutEtat:couts.etat, parPt:couts.parPt, cout:null, heuresSansCout:0, nbSansCout:0};
+  if(couts.etat==='ok') Object.assign(stats, coutDesPicages(picages, couts.parPt));
+  return stats;
+}
+// Les lignes d'un devis en heures : unité « h » (ou heure, heures, hr…)
+const uniteEstHeure = u => /^(h|hr|hrs|heure|heures)\.?$/i.test(String(u||'').trim());
+
+// 576 → « 576 », 65.5 → « 65,5 », 1129 → « 1 129 »
+const fmtHeures = h => (Math.round((parseFloat(h)||0)*10)/10).toLocaleString('fr-FR');
+
 async function openChantierDetail(chantierId, tab){
   tab = tab || 'info';
   let chantier = _chantiers.find(c=>c.id===chantierId);
@@ -2055,6 +2130,17 @@ async function openChantierDetail(chantierId, tab){
     }catch(e){ /* système de pointages indisponible */ }
   }
   const montreInterventions = estSav || intervCentre.length>0;
+  // Heures pointées cumulées, affichées sur l'onglet « Heures » comme le nombre de devis ou de factures sur les autres.
+  // null = chantier pas encore lié au système de pointages (ou système indisponible) : l'onglet reste sans nombre.
+  let heuresCumul = null, statsHeures = null;
+  if(chantier.code_pointages){
+    try{
+      statsHeures = await calculerStatsHeures(chantier);
+      if(statsHeures) heuresCumul = statsHeures.cumul;
+    }catch(e){ statsHeures = null; heuresCumul = null; }
+  }
+  const heuresPrevues = parseFloat(chantier.heures_prevues);
+  const aHeuresPrevues = !isNaN(heuresPrevues) && heuresPrevues>0;
 
   const tabs = [
     {id:'info', label:'Informations', icon:'ti-info-circle'},
@@ -2064,7 +2150,7 @@ async function openChantierDetail(chantierId, tab){
     {id:'commandes', label:'Commandes fournisseur ('+pos.length+')', icon:'ti-shopping-cart'},
     {id:'fac_fourn', label:'Fact. fourn. ('+facsFourn.length+')', icon:'ti-file-invoice'},
     {id:'fac_vente', label:'Fact. clients ('+facsVente.length+')', icon:'ti-receipt'},
-    {id:'heures', label:'Heures', icon:'ti-clock'},
+    {id:'heures', label:'Heures'+(heuresCumul!==null?' ('+fmtHeures(heuresCumul)+(aHeuresPrevues?' / '+fmtHeures(heuresPrevues):'')+' h)':''), icon:'ti-clock'},
     {id:'documents', label:'Documents ('+docs.length+')', icon:'ti-paperclip'},
   ];
 
@@ -2082,6 +2168,7 @@ async function openChantierDetail(chantierId, tab){
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
       <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
       <div class="info-item"><label>Date fin prévue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
+      <div class="info-item"><label>Heures prévues</label><span>${aHeuresPrevues ? fmtHeures(heuresPrevues)+' h'+(heuresCumul!==null ? ' <span style="font-weight:400;color:var(--gray-5)">· '+fmtHeures(heuresCumul)+' h pointées ('+Math.round(heuresCumul/heuresPrevues*100)+' %)</span>' : '') : '—'}</span></div>
       <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
     </div>
     ${chantier.observations?`<div class="alert alert-info"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
@@ -2245,6 +2332,11 @@ async function openChantierDetail(chantierId, tab){
 
   const margeBrute = caFacture - coutsAchats;
   const margePct = caFacture>0 ? (margeBrute/caFacture*100) : null;
+  // Coût de la main-d'œuvre : seulement pour les personnes qui ont accès aux salaires (statsHeures.cout reste null sinon)
+  const coutMO = (statsHeures && statsHeures.coutEtat==='ok') ? statsHeures.cout : null;
+  const margeApresMO = coutMO!==null ? margeBrute - coutMO : null;
+  const margeApresMOPct = (margeApresMO!==null && caFacture>0) ? margeApresMO/caFacture*100 : null;
+  const margeMOCouleur = margeApresMO!==null && margeApresMO<0 ? 'var(--red)' : 'var(--green)';
   const avancementPct = caDevisPrevu>0 ? Math.min(100,(caFacture/caDevisPrevu*100)) : null;
   const margeCouleur = margeBrute>=0 ? 'var(--green)' : 'var(--red)';
 
@@ -2263,6 +2355,7 @@ async function openChantierDetail(chantierId, tab){
       ${statCard('CA Facturé', fmt(caFacture), 'var(--blue)', avancementPct!==null?avancementPct.toFixed(0)+'% du prévu':'—')}
       ${statCard('CA Encaissé', fmt(caEncaisse), 'var(--green)', nbFacturesPartielles>0?nbFacturesPartielles+' facture(s) partiellement payée(s) — non comptée(s) ici':'Factures marquées "Payée" uniquement')}
       ${statCard('Coûts (achats/fournisseurs)', fmt(coutsAchats), 'var(--orange)', facsFournValides.length+' facture(s) fournisseur')}
+      ${coutMO!==null ? statCard("Main-d'œuvre", fmt(coutMO), 'var(--orange)', fmtHeures(heuresCumul)+' h pointées × coût horaire'+(statsHeures.heuresSansCout>0 ? ' — ⚠ '+fmtHeures(statsHeures.heuresSansCout)+' h sans coût horaire non comptées' : '')) : ''}
     </div>
 
     ${avancementPct!==null?`
@@ -2288,7 +2381,21 @@ async function openChantierDetail(chantierId, tab){
       </div>
     </div>
 
-    <div class="alert alert-info"><i class="ti ti-info-circle"></i> Le coût de la main d'œuvre n'est pas encore inclus dans ce calcul — la marge réelle est donc probablement inférieure à ce qui est affiché ici. Tous les montants sont calculés en direct à partir des devis/factures existants, jamais mémorisés.</div>
+    ${margeApresMO!==null ? `
+    <div style="background:${margeMOCouleur}11;border:2px solid ${margeMOCouleur}44;border-radius:var(--radius);padding:20px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:${margeMOCouleur};text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Marge après main-d'œuvre</div>
+          <div style="font-size:11.5px;color:var(--gray-5)">Marge brute − coût de la main-d'œuvre pointée (information confidentielle)</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:32px;font-weight:700;color:${margeMOCouleur}">${fmt(margeApresMO)}</div>
+          <div style="font-size:15px;font-weight:600;color:${margeMOCouleur}">${margeApresMOPct!==null?margeApresMOPct.toFixed(1)+'%':'—'}</div>
+        </div>
+      </div>
+    </div>
+    <div class="alert alert-info"><i class="ti ti-info-circle"></i> La main-d'œuvre est calculée avec le coût horaire de chaque employé (fiche Employés → Rémunération) × ses heures pointées sur ce chantier. Tous les montants sont calculés en direct, jamais mémorisés.</div>`
+    : `<div class="alert alert-info"><i class="ti ti-info-circle"></i> Le coût de la main d'œuvre n'est pas inclus dans ce calcul — la marge réelle est donc probablement inférieure à ce qui est affiché ici. Tous les montants sont calculés en direct à partir des devis/factures existants, jamais mémorisés.</div>`}
   `;
 
   // ── ONGLET INTERVENTIONS (centres de coûts SAV) ──
@@ -2344,7 +2451,7 @@ async function openChantierDetail(chantierId, tab){
   </div></div>`);
 
   // Charger les heures si onglet actif
-  if(tab==='heures') loadHeuresChantier(chantier);
+  if(tab==='heures') loadHeuresChantier(chantier, statsHeures);
 }
 
 async function saveCodePointages(chantierId){
@@ -2354,11 +2461,14 @@ async function saveCodePointages(chantierId){
   const ch = _chantiers.find(c=>c.id===chantierId);
   if(ch) ch.code_pointages = code;
   showToast('Liaison pointages enregistrée');
-  if(code) loadHeuresChantier({id:chantierId, code_pointages:code});
+  // On rouvre la fiche : l'onglet « Heures » affiche aussitôt le total des heures du chantier lié
+  await openChantierDetail(chantierId, 'info');
 }
 
 let _heuresWeekOffset = 0;
 let _heuresChantierCache = null;
+let _heuresVue = 'mois';      // 'mois' (par défaut) ou 'semaine'
+let _heuresMois = null;       // mois affiché dans la vue « Mois » : 'AAAA-MM'
 
 function getMonday(offsetWeeks){
   const d = new Date();
@@ -2370,7 +2480,48 @@ function getMonday(offsetWeeks){
   return monday;
 }
 
-async function loadHeuresChantier(chantier){
+const MOIS_FR = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const libelleMois = ym => { const [a,m] = ym.split('-').map(Number); return MOIS_FR[m-1]+' '+a; };
+const decalerMois = (ym, delta) => { const [a,m] = ym.split('-').map(Number); return new Date(Date.UTC(a, m-1+delta, 1)).toISOString().slice(0,7); };
+
+// Carte de chiffre clé (même rôle que statCard de la Rentabilité)
+function carteIndicateur(label, valeur, couleur, sub){
+  return `<div style="background:#fff;border:1px solid var(--gray-3);border-left:4px solid ${couleur};border-radius:var(--radius);padding:14px 16px;text-align:left">
+      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">${label}</div>
+      <div style="font-size:22px;font-weight:700;color:var(--gray-8)">${valeur}</div>
+      ${sub?`<div style="font-size:11.5px;color:var(--gray-5);margin-top:4px">${sub}</div>`:''}
+    </div>`;
+}
+
+// Heures pointées / prévues (avec % et alerte) et coût de la main-d'œuvre
+function htmlIndicateursHeures(chantier, stats){
+  if(!stats) return '';
+  const prevues = parseFloat(chantier.heures_prevues);
+  const aPrevues = !isNaN(prevues) && prevues>0;
+  const pct = aPrevues ? stats.cumul/prevues*100 : null;
+  const coul = pct===null ? 'var(--blue)' : pct>100 ? 'var(--red)' : pct>=80 ? 'var(--orange)' : 'var(--green)';
+  let cartes = carteIndicateur('Heures pointées', fmtHeures(stats.cumul)+' h', 'var(--blue)', 'depuis le début');
+  cartes += aPrevues
+    ? carteIndicateur('Heures prévues', fmtHeures(prevues)+' h', coul, pct.toFixed(0)+' % consommé'+(pct>100 ? ' — dépassement de '+fmtHeures(stats.cumul-prevues)+' h' : ' — reste '+fmtHeures(prevues-stats.cumul)+' h'))
+    : carteIndicateur('Heures prévues', '—', 'var(--gray-4)', 'Non renseignées : bouton « Modifier » du chantier');
+  if(stats.coutEtat==='ok'){
+    cartes += carteIndicateur("Coût main-d'œuvre", fmt(stats.cout), 'var(--orange)', stats.heuresSansCout>0 ? '⚠ '+fmtHeures(stats.heuresSansCout)+' h sans coût horaire ('+stats.nbSansCout+' employé'+(stats.nbSansCout>1?'s':'')+') non comptées' : 'heures pointées × coût horaire');
+  } else if(stats.coutEtat==='aucun'){
+    cartes += carteIndicateur("Coût main-d'œuvre", '—', 'var(--gray-4)', 'Renseignez le coût horaire dans Employés → Rémunération');
+  }
+  const barre = aPrevues ? `<div style="margin-bottom:14px"><div style="background:var(--gray-2);border-radius:6px;height:10px;overflow:hidden"><div id="heures-barre" style="background:${coul};height:100%;width:${Math.min(100,pct)}%;border-radius:6px"></div></div></div>` : '';
+  const alerte = !aPrevues ? '' : pct>100
+    ? `<div class="alert alert-error" id="heures-alerte" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> Heures prévues dépassées de ${fmtHeures(stats.cumul-prevues)} h (${pct.toFixed(0)} % de ${fmtHeures(prevues)} h).</div>`
+    : pct>=80 ? `<div class="alert alert-warning" id="heures-alerte" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> ${pct.toFixed(0)} % des heures prévues sont déjà consommées — il reste ${fmtHeures(prevues-stats.cumul)} h.</div>` : '';
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">${cartes}</div>${barre}${alerte}`;
+}
+
+function htmlBasculeHeures(){
+  const b = (v,l,ic)=>`<button class="btn btn-sm ${_heuresVue===v?'btn-primary':'btn-secondary'}" id="heures-vue-${v}" onclick="changerVueHeures('${v}')"><i class="ti ${ic}"></i> ${l}</button>`;
+  return `<div style="display:flex;gap:6px;margin-bottom:14px">${b('mois','Mois','ti-calendar-month')}${b('semaine','Semaine','ti-calendar-week')}</div>`;
+}
+
+async function loadHeuresChantier(chantier, stats){
   const container = el('heures-content');
   if(!container) return;
 
@@ -2385,11 +2536,14 @@ async function loadHeuresChantier(chantier){
   }
 
   // Chercher le chantier dans la base pointages par code
-  const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
-  const ptChantier = (ptChantiers||[]).find(c=>
-    c.code === chantier.code_pointages ||
-    c.nom?.toLowerCase() === chantier.code_pointages?.toLowerCase()
-  );
+  let ptChantier = stats && stats.ptChantier;
+  if(!ptChantier){
+    const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
+    ptChantier = (ptChantiers||[]).find(c=>
+      c.code === chantier.code_pointages ||
+      c.nom?.toLowerCase() === chantier.code_pointages?.toLowerCase()
+    );
+  }
 
   if(!ptChantier){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
@@ -2400,9 +2554,118 @@ async function loadHeuresChantier(chantier){
     return;
   }
 
-  _heuresChantierCache = {chantier, ptChantier};
+  if(stats===undefined){ try{ stats = await calculerStatsHeures(chantier); }catch(e){ stats = null; } }
+  _heuresChantierCache = {chantier, ptChantier, stats: stats||null};
   _heuresWeekOffset = 0;
-  await renderHeuresSemaine();
+  // Mois affiché au départ : le dernier mois où des heures ont été pointées (sinon le mois en cours)
+  const dates = ((stats&&stats.picages)||[]).map(p=>String(p.date||'').slice(0,7)).filter(d=>/^\d{4}-\d{2}$/.test(d));
+  _heuresMois = dates.length ? dates.reduce((a,b)=>a>b?a:b) : new Date().toISOString().slice(0,7);
+  await renderHeuresVue();
+}
+
+async function renderHeuresVue(){
+  const container = el('heures-content');
+  if(!container || !_heuresChantierCache) return;
+  const {chantier, stats} = _heuresChantierCache;
+  container.innerHTML = htmlIndicateursHeures(chantier, stats) + htmlBasculeHeures() + '<div id="heures-vue"></div>';
+  if(_heuresVue==='semaine') await renderHeuresSemaine(); else await renderHeuresMois();
+}
+
+async function changerVueHeures(vue){
+  if(vue!=='mois' && vue!=='semaine') return;
+  _heuresVue = vue;
+  await renderHeuresVue();
+}
+
+async function changerMoisHeures(delta){
+  if(!_heuresMois) return;
+  _heuresMois = decalerMois(_heuresMois, delta);
+  await renderHeuresMois();
+}
+async function choisirMoisHeures(ym){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(ym||''))) return;
+  _heuresMois = ym;
+  await renderHeuresMois();
+}
+
+// Vue « Mois » : un employé par ligne, un jour par colonne, avec les totaux (et le coût pour les personnes autorisées)
+async function renderHeuresMois(){
+  const zone = el('heures-vue');
+  if(!zone || !_heuresChantierCache) return;
+  const {ptChantier, stats} = _heuresChantierCache;
+  const ym = _heuresMois;
+  const [a,m] = ym.split('-').map(Number);
+  const nbJours = new Date(Date.UTC(a,m,0)).getUTCDate();
+  let pics = [], erreur = false;
+  try{ pics = await lirePicagesPeriode(ptChantier.id, ym+'-01', ym+'-'+String(nbJours).padStart(2,'0')); }catch(e){ erreur = true; }
+
+  const parPt = (stats && stats.coutEtat==='ok') ? stats.parPt : null;
+  const parEmploye = {};
+  pics.forEach(p=>{
+    const k = String(p.employe_id);
+    if(!parEmploye[k]) parEmploye[k] = {nom:p.employes?.nom||'Inconnu', jours:{}, total:0};
+    const j = parseInt(String(p.date).slice(8,10),10), hh = parseFloat(p.heures)||0;
+    parEmploye[k].jours[j] = (parEmploye[k].jours[j]||0) + hh;
+    parEmploye[k].total += hh;
+  });
+  const lignes = Object.entries(parEmploye).sort((x,y)=>x[1].nom.localeCompare(y[1].nom,'fr'));
+  const totalMois = lignes.reduce((s,[,e])=>s+e.total,0);
+  const coutEmploye = (k,e) => (parPt && parPt[k]!==undefined) ? e.total*parPt[k] : null;
+  const coutMois = parPt ? coutDesPicages(pics, parPt) : null;
+
+  const jours = Array.from({length:nbJours},(_,i)=>i+1);
+  const weekend = j => { const d = new Date(Date.UTC(a,m-1,j)).getUTCDay(); return d===0||d===6; };
+  const initiales = ['D','L','M','M','J','V','S'];
+  const th = (txt,al,extra) => `<th style="padding:6px ${al==='center'?'3px':'10px'};text-align:${al||'left'};font-size:10.5px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3);text-transform:uppercase;white-space:nowrap;${extra||''}">${txt}</th>`;
+
+  // mois où des heures existent (pastilles cliquables)
+  const parMois = {};
+  ((stats&&stats.picages)||[]).forEach(p=>{ const k=String(p.date||'').slice(0,7); if(/^\d{4}-\d{2}$/.test(k)) parMois[k]=(parMois[k]||0)+(parseFloat(p.heures)||0); });
+  const pastilles = Object.keys(parMois).length<2 ? '' : Object.keys(parMois).sort().map(k=>`<button class="btn btn-sm ${k===ym?'btn-primary':'btn-secondary'}" data-mois="${k}" onclick="choisirMoisHeures('${k}')">${libelleMois(k).slice(0,1).toUpperCase()+libelleMois(k).slice(1)} · ${fmtHeures(parMois[k])} h</button>`).join('');
+
+  zone.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-secondary btn-sm" onclick="changerMoisHeures(-1)"><i class="ti ti-chevron-left"></i> Mois préc.</button>
+      <div style="text-align:center">
+        <input type="month" id="heures-mois" value="${ym}" onchange="choisirMoisHeures(this.value)" lang="fr" style="width:190px;padding:6px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:14px;font-weight:700"/>
+        <div style="font-size:12px;color:var(--gray-5);margin-top:4px" id="heures-mois-resume">${libelleMois(ym)} · Total du mois : <strong style="color:var(--blue)">${fmtHeures(totalMois)} h</strong>${(stats&&stats.cumul!==undefined)?` · Cumul depuis le début : <strong style="color:var(--blue)">${fmtHeures(stats.cumul)} h</strong>`:''}${coutMois?` · Coût du mois : <strong style="color:var(--orange)">${fmt(coutMois.cout)}</strong>`:''}</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="changerMoisHeures(1)">Mois suiv. <i class="ti ti-chevron-right"></i></button>
+    </div>
+    ${pastilles?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;justify-content:center" id="heures-pastilles">${pastilles}</div>`:''}
+    ${erreur ? '<div class="alert alert-error"><i class="ti ti-alert-circle"></i> Impossible de lire les pointages pour le moment.</div>'
+    : lignes.length===0 ? '<div style="text-align:center;padding:32px;color:var(--gray-4)"><i class="ti ti-clock" style="font-size:32px;display:block;margin-bottom:8px"></i><p>Aucune heure encodée pour ce mois.</p></div>' : `
+    <div style="overflow-x:auto">
+      <table id="heures-grille-mois" style="width:100%;border-collapse:collapse;min-width:${Math.max(640, 150+nbJours*30+90)}px">
+        <thead><tr>
+          ${th('Employé','left','position:sticky;left:0;z-index:1')}
+          ${th('Total','right')}
+          ${parPt?th('Coût','right'):''}
+          ${jours.map(j=>th(initiales[new Date(Date.UTC(a,m-1,j)).getUTCDay()]+'<br><span style="font-weight:400">'+j+'</span>','center',weekend(j)?'background:var(--gray-2)':'')).join('')}
+        </tr></thead>
+        <tbody>
+          ${lignes.map(([k,e])=>{
+            const c = coutEmploye(k,e);
+            return `<tr>
+              <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);font-weight:600;white-space:nowrap;position:sticky;left:0;background:#fff;text-align:left">${escHtml(e.nom)}</td>
+              <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue);white-space:nowrap">${fmtHeures(e.total)} h</td>
+              ${parPt?`<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;white-space:nowrap">${c!==null?fmt(c):'<span style="color:var(--gray-4)" title="Coût horaire non renseigné">—</span>'}</td>`:''}
+              ${jours.map(j=>{ const v=e.jours[j]; return `<td style="padding:6px 3px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12.5px;${weekend(j)?'background:var(--gray-1);':''}${v?'font-weight:600;color:var(--blue)':'color:var(--gray-3)'}">${v?fmtHeures(v):'·'}</td>`; }).join('')}
+            </tr>`;
+          }).join('')}
+          <tr style="background:var(--gray-1)">
+            <td style="padding:6px 10px;font-weight:700;position:sticky;left:0;background:var(--gray-1);text-align:left">Total jour</td>
+            <td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--blue);white-space:nowrap">${fmtHeures(totalMois)} h</td>
+            ${parPt?`<td style="padding:6px 10px;text-align:right;font-weight:700;white-space:nowrap">${fmt(coutMois.cout)}</td>`:''}
+            ${jours.map(j=>{ const t = lignes.reduce((s,[,e])=>s+(e.jours[j]||0),0); return `<td style="padding:6px 3px;text-align:center;font-size:12.5px;font-weight:700">${t?fmtHeures(t):'·'}</td>`; }).join('')}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    ${parPt && coutMois.heuresSansCout>0 ? `<p style="font-size:12px;color:var(--orange);margin-top:8px">⚠ ${fmtHeures(coutMois.heuresSansCout)} h de ce mois sans coût horaire (${coutMois.nbSansCout} employé${coutMois.nbSansCout>1?'s':''}) : non comptées dans le coût.</p>`:''}`}
+    <div style="margin-top:20px;text-align:center">
+      <a href="#" onclick="window.open('https://lyneo-pointages.netlify.app','_blank');return false" class="btn btn-secondary btn-sm"><i class="ti ti-external-link"></i> Ouvrir le système de pointages (modifier/ajouter)</a>
+    </div>`;
 }
 
 async function changerSemaineHeures(delta){
@@ -2411,7 +2674,7 @@ async function changerSemaineHeures(delta){
 }
 
 async function renderHeuresSemaine(){
-  const container = el('heures-content');
+  const container = el('heures-vue');
   if(!container || !_heuresChantierCache) return;
   const {ptChantier} = _heuresChantierCache;
 
@@ -2445,7 +2708,7 @@ async function renderHeuresSemaine(){
       <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(-1)"><i class="ti ti-chevron-left"></i> Semaine préc.</button>
       <div style="text-align:center">
         <div style="font-weight:700;font-size:14px">${semaineLabel}</div>
-        <div style="font-size:12px;color:var(--gray-5)">${_heuresWeekOffset===0?'Semaine en cours':(_heuresWeekOffset<0?'Il y a '+(-_heuresWeekOffset)+' semaine(s)':'Dans '+_heuresWeekOffset+' semaine(s)')} · Total : <strong style="color:var(--blue)">${totalSemaine.toFixed(1)}h</strong></div>
+        <div style="font-size:12px;color:var(--gray-5)">${_heuresWeekOffset===0?'Semaine en cours':(_heuresWeekOffset<0?'Il y a '+(-_heuresWeekOffset)+' semaine(s)':'Dans '+_heuresWeekOffset+' semaine(s)')} · Total : <strong style="color:var(--blue)">${totalSemaine.toFixed(1)}h</strong>${(_heuresChantierCache.stats && _heuresChantierCache.stats.cumul!==undefined)?` · Cumul depuis le début : <strong style="color:var(--blue)">${fmtHeures(_heuresChantierCache.stats.cumul)} h</strong>`:''}</div>
       </div>
       <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(1)">Semaine suiv. <i class="ti ti-chevron-right"></i></button>
     </div>
@@ -2580,6 +2843,10 @@ async function openChantierModal(r=null){
         <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
         <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
         <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/></div>
+        <div class="form-group"><label class="field-label" for="ch-heures-prevues">Heures prévues (devis)</label>
+          <div style="display:flex;gap:6px"><input type="number" step="0.5" min="0" id="ch-heures-prevues" style="flex:1;min-width:0" data-had="${r && r.heures_prevues!==undefined?'1':''}" value="${escHtml(r?.heures_prevues??'')}" placeholder="Ex: 800"/>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-calc-heures-prevues" onclick="calculerHeuresPrevuesDevis('${r?.id||''}')" title="Additionne les lignes en heures (unité « h ») du devis accepté"><i class="ti ti-calculator"></i> Depuis le devis</button></div>
+          <span style="font-size:12px;color:var(--gray-5)">Sert à suivre le % d'heures consommées dans l'onglet Heures.</span></div>
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
       </div>
       <div class="form-actions">
@@ -2588,6 +2855,26 @@ async function openChantierModal(r=null){
       </div>
     </div>
   </div></div>`);
+}
+
+// Additionne les lignes en heures (unité « h ») du devis accepté du chantier — ou du devis d'origine d'un chantier en cours de création
+async function calculerHeuresPrevuesDevis(chantierId){
+  const champ = el('ch-heures-prevues'); if(!champ) return;
+  let devis = [];
+  if(chantierId){
+    const {data} = await sb.from('devis').select('id,numero,statut').eq('chantier_id',chantierId).eq('statut','accepte');
+    devis = data||[];
+  } else if(window._chantierFromDevisId){
+    const {data} = await sb.from('devis').select('id,numero,statut').eq('id',window._chantierFromDevisId);
+    devis = data||[];
+  }
+  if(!devis.length){ showToast("Aucun devis accepté n'est lié à ce chantier", 'error'); return; }
+  const {data:lignes, error} = await sb.from('lignes_devis').select('*').in('devis_id',devis.map(d=>d.id)).eq('bloc','principal').eq('type','ligne');
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  const total = (lignes||[]).filter(l=>uniteEstHeure(l.unite)).reduce((a,l)=>a+(parseFloat(l.quantite)||0),0);
+  if(!(total>0)){ showToast("Aucune ligne en heures (unité « h ») dans le devis accepté", 'error'); return; }
+  champ.value = Math.round(total*100)/100;
+  showToast(fmtHeures(total)+' h trouvées dans '+devis.map(d=>d.numero).join(', ')+' — vérifiez puis enregistrez');
 }
 
 // Rend un chantier actif disponible automatiquement dans le système de
@@ -2634,16 +2921,34 @@ async function saveChantier(id){
   // (data-had) : ainsi la sauvegarde ne casse pas si la migration SQL n'a pas encore été exécutée.
   const typeSel = el('ch-type');
   if(typeSel && (typeSel.value!=='chantier' || typeSel.dataset.had==='1')) data.type_centre = typeSel.value;
+  // Heures prévues : même principe (envoyées seulement si remplies ou si la colonne existe déjà)
+  const hpEl = el('ch-heures-prevues');
+  if(hpEl){
+    const brut = hpEl.value.trim();
+    if(brut!=='' && (isNaN(parseFloat(brut)) || parseFloat(brut)<0)){ showToast("Heures prévues : indiquez un nombre positif",'error'); return; }
+    if(brut!=='' || hpEl.dataset.had==='1') data.heures_prevues = brut==='' ? null : parseFloat(brut);
+  }
+  let heuresNonEnregistrees = false;
+  const ecrire = async (fn)=>{
+    let res = await fn(data);
+    if(res.error && 'heures_prevues' in data && /heures_prevues/.test(res.error.message)){
+      const sans = {...data}; delete sans.heures_prevues;
+      heuresNonEnregistrees = true;
+      res = await fn(sans);
+    }
+    return res;
+  };
   if(id){
     if(numeroManuel) data.numero = numeroManuel;
-    await sb.from('chantiers_lyneo').update(data).eq('id',id);
+    await ecrire(d=>sb.from('chantiers_lyneo').update(d).eq('id',id));
+    _chantiers = _chantiers.filter(c=>c.id!==id);   // la fiche sera relue à jour à sa prochaine ouverture
     const resultadoSync = await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
     showToast('Chantier mis à jour');
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   } else {
     const num = numeroManuel || (await sb.rpc('generate_chantier_number')).data;
     const devisIdOrigine = window._chantierFromDevisId||null;
-    const {data:newChantier} = await sb.from('chantiers_lyneo').insert({...data,numero:num,devis_id:devisIdOrigine}).select().single();
+    const {data:newChantier} = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
     let resultadoSync = {ok:false, motif:'non_cree'};
     if(newChantier) resultadoSync = await sincronizarChantierPointages(newChantier.id, nom, statutAtual, cpModal?.value);
     if(devisIdOrigine && newChantier){
@@ -2655,6 +2960,7 @@ async function saveChantier(id){
     }
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   }
+  if(heuresNonEnregistrees) setTimeout(()=>showToast("⚠ Les heures prévues ne sont pas enregistrées : exécutez d'abord « migration-heures-couts-chantiers.sql » dans Supabase.", 'error'), 600);
   closeModal();
   // Un centre SAV se crée/modifie depuis le module Interventions : on y reste
   if(currentPage==='interventions_sav') renderInterventionsSAV(); else renderChantiers();
@@ -7744,6 +8050,8 @@ async function openEmployeModal(r=null){
         <div class="form-group full"><label class="field-label">Type de rémunération</label>${empRadios('emp-rem-type', TYPES_REMUNERATION, remType, 'majFormRemuneration()')}</div>
         <div class="form-group"><label class="field-label" for="emp-rem-montant" id="emp-rem-montant-label">${remType==='horaire'?'Taux horaire brut (€ / h)':'Salaire mensuel brut (€)'}</label><input type="number" step="0.01" min="0" id="emp-rem-montant" value="${escHtml(rem?.salaire_brut??'')}"/></div>
         <div class="form-group" id="emp-rem-heures-groupe" style="${remType==='horaire'?'':'display:none'}"><label class="field-label" for="emp-rem-heures">Heures par semaine</label><input type="number" step="0.25" min="0" max="80" id="emp-rem-heures" value="${escHtml(rem?.heures_semaine??'')}"/></div>
+        <div class="form-group"><label class="field-label" for="emp-rem-cout-horaire">Coût employeur par heure (€ / h)</label><input type="number" step="0.01" min="0" id="emp-rem-cout-horaire" value="${escHtml(rem?.cout_horaire??'')}" placeholder="Ex: 32.50"/>
+          <span style="font-size:12px;color:var(--gray-5)">Salaire brut + charges patronales, ramené à l'heure travaillée. Sert au calcul du coût de main-d'œuvre de chaque chantier.</span></div>
       </div>`,
     {confidentiel:true, note:'<i class="ti ti-eye-off"></i> Confidentiel — visible uniquement par les administrateurs et les personnes autorisées.'});
 
@@ -7916,6 +8224,10 @@ async function saveEmploye(id){
   const tauxBrut = el('emp-impot-taux').value.trim();
   const impotTaux = tauxBrut==='' ? null : parseFloat(tauxBrut);
   if(impotTaux!==null && (isNaN(impotTaux) || impotTaux<0 || impotTaux>100)){ showToast("Taux de retenue : indiquez un nombre entre 0 et 100", 'error'); reactiver(); return; }
+  const coutEl = el('emp-rem-cout-horaire');
+  const coutBrut = coutEl ? coutEl.value.trim() : '';
+  const coutHoraire = coutBrut==='' ? null : parseFloat(coutBrut);
+  if(coutHoraire!==null && (isNaN(coutHoraire) || coutHoraire<0)){ showToast("Coût horaire : indiquez un nombre positif", 'error'); reactiver(); return; }
   const vehiculeType = el('emp-vehicule-type').value||null;
   const sinon = v => (v===''||v===undefined) ? null : v;
 
@@ -7975,15 +8287,21 @@ async function saveEmploye(id){
     const type = valRadio('emp-rem-type');
     const montant = parseFloat(el('emp-rem-montant').value);
     const heures = parseFloat(el('emp-rem-heures').value);
-    if(!type && isNaN(montant)){
+    if(!type && isNaN(montant) && coutHoraire===null){
       if(id) await sb.from('employes_remuneration').delete().eq('employe_id', employeId);
     } else {
-      const {error:remErr} = await sb.from('employes_remuneration').upsert({
+      const ligneRem = {
         employe_id: employeId, type_remuneration: type,
         salaire_brut: isNaN(montant) ? null : montant,
         heures_semaine: (type==='horaire' && !isNaN(heures)) ? heures : null,
         updated_at: new Date().toISOString(), updated_by: (currentUser&&currentUser.email)||null
-      }, {onConflict:'employe_id'});
+      };
+      let {error:remErr} = await sb.from('employes_remuneration').upsert({...ligneRem, cout_horaire: coutHoraire}, {onConflict:'employe_id'});
+      if(remErr && migrationEmployeAbsente(remErr.message) && /cout_horaire/.test(remErr.message)){
+        // migration-heures-couts-chantiers.sql pas encore exécuté : on enregistre le reste de la rémunération
+        ({error:remErr} = await sb.from('employes_remuneration').upsert(ligneRem, {onConflict:'employe_id'}));
+        if(!remErr && coutHoraire!==null) avertissementRem = "Le coût horaire n'est pas enregistré : exécutez d'abord « migration-heures-couts-chantiers.sql » dans Supabase.";
+      }
       if(remErr) avertissementRem = "La rémunération n'a pas pu être enregistrée : "+remErr.message;
     }
   }
@@ -8086,7 +8404,8 @@ async function openEmployeDetail(employeId){
     : profileRow('Type de rémunération', TYPES_REMUNERATION[rem?.type_remuneration]||'') +
       (rem?.type_remuneration==='horaire'
         ? profileRow('Taux horaire brut', rem.salaire_brut!=null ? fmt(rem.salaire_brut)+' / h' : '') + profileRow('Heures par semaine', rem.heures_semaine!=null ? String(rem.heures_semaine).replace('.',',')+' h' : '')
-        : profileRow('Salaire mensuel brut', rem?.salaire_brut!=null ? fmt(rem.salaire_brut) : ''));
+        : profileRow('Salaire mensuel brut', rem?.salaire_brut!=null ? fmt(rem.salaire_brut) : '')) +
+      profileRow('Coût employeur par heure', rem?.cout_horaire!=null ? fmt(rem.cout_horaire)+' / h' : '');
   const profileSection = (title,rowsHtml)=>`<div style="margin-bottom:22px">
       <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">${title}</div>
       <div>${rowsHtml}</div>
