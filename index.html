@@ -1964,13 +1964,28 @@ async function selectInChunks(client, table, cols, col, ids, size=40){
   return out;
 }
 
+// Codes du système de pointages liés à un chantier. Un centre SAV « clients divers » (ex: SAV 1) en a plusieurs,
+// un par client (ex: DPSINTER, NASSO…) : ils sont enregistrés dans code_pointages, séparés par une virgule.
+// Un chantier ordinaire n'en a qu'un, et le comportement reste le même.
+function codesPointagesDe(chantier){
+  const brut = chantier && chantier.code_pointages ? String(chantier.code_pointages) : '';
+  const codes = [];
+  brut.split(/[,;]/).map(s=>s.trim()).filter(Boolean).forEach(c=>{ if(!codes.some(x=>x.toLowerCase()===c.toLowerCase())) codes.push(c); });
+  return codes;
+}
+// Le chantier du système de pointages qui correspond à un code (code exact, ou nom identique sans tenir compte des majuscules)
+function trouverChantierPointages(ptRows, code){
+  const c = String(code||'');
+  return (ptRows||[]).find(pc=> pc.code===c || (pc.nom||'').toLowerCase()===c.toLowerCase()) || null;
+}
+
 // Pointages d'un chantier du système de pointages (employé, date, heures). Lus par pages de 1000 lignes
 // (limite de Supabase par requête) pour que les totaux restent exacts quand les pointages s'accumulent.
 async function lirePicagesChantier(ptChantierIds){
   const ids = Array.isArray(ptChantierIds) ? ptChantierIds : [ptChantierIds];
   const out = [];
   for(let debut=0; ; debut+=1000){
-    const {data,error} = await sbPT.from('picages').select('employe_id,date,heures').in('chantier_id', ids).order('id',{ascending:true}).range(debut, debut+999);
+    const {data,error} = await sbPT.from('picages').select('chantier_id,employe_id,date,heures').in('chantier_id', ids).order('id',{ascending:true}).range(debut, debut+999);
     if(error) throw error;
     const lignes = data||[];
     out.push(...lignes);
@@ -2037,14 +2052,19 @@ async function lireChantiersPointages(){
 // Pour un centre SAV, on additionne les heures pointées sur le code du centre (ex: DELDEPAN) ET sur le code de chacune de
 // ses interventions (SAV26001…, créés automatiquement avec l'intervention) : le coût du centre est ainsi complet.
 // null = rien trouvé dans les pointages (lance une exception si le système est indisponible).
+// Un centre SAV peut avoir plusieurs codes (un par client : DPSINTER, NASSO…) : tous sont additionnés, et la
+// « répartition » donne les heures (et le coût) de chaque code, donc de chaque client.
 async function calculerStatsHeures(chantier, refsInterventions){
-  const codePt = chantier.code_pointages ? String(chantier.code_pointages) : '';
+  const codes = codesPointagesDe(chantier);
   const refs = new Set((refsInterventions||[]).filter(Boolean).map(String));
-  if(!codePt && !refs.size) return null;
+  if(!codes.length && !refs.size) return null;
   const ptRows = await lireChantiersPointages();
-  const ptChantier = codePt ? ((ptRows||[]).find(c=> c.code===codePt || (c.nom||'').toLowerCase()===codePt.toLowerCase()) || null) : null;
-  const ptIds = new Set(ptChantier ? [ptChantier.id] : []);
-  (ptRows||[]).forEach(c=>{ if(refs.has(String(c.code))) ptIds.add(c.id); });
+  const trouves = codes.map(code=>({code, pt: trouverChantierPointages(ptRows, code)}));
+  const ptChantier = (trouves.find(t=>t.pt)||{}).pt || null;
+  const ptIds = new Set(trouves.filter(t=>t.pt).map(t=>t.pt.id));
+  const nature = new Map();   // id pointages → 'code' (code du centre) ou 'intervention' (SAV26001…)
+  trouves.forEach(t=>{ if(t.pt) nature.set(String(t.pt.id),'code'); });
+  (ptRows||[]).forEach(c=>{ if(refs.has(String(c.code))){ ptIds.add(c.id); if(!nature.has(String(c.id))) nature.set(String(c.id),'intervention'); } });
   if(!ptIds.size) return null;
   const ids = [...ptIds];
   const picages = await lirePicagesChantier(ids);
@@ -2052,6 +2072,17 @@ async function calculerStatsHeures(chantier, refsInterventions){
   const couts = await chargerCoutsHoraires();
   const stats = {ptChantier, ptIds:ids, picages, cumul, coutEtat:couts.etat, parPt:couts.parPt, cout:null, heuresSansCout:0, nbSansCout:0};
   if(couts.etat==='ok') Object.assign(stats, coutDesPicages(picages, couts.parPt));
+  // Heures de chaque chantier du système de pointages (code du centre ou intervention)
+  const lignesParPt = {};
+  picages.forEach(p=>{ (lignesParPt[String(p.chantier_id)] = lignesParPt[String(p.chantier_id)]||[]).push(p); });
+  const heuresDe = id => (lignesParPt[String(id)]||[]).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+  const infoPt = new Map((ptRows||[]).map(c=>[String(c.id),c]));
+  stats.codes = trouves.map(t=>({code:t.code, trouve:!!t.pt, ptId:t.pt?t.pt.id:null, heures:t.pt ? heuresDe(t.pt.id) : null}));
+  stats.repartition = ids.map(id=>{
+    const c = infoPt.get(String(id)) || {};
+    return {ptId:id, code:c.code||String(id), nom:c.nom||'', nature:nature.get(String(id))||'code', heures:heuresDe(id),
+      cout: couts.etat==='ok' ? coutDesPicages(lignesParPt[String(id)]||[], couts.parPt).cout : null};
+  }).sort((a,b)=>b.heures-a.heures);
   return stats;
 }
 // Les lignes d'un devis en heures : unité « h » (ou heure, heures, hr…)
@@ -2110,8 +2141,10 @@ async function openChantierDetail(chantierId, tab){
   // cassent rien si la migration n'est pas encore faite ou si le système de pointages est indisponible.
   let intervCentre = [];
   const intervDevis = {}, intervHeures = {}, intervFact = {};
-  let heuresCentre = 0;   // heures pointées directement sur le code du centre (ex: le code « SAV 2 »)
+  let heuresCentre = 0;   // heures pointées directement sur les codes du centre (ex: le code « SAV 2 », ou DPSINTER + NASSO pour SAV 1)
+  const heuresParCode = {}, codesIntrouvables = new Set(), nomParCode = {};
   const estSav = chantier.type_centre==='sav';
+  const codesCentre = estSav ? codesPointagesDe(chantier) : [];
   try{
     const {data:ivs} = await sb.from('interventions_sav').select('*').eq('chantier_id',chantierId).order('ref',{ascending:true});
     intervCentre = ivs||[];
@@ -2126,26 +2159,32 @@ async function openChantierDetail(chantierId, tab){
       fvs.filter(f=>f.statut!=='annulee').forEach(f=>{ intervFact[f.intervention_id] = (intervFact[f.intervention_id]||0) + (parseFloat(f.total_ht)||0); });
     }catch(e){}
   }
-  if(intervCentre.length || (estSav && chantier.code_pointages)){
+  if(intervCentre.length || codesCentre.length){
     try{
       // Heures : le code de pointage d'une intervention est sa référence (SAV26001...) ;
-      // les techniciens peuvent aussi pointer directement sur le code du centre (ex: SAV 2).
+      // les techniciens peuvent aussi pointer directement sur les codes du centre (ex: SAV 2, ou un code par client pour SAV 1).
       const ptCh = await selectInChunks(sbPT,'chantiers','id,code','code',intervCentre.map(i=>i.ref));
-      let ptCentre = null;
-      if(estSav && chantier.code_pointages){
-        const {data:pc} = await sbPT.from('chantiers').select('id,code').eq('code',chantier.code_pointages).limit(1);
-        ptCentre = pc && pc[0] || null;
+      const refParPt = new Map(ptCh.map(c=>[String(c.id),c.code]));
+      const codeParPt = new Map();   // id pointages → code du centre
+      if(codesCentre.length){
+        const ptRows = await lireChantiersPointages();
+        codesCentre.forEach(code=>{
+          heuresParCode[code] = 0;
+          const pt = trouverChantierPointages(ptRows, code);
+          if(!pt){ codesIntrouvables.add(code); return; }
+          nomParCode[code] = pt.nom||'';
+          if(!refParPt.has(String(pt.id))) codeParPt.set(String(pt.id), code);
+        });
       }
-      const tous = ptCentre ? [...ptCh, ptCentre] : ptCh;
-      if(tous.length){
-        const refParPt = new Map(ptCh.map(c=>[String(c.id),c.code]));
+      const tousIds = [...new Set([...ptCh.map(c=>c.id), ...[...codeParPt.keys()]])];
+      if(tousIds.length){
         ptCh.forEach(c=>{ intervHeures[c.code] = 0; });
-        const pics = await selectInChunks(sbPT,'picages','chantier_id,heures','chantier_id',tous.map(c=>c.id));
+        const pics = await lirePicagesChantier(tousIds);
         pics.forEach(p=>{
           const h = parseFloat(p.heures)||0;
           const ref = refParPt.get(String(p.chantier_id));
           if(ref) intervHeures[ref] += h;
-          else if(ptCentre && String(p.chantier_id)===String(ptCentre.id)) heuresCentre += h;
+          else if(codeParPt.has(String(p.chantier_id))){ heuresParCode[codeParPt.get(String(p.chantier_id))] += h; heuresCentre += h; }
         });
       }
     }catch(e){ /* système de pointages indisponible */ }
@@ -2195,12 +2234,13 @@ async function openChantierDetail(chantierId, tab){
     ${chantier.observations?`<div class="alert alert-info"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
     <div style="margin-top:16px;padding:14px 16px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius)">
       <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Liaison système de pointages</div>
+      ${estSav ? htmlLiaisonPointagesSav(chantierId, codesCentre, statsHeures) : `
       <div style="display:flex;gap:8px;align-items:center">
         <input id="ch-code-pt" placeholder="Code chantier dans le système de pointages" value="${chantier.code_pointages||''}"
           style="flex:1;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px"/>
         <button class="btn btn-primary btn-sm" onclick="saveCodePointages('${chantierId}')"><i class="ti ti-link"></i> Lier</button>
       </div>
-      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">Entrez le code du chantier tel qu'il apparaît dans le système de pointages pour afficher les heures.</p>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">Entrez le code du chantier tel qu'il apparaît dans le système de pointages pour afficher les heures.</p>`}
     </div>`;
 
   // ── ONGLET COMMANDES ──
@@ -2430,7 +2470,7 @@ async function openChantierDetail(chantierId, tab){
           ${statCard('Interventions', String(intervCentre.length), 'var(--blue)', intervCentre.filter(i=>i.statut==='facturee').length+' facturée(s)')}
           ${statCard('Devis (HT)', fmt(totDevisInt), 'var(--blue)', 'montant des devis liés')}
           ${statCard('Facturé (HT)', fmt(totFactInt), 'var(--green)', 'factures clients non annulées')}
-          ${statCard('Heures pointées', totHeuresTout.toFixed(1)+' h', 'var(--orange)', chantier.code_pointages ? heuresCentre.toFixed(1)+' h sur « '+chantier.code_pointages+' » + '+totHeuresInt.toFixed(1)+' h sur les interventions' : 'codes SAV26… des interventions (centre pas encore lié aux pointages)')}
+          ${statCard('Heures pointées', totHeuresTout.toFixed(1)+' h', 'var(--orange)', codesCentre.length ? heuresCentre.toFixed(1)+' h sur '+(codesCentre.length>1 ? 'les '+codesCentre.length+' codes du centre' : '« '+codesCentre[0]+' »')+' + '+totHeuresInt.toFixed(1)+' h sur les interventions' : 'codes SAV26… des interventions (centre pas encore lié aux pointages)')}
         </div>`
     + (intervCentre.length===0
       ? `<div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention dans ce centre de coûts</p><p style="font-size:12px;color:var(--gray-5)">Dans une intervention, choisissez ce centre dans « Centre de coûts SAV ».</p></div>`
@@ -2449,7 +2489,11 @@ async function openChantierDetail(chantierId, tab){
               +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+(intervFact[i.id]?fmt(intervFact[i.id]):'—')+'</td>'
               +'</tr>';
           }).join('')
-        + (heuresCentre>0 ? '<tr style="background:var(--gray-1)"><td colspan="5" style="padding:9px 12px;font-size:12.5px;color:var(--gray-6)">Heures pointées directement sur le centre « '+chantier.code_pointages+' » (sans intervention précise)</td><td style="padding:9px 12px;text-align:right">'+heuresCentre.toFixed(1)+' h</td><td></td></tr>' : '')
+        + codesCentre.filter(code=>(heuresParCode[code]||0)>0 || codesIntrouvables.has(code)).map(code=>{
+            const nom = nomParCode[code];
+            return '<tr style="background:var(--gray-1)"><td colspan="5" style="padding:9px 12px;font-size:12.5px;color:var(--gray-6)">Heures pointées directement sur « '+escHtml(code)+' »'+(nom && nom!==code ? ' — '+escHtml(nom) : '')+' (sans intervention précise)'
+              +(codesIntrouvables.has(code) ? ' <span style="color:var(--orange)">· code introuvable dans les pointages</span>' : '')+'</td><td style="padding:9px 12px;text-align:right">'+(heuresParCode[code]||0).toFixed(1)+' h</td><td></td></tr>';
+          }).join('')
         + '</tbody></table></div>');
 
   const tabContent = {info:tabInfo, interventions:tabInterventions, rentabilite:tabRentabilite, devis:tabDevis, heures:tabHeures, commandes:tabCommandes, documents:tabDocuments, fac_fourn:tabFacFourn, fac_vente:tabFacVente};
@@ -2486,6 +2530,72 @@ async function saveCodePointages(chantierId){
   await openChantierDetail(chantierId, 'info');
 }
 
+// Centre SAV : liste des codes du système de pointages liés (un par client pour un centre « clients divers »)
+function htmlLiaisonPointagesSav(chantierId, codes, stats){
+  const infoCode = {}; ((stats&&stats.codes)||[]).forEach(c=>{ infoCode[c.code] = c; });
+  const lignes = codes.map(code=>{
+    const i = infoCode[code];
+    const etat = !i ? '' : i.trouve
+      ? `<span style="font-size:12.5px;color:var(--gray-5)">${fmtHeures(i.heures)} h pointées</span>`
+      : `<span style="font-size:12.5px;color:var(--orange)"><i class="ti ti-alert-circle"></i> introuvable dans le système de pointages</span>`;
+    return `<div class="code-pt-ligne" style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--gray-3)">
+        <strong style="font-size:13px">${escHtml(code)}</strong>${etat}
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" title="Retirer ce code du centre" onclick="retirerCodePointagesSav('${chantierId}','${encodeURIComponent(code)}')"><i class="ti ti-x"></i> Retirer</button>
+      </div>`;
+  }).join('');
+  return `${lignes || '<p style="font-size:12.5px;color:var(--gray-5);margin-bottom:8px">Aucun code lié pour le moment.</p>'}
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <input id="ch-code-pt" placeholder="${codes.length ? 'Ajouter un autre code (ex: NASSO)' : 'Code dans le système de pointages (ex: DPSINTER)'}"
+        style="flex:1;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px"/>
+      <button class="btn btn-primary btn-sm" onclick="ajouterCodePointagesSav('${chantierId}')"><i class="ti ti-link"></i> ${codes.length ? 'Ajouter' : 'Lier'}</button>
+    </div>
+    <p style="font-size:11px;color:var(--gray-4);margin-top:6px">Un centre SAV peut avoir plusieurs codes (par exemple un par client) : leurs heures sont additionnées. Les interventions (SAV26…) y sont rattachées automatiquement, sans rien ajouter ici.</p>`;
+}
+
+async function enregistrerCodesPointagesSav(chantierId, codes){
+  const valeur = codes.join(', ');
+  const {error} = await sb.from('chantiers_lyneo').update({code_pointages:valeur}).eq('id',chantierId);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return false; }
+  const ch = _chantiers.find(c=>c.id===chantierId);
+  if(ch) ch.code_pointages = valeur;
+  return true;
+}
+
+async function ajouterCodePointagesSav(chantierId){
+  const saisi = (el('ch-code-pt')?.value||'').trim();
+  if(!saisi){ showToast("Entrez le code tel qu'il apparaît dans le système de pointages", 'error'); return; }
+  if(/[,;]/.test(saisi)){ showToast("Ajoutez les codes un par un (sans virgule)", 'error'); return; }
+  const {data:cur} = await sb.from('chantiers_lyneo').select('id,code_pointages').eq('id',chantierId).single();
+  if(!cur){ showToast("Chantier introuvable", 'error'); return; }
+  const codes = codesPointagesDe(cur);
+  // Le code doit exister dans le système de pointages, sinon ses heures ne remonteront jamais
+  let code = saisi;
+  try{
+    const pt = trouverChantierPointages(await lireChantiersPointages(), saisi);
+    if(!pt){ showToast("Code « "+saisi+" » introuvable dans le système de pointages : vérifiez l'orthographe ou créez-le d'abord là-bas", 'error'); return; }
+    code = pt.code;
+  }catch(e){ /* système de pointages indisponible : on enregistre le code tel quel */ }
+  if(codes.some(c=>c.toLowerCase()===code.toLowerCase())){ showToast("Ce code est déjà lié à ce centre", 'error'); return; }
+  // Un code ne peut appartenir qu'à un seul centre : sinon ses heures seraient comptées deux fois
+  const {data:autres} = await sb.from('chantiers_lyneo').select('id,numero,nom,code_pointages').neq('id',chantierId);
+  const doublon = (autres||[]).find(c=>codesPointagesDe(c).some(x=>x.toLowerCase()===code.toLowerCase()));
+  if(doublon){ showToast("Le code « "+code+" » est déjà lié à "+doublon.numero+" — "+doublon.nom, 'error'); return; }
+  codes.push(code);
+  if(!await enregistrerCodesPointagesSav(chantierId, codes)) return;
+  showToast('Code « '+code+' » lié au centre');
+  await openChantierDetail(chantierId, 'info');
+}
+
+async function retirerCodePointagesSav(chantierId, codeEncode){
+  const code = decodeURIComponent(codeEncode);
+  const {data:cur} = await sb.from('chantiers_lyneo').select('id,code_pointages').eq('id',chantierId).single();
+  if(!cur){ showToast("Chantier introuvable", 'error'); return; }
+  const restants = codesPointagesDe(cur).filter(c=>c.toLowerCase()!==code.toLowerCase());
+  if(!await enregistrerCodesPointagesSav(chantierId, restants)) return;
+  showToast('Code « '+code+' » retiré du centre');
+  await openChantierDetail(chantierId, 'info');
+}
+
 let _heuresWeekOffset = 0;
 let _heuresChantierCache = null;
 let _heuresVue = 'mois';      // 'mois' (par défaut) ou 'semaine'
@@ -2514,6 +2624,25 @@ function carteIndicateur(label, valeur, couleur, sub){
     </div>`;
 }
 
+// Quand plusieurs codes du système de pointages alimentent le chantier (centre SAV : un code par client + les
+// interventions), détail des heures — et du coût — de chacun.
+function htmlRepartitionCodes(stats){
+  const rep = (stats && stats.repartition) || [];
+  if(rep.length<2) return '';
+  const avecCout = stats.coutEtat==='ok';
+  const th = (t,al)=>`<th style="padding:7px 12px;text-align:${al||'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">${t}</th>`;
+  const lignes = rep.map(r=>`<tr>
+      <td style="padding:7px 12px;border-bottom:1px solid var(--gray-2)"><strong>${escHtml(r.code)}</strong>${r.nom && r.nom!==r.code ? ' <span style="color:var(--gray-5)">— '+escHtml(r.nom)+'</span>' : ''}</td>
+      <td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);color:var(--gray-5)">${r.nature==='intervention' ? 'Intervention' : 'Code du centre'}</td>
+      <td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);text-align:right">${fmtHeures(r.heures)} h</td>
+      ${avecCout ? `<td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);text-align:right">${fmt(r.cout)}</td>` : ''}
+    </tr>`).join('');
+  return `<div id="heures-repartition" style="margin-bottom:14px;overflow-x:auto">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Répartition par code (client / intervention)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--gray-1)">${th('Code')}${th('Type')}${th('Heures','right')}${avecCout ? th("Coût main-d'œuvre",'right') : ''}</tr></thead><tbody>${lignes}</tbody></table>
+    </div>`;
+}
+
 // Heures pointées / prévues (avec % et alerte) et coût de la main-d'œuvre
 function htmlIndicateursHeures(chantier, stats){
   if(!stats) return '';
@@ -2534,7 +2663,7 @@ function htmlIndicateursHeures(chantier, stats){
   const alerte = !aPrevues ? '' : pct>100
     ? `<div class="alert alert-error" id="heures-alerte" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> Heures prévues dépassées de ${fmtHeures(stats.cumul-prevues)} h (${pct.toFixed(0)} % de ${fmtHeures(prevues)} h).</div>`
     : pct>=80 ? `<div class="alert alert-warning" id="heures-alerte" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> ${pct.toFixed(0)} % des heures prévues sont déjà consommées — il reste ${fmtHeures(prevues-stats.cumul)} h.</div>` : '';
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">${cartes}</div>${barre}${alerte}`;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">${cartes}</div>${barre}${alerte}${htmlRepartitionCodes(stats)}`;
 }
 
 function htmlBasculeHeures(){
@@ -2560,17 +2689,14 @@ async function loadHeuresChantier(chantier, stats){
   let ptIds = stats && stats.ptIds;
   if(!ptIds || !ptIds.length){
     const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
-    const trouve = (ptChantiers||[]).find(c=>
-      c.code === chantier.code_pointages ||
-      c.nom?.toLowerCase() === chantier.code_pointages?.toLowerCase()
-    );
-    ptIds = trouve ? [trouve.id] : null;
+    const trouves = codesPointagesDe(chantier).map(code=>trouverChantierPointages(ptChantiers, code)).filter(Boolean);
+    ptIds = trouves.length ? trouves.map(c=>c.id) : null;
   }
 
   if(!ptIds){
     container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--gray-4)">
       <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:12px;color:var(--orange)"></i>
-      <p>Code "<strong>${chantier.code_pointages}</strong>" introuvable dans le système de pointages.</p>
+      <p>Code "<strong>${escHtml(chantier.code_pointages)}</strong>" introuvable dans le système de pointages.</p>
       <p style="font-size:12px;margin-top:8px">Vérifiez le code dans l'onglet Informations.</p>
     </div>`;
     return;
@@ -2864,7 +2990,8 @@ async function openChantierModal(r=null){
         </select></div>
         <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
         <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
-        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/></div>
+        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/>
+          <span style="font-size:12px;color:var(--gray-5)">Centre SAV : plusieurs codes possibles, séparés par une virgule (ex: DPSINTER, NASSO).</span></div>
         <div class="form-group"><label class="field-label" for="ch-heures-prevues">Heures prévues (devis)</label>
           <div style="display:flex;gap:6px"><input type="number" step="0.5" min="0" id="ch-heures-prevues" style="flex:1;min-width:0" data-had="${r && r.heures_prevues!==undefined?'1':''}" value="${escHtml(r?.heures_prevues??'')}" placeholder="Ex: 800"/>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-calc-heures-prevues" onclick="calculerHeuresPrevuesDevis('${r?.id||''}')" title="Additionne les lignes en heures (unité « h ») du devis accepté"><i class="ti ti-calculator"></i> Depuis le devis</button></div>
@@ -5321,10 +5448,11 @@ async function openClientDetail(clientId){
   if(chantiersAvecCode.length>0){
     const {data:ptChantiers} = await sbPT.from('chantiers').select('*');
     for(const c of chantiersAvecCode){
-      const ptChantier = (ptChantiers||[]).find(pc=>pc.code===c.code_pointages || pc.nom?.toLowerCase()===c.code_pointages?.toLowerCase());
-      if(!ptChantier) continue;
-      const {data:picages} = await sbPT.from('picages').select('heures').eq('chantier_id',ptChantier.id);
-      const total = (picages||[]).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+      // Un centre SAV peut avoir plusieurs codes : on additionne les heures de tous
+      const ptIdsC = codesPointagesDe(c).map(code=>trouverChantierPointages(ptChantiers, code)).filter(Boolean).map(pc=>pc.id);
+      if(!ptIdsC.length) continue;
+      let total = 0;
+      try{ total = (await lirePicagesChantier(ptIdsC)).reduce((a,p)=>a+(parseFloat(p.heures)||0),0); }catch(e){ continue; }
       if(total>0) heuresParChantier.push({chantier:c, heures:total});
     }
   }
