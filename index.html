@@ -1973,10 +1973,14 @@ function codesPointagesDe(chantier){
   brut.split(/[,;]/).map(s=>s.trim()).filter(Boolean).forEach(c=>{ if(!codes.some(x=>x.toLowerCase()===c.toLowerCase())) codes.push(c); });
   return codes;
 }
-// Le chantier du système de pointages qui correspond à un code (code exact, ou nom identique sans tenir compte des majuscules)
+// Le chantier du système de pointages qui correspond à un code : code exact, puis code sans tenir compte des
+// majuscules, puis nom identique
 function trouverChantierPointages(ptRows, code){
-  const c = String(code||'');
-  return (ptRows||[]).find(pc=> pc.code===c || (pc.nom||'').toLowerCase()===c.toLowerCase()) || null;
+  const c = String(code||''), bas = c.toLowerCase(), liste = ptRows||[];
+  return liste.find(pc=> pc.code===c)
+    || liste.find(pc=> String(pc.code||'').toLowerCase()===bas)
+    || liste.find(pc=> (pc.nom||'').toLowerCase()===bas)
+    || null;
 }
 
 // Pointages d'un chantier du système de pointages (employé, date, heures). Lus par pages de 1000 lignes
@@ -2491,7 +2495,7 @@ async function openChantierDetail(chantierId, tab){
           }).join('')
         + codesCentre.filter(code=>(heuresParCode[code]||0)>0 || codesIntrouvables.has(code)).map(code=>{
             const nom = nomParCode[code];
-            return '<tr style="background:var(--gray-1)"><td colspan="5" style="padding:9px 12px;font-size:12.5px;color:var(--gray-6)">Heures pointées directement sur « '+escHtml(code)+' »'+(nom && nom!==code ? ' — '+escHtml(nom) : '')+' (sans intervention précise)'
+            return '<tr style="background:var(--gray-1)"><td colspan="5" style="padding:9px 12px;font-size:12.5px;color:var(--gray-6)">Heures pointées directement sur le centre « '+escHtml(code)+' »'+(nom && nom!==code ? ' — '+escHtml(nom) : '')+' (sans intervention précise)'
               +(codesIntrouvables.has(code) ? ' <span style="color:var(--orange)">· code introuvable dans les pointages</span>' : '')+'</td><td style="padding:9px 12px;text-align:right">'+(heuresParCode[code]||0).toFixed(1)+' h</td><td></td></tr>';
           }).join('')
         + '</tbody></table></div>');
@@ -2631,13 +2635,16 @@ function htmlRepartitionCodes(stats){
   if(rep.length<2) return '';
   const avecCout = stats.coutEtat==='ok';
   const th = (t,al)=>`<th style="padding:7px 12px;text-align:${al||'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">${t}</th>`;
+  const td = (c,al,extra)=>`<td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);text-align:${al||'left'};${extra||''}">${c}</td>`;
+  // « SAV26003 — Nasso » : on n'affiche pas le code deux fois
+  const libelle = r => { const n = String(r.nom||'').trim(); const sans = n.toLowerCase().startsWith(String(r.code).toLowerCase()) ? n.slice(String(r.code).length).replace(/^\s*[—–-]\s*/,'') : n; return sans && sans.toLowerCase()!==String(r.code).toLowerCase() ? ' <span style="color:var(--gray-5)">— '+escHtml(sans)+'</span>' : ''; };
   const lignes = rep.map(r=>`<tr>
-      <td style="padding:7px 12px;border-bottom:1px solid var(--gray-2)"><strong>${escHtml(r.code)}</strong>${r.nom && r.nom!==r.code ? ' <span style="color:var(--gray-5)">— '+escHtml(r.nom)+'</span>' : ''}</td>
-      <td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);color:var(--gray-5)">${r.nature==='intervention' ? 'Intervention' : 'Code du centre'}</td>
-      <td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);text-align:right">${fmtHeures(r.heures)} h</td>
-      ${avecCout ? `<td style="padding:7px 12px;border-bottom:1px solid var(--gray-2);text-align:right">${fmt(r.cout)}</td>` : ''}
+      ${td('<strong>'+escHtml(r.code)+'</strong>'+libelle(r))}
+      ${td(r.nature==='intervention' ? 'Intervention' : 'Code du centre','left','color:var(--gray-5)')}
+      ${td(fmtHeures(r.heures)+' h','right')}
+      ${avecCout ? td(fmt(r.cout),'right') : ''}
     </tr>`).join('');
-  return `<div id="heures-repartition" style="margin-bottom:14px;overflow-x:auto">
+  return `<div id="heures-repartition" style="margin-bottom:14px;overflow-x:auto;text-align:left">
       <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Répartition par code (client / intervention)</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--gray-1)">${th('Code')}${th('Type')}${th('Heures','right')}${avecCout ? th("Coût main-d'œuvre",'right') : ''}</tr></thead><tbody>${lignes}</tbody></table>
     </div>`;
@@ -3047,7 +3054,10 @@ async function sincronizarChantierPointages(chantierId, nom, statut, codeExistan
 
 function avisarSincronizacaoPointages(resultado){
   if(resultado.ok){
-    showToast('✓ Synchronisé avec les pointages — code '+resultado.code);
+    if(resultado.lie) showToast("✓ Lié à l'employé déjà présent dans les pointages : « "+resultado.nom+" »");
+    else showToast('✓ Synchronisé avec les pointages'+(resultado.code ? ' — code '+resultado.code : ''));
+  } else if(resultado.motif==='ambigu'){
+    showToast("⚠ Employé enregistré, mais plusieurs employés des pointages portent ce nom ("+resultado.detail+") : rien n'a été créé. Modifiez la fiche et choisissez le bon dans « Système de pointages ».", 'error');
   } else if(resultado.motif==='erreur_pointages' || resultado.motif==='exception'){
     showToast("⚠ Chantier enregistré, mais la synchronisation avec les pointages a échoué : "+(resultado.detail||'raison inconnue')+" — vous pouvez lier le code manuellement dans l'onglet Informations.", 'error');
   }
@@ -8342,10 +8352,29 @@ async function openEmployeModal(r=null){
 // Rend un employé actif disponible automatiquement dans le système de
 // pointages (comme dans Odoo) — l'employé doit d'abord être créé dans l'ERP,
 // et devient ensuite utilisable pour le pointage sans double saisie.
+// Clé de comparaison de deux noms : mots en minuscules, sans accents, dans l'ordre alphabétique.
+// « Jordan Deleuze », « DELEUZE Jordan » et « deleuze  jordan » donnent la même clé.
+function cleNomEmploye(t){
+  return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/\s+/).filter(Boolean).sort().join(' ');
+}
+
 async function sincronizarEmployePointages(employeId, nomCompleto, actif, pointageIdExistant){
   if(!actif) return {ok:false, motif:'inactif'};
   if(pointageIdExistant) return {ok:false, motif:'deja_lie'};
   try{
+    // La personne existe peut-être déjà dans le système de pointages, écrite autrement (« DELEUZE Jordan » / « Jordan Deleuze ») :
+    // on la relie au lieu de créer un doublon, qui scinderait ses heures en deux.
+    const cle = cleNomEmploye(nomCompleto);
+    if(cle){
+      const {data:existants} = await sbPT.from('employes').select('id,nom');
+      const memes = (existants||[]).filter(e=>cleNomEmploye(e.nom)===cle);
+      if(memes.length>1) return {ok:false, motif:'ambigu', detail:memes.map(e=>e.nom).join(' / ')};
+      if(memes.length===1){
+        const {error:lienErr} = await sb.from('employes_rh').update({pointage_employe_id:memes[0].id, pointage_employe_nom:memes[0].nom}).eq('id',employeId);
+        if(lienErr) return {ok:false, motif:'erreur_pointages', detail:lienErr.message};
+        return {ok:true, lie:true, nom:memes[0].nom};
+      }
+    }
     const {data:novoEmp, error:ptErr} = await sbPT.from('employes').insert({nom:nomCompleto}).select().single();
     if(ptErr) return {ok:false, motif:'erreur_pointages', detail:ptErr.message};
     await sb.from('employes_rh').update({pointage_employe_id:novoEmp.id, pointage_employe_nom:nomCompleto}).eq('id',employeId);
