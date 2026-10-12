@@ -7638,6 +7638,7 @@ const migrationEmployeAbsente = msg => /schema cache|does not exist|could not fi
 // Anciens champs libres « RIB / IBAN » et « Carte d'impôt » : repris tant que les nouveaux champs sont vides
 const empIban = e => (e && (e.iban || e.rib)) || '';
 const empImpotRef = e => (e && (e.carte_impot_reference || e.carte_impot)) || '';
+const fmtTauxImpot = n => (n===null||n===undefined||n==='') ? '' : String(+n).replace('.',',')+' %';
 const dateExpiree = d => !!(d && String(d).slice(0,10) < new Date().toISOString().slice(0,10));
 // Date d'entrée + N mois − 1 jour (fin prévue de la période d'essai), au format AAAA-MM-JJ
 function finPeriodeEssaiISO(iso, mois){
@@ -7774,19 +7775,19 @@ async function openEmployeModal(r=null){
         ${champ('Matricule CNS','emp-cns',r?.matricule_cns)}
       </div>`)}
 
-      ${empSection("Carte d'identité et permis de conduire", 'id', `<div class="form-grid">
-        ${champ("N° de carte d'identité",'emp-ci-num',r?.numero_carte_identite)}
-        ${champDate("Validité de la carte d'identité",'emp-ci-date',r?.date_validite_carte_identite||'')}
-        ${champ('N° de permis de conduire','emp-permis-num',r?.numero_permis_conduire)}
-        ${champDate('Validité du permis','emp-permis-date',r?.date_validite_permis||'')}
-      </div>`)}
-
       ${empSection('Coordonnées', 'address-book', `<div class="form-grid">
         <div class="form-group full"><label class="field-label" for="emp-adresse">Adresse</label><input id="emp-adresse" value="${escHtml(r?.adresse)}"/></div>
         ${champ('Code postal','emp-cp',r?.code_postal)}
         ${champ('Ville','emp-ville',r?.ville)}
         <div class="form-group"><label class="field-label" for="emp-email">Email</label><input type="email" id="emp-email" value="${escHtml(r?.email)}"/></div>
         ${champ('Téléphone','emp-tel',r?.telephone)}
+      </div>`)}
+
+      ${empSection("Carte d'identité et permis de conduire", 'id', `<div class="form-grid">
+        ${champ("N° de carte d'identité",'emp-ci-num',r?.numero_carte_identite)}
+        ${champDate("Validité de la carte d'identité",'emp-ci-date',r?.date_validite_carte_identite||'')}
+        ${champ('N° de permis de conduire','emp-permis-num',r?.numero_permis_conduire)}
+        ${champDate('Validité du permis','emp-permis-date',r?.date_validite_permis||'')}
       </div>`)}
 
       ${empSection("Contact d'urgence", 'phone-call', `<div class="form-grid">
@@ -7824,9 +7825,13 @@ async function openEmployeModal(r=null){
         ${champ('Référence','emp-impot-ref',empImpotRef(r))}
         <div class="form-group"><label class="field-label" for="emp-impot-classe">Classe d'impôt</label>
           <select id="emp-impot-classe">
-            <option value="">— Sélectionner —</option>
+            <option value="">— Sans classe —</option>
             ${optionsListe(CLASSES_IMPOT, r?.carte_impot_classe||'', c=>'Classe '+c)}
           </select>
+        </div>
+        <div class="form-group"><label class="field-label" for="emp-impot-taux">Taux de retenue (%)</label>
+          <input type="number" id="emp-impot-taux" min="0" max="100" step="0.01" inputmode="decimal" placeholder="Ex: 0 ou 15" value="${escHtml(r?.carte_impot_taux??'')}"/>
+          <span style="font-size:12px;color:var(--gray-5)">Classe 2 à 0 % ou 15 %, ou sans classe avec le taux spécifique de la carte.</span>
         </div>
       </div>`)}
 
@@ -7908,6 +7913,9 @@ async function saveEmploye(id){
   const iban = el('emp-iban').value.replace(/\s+/g,' ').trim().toUpperCase();
   const bic = el('emp-bic').value.replace(/\s+/g,'').toUpperCase();
   const impotRef = el('emp-impot-ref').value.trim(), impotClasse = el('emp-impot-classe').value;
+  const tauxBrut = el('emp-impot-taux').value.trim();
+  const impotTaux = tauxBrut==='' ? null : parseFloat(tauxBrut);
+  if(impotTaux!==null && (isNaN(impotTaux) || impotTaux<0 || impotTaux>100)){ showToast("Taux de retenue : indiquez un nombre entre 0 et 100", 'error'); reactiver(); return; }
   const vehiculeType = el('emp-vehicule-type').value||null;
   const sinon = v => (v===''||v===undefined) ? null : v;
 
@@ -7922,7 +7930,7 @@ async function saveEmploye(id){
     matricule_cns: el('emp-cns').value,
     numero_permis_conduire: el('emp-permis-num').value, date_validite_permis: el('emp-permis-date').value||null,
     type_contrat: el('emp-contrat').value, date_embauche: dateEntree,
-    rib: iban, carte_impot: [impotRef, impotClasse?('classe '+impotClasse):''].filter(Boolean).join(' — '),
+    rib: iban, carte_impot: [impotRef, impotClasse?('classe '+impotClasse):'', impotTaux!==null?('taux '+fmtTauxImpot(impotTaux)):''].filter(Boolean).join(' — '),
     visite_medicale_valable_jusquau: el('emp-visite-medicale').value||null,
     taille_haut: el('emp-taille-haut').value, taille_bas: el('emp-taille-bas').value, pointure: el('emp-pointure').value,
     pointage_employe_id: pointageId, pointage_employe_nom: pointageNom,
@@ -7946,12 +7954,17 @@ async function saveEmploye(id){
   const ecrire = payload => id
     ? sb.from('employes_rh').update(payload).eq('id',id).select().single()
     : sb.from('employes_rh').insert(payload).select().single();
-  let {data:savedRow, error} = await ecrire({...dataBase, ...dataNouveaux});
-  let nouveauxChampsNonEnregistres = false;
+  // Le taux de retenue est la dernière colonne ajoutée : si seule celle-ci manque, on garde tout le reste
+  let {data:savedRow, error} = await ecrire({...dataBase, ...dataNouveaux, carte_impot_taux: impotTaux});
+  let nouveauxChampsNonEnregistres = false, tauxNonEnregistre = false;
+  if(error && migrationEmployeAbsente(error.message)){
+    ({data:savedRow, error} = await ecrire({...dataBase, ...dataNouveaux}));
+    tauxNonEnregistre = !error && impotTaux!==null;
+  }
   if(error && migrationEmployeAbsente(error.message)){
     // SQL pas encore exécuté : on enregistre quand même tout ce que la base connaît déjà
     ({data:savedRow, error} = await ecrire(dataBase));
-    nouveauxChampsNonEnregistres = !error;
+    nouveauxChampsNonEnregistres = !error; tauxNonEnregistre = false;
   }
   if(error){ showToast('Erreur: '+error.message, 'error'); reactiver(); return; }
   const employeId = savedRow?.id||id;
@@ -7981,6 +7994,7 @@ async function saveEmploye(id){
 
   showToast(id?'Employé mis à jour':'Employé créé');
   if(nouveauxChampsNonEnregistres) showToast("⚠ Les nouveaux champs (carte d'identité, IBAN/BIC, véhicule…) ne sont pas enregistrés : exécutez d'abord « migration-employes-fiche-complete.sql » dans Supabase.", 'error');
+  if(tauxNonEnregistre) showToast("⚠ Le taux de retenue n'est pas enregistré : exécutez à nouveau « migration-employes-fiche-complete.sql » dans Supabase.", 'error');
   if(avertissementRem) showToast('⚠ '+avertissementRem, 'error');
   closeModal();
   renderEmployesRH();
@@ -8120,7 +8134,8 @@ async function openEmployeDetail(employeId){
       )}
       ${profileSection("Carte d'impôt",
         profileRow('Référence', empImpotRef(emp), 'carte_impot') +
-        profileRow("Classe d'impôt", emp.carte_impot_classe ? 'Classe '+emp.carte_impot_classe : '')
+        profileRow("Classe d'impôt", emp.carte_impot_classe ? 'Classe '+emp.carte_impot_classe : (emp.carte_impot_taux!=null ? 'Sans classe' : '')) +
+        profileRow('Taux de retenue', fmtTauxImpot(emp.carte_impot_taux))
       )}
       ${profileSection('Santé et sécurité',
         profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau), 'visite_medicale', expiree(emp.visite_medicale_valable_jusquau)) +
