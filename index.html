@@ -1017,6 +1017,265 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  //  DEVIS — reproduit le modèle Excel Lyneo en 3 pages :
+  //   1) page de garde (en-tête, cadres « PROJET », lettre d'introduction, filigrane)
+  //   2) détail des prestations & fournitures (+ totaux et remarque « Attention »)
+  //   3) modalités + approbation et signatures
+  //  Chaque page se termine par le bandeau bleu avec les mentions légales de LYNEO SARL.
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  const BANDEAU_LEGAL = [
+    "LYNEO SARL   Adresse : 5 ZA Gadderscheier L-4570 Niederkorn   TVA : LU37560222   Matricule : 2026 2434 444",
+    "RC : B308515   Autorisation d'établissement : 10195671/1   Mail : facturation@lyneo.lu   Tél. : +352 26 94 59 52"
+  ];
+  const DM = {   // couleurs du modèle (relevées sur le fichier Excel de référence)
+    marine:[0x07/255,0x33/255,0x66/255], titre:[0x1F/255,0x38/255,0x64/255], cadre:[0x4F/255,0x81/255,0xBD/255],
+    gris:[0xF2/255,0xF2/255,0xF2/255], entete:[0x25/255,0x40/255,0x61/255], total:[0x00/255,0x56/255,0xB3/255],
+    ttc:[0xC6/255,0xD9/255,0xF1/255], bandeau:[0x37/255,0x6C/255,0xB0/255], pastille:[0x3D/255,0x74/255,0xBC/255],
+    texte:[0.07,0.07,0.07], gris_txt:[0.26,0.26,0.26], blanc:[1,1,1]
+  };
+
+  class DevisModele {
+    constructor(PDFLib, pdfDoc, fonts, logoImg, cfg){
+      this.L = PDFLib; this.pdf = pdfDoc; this.f = fonts; this.logo = logoImg; this.cfg = cfg;
+      this.W = 595.28; this.H = 841.89;
+      this.bas = 722;            // limite basse du contenu (le bandeau commence à 738)
+      this._ok = {};
+    }
+    c(a){ return this.L.rgb(a[0],a[1],a[2]); }
+    Y(top){ return this.H - top; }                       // coordonnée « depuis le haut » → PDF
+    // Texte compatible avec les polices PDF standard (WinAnsi) : remplace ce qu'elles ne savent pas écrire
+    ansi(s){
+      s = String(s==null?'':s).replace(/[     ]/g,' ').replace(/→/g,'->').replace(/≥/g,'>=').replace(/≤/g,'<=')
+           .replace(/[✓✔]/g,'v').replace(/[•●]/g,'-').replace(/\r/g,'');
+      let out = '';
+      for(const ch of s){
+        if(this._ok[ch]===undefined){ try{ this.f.regular.encodeText(ch); this._ok[ch]=true; }catch(e){ this._ok[ch]=false; } }
+        out += this._ok[ch] ? ch : '?';
+      }
+      return out;
+    }
+    w(txt,size,bold){ return (bold?this.f.bold:this.f.regular).widthOfTextAtSize(this.ansi(txt),size); }
+    // Écrit un texte avec la ligne de base à `top` (depuis le haut de la page). align : 'l' | 'c' | 'r' autour de x
+    t(txt,x,top,size,o){
+      o = o||{}; txt = this.ansi(txt);
+      const font = o.font || (o.bold ? this.f.bold : this.f.regular);
+      const wd = font.widthOfTextAtSize(txt,size);
+      const px = o.align==='r' ? x-wd : o.align==='c' ? x-wd/2 : x;
+      this.page.drawText(txt,{x:px,y:this.Y(top),size,font,color:this.c(o.color||DM.texte)});
+      if(o.underline) this.page.drawLine({start:{x:px,y:this.Y(top)-1.6},end:{x:px+wd,y:this.Y(top)-1.6},thickness:0.7,color:this.c(o.color||DM.texte)});
+      return wd;
+    }
+    wrap(txt,size,maxW,bold){
+      const out = []; const font = bold?this.f.bold:this.f.regular;
+      String(txt==null?'':txt).split('\n').forEach(par=>{
+        let cur = '';
+        this.ansi(par).split(/\s+/).filter(Boolean).forEach(word=>{
+          const test = cur ? cur+' '+word : word;
+          if(cur && font.widthOfTextAtSize(test,size) > maxW){ out.push(cur); cur = word; } else cur = test;
+        });
+        out.push(cur);
+      });
+      return out;
+    }
+    rect(x,top,w,h,col){ this.page.drawRectangle({x,y:this.Y(top+h),width:w,height:h,color:this.c(col)}); }
+    // Rectangle aux coins arrondis en diagonale (haut-gauche et bas-droite), comme les cadres du modèle
+    cadreDiag(x,top,w,h,r,col,opacity){
+      const k = 0.5523*r;
+      const path = `M ${r},0 L ${w},0 L ${w},${h-r} C ${w},${h-r+k} ${w-r+k},${h} ${w-r},${h} L 0,${h} L 0,${r} C 0,${r-k} ${r-k},0 ${r},0 Z`;
+      this.page.drawSvgPath(path,{x,y:this.Y(top),color:this.c(col),opacity:opacity==null?1:opacity});
+    }
+    nouvellePage(){ this.page = this.pdf.addPage([this.W,this.H]); return this.page; }
+
+    ligneDegradee(top){
+      const x0 = 24, x1 = 572, n = 48, a = [0x00/255,0x22/255,0x62/255], b = [0x00/255,0xB0/255,0xF0/255];
+      const seg = (x1-x0)/n;
+      for(let i=0;i<n;i++){
+        const t = i/(n-1), col = [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+        this.page.drawRectangle({x:x0+i*seg,y:this.Y(top)-1,width:seg+0.4,height:2,color:this.c(col)});
+      }
+    }
+    logoEntete(){
+      const lw = 96, lh = this.logo.height*(lw/this.logo.width);
+      this.page.drawImage(this.logo,{x:37,y:this.Y(34)-lh,width:lw,height:lh});
+    }
+    bandeauLegal(){
+      this.cadreDiag(24,738,548,51,14,DM.bandeau);
+      BANDEAU_LEGAL.forEach((txt,i)=>{
+        let size = 8.6; while(size>6 && this.w(txt,size) > 520) size -= 0.2;
+        this.t(txt,298,758+i*13,size,{align:'c',color:DM.blanc});
+      });
+    }
+    // ── Page 1 : page de garde ──
+    pageGarde(){
+      const cfg = this.cfg, p = this.nouvellePage();
+      // Filigrane (très pâle) derrière le contenu
+      const ww = 285, wh = this.logo.height*(ww/this.logo.width);
+      p.drawImage(this.logo,{x:329-ww/2,y:this.Y(445)-wh/2,width:ww,height:wh,opacity:0.07});
+      this.logoEntete();
+      this.t('DEVIS',511.5,40,17,{bold:true,align:'r',color:DM.marine});
+      this.t('N°',439,56,10.5); this.t(cfg.numero,511.5,56,9.5,{align:'r',color:DM.gris_txt});
+      this.t('le,',439,70,10.5); this.t(cfg.date,511.5,70,9.5,{align:'r',color:DM.gris_txt});
+      this.ligneDegradee(87.5);
+
+      const boite = (x,w,titre,lignes)=>{
+        this.cadreDiag(x,117,w,29,12,DM.cadre);
+        this.rect(x,146,w,129,DM.gris);
+        this.t(titre,x+w/2,135,10,{bold:true,align:'c',color:DM.blanc});
+        const dec = Math.max(...lignes.map(l=>this.w(l[0],10.5))) + 14;
+        lignes.forEach((l,i)=>{
+          const top = 163 + i*21.7;
+          this.t(l[0],x+1.5,top,10.5);
+          const val = this.wrap(l[1]||'—',10.5,w-dec-6,true)[0];
+          this.t(val,x+dec,top,10.5,{bold:true});
+        });
+      };
+      boite(24.5,236,'PROJET',[['Affaire:',cfg.affaire],['N° de devis:',cfg.numero],['Objet:',cfg.objet],['Correspondant:',cfg.correspondant]]);
+      boite(334.5,238,'CLIENT',[['Nom:',cfg.client.nom],['Adresse:',cfg.client.adresse],['Code Postal:',cfg.client.cp_ville]]);
+
+      let y = 348;
+      ['Madame, Messieurs,','','Pour faire suite à votre demande, veuillez trouver ci-dessous notre proposition :','',
+       ...this.wrap("Notre étude a été établie conformément aux pièces marché, complétées par les informations que vous nous avez fournies lors de notre dernière réunion.",10,438)]
+        .forEach(l=>{ if(l) this.t(l,60,y,10); y += 13.5; });
+      if(cfg.correspondant && cfg.correspondant!=='—') this.t(cfg.correspondant,111,472,10);
+      this.bandeauLegal();
+    }
+    // ── Pages « détail » ──
+    enteteSuite(){
+      const p = this.nouvellePage(); this.logoEntete();
+      this.cadreDiag(286,41,284,29,10,DM.pastille);
+      let size = 11; while(size>7.5 && this.w(this.cfg.pastille,size) > 262) size -= 0.25;
+      this.t(this.cfg.pastille,296,58.5,size,{color:DM.blanc});
+      this.ligneDegradee(87.5);
+      this.bandeauLegal();
+    }
+    enteteTableau(top){
+      this.rect(30,top,540,24,DM.entete);
+      const b = 10.5, base = top+16, bl = DM.blanc;
+      this.t('N°',44.5,base,b,{bold:true,align:'c',color:bl}); this.t('Désignation',215.5,base,b,{bold:true,align:'c',color:bl});
+      this.t('Uté',386,base,b,{bold:true,align:'c',color:bl}); this.t('Qté',419.5,base,b,{bold:true,align:'c',color:bl});
+      this.t('PV',461,top+10,9.5,{bold:true,align:'c',color:bl}); this.t('Unitaire',461,top+21,9.5,{bold:true,align:'c',color:bl});
+      this.t('Prix Total',528,base,b,{bold:true,align:'c',color:bl});
+      return top+24;
+    }
+    // Dessine un tableau de lignes (sections grisées + lignes de détail) ; renvoie la position y suivante
+    tableau(rows,y){
+      const fmtQte = q => { const n = parseFloat(q); if(isNaN(n)) return ''; return Number.isInteger(n) ? String(n) : n.toLocaleString('fr-FR',{maximumFractionDigits:3}); };
+      for(const r of rows){
+        const isSec = r.type==='section';
+        const lines = this.wrap(r.desc, isSec?9:8, isSec?300:308, isSec);
+        const h = isSec ? Math.max(24, lines.length*12+12) : Math.max(22, lines.length*9.4+13);
+        if(y + h > this.bas){ this.enteteSuite(); y = this.enteteTableau(125); }
+        if(isSec){
+          this.rect(30,y,540,h,DM.gris);
+          lines.forEach((l,i)=> this.t(l,215.5,y+(h-lines.length*12)/2+9+i*12,9,{bold:true,align:'c',underline:true}));
+          if(r.num) this.t(r.num,32,y+h/2+3,8);
+          if(r.subtotal) this.t(r.subtotal,566.5,y+h/2+3.5,10,{bold:true,align:'r'});
+        } else {
+          const mid = y + h/2;
+          lines.forEach((l,i)=> this.t(l,60,mid-(lines.length-1)*4.7+i*9.4+3,8));
+          if(r.num) this.t(r.num,32,mid+3,8);
+          this.t(r.unite||'',386,mid+3,8,{align:'c'});
+          this.t(fmtQte(r.qte),419.5,mid+3,8,{align:'c'});
+          this.t(r.pu,483.5,mid+3,8,{align:'r'});
+          this.t(r.total,566.5,mid+3,8,{align:'r'});
+        }
+        y += h;
+      }
+      return y;
+    }
+    totaux(y,t){
+      if(y + 70 > this.bas){ this.enteteSuite(); y = 125; }
+      this.rect(59,y,511,14.5,DM.total);
+      this.t(t.libelleTotal,61,y+11,11.5,{bold:true,color:DM.blanc}); this.t(t.total,566.5,y+11,11,{bold:true,align:'r',color:DM.blanc});
+      y += 14.5;
+      if(t.tva!=null){
+        this.rect(486,y,84,14.5,DM.gris);
+        this.t(t.libelleTva,61,y+11,10.5); this.t(t.tva,566.5,y+10.5,9.5,{align:'r'});
+        y += 14.5;
+        this.rect(486,y,84,14.5,DM.ttc);
+        this.t('Total TTC',61,y+11.5,11); this.t(t.ttc,566.5,y+11,10.5,{bold:true,align:'r'});
+        y += 14.5;
+      }
+      return y;
+    }
+    pageDetail(){
+      const cfg = this.cfg;
+      this.enteteSuite();
+      this.t('DETAIL DES PRESTATIONS & FOURNITURES',32,116,10.5,{bold:true,color:DM.titre});
+      let y = this.enteteTableau(125);
+      y = this.tableau(cfg.lignes,y);
+      y = this.totaux(y,cfg.totaux);
+
+      if(cfg.options && cfg.options.length){
+        if(y + 80 > this.bas){ this.enteteSuite(); y = 125; } else y += 22;
+        this.t('OPTIONS (NON COMPRISES DANS LE PRIX CI-DESSUS)',32,y,10.5,{bold:true,color:DM.titre}); y += 9;
+        y = this.enteteTableau(y);
+        y = this.tableau(cfg.options,y);
+        y = this.totaux(y,cfg.totauxOptions);
+      }
+      // Remarques sous le tableau
+      y += 22;
+      const blocs = [];
+      if(cfg.attention) blocs.push({gras:'Attention : ', txt:cfg.attention});
+      if(cfg.observations) blocs.push({gras:'Observations : ', txt:cfg.observations, normal:true});
+      blocs.forEach(b=>{
+        const lignes = this.wrap(b.gras+b.txt,8,b.normal?500:335);
+        if(y + lignes.length*10.5 > this.bas){ this.enteteSuite(); y = 125; }
+        lignes.forEach((l,i)=>{
+          if(i===0 && l.startsWith(b.gras.trim())){
+            const g = b.gras.trim();
+            const wg = this.t(g,32,y,8,{font:b.normal?this.f.bold:this.f.boldItalic});
+            this.t(l.slice(g.length),32+wg,y,8,{font:b.normal?this.f.regular:this.f.italic});
+          } else this.t(l,32,y,8,{font:b.normal?this.f.regular:this.f.italic});
+          y += 10.5;
+        });
+        y += 6;
+      });
+    }
+    // ── Page 3 : modalités, approbation et signatures ──
+    pageModalites(){
+      const cfg = this.cfg, m = cfg.modalites;
+      this.enteteSuite();
+      let y = 114;
+      const section = (titre,paras,taille,ecart)=>{
+        this.t(titre,32,y,9.5,{bold:true,underline:true}); y += 27;
+        paras.forEach(par=>{
+          this.wrap('> '+par,taille,540).forEach(l=>{ this.t(l,33,y,taille); y += taille*1.62; });
+          y += 10;
+        });
+        y += ecart;
+      };
+      section('1. Modalités de Facturation et Paiement',m.facturation,9,6);
+      section('2. Cadre Légal et Indexation Économique',m.cadreLegal,9,8);
+      section('3. Approbation et Signatures',m.approbation,10,4);
+
+      const top = Math.max(y+24,512);
+      this.t("Le Chargé d'affaire",31,top,9.5);
+      if(cfg.correspondant && cfg.correspondant!=='—') this.t(cfg.correspondant,31,top+29,9.5,{bold:true,underline:true});
+      this.t('Le client',275,top,9.5);
+      this.t('Date de signature : ____ / ____ / ____',275,top+37,9.5);
+      this.wrap('Signature du client (Mention obligatoire : "Lu et approuvé, bon pour accord")',9.5,245).forEach((l,i)=> this.t(l,275,top+61+i*13,9.5));
+      const ligne = Math.min(Math.max(top+190,704),725);
+      this.page.drawLine({start:{x:31,y:this.Y(ligne)},end:{x:245,y:this.Y(ligne)},thickness:0.9,color:this.c(DM.texte)});
+      this.page.drawLine({start:{x:275,y:this.Y(ligne)},end:{x:494,y:this.Y(ligne)},thickness:0.9,color:this.c(DM.texte)});
+    }
+  }
+
+  async function generateDevis(PDFLib, logoBase64, cfg){
+    const pdfDoc = await PDFLib.PDFDocument.create();
+    const fonts = {
+      regular: await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica),
+      bold: await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold),
+      italic: await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaOblique),
+      boldItalic: await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBoldOblique)
+    };
+    const logoImg = await pdfDoc.embedPng(base64ToUint8Array(logoBase64));
+    const doc = new DevisModele(PDFLib, pdfDoc, fonts, logoImg, cfg);
+    doc.pageGarde(); doc.pageDetail(); doc.pageModalites();
+    return await pdfDoc.save();
+  }
+
   async function generate(PDFLib, logoBase64, config){
     const pdfDoc = await PDFLib.PDFDocument.create();
     const fonts = {
@@ -1055,7 +1314,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     return await pdfDoc.save();
   }
 
-  return { generate };
+  return { generate, generateDevis };
 });
 
 document.addEventListener('DOMContentLoaded', function(){ var img = document.getElementById('login-logo-img'); if(img) img.src = 'data:image/png;base64,' + LYNEO_LOGO_B64; });
@@ -2823,10 +3082,60 @@ LYNEO`);
   }, 400);
 }
 
-const MODALITES_DEVIS = {
-  facturation: "Acompte de 40% du montant global exigible immédiatement à la commande (préalable au démarrage). Facturation par situations de travaux mensuelles selon l'avancement constaté. Solde : règlement final dès la mise en service effective des installations. Délai de paiement : 30 jours nets à réception de facture.",
-  cadreLegal: "Réserve de propriété : le vendeur conserve la pleine propriété des biens livrés jusqu'au paiement intégral du prix (principal et accessoires). Le défaut de paiement peut entraîner la revendication immédiate des biens. Révision des prix : tarifs révisables selon l'évolution de l'indice STATEC à la date de facturation. Validité : cette offre est valable 1 mois à compter de sa date d'émission."
-};
+// ── MODÈLE DE DEVIS LYNEO (PDF et Excel) ─────────────────────────────────────────────────
+// Textes fixes du modèle Excel de Lyneo ; seuls le délai de paiement, l'acompte et la validité viennent de la fiche du devis.
+const DEVIS_ATTENTION = "les prix peuvent varier en fonction de la consommation de carburant et du cours du carburant lors du transport.";
+
+function devisDelaiPaiementTexte(cond){
+  const c = String(cond||'30 jours').trim();
+  const m = c.match(/^(\d+)\s*jours?$/i);
+  if(m) return `Délai de paiement : ${m[1]} jours nets à réception de facture.`;
+  if(/^imm[ée]diat/i.test(c)) return 'Paiement : immédiat à réception de facture.';
+  return `Délai de paiement : ${c} à réception de facture.`;
+}
+function devisValiditeTexte(jours){
+  const j = parseInt(jours)||30;
+  return (j%30===0 && j<=360) ? (j/30)+' mois' : j+' jours';
+}
+function devisTextesModele(d){
+  const acompte = parseFloat(d.conditions_acompte_pct)||0;
+  return {
+    facturation: [
+      ...(acompte>0 ? [`Acompte : ${String(acompte).replace('.',',')} % du montant total exigible à la commande (préalable au démarrage des travaux).`] : []),
+      devisDelaiPaiementTexte(d.conditions_paiement)
+    ],
+    cadreLegal: [
+      "Réserve de propriété : Le vendeur conserve la pleine propriété des biens livrés jusqu'au paiement intégral du prix (principal et accessoires). Le défaut de paiement peut entraîner la revendication immédiate des biens.",
+      "Révision des prix : Tarifs basés sur les conditions économiques en vigueur à la date d’émission de la présente offre, révisables selon l'évolution de l'indice STATEC à la date de facturation.",
+      `Validité : Cette offre est valable ${devisValiditeTexte(d.validite_jours)} à compter de sa date d'émission.`
+    ],
+    approbation: [
+      "Le présent document vaut engagement ferme et définitif sur les bases techniques et financières susmentionnées.",
+      "Pour validation, cette offre est à retourner signée à l'adresse facturation@lyneo.lu."
+    ],
+    attention: DEVIS_ATTENTION
+  };
+}
+// Numérotation du modèle : sections 1, 2, 3… et lignes 1.1, 1.2… (2.1…). Sans section : 1, 2, 3…
+// Un titre sans aucune ligne chiffrée dessous (simple intertitre) n'affiche pas de sous-total.
+function devisLignesNumerotees(arr, prefixe){
+  const pre = prefixe||''; let s = 0, k = 0, seq = 0;
+  return (arr||[]).map((r,idx)=>{
+    if(r.type==='section'){
+      s++; k = 0;
+      const suivantes = []; for(let i=idx+1;i<arr.length && arr[i].type!=='section';i++) suivantes.push(arr[i]);
+      return {type:'section', num:pre+s, desc:r.description||'', subtotal: suivantes.length ? devisSectionSubtotal(arr, idx) : null};
+    }
+    const q = parseFloat(r.quantite)||0, pu = parseFloat(r.prix_unitaire_ht)||0;
+    const num = s>0 ? pre+s+'.'+(++k) : pre+(++seq);
+    return {type:'ligne', num, desc:r.description||'', unite:r.unite||'', qte:r.quantite, pu, total:q*pu};
+  });
+}
+// Libellé de TVA du total : « TVA 17% » si toutes les lignes ont le même taux, sinon « TVA »
+function devisLibelleTva(arr){
+  const taux = [...new Set((arr||[]).filter(r=>r.type==='ligne').map(r=>parseFloat(r.taux_tva)).filter(t=>!isNaN(t)))];
+  return taux.length===1 ? 'TVA '+String(taux[0]).replace('.',',')+'%' : 'TVA';
+}
 
 async function downloadExcel_Devis(devisId){
   if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
@@ -2838,7 +3147,8 @@ async function downloadExcel_Devis(devisId){
 
   const lignesPrincipal = (lignesData||[]).filter(l=>l.bloc==='principal');
   const lignesOption = (lignesData||[]).filter(l=>l.bloc==='option');
-  const dateStr = d.date_devis ? new Date(d.date_devis).toLocaleDateString('fr-FR') : '';
+  const dateStr = fmtDate(d.date_devis || today());
+  const txt = devisTextesModele(d);
 
   const wb = XLSX.utils.book_new();
 
@@ -2847,81 +3157,69 @@ async function downloadExcel_Devis(devisId){
     [null,null,null,null,null,null,null,null,'DEVIS'],
     [null,null,null,null,null,null,null,'N°',d.numero],
     [null,null,null,null,null,null,null,'le,',dateStr],
-    [null,'Affaire:',d.chantiers_lyneo?.nom||'',null,null,null,null,'Nom:',client.nom||''],
+    [],[],[],[],
+    [null,'PROJET',null,null,null,null,null,'CLIENT'],
+    [null,'Affaire:',d.affaire||'',null,null,null,null,'Nom:',client.nom||''],
     [null,'N° de devis:',d.numero,null,null,null,null,'Adresse:',client.adresse||''],
     [null,'Objet:',d.objet||'',null,null,null,null,'Code Postal:',((client.code_postal||'')+' '+(client.ville||'')).trim()],
-    [null,'Correspondant:',d.correspondant||'',null,null,null,null,'Téléphone:',client.telephone||''],
-    [null,null,null,null,null,null,null,'Email:',client.email||''],
+    [null,'Correspondant:',d.correspondant||''],
+    [],[],
+    [null,'Madame, Messieurs,'],
+    [],
+    [null,'Pour faire suite à votre demande, veuillez trouver ci-dessous notre proposition :'],
+    [],
+    [null,'Notre étude a été établie conformément aux pièces marché, complétées par les informations que vous nous avez fournies lors de notre dernière réunion.'],
+    [],[],
     [null,null,d.correspondant||''],
   ]);
-  wsInit['!cols'] = [{wch:3},{wch:16},{wch:22},{wch:3},{wch:3},{wch:3},{wch:3},{wch:14},{wch:28}];
+  wsInit['!cols'] = [{wch:3},{wch:16},{wch:26},{wch:3},{wch:3},{wch:3},{wch:3},{wch:14},{wch:30}];
   XLSX.utils.book_append_sheet(wb, wsInit, 'Page initial');
 
   // ── Onglet 2 : DEVIS (détail des lignes) ──
   const rowsDevis = [
-    ['DETAIL DES PRESTATIONS & FOURNITURES'],
+    [null,'DETAIL DES PRESTATIONS & FOURNITURES'],
+    [],
     [null,'N°','Désignation','Uté','Qté','PV Unitaire','Prix Total']
   ];
-  let secNum = 0;
-  const toRowsExcel = (arr)=>{
-    arr.forEach((r,idx)=>{
-      if(r.type==='section'){
-        secNum++;
-        const subtotal = devisSectionSubtotal(arr, idx);
-        rowsDevis.push([null, String(secNum), r.description, null, null, null, subtotal]);
-      } else {
-        const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
-        rowsDevis.push([null, secNum+'.'+((rowsDevis.length)), r.description, r.unite, parseFloat(r.quantite)||0, parseFloat(r.prix_unitaire_ht)||0, total]);
-      }
+  const ajouterBloc = (arr, prefixe)=>{
+    devisLignesNumerotees(arr, prefixe).forEach(r=>{
+      if(r.type==='section') rowsDevis.push([null, r.num, r.desc, null, null, null, r.subtotal]);
+      else rowsDevis.push([null, r.num, r.desc, r.unite, parseFloat(r.qte)||0, r.pu, r.total]);
     });
   };
-  toRowsExcel(lignesPrincipal);
+  ajouterBloc(lignesPrincipal,'');
   rowsDevis.push([null,null,'Prix de vente total',null,null,null,d.montant_ht]);
-  rowsDevis.push([null,null,'TVA 17%',null,null,null,d.montant_tva]);
+  rowsDevis.push([null,null,devisLibelleTva(lignesPrincipal),null,null,null,d.montant_tva]);
   rowsDevis.push([null,null,'Total TTC',null,null,null,d.montant_ttc]);
   if(lignesOption.length>0){
     rowsDevis.push([]);
-    rowsDevis.push(['OPTIONS (NON COMPRISES DANS LE PRIX CI-DESSUS)']);
+    rowsDevis.push([null,'OPTIONS (NON COMPRISES DANS LE PRIX CI-DESSUS)']);
     rowsDevis.push([null,'N°','Désignation','Uté','Qté','PV Unitaire','Prix Total']);
-    let secOpt = 0;
-    lignesOption.forEach((r,idx)=>{
-      if(r.type==='section'){
-        secOpt++;
-        rowsDevis.push([null, String(secOpt), r.description, null, null, null, devisSectionSubtotal(lignesOption, idx)]);
-      } else {
-        const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
-        rowsDevis.push([null, null, r.description, r.unite, parseFloat(r.quantite)||0, parseFloat(r.prix_unitaire_ht)||0, total]);
-      }
-    });
+    ajouterBloc(lignesOption,'O');
+    rowsDevis.push([null,null,'Total options HT',null,null,null,devisBlocTotal(lignesOption)]);
   }
+  rowsDevis.push([]);
+  rowsDevis.push([null,'Attention : '+txt.attention]);
   const wsDevis = XLSX.utils.aoa_to_sheet(rowsDevis);
-  wsDevis['!cols'] = [{wch:3},{wch:6},{wch:55},{wch:8},{wch:8},{wch:14},{wch:14}];
+  wsDevis['!cols'] = [{wch:3},{wch:6},{wch:60},{wch:8},{wch:8},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb, wsDevis, 'DEVIS');
 
-  // ── Onglet 3 : Modalités (contenu fixe) ──
-  const wsModalites = XLSX.utils.aoa_to_sheet([
-    ['1. Modalités de Facturation et Paiement'],
-    [MODALITES_DEVIS.facturation],
-    [],
-    ['2. Cadre Légal et Indexation Économique'],
-    [MODALITES_DEVIS.cadreLegal],
-    [],
-    ['3. Approbation et Signatures'],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [null,"Le Chargé d'affaire",null,null,'Le client'],
-    [null,d.correspondant||'']
-  ]);
-  wsModalites['!cols'] = [{wch:3},{wch:90}];
+  // ── Onglet 3 : Modalités ──
+  const rowsMod = [];
+  const bloc = (titre, paras)=>{ rowsMod.push([null,titre]); rowsMod.push([]); paras.forEach(p=>{ rowsMod.push([null,'> '+p]); rowsMod.push([]); }); };
+  bloc('1. Modalités de Facturation et Paiement', txt.facturation);
+  bloc('2. Cadre Légal et Indexation Économique', txt.cadreLegal);
+  bloc('3. Approbation et Signatures', txt.approbation);
+  rowsMod.push([],[],[]);
+  rowsMod.push([null,"Le Chargé d'affaire",null,'Le client']);
+  rowsMod.push([null,d.correspondant||'',null,'Date de signature : ____ / ____ / ____']);
+  rowsMod.push([null,null,null,'Signature du client (Mention obligatoire : "Lu et approuvé, bon pour accord")']);
+  const wsModalites = XLSX.utils.aoa_to_sheet(rowsMod);
+  wsModalites['!cols'] = [{wch:3},{wch:60},{wch:6},{wch:60}];
   XLSX.utils.book_append_sheet(wb, wsModalites, 'Modalités');
 
   XLSX.writeFile(wb, `${d.numero}.xlsx`);
-  showToast('Fichier Excel téléchargé — vérifiez le contenu avant envoi (mise en forme simplifiée par rapport à votre modèle habituel).');
+  showToast('Fichier Excel téléchargé — mêmes 3 onglets que votre modèle (mise en forme simplifiée : sans logo, couleurs ni bandeau).');
 }
 
 async function downloadPDF_Devis(devisId){
@@ -2933,92 +3231,31 @@ async function downloadPDF_Devis(devisId){
 
   const lignesPrincipal = (lignesData||[]).filter(l=>l.bloc==='principal');
   const lignesOption = (lignesData||[]).filter(l=>l.bloc==='option');
+  const versLignesPdf = (arr, pre)=>devisLignesNumerotees(arr, pre).map(r=> r.type==='section'
+    ? {type:'section', num:r.num, desc:r.desc, subtotal: r.subtotal==null ? '' : fmt(r.subtotal)}
+    : {type:'ligne', num:r.num, desc:r.desc, unite:r.unite, qte:r.qte, pu:fmt(r.pu), total:fmt(r.total)});
 
-  const toRows = (arr)=>arr.map(r=>{
-    if(r.type==='section'){
-      return {section:true, label:r.description, subtotal: fmt(devisSectionSubtotal(arr, arr.indexOf(r)))};
-    }
-    const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
-    return {cells:[r.description, r.unite||'', String(r.quantite), fmt(r.prix_unitaire_ht), fmt(total)]};
-  });
-
+  const affaire = (d.affaire||'').trim();   // saisie par l'utilisateur dans le devis
+  const txt = devisTextesModele(d);
   const config = {
-    docType: 'DEVIS',
-    dates: [
-      {label:'N° Devis', value: d.numero},
-      {label:'Date', value: fmtDate(d.date_devis)},
-      {label:'Validité', value: (d.validite_jours||30)+' jours'}
-    ],
-    boxes: [
-      {label:'Émetteur', lines:['LYNEO s.à.r.l','5, Z.A. Gadderscheier','L-4570 Niederkorn','TVA : LU37560222']},
-      {label:'Client', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim(), client.email||'']}
-    ],
-    refRow: [
-      {label:'Objet', value: d.objet||'—'},
-      {label:'Correspondant', value: d.correspondant||'—'},
-      {label:'Chantier', value: d.chantiers_lyneo?.nom||'— (à créer si accepté)'}
-    ],
-    sectionTitle: 'Détail des prestations & fournitures',
-    table: {
-      columns: [
-        {header:'Désignation', width:230, align:'left'},
-        {header:'Uté', width:45, align:'left'},
-        {header:'Qté', width:45, align:'right'},
-        {header:'PV Unitaire', width:90, align:'right'},
-        {header:'Prix Total', width:90, align:'right'}
-      ],
-      rows: toRows(lignesPrincipal)
-    },
-    totals: [
-      {label:'Total HT', value: fmt(d.montant_ht)},
-      {label:'TVA', value: fmt(d.montant_tva)},
-      {label:'TOTAL TTC', value: fmt(d.montant_ttc), bold:true}
-    ],
-    notesBlock: d.observations ? {title:'Observations', text: d.observations} : null,
-    paymentBlock: {
-      title:'Conditions',
-      lines: [`Acompte : ${d.conditions_acompte_pct??30}% à la commande — Conditions de paiement : ${d.conditions_paiement||'30 jours'}`]
-    },
-    footerText: `Document généré le ${new Date().toLocaleDateString('fr-FR')}`
-  };
-
-  if(lignesOption.length>0){
-    const totalOptionsHT = lignesOption.filter(l=>l.type==='ligne').reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-    config.extraSections = [{
-      sectionTitle: 'Options (non comprises dans le prix ci-dessus)',
-      table: {
-        columns: [
-          {header:'Désignation', width:230, align:'left'},
-          {header:'Uté', width:45, align:'left'},
-          {header:'Qté', width:45, align:'right'},
-          {header:'PV Unitaire', width:90, align:'right'},
-          {header:'Prix Total', width:90, align:'right'}
-        ],
-        rows: toRows(lignesOption)
-      },
-      totals: [{label:'Total options HT', value: fmt(totalOptionsHT), bold:true}]
-    }];
-  }
-
-  config.pageBreakAfterIntro = true;
-  config.modalitesPage = {
-    synthese: [
-      {label:'Total Hors Taxes (HT)', value: fmt(d.montant_ht)},
-      {label:'TVA', value: fmt(d.montant_tva)},
-      {label:'Total Toutes Taxes Comprises (TTC)', value: fmt(d.montant_ttc), bold:true}
-    ],
-    sections: [
-      {title:'Modalités de Facturation et Paiement', text: MODALITES_DEVIS.facturation},
-      {title:'Cadre Légal et Indexation Économique', text: MODALITES_DEVIS.cadreLegal}
-    ],
-    signatures: [
-      {label:"Le Chargé d'affaire", name: d.correspondant||''},
-      {label:'Le client', name:''}
-    ]
+    numero: d.numero,
+    date: fmtDate(d.date_devis || today()),
+    affaire: affaire || '—',
+    objet: d.objet || '—',
+    correspondant: d.correspondant || '—',
+    client: {nom: client.nom||'—', adresse: client.adresse||'—', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim()||'—'},
+    pastille: [client.nom, d.numero, affaire || d.objet].filter(Boolean).join(' | '),
+    lignes: versLignesPdf(lignesPrincipal,''),
+    totaux: {libelleTotal:'Prix de vente total', total:fmt(d.montant_ht), libelleTva:devisLibelleTva(lignesPrincipal), tva:fmt(d.montant_tva), ttc:fmt(d.montant_ttc)},
+    options: lignesOption.length ? versLignesPdf(lignesOption,'O') : null,
+    totauxOptions: {libelleTotal:'Total options HT', total:fmt(devisBlocTotal(lignesOption)), tva:null},
+    attention: txt.attention,
+    observations: d.observations || '',
+    modalites: {facturation:txt.facturation, cadreLegal:txt.cadreLegal, approbation:txt.approbation}
   };
 
   try{
-    const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, config);
+    const bytes = await LyneoPDF.generateDevis(window.PDFLib, LYNEO_LOGO_B64, config);
     await baixarPdfBytes(bytes, `${d.numero}.pdf`);
   }catch(e){
     showToast('Erreur génération PDF: '+e.message, 'error');
@@ -4400,6 +4637,8 @@ function parseDevisExcelRows(rows, cols){
     if(!desc) continue; // ligne vide
     if(/^d[ée]signation$/i.test(desc)) continue; // en-tête du tableau
     if(/^total$/i.test(desc)) continue; // ligne de total final
+    // Lignes de totaux du modèle (« Prix de vente total », « TVA 17% », « Total TTC »…) : ce ne sont pas des prestations
+    if(/^(prix\s+de\s+vente\s+total|prix\s+total|total\s*(ht|ttc|g[ée]n[ée]ral)?|sous[-\s]?total|tva(\s*\d+([.,]\d+)?\s*%)?)\s*:?$/i.test(desc)) continue;
     if(/^n[°o]$/i.test(desc)) continue; // parfois "N°" est répété comme en-tête
 
     const qte = cols.qteCol>=0 ? _parseNumFR(row[cols.qteCol]) : null;
@@ -4417,6 +4656,47 @@ function parseDevisExcelRows(rows, cols){
   return result;
 }
 
+// Lit la page de garde du modèle Lyneo (« Objet: », « Affaire: », « Correspondant: », « Nom: » = client).
+// Renvoie seulement ce qui est trouvé ; les feuilles masquées sont ignorées.
+function extraireEnteteDevisExcel(wb){
+  const metas = (wb.Workbook && wb.Workbook.Sheets) || [];
+  const masquee = (n)=>{ const m = metas.find(x=>x.name===n); return !!(m && m.Hidden); };
+  const cles = {objet:/^objet\s*:?$/i, correspondant:/^correspondant\s*:?$/i, client:/^nom\s*:?$/i, affaire:/^affaire\s*:?$/i};
+  const out = {};
+  for(const nom of wb.SheetNames.filter(n=>!masquee(n))){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[nom], {header:1, defval:null});
+    for(const row of rows.slice(0,40)){
+      for(let j=0;j<row.length;j++){
+        const c = row[j]; if(typeof c!=='string') continue;
+        for(const [k,re] of Object.entries(cles)){
+          if(out[k] || !re.test(c.trim())) continue;
+          const v = row.slice(j+1).find(x=>x!==null && String(x).trim()!=='');
+          if(v!==undefined && !/^[=#]/.test(String(v).trim())) out[k] = String(v).trim();
+        }
+      }
+    }
+  }
+  return out;
+}
+// Applique l'en-tête lu dans le formulaire de devis : ne remplace jamais un champ déjà rempli.
+// Pour le client, on ne choisit une option que si une seule correspond au nom lu. Le chantier n'est jamais choisi automatiquement.
+function appliquerEnteteDevis(ent){
+  const repris = [];
+  const norm = (t)=>String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+  const champ = (id, valeur, libelle)=>{ const e = el(id); if(e && valeur && !String(e.value).trim()){ e.value = valeur; repris.push(libelle); } };
+  champ('dv-objet', ent.objet, 'Objet'); champ('dv-affaire', ent.affaire, 'Affaire'); champ('dv-correspondant', ent.correspondant, 'Correspondant');
+  const choisir = (id, nomLu, libelle, extrait)=>{
+    const sel = el(id); if(!sel || !nomLu || sel.value) return;
+    const n = norm(nomLu); if(!n) return;
+    const opts = Array.from(sel.options).filter(o=>o.value);
+    let ok = opts.filter(o=>norm(extrait(o.textContent))===n);
+    if(ok.length!==1) ok = opts.filter(o=>norm(extrait(o.textContent)).includes(n) || n.includes(norm(extrait(o.textContent))) && norm(extrait(o.textContent)).length>3);
+    if(ok.length===1){ sel.value = ok[0].value; sel.dispatchEvent(new Event('change')); repris.push(libelle); }
+  };
+  choisir('dv-client', ent.client, 'Client', t=>t);
+  return repris;
+}
+
 // Un classeur Excel peut avoir plusieurs feuilles (page de garde, résumé, détail...).
 // On essaie chaque feuille et on garde celle qui donne le plus de lignes de détail reconnues.
 function parseDevisWorkbook(wb){
@@ -4429,7 +4709,7 @@ function parseDevisWorkbook(wb){
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomFeuille], {header:1, defval:null});
     const cols = detectDevisColumns(rows);
     if(!cols) return null; // cette feuille n'a pas de tableau de lignes (ex: page de garde, synthèse)
-    const parsed = parseDevisExcelRows(rows, cols);
+    const parsed = parseDevisExcelRows(rows.slice(cols.headerRowIdx+1), cols);
     return {parsed, nbLignes:parsed.filter(r=>r.type==='ligne').length, feuille:nomFeuille};
   };
   const meilleurDe = (noms)=>{
@@ -4475,8 +4755,9 @@ async function importDevisExcelDansModal(file){
       _devisLignes.option = [..._devisLignes.option, ...parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
+      const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
 
-      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}" — vérifiez et complétez avant d'enregistrer`);
+      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+` — vérifiez et complétez avant d'enregistrer`);
     }catch(err){
       showToast('Erreur import: '+err.message, 'error');
     }
@@ -4500,9 +4781,10 @@ async function importDevisExcel(file){
       _devisLignes.option = parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>r);
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
+      const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
 
       const nbOptions = _devisLignes.option.length;
-      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+' — vérifiez et complétez avant d\'enregistrer');
+      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+' — vérifiez et complétez avant d\'enregistrer');
       if(nbOptions===0){
         setTimeout(()=>showToast("Astuce : votre fichier ne marque pas où commencent les Options — tout a été importé dans le bloc principal. Déplacez manuellement les lignes concernées si besoin.", 'error'), 1200);
       }
@@ -4808,6 +5090,7 @@ async function openDevisModal(d=null){
           <select id="dv-chantier"><option value="">— Aucun (pas encore créé) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${c.numero||''} — ${c.nom}</option>`).join('')}</select>
         </div>
         <div class="form-group full"><label class="field-label">Objet</label><input id="dv-objet" value="${d?.objet||''}" placeholder="Ex: Projet Delhaize"/></div>
+        <div class="form-group"><label class="field-label">Affaire <span style="font-weight:400;color:var(--gray-5)">(nom affiché sur le devis)</span></label><input id="dv-affaire" value="${escHtml(d?.affaire||'')}" placeholder="Ex: DELNIEDERKORN"/></div>
         <div class="form-group"><label class="field-label">Correspondant</label><input id="dv-correspondant" value="${d?.correspondant||''}" placeholder="Nom du chargé d'affaire"/></div>
         <div class="form-group"><label class="field-label">Date du devis</label><input type="date" id="dv-date" value="${d?.date_devis||today()}"/></div>
         <div class="form-group"><label class="field-label">Validité (jours)</label><input type="number" id="dv-validite" value="${d?.validite_jours||30}"/></div>
@@ -4893,6 +5176,7 @@ async function saveDevis(id){
     client_id,
     chantier_id: el('dv-chantier').value||null,
     objet: el('dv-objet').value,
+    affaire: el('dv-affaire') ? el('dv-affaire').value.trim() : '',
     correspondant: el('dv-correspondant').value,
     date_devis: el('dv-date').value,
     validite_jours: parseInt(el('dv-validite').value)||30,
@@ -4903,13 +5187,20 @@ async function saveDevis(id){
     observations: el('dv-obs').value
   };
 
+  // Colonne « affaire » pas encore créée (migration-devis-affaire.sql) : le devis est enregistré quand même, sans ce champ
+  let affaireNonSauvee = false;
+  const sansAffaire = ()=>{ const {affaire, ...reste} = header; affaireNonSauvee = !!affaire; return reste; };
+  const manqueAffaire = (error)=> error && /affaire/i.test(error.message||'');
+
   let devisId = id;
   if(id){
-    const {error} = await sb.from('devis').update(header).eq('id',id);
+    let {error} = await sb.from('devis').update(header).eq('id',id);
+    if(manqueAffaire(error)) ({error} = await sb.from('devis').update(sansAffaire()).eq('id',id));
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
   } else {
     const {data:num} = await sb.rpc('generate_devis_number');
-    const {data:newDevis, error} = await sb.from('devis').insert({...header, numero:num, cree_par:currentUser.id}).select().single();
+    let {data:newDevis, error} = await sb.from('devis').insert({...header, numero:num, cree_par:currentUser.id}).select().single();
+    if(manqueAffaire(error)) ({data:newDevis, error} = await sb.from('devis').insert({...sansAffaire(), numero:num, cree_par:currentUser.id}).select().single());
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
     devisId = newDevis.id;
   }
@@ -4937,6 +5228,7 @@ async function saveDevis(id){
   }
 
   showToast(id?'Devis mis à jour':'Devis créé — '+header.objet);
+  if(affaireNonSauvee) setTimeout(()=>showToast("L'« Affaire » n'a pas pu être enregistrée : exécutez d'abord migration-devis-affaire.sql dans Supabase", 'error'), 900);
 
   // Synchronise le lien dans les deux sens : si un chantier est choisi ici,
   // ce chantier doit aussi savoir qu'il vient de ce devis.
@@ -4996,6 +5288,7 @@ async function openDevisDetail(devisId){
         <div class="info-item"><label>Client</label><span>${d.clients?.nom||'—'}</span></div>
         <div class="info-item"><label>Chantier</label><span>${d.chantiers_lyneo?.nom||'— (pas encore créé)'}</span></div>
         <div class="info-item"><label>Intervention SAV</label><span>${interventionLiee?`<a href="#" onclick="closeModal();openInterventionDetail('${interventionLiee.id}');return false" style="color:var(--blue);font-weight:600">${interventionLiee.ref}</a> ${bSAV(interventionLiee.statut)}`:'—'}</span></div>
+        <div class="info-item"><label>Affaire</label><span>${escHtml(d.affaire)||'—'}</span></div>
         <div class="info-item"><label>Correspondant</label><span>${d.correspondant||'—'}</span></div>
         <div class="info-item"><label>Date</label><span>${fmtDate(d.date_devis)}</span></div>
         <div class="info-item"><label>Validité</label><span>${d.validite_jours} jours</span></div>
@@ -5065,6 +5358,7 @@ async function openDevisDetail(devisId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_Devis('${d.id}')"><i class="ti ti-file-download"></i> PDF</button>
+        <button class="btn btn-secondary" id="btn-excel-dv" onclick="downloadExcel_Devis('${d.id}')" title="Exporter le devis au format Excel (3 onglets : Page initial, DEVIS, Modalités)"><i class="ti ti-file-spreadsheet"></i> Excel</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
@@ -6989,7 +7283,7 @@ function categorieDocEmploye(a){
   return devinerCategorieDocEmploye(a && a.nome_ficheiro);
 }
 function devinerCategorieDocEmploye(nom){
-  const n = String(nom||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const n = String(nom||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   if(/permis/.test(n)) return 'permis';
   if(/contrat|contract|avenant/.test(n)) return 'contrat';
   if(/carte.?d?.?impot|impot|fiscal/.test(n)) return 'carte_impot';
