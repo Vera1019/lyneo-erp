@@ -1093,6 +1093,15 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
       while(s.length>1 && this.w(s+'…',size,bold) > maxW) s = s.slice(0,-1).trimEnd();
       return s+'…';
     }
+    // Valeur d'une case de la page de garde : jamais coupée par « … » tant qu'elle peut tenir — police réduite (10,5 → 8 pt), puis 2 lignes ;
+    // « … » seulement en dernier recours (plus de 2 lignes à 8 pt)
+    valeurCase(txt,maxW){
+      const s = this.ansi(txt==null?'':txt).replace(/\s+/g,' ').trim() || '—';
+      for(const size of [10.5,9.5,8.5,8]) if(this.w(s,size,true) <= maxW) return {size, lignes:[s]};
+      let l = this.wrap(s,8,maxW,true).map(x=>this.ajuste(x,8,maxW,true));
+      if(l.length>2) l = [l[0], this.ajuste(l.slice(1).join(' '),8,maxW,true)];
+      return {size:8, lignes:l};
+    }
     // Écrit un texte avec la ligne de base à `top` (depuis le haut de la page). align : 'l' | 'c' | 'r' autour de x
     t(txt,x,top,size,o){
       o = o||{}; txt = this.ansi(txt);
@@ -1163,8 +1172,9 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
         lignes.forEach((l,i)=>{
           const top = 163 + i*21.7;
           this.t(l[0],x+1.5,top,10.5);
-          const val = this.ajuste(l[1]||'—',10.5,w-dec-6,true);
-          this.t(val,x+dec,top,10.5,{bold:true});
+          const v = this.valeurCase(l[1],w-dec-6);
+          if(v.lignes.length===1) this.t(v.lignes[0],x+dec,top,v.size,{bold:true});
+          else v.lignes.forEach((ln,k)=> this.t(ln,x+dec,top-3.4+k*9.6,v.size,{bold:true}));
         });
       };
       boite(24.5,236,'PROJET',[['Affaire:',cfg.affaire],['N° de devis:',cfg.numero],['Objet:',cfg.objet],['Correspondant:',cfg.correspondant]]);
@@ -3480,14 +3490,33 @@ const XLM = (function(){
   }
 
   // ── Page de garde : valeurs dans le modèle ────────────────────────────────────────────────
-  function patcherGarde(xml, cfg){
-    const fit = (t,pt,max)=> ajuste(t,pt,max,true);
-    const v = {
-      J3: esc(cfg.numero), J4: String(cfg.dateSerial), C10: esc(fit(cfg.affaire||'',11,145)), C11: esc(cfg.numero),
-      C12: esc(fit(cfg.objetCourt||'',11,145)), C13: esc(fit(cfg.correspondant||'',11,145)), C29: esc(cfg.correspondant||''),
-      I10: esc(fit(cfg.client.nom||'',11,160)), I11: esc(fit(cfg.client.adresse||'',11,160)), I12: esc(fit(cfg.client.cp_ville||'',11,160))
-    };
+  // Valeur d'une case de la page de garde : jamais coupée par « … » tant qu'elle peut tenir — police 11 → 10 → 9 → 8 pt, puis 2 lignes (cellules fusionnées) ;
+  // « … » seulement en tout dernier recours (plus de 2 lignes). styles : indices des styles ajoutés (gras 9 pt, gras 8 pt, gras 8 pt à la ligne), ou null.
+  const CASES_GARDE = {C10:{max:145,fin:'E'}, C12:{max:145,fin:'E'}, C13:{max:145,fin:'E'}, I10:{max:160,fin:'K'}, I11:{max:160,fin:'K'}, I12:{max:160,fin:'K'}};
+  function styleCase(txt, max, styles){
+    const t = String(txt==null?'':txt).replace(/\s+/g,' ').trim();
+    if(estW(t,11,true) <= max) return {s:49, t};
+    if(!styles) return {s:49, t:ajuste(t,11,max,true)};
+    if(estW(t,10,true) <= max) return {s:styles.g10, t};
+    if(estW(t,9,true) <= max) return {s:styles.g9, t};
+    if(estW(t,8,true) <= max) return {s:styles.g8, t};
+    let l = lignes(t,8,max,true).map(x=>ajuste(x,8,max,true));
+    if(l.length>2) l = [l[0], ajuste(l.slice(1).join(' '),8,max,true)];
+    return {s:styles.g8l, t:l.join(' '), fusion:l.length>1};
+  }
+  function patcherGarde(xml, cfg, styles){
+    const valeurs = {C10:cfg.affaire, C12:cfg.objetCourt, C13:cfg.correspondant, I10:cfg.client.nom, I11:cfg.client.adresse, I12:cfg.client.cp_ville};
+    const fusions = [];
+    Object.keys(CASES_GARDE).forEach(ref=>{
+      const r = styleCase(valeurs[ref], CASES_GARDE[ref].max, styles);
+      const ancien = `<c r="${ref}" s="49" t="inlineStr"><is><t xml:space="preserve">@@${ref}@@</t></is></c>`;
+      if(xml.indexOf(ancien) < 0) throw new Error('modèle : cellule '+ref+' introuvable');
+      xml = remplace(xml, ancien, `<c r="${ref}" s="${r.s}" t="inlineStr"><is><t xml:space="preserve">${esc(r.t)}</t></is></c>`);
+      if(r.fusion) fusions.push(`${ref}:${CASES_GARDE[ref].fin}${ref.slice(1)}`);
+    });
+    const v = {J3: esc(cfg.numero), J4: String(cfg.dateSerial), C11: esc(cfg.numero), C29: esc(cfg.correspondant||'')};
     Object.keys(v).forEach(k=>{ xml = remplace(xml,'@@'+k+'@@',v[k]); });
+    if(fusions.length) xml = remplace(xml,'</sheetData>',`</sheetData><mergeCells count="${fusions.length}">${fusions.map(m=>`<mergeCell ref="${m}"/>`).join('')}</mergeCells>`);
     return xml;
   }
 
@@ -3495,14 +3524,22 @@ const XLM = (function(){
   async function generer(JSZipLib, modeleB64, frag, cfg){
     const z = await JSZipLib.loadAsync(modeleB64, {base64:true});
     const lire = (p)=> z.file(p).async('string');
-    // date de la page de garde : toujours jj/mm/aaaa (le format « date courte » du modèle dépend de la langue d'Excel)
+    // styles ajoutés au modèle : date jj/mm/aaaa (le format « date courte » du modèle dépend de la langue d'Excel) et valeurs de la page de garde
+    // en gras 10 pt, 9 pt, 8 pt et 8 pt à la ligne (même fond gris que le modèle)
     let styles = await lire('xl/styles.xml');
-    const stylesOk = styles.includes('<numFmts count="2">') && styles.includes('<cellXfs count="80">');
+    const stylesOk = styles.includes('<numFmts count="2">') && styles.includes('<cellXfs count="80">') && /<fonts count="24"/.test(styles);
+    let idx = null;
     if(stylesOk){
+      const police = (pt)=> `<font><b/><sz val="${pt}"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>`;
+      const xfGris = (font, al)=> `<xf numFmtId="0" fontId="${font}" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"${al?' applyAlignment="1"':''}>${al||''}</xf>`;
       styles = styles.replace('<numFmts count="2">','<numFmts count="3">').replace('</numFmts>','<numFmt numFmtId="165" formatCode="dd/mm/yyyy"/></numFmts>')
-        .replace('<cellXfs count="80">','<cellXfs count="81">').replace('</cellXfs>','<xf numFmtId="165" fontId="4" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyAlignment="1"><alignment horizontal="right"/></xf></cellXfs>');
+        .replace(/<fonts count="24"/,'<fonts count="27"').replace('</fonts>',police(9)+police(8)+police(10)+'</fonts>')
+        .replace('<cellXfs count="80">','<cellXfs count="85">')
+        .replace('</cellXfs>','<xf numFmtId="165" fontId="4" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyAlignment="1"><alignment horizontal="right"/></xf>'
+          + xfGris(24) + xfGris(25) + xfGris(25,'<alignment vertical="center" wrapText="1"/>') + xfGris(26) + '</cellXfs>');
+      idx = {g9:81, g8:82, g8l:83, g10:84};
     }
-    let garde = patcherGarde(await lire('xl/worksheets/sheet1.xml'), cfg);
+    let garde = patcherGarde(await lire('xl/worksheets/sheet1.xml'), cfg, idx);
     if(stylesOk) garde = garde.replace('<c r="J4" s="16">','<c r="J4" s="80">');
     let dessin1 = await lire('xl/drawings/drawing1.xml');
     dessin1 = remplace(dessin1,'@@BANDEAU_PARAS@@', parasBandeau(cfg.bandeau, 520, 11));
@@ -3563,7 +3600,7 @@ function devisConfigExcel(d, client, lignesPrincipal, lignesOption){
   const taux = [...new Set(lignesPrincipal.filter(r=>r.type==='ligne').map(r=>parseFloat(r.taux_tva)).filter(t=>!isNaN(t)))];
   return {
     numero: d.numero, dateSerial: devisExcelSerial(d.date_devis || today()),
-    affaire, objetCourt: objetCourt || d.objet || '', correspondant: d.correspondant || '',
+    affaire, objetCourt, correspondant: d.correspondant || '',   // « Objet court » et « Affaire » : saisis à la main dans le devis, jamais déduits
     client: {nom: client.nom||'', adresse: client.adresse||'', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim()},
     pastille: [client.nom, d.numero, affaire || objetCourt].filter(Boolean).join(' | '),   // jamais l'objet complet (trop long)
     bandeau: LyneoPDF.BANDEAU_LEGAL,
@@ -3585,7 +3622,8 @@ async function downloadExcel_Devis(devisId){
     const cfg = devisConfigExcel(d, d.clients||{}, (lignesData||[]).filter(l=>l.bloc==='principal'), (lignesData||[]).filter(l=>l.bloc==='option'));
     const bytes = await XLM.generer(JSZip, XLSX_MODELE_B64, XLSX_FORMES, cfg);
     await baixarBytes(bytes, `${d.numero}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    showToast('Fichier Excel téléchargé — même présentation que votre modèle (logo, en-tête et bandeaux bleus)');
+    const avis = devisAvisCapa(d);
+    showToast('Fichier Excel téléchargé — même présentation que votre modèle (logo, en-tête et bandeaux bleus)'+(avis?' · '+avis:''));
   }catch(e){
     console.error(e);
     showToast('Mise en forme Excel impossible ('+e.message+') — export simplifié à la place', 'error');
@@ -3678,6 +3716,14 @@ async function downloadExcel_DevisSimple(devisId){
   showToast('Fichier Excel téléchargé — mêmes 3 onglets que votre modèle (mise en forme simplifiée : sans logo, couleurs ni bandeau).');
 }
 
+// « Objet court » et « Affaire » s'écrivent à la main dans le devis ; s'ils sont vides, la page de garde reste vide (« — » au PDF) : on le signale
+function devisAvisCapa(d){
+  const manque = [];
+  if(!(d.objet_court||'').trim()) manque.push('« Objet court »');
+  if(!(d.affaire||'').trim()) manque.push('« Affaire »');
+  return manque.length ? `Page de garde : ${manque.join(' et ')} non renseigné${manque.length>1?'s':''} dans le devis — modifiez le devis pour ${manque.length>1?'les':'le'} saisir.` : '';
+}
+
 async function downloadPDF_Devis(devisId){
   const {data:d} = await sb.from('devis').select('*,clients(nom,email,adresse,code_postal,ville),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
   if(!d){ showToast("Devis introuvable", 'error'); return; }
@@ -3698,7 +3744,7 @@ async function downloadPDF_Devis(devisId){
     numero: d.numero,
     date: fmtDate(d.date_devis || today()),
     affaire: affaire || '—',
-    objet: objetCourt || d.objet || '—',   // sans « objet court » : l'objet complet, raccourci par « … » s'il est trop long
+    objet: objetCourt || '—',   // uniquement ce que l'utilisateur a saisi dans « Objet court » (jamais l'objet complet, trop long)
     correspondant: d.correspondant || '—',
     client: {nom: client.nom||'—', adresse: client.adresse||'—', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim()||'—'},
     pastille: [client.nom, d.numero, affaire || objetCourt].filter(Boolean).join(' | '),   // jamais l'objet complet (trop long)
@@ -3714,6 +3760,7 @@ async function downloadPDF_Devis(devisId){
   try{
     const bytes = await LyneoPDF.generateDevis(window.PDFLib, LYNEO_LOGO_B64, config);
     await baixarPdfBytes(bytes, `${d.numero}.pdf`);
+    const avis = devisAvisCapa(d); if(avis) showToast(avis);
   }catch(e){
     showToast('Erreur génération PDF: '+e.message, 'error');
   }
