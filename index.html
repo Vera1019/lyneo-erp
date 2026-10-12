@@ -53,6 +53,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .login-btn{width:100%;padding:12px;background:#106B9E;color:#fff;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px}
 .login-btn:hover{background:#0D5A85;transform:translateY(-1px);box-shadow:0 4px 12px rgba(16,107,158,.35)}
 .login-hint{text-align:center;margin-top:20px;font-size:12px;color:var(--gray-4)}
+.doc-fleche{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:8px;border-radius:50%;background:var(--blue-light,#E6F0F7);color:var(--blue);font-size:14px;text-decoration:none;flex-shrink:0;vertical-align:middle}
+.doc-fleche:hover{background:var(--blue);color:#fff}
 input:disabled,select:disabled,textarea:disabled{background:var(--gray-1);color:var(--gray-5);cursor:not-allowed}
 
 /* ── LAYOUT ─────────────────────────────────────────────────── */
@@ -707,6 +709,13 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     return lines;
   }
 
+  // Mentions légales imprimées en pied de TOUS les documents PDF (devis, bons de commande, factures, avoirs).
+  // Source unique : pour changer une mention, c'est ici.
+  const MENTIONS_LEGALES_LYNEO = [
+    'LYNEO SARL \u2014 5 ZA Gadderscheier, L-4570 Niederkorn \u2014 TVA : LU37560222 \u2014 Matricule : 2026 2434 444 \u2014 RC : B308515',
+    "T\u00e9l. : +352 26 94 59 52 \u2014 facturation@lyneo.lu \u2014 Autorisation d'\u00e9tablissement : 10195671/1"
+  ];
+
   class DocBuilder {
     constructor(PDFLib, pdfDoc, fonts, logoImg, opts){
       this.PDFLib = PDFLib;
@@ -730,7 +739,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
 
     // Garantit qu'il reste au moins `h` points avant le bas de page ; sinon nouvelle page
     ensureSpace(h){
-      if(this.y - h < this.margin + 24){
+      if(this.y - h < this.margin + 32){
         this.newPage();
         return true;
       }
@@ -989,12 +998,21 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     // ── Pied de page + numérotation, à appeler une fois tout le contenu généré ──
     finalizeFooters(){
       const pages = this.pdfDoc.getPages();
+      const maxW = this.W - 2*this.margin;
       pages.forEach((p,idx)=>{
-        p.drawLine({start:{x:this.margin,y:34}, end:{x:this.W-this.margin,y:34}, thickness:0.6, color:this.color('gray')});
-        p.drawText(this.footerText, {x:this.margin, y:22, size:7.5, font:this.font, color:this.color('gray')});
+        p.drawLine({start:{x:this.margin,y:56}, end:{x:this.W-this.margin,y:56}, thickness:0.6, color:this.color('gray')});
+        // Mentions légales : centrées, taille réduite si une ligne dépassait la largeur utile
+        MENTIONS_LEGALES_LYNEO.forEach((txt,i)=>{
+          let size = 7.5;
+          while(size > 5.5 && this.font.widthOfTextAtSize(txt, size) > maxW) size -= 0.25;
+          const w = this.font.widthOfTextAtSize(txt, size);
+          p.drawText(txt, {x:(this.W-w)/2, y:46 - i*9, size, font:this.font, color:this.color('gray')});
+        });
+        // Dernière ligne : date de génération à gauche, pagination à droite
+        if(this.footerText) p.drawText(this.footerText, {x:this.margin, y:27, size:7, font:this.font, color:this.color('gray')});
         const pn = `Page ${idx+1}/${pages.length}`;
-        const pw = this.font.widthOfTextAtSize(pn, 7.5);
-        p.drawText(pn, {x:this.W-this.margin-pw, y:22, size:7.5, font:this.font, color:this.color('gray')});
+        const pw = this.font.widthOfTextAtSize(pn, 7);
+        p.drawText(pn, {x:this.W-this.margin-pw, y:27, size:7, font:this.font, color:this.color('gray')});
       });
     }
   }
@@ -2961,7 +2979,7 @@ async function downloadPDF_Devis(devisId){
       title:'Conditions',
       lines: [`Acompte : ${d.conditions_acompte_pct??30}% à la commande — Conditions de paiement : ${d.conditions_paiement||'30 jours'}`]
     },
-    footerText: `LYNEO s.à.r.l — 5, Z.A. Gadderscheier, L-4570 Niederkorn | TVA : LU37560222 | Document généré le ${new Date().toLocaleDateString('fr-FR')}`
+    footerText: `Document généré le ${new Date().toLocaleDateString('fr-FR')}`
   };
 
   if(lignesOption.length>0){
@@ -3056,7 +3074,7 @@ async function downloadPDF_PO(poId){
     ],
     notesBlock: po.observations ? {title:'Observations', text: po.observations} : null,
     paymentBlock: {title:'Conditions', lines:[`Merci de mentionner notre référence ${po.numero} sur votre facture.`]},
-    footerText: `LYNEO s.à.r.l — 5, Z.A. Gadderscheier, L-4570 Niederkorn | Document généré le ${new Date().toLocaleDateString('fr-FR')}`
+    footerText: `Document généré le ${new Date().toLocaleDateString('fr-FR')}`
   };
 
   try{
@@ -4186,6 +4204,21 @@ async function openClientDetail(clientId){
   const facsFourn = facsFournR.data||[];
   const interventionsClient = interventionsR.data||[];
 
+  // Devis du client + factures émises à partir de ces devis (requêtes protégées : la fiche s'ouvre même si elles échouent)
+  let devisClient = [], facsParDevis = {}, facturationConnue = true;
+  try{
+    const r = await sb.from('devis').select('*').eq('client_id',client.id);
+    devisClient = (r.data||[]).slice().sort((a,b)=>String(b.date_devis||b.created_at||'').localeCompare(String(a.date_devis||a.created_at||'')));
+    if(devisClient.length){
+      const r2 = await sb.from('factures_vente').select('*').in('devis_id', devisClient.map(d=>d.id));
+      if(r2.error) facturationConnue = false;   // ne pas afficher « Non facturé » si on n'a pas pu lire les factures
+      (r2.data||[]).forEach(f=>{ (facsParDevis[f.devis_id] = facsParDevis[f.devis_id]||[]).push(f); });
+    }
+  }catch(e){ devisClient = []; }
+  const etatsDevis = {}; devisClient.forEach(d=>{ etatsDevis[d.id] = etatFacturationDevis(d, facsParDevis[d.id]); });
+  const devisAFacturer = facturationConnue ? devisClient.filter(d=>etatsDevis[d.id].aFacturer) : [];
+  const resteDevis = devisAFacturer.reduce((a,d)=>a+Math.max(0,etatsDevis[d.id].reste),0);
+
   // Heures encodées, par chantier (via le système de pointages)
   let heuresParChantier = [];
   const chantiersAvecCode = chantiers.filter(c=>c.code_pointages);
@@ -4221,6 +4254,22 @@ async function openClientDetail(clientId){
           chantiers.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff;cursor:pointer" onclick="closeModal();openChantierDetail('${c.id}')">
             <span>${c.numero||''} — ${c.nom}</span>${bCH ? bCH(c.statut) : ''}
           </div>`).join('')}
+      </div>
+
+      <strong style="font-size:13px">Devis (${devisClient.length})</strong>${devisAFacturer.length?` <span style="font-size:12px;color:var(--orange);font-weight:600;margin-left:6px">${devisAFacturer.length} à facturer · reste ${fmt(resteDevis)} HT</span>`:''}
+      <div style="margin-top:8px;margin-bottom:20px">
+        ${devisClient.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun devis pour ce client</p>' :
+          `<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Objet</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Montant HT</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Facturation</th></tr></thead>
+            <tbody>${devisClient.map(d=>`<tr style="cursor:pointer" onclick="closeModal();openDevisDetail('${d.id}')">
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);white-space:nowrap"><strong class="text-blue">${escHtml(d.numero)}</strong></td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(d.objet||'—')}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);white-space:nowrap">${d.date_devis?fmtDate(d.date_devis):'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;white-space:nowrap">${fmt(d.montant_ht)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bDV(d.statut)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${(!facturationConnue || etatsDevis[d.id].etat==='na') ? '<span style="color:var(--gray-4)">—</span>' : bFD(etatsDevis[d.id])}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
       </div>
 
       <strong style="font-size:13px">Interventions SAV (${interventionsClient.length})</strong>
@@ -5146,6 +5195,7 @@ async function renderFacturesVente(){
       <div class="page-header-left"><h1>Factures clients</h1><p>Facturation et encaissements</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input id="fv-recherche" placeholder="N°, client, devis, PO, centre, SAV..." oninput="_fvFiltres.search=this.value;afficherFacturesVente()" value="${escHtml(F.search)}"/></div>
+        <button class="btn btn-secondary" id="btn-cgv-liste" onclick="openCGV(&quot;navigate('factures_vente')&quot;)" title="Conditions générales de vente jointes aux factures"><i class="ti ti-scale"></i> CGV</button>
         <button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button>
       </div>
     </div>
@@ -6003,6 +6053,27 @@ const CGV_ARTICLES = [
   {title:"Article 12 : Litiges et Juridiction", text:"Les présentes conditions générales sont régies par le droit luxembourgeois. En cas de contestation ou litiges, le Tribunal de Luxembourg est, de convention expresse, seul compétent, nonobstant pluralité de défendeurs ou appel en garantie."}
 ];
 
+// Consultation des conditions générales de vente (celles qui sont jointes aux factures, pages suivantes du PDF).
+// `retour` : code JS à exécuter à la fermeture pour revenir à l'écran d'où l'on vient (ex. la facture).
+function openCGV(retour){
+  const quitter = retour ? `closeModal();${retour}` : 'closeModal()';
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg" id="cgv-modal">
+    <div class="modal-header">
+      <div><h3>Conditions générales de vente</h3><span style="font-size:12px;color:var(--gray-5)">LYNEO SARL — jointes automatiquement à chaque facture client (sauf aux notes de crédit)</span></div>
+      <button class="modal-close" onclick="${quitter}"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+      ${CGV_ARTICLES.map(a=>`<div style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">${escHtml(a.title)}</div>
+        <p style="font-size:13px;line-height:1.55;color:var(--gray-7);white-space:pre-line;margin:0">${escHtml(a.text)}</p>
+      </div>`).join('')}
+    </div>
+    <div class="form-actions" style="padding:12px 20px">
+      <button class="btn btn-secondary" onclick="${quitter}">${retour?'Retour':'Fermer'}</button>
+    </div>
+  </div></div>`);
+}
+
 // ══ NOTES DE CRÉDIT (AVOIRS) CLIENTS ═══════════════════════════════════════════════
 // Une note de crédit est une ligne de factures_vente (type_facture 'avoir') aux montants NÉGATIFS, liée à la facture
 // d'origine (facture_origine_id), numérotée AV + AAAA + MM + n°. Elle ne modifie jamais la facture d'origine.
@@ -6284,7 +6355,7 @@ async function downloadPDF_FactureVente(facId){
     extraPages: estAvoir ? [] : [
       {title:'CONDITIONS GÉNÉRALES DE VENTE — LYNEO SARL', articles: CGV_ARTICLES}
     ],
-    footerText: `LYNEO s.à.r.l — 5, Z.A. Gadderscheier, L-4570 Niederkorn | TVA : LU37560222 | Document généré le ${new Date().toLocaleDateString('fr-FR')}`
+    footerText: `Document généré le ${new Date().toLocaleDateString('fr-FR')}`
   };
 
   try{
@@ -6390,6 +6461,7 @@ async function openFactureVenteDetail(facId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_FactureVente('${f.id}')"><i class="ti ti-file-download"></i> PDF</button>
+        ${avoir?'':`<button class="btn btn-ghost" id="btn-cgv-fv" onclick="openCGV(&quot;openFactureVenteDetail('${f.id}')&quot;)" title="Conditions générales de vente jointes à cette facture"><i class="ti ti-scale"></i> CGV</button>`}
         ${suppr.ok?`<button class="btn btn-danger" id="btn-suppr-fv" onclick="deleteFactureVente('${f.id}','${escHtml(f.numero)}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
         <button class="btn btn-secondary" onclick="openEditFactureVente('${f.id}')"><i class="ti ti-edit"></i> Modifier</button>
         ${peutCredit?`<button class="btn btn-secondary" id="btn-avoir-fv" onclick="openNewAvoirVente('${f.id}')"><i class="ti ti-receipt-refund"></i> Note de crédit</button>`:''}
@@ -6906,6 +6978,33 @@ async function editEmployeById(employeId){
   openEmployeModal(e);
 }
 
+// Types de documents du dossier d'un employé. Chaque type est relié à une ligne de la fiche (petite flèche ↗ qui ouvre le fichier).
+const CATEGORIES_DOC_EMPLOYE = {
+  identite:"Pièce d'identité", permis:'Permis de conduire', contrat:'Contrat de travail', carte_impot:"Carte d'impôt",
+  visite_medicale:'Visite médicale', rib:'RIB', cns:'Carte CNS / affiliation', certificat:'Certificat / formation', autre:'Autre'
+};
+// Type d'un document : celui enregistré ; à défaut (anciens fichiers) déduit du nom du fichier
+function categorieDocEmploye(a){
+  if(a && a.categorie && CATEGORIES_DOC_EMPLOYE[a.categorie]) return a.categorie;
+  return devinerCategorieDocEmploye(a && a.nome_ficheiro);
+}
+function devinerCategorieDocEmploye(nom){
+  const n = String(nom||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  if(/permis/.test(n)) return 'permis';
+  if(/contrat|contract|avenant/.test(n)) return 'contrat';
+  if(/carte.?d?.?impot|impot|fiscal/.test(n)) return 'carte_impot';
+  if(/visite|medical|aptitude/.test(n)) return 'visite_medicale';
+  if(/\brib\b|iban|bancaire|releve.?d.?identite/.test(n)) return 'rib';
+  if(/\bcns\b|securite.?sociale|affiliation/.test(n)) return 'cns';
+  if(/identite|passeport|passport|\bcni\b|carte.?d.?id/.test(n)) return 'identite';
+  if(/certif|formation|habilitation|diplome|attestation/.test(n)) return 'certificat';
+  return 'autre';
+}
+// Petites flèches ↗ à côté d'une ligne de la fiche : une par document du type correspondant
+function flechesDocsEmploye(docs){
+  return (docs||[]).map(d=>`<a href="${escHtml(d.url)}" target="_blank" rel="noopener" class="doc-fleche" title="Ouvrir : ${escHtml(d.nome_ficheiro||'document')}"><i class="ti ti-arrow-up-right"></i></a>`).join('');
+}
+
 async function openEmployeDetail(employeId){
   let emp = _employesRH.find(e=>e.id===employeId);
   if(!emp){
@@ -6914,6 +7013,7 @@ async function openEmployeDetail(employeId){
   }
   if(!emp){ showToast("Employé introuvable", 'error'); return; }
   const {data:anexos} = await sb.from('anexos_employe').select('*').eq('employe_id',employeId).order('created_at',{ascending:false});
+  const docsCat = {}; (anexos||[]).forEach(a=>{ (docsCat[categorieDocEmploye(a)] = docsCat[categorieDocEmploye(a)]||[]).push(a); });
 
   // Heures encodées dans le système de pointages, pour cet employé
   let heuresParChantier = [];
@@ -6935,9 +7035,10 @@ async function openEmployeDetail(employeId){
   }
 
   const initiales = ((emp.prenom||'')[0]||'')+((emp.nom||'')[0]||'');
-  const profileRow = (label,value)=>`<div style="display:flex;padding:9px 0;border-bottom:1px solid var(--gray-2)">
+  // `cat` : type de document relié à cette ligne → petite flèche ↗ vers le(s) fichier(s) chargé(s)
+  const profileRow = (label,value,cat)=>`<div style="display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--gray-2)">
       <span style="width:220px;flex-shrink:0;font-size:12.5px;color:var(--gray-5)">${label}</span>
-      <span style="font-size:13px;color:var(--gray-8);font-weight:500">${value||'—'}</span>
+      <span style="font-size:13px;color:var(--gray-8);font-weight:500;display:flex;align-items:center;flex-wrap:wrap">${(value===0||value)?escHtml(value):'—'}${cat?flechesDocsEmploye(docsCat[cat]):''}</span>
     </div>`;
   const profileSection = (title,rowsHtml)=>`<div style="margin-bottom:22px">
       <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">${title}</div>
@@ -6962,16 +7063,18 @@ async function openEmployeDetail(employeId){
         profileRow('Date de naissance', (fmtDate(emp.date_naissance)||'')+(emp.lieu_naissance?' — '+emp.lieu_naissance:'')) +
         profileRow('État civil', emp.etat_civil) +
         profileRow('Enfants à charge', emp.nombre_enfants_charge??0) +
-        profileRow('Matricule CNS', emp.matricule_cns) +
-        profileRow('Permis de conduire', emp.numero_permis_conduire ? emp.numero_permis_conduire+(emp.date_validite_permis?" (valable jusqu'au "+fmtDate(emp.date_validite_permis)+')':'') : '')
+        profileRow('Matricule CNS', emp.matricule_cns, 'cns') +
+        profileRow("Pièce d'identité", '', 'identite') +
+        profileRow('Permis de conduire', emp.numero_permis_conduire ? emp.numero_permis_conduire+(emp.date_validite_permis?" (valable jusqu'au "+fmtDate(emp.date_validite_permis)+')':'') : '', 'permis')
       )}
       ${profileSection('Emploi',
-        profileRow('Type de contrat', emp.type_contrat) +
+        profileRow('Type de contrat', emp.type_contrat, 'contrat') +
         profileRow("Date d'embauche", fmtDate(emp.date_embauche)) +
         profileRow('Salaire', emp.salaire?fmt(emp.salaire):'') +
-        profileRow('RIB', emp.rib) +
-        profileRow("Carte d'impôt", emp.carte_impot) +
-        profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau))
+        profileRow('RIB', emp.rib, 'rib') +
+        profileRow("Carte d'impôt", emp.carte_impot, 'carte_impot') +
+        profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau), 'visite_medicale') +
+        profileRow('Certificats / formations', '', 'certificat')
       )}
       ${profileSection('Équipement',
         profileRow('Tailles', `Haut : ${emp.taille_haut||'—'} · Bas : ${emp.taille_bas||'—'} · Pointure : ${emp.pointure||'—'}`)
@@ -7003,6 +7106,14 @@ async function openEmployeDetail(employeId){
       </div>
 
       <strong style="font-size:13px">Documents (contrat, permis, certificats...)</strong>
+      <p style="font-size:12px;color:var(--gray-5);margin-top:4px">Choisissez le type avant de charger : le document sera relié à la ligne correspondante de la fiche (flèche <i class="ti ti-arrow-up-right"></i>).</p>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <label class="field-label" style="margin:0">Type du document</label>
+        <select id="emp-doc-cat" style="width:auto;min-width:200px">
+          <option value="auto">Détecter d'après le nom du fichier</option>
+          ${Object.entries(CATEGORIES_DOC_EMPLOYE).map(([k,l])=>`<option value="${k}">${escHtml(l)}</option>`).join('')}
+        </select>
+      </div>
       <div id="emp-drop-zone" style="margin-top:8px;border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer" onclick="document.getElementById('emp-file-input').click()">
         <i class="ti ti-upload" style="font-size:24px;color:var(--gray-4)"></i>
         <p style="font-size:13px;color:var(--gray-5);margin-top:6px">Cliquez pour choisir un fichier</p>
@@ -7014,10 +7125,13 @@ async function openEmployeDetail(employeId){
       </div>
       <div style="margin-top:12px">
         ${(anexos||[]).length===0?'<p style="font-size:13px;color:var(--gray-4)">Aucun document attaché</p>':
-          anexos.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
-            <span style="font-size:13px"><i class="ti ti-file"></i> ${a.nome_ficheiro}</span>
-            <div style="display:flex;gap:6px">
-              <a href="${a.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i> Ouvrir</a>
+          anexos.map(a=>`<div class="emp-doc-ligne" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+            <span style="font-size:13px;min-width:0;overflow-wrap:anywhere"><i class="ti ti-file"></i> ${escHtml(a.nome_ficheiro)}</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select class="emp-doc-type" style="width:auto;font-size:12px;padding:4px 6px" title="Type du document" onchange="changerCategorieDocEmploye('${a.id}',this.value,'${employeId}')">
+                ${Object.entries(CATEGORIES_DOC_EMPLOYE).map(([k,l])=>`<option value="${k}"${categorieDocEmploye(a)===k?' selected':''}>${escHtml(l)}</option>`).join('')}
+              </select>
+              <a href="${escHtml(a.url)}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i> Ouvrir</a>
               <button class="btn btn-danger btn-sm" onclick="deleteAnnexeEmploye('${a.id}','${employeId}')"><i class="ti ti-trash"></i></button>
             </div>
           </div>`).join('')}
@@ -7039,6 +7153,7 @@ async function uploadAnnexesEmploye(files, employeId){
   const txt = el('emp-progress-text');
   if(progress) progress.style.display='block';
   let successCount = 0, lastError = null;
+  const catChoisie = (el('emp-doc-cat')||{}).value || 'auto';
   for(let i=0;i<files.length;i++){
     const file = files[i];
     if(file.size > 10*1024*1024){ showToast(`${file.name} dépasse 10MB — ignoré`,'error'); continue; }
@@ -7048,7 +7163,12 @@ async function uploadAnnexesEmploye(files, employeId){
     const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
     if(upErr){ showToast('Erreur upload: '+upErr.message,'error'); lastError=upErr.message; continue; }
     const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
-    const {error:insErr} = await sb.from('anexos_employe').insert({employe_id:employeId,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
+    const ligne = {employe_id:employeId,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id};
+    const categorie = catChoisie==='auto' ? devinerCategorieDocEmploye(file.name) : catChoisie;
+    let {error:insErr} = await sb.from('anexos_employe').insert({...ligne, categorie});
+    // Colonne « categorie » pas encore créée (migration-employes-documents.sql) : on enregistre quand même le document ;
+    // le type sera alors déduit du nom du fichier.
+    if(insErr && /categorie/i.test(insErr.message||'')) ({error:insErr} = await sb.from('anexos_employe').insert(ligne));
     if(insErr){ showToast('Erreur: '+insErr.message,'error'); lastError=insErr.message; continue; }
     successCount++;
   }
@@ -7056,6 +7176,17 @@ async function uploadAnnexesEmploye(files, employeId){
   if(successCount>0) showToast(successCount>1?`${successCount} document(s) ajouté(s)`:'Document ajouté');
   else if(lastError) showToast("Aucun document n'a pu être ajouté",'error');
   setTimeout(()=>openEmployeDetail(employeId),400);
+}
+
+async function changerCategorieDocEmploye(id, categorie, employeId){
+  const {error} = await sb.from('anexos_employe').update({categorie}).eq('id',id);
+  if(error){
+    showToast(/categorie/i.test(error.message||'') ? "Le type ne peut pas être enregistré : exécutez d'abord migration-employes-documents.sql dans Supabase" : 'Erreur: '+error.message, 'error');
+    openEmployeDetail(employeId);   // remet l'affichage dans l'état réel
+    return;
+  }
+  showToast('Type du document mis à jour');
+  openEmployeDetail(employeId);
 }
 
 async function deleteAnnexeEmploye(id, employeId){
