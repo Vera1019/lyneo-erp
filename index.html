@@ -697,6 +697,16 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     const lines = [];
     let current = '';
     for(const w of words){
+      if(w && font.widthOfTextAtSize(w, size) > maxWidth){
+        // mot (référence, URL…) plus large que la ligne : coupé au caractère près, jamais de débordement
+        if(current){ lines.push(current); current = ''; }
+        let part = '';
+        for(const ch of w){
+          if(part && font.widthOfTextAtSize(part+ch, size) > maxWidth){ lines.push(part); part = ch; } else part += ch;
+        }
+        current = part;
+        continue;
+      }
       const test = current ? current+' '+w : w;
       if(font.widthOfTextAtSize(test, size) > maxWidth && current){
         lines.push(current);
@@ -796,9 +806,12 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     drawBoxes(boxes){
       const gap = 16;
       const boxW = (this.W - 2*this.margin - gap) / boxes.length;
-      const startY = this.y;
-      let maxLines = 0;
-      boxes.forEach(b=> maxLines = Math.max(maxLines, 1+(b.lines||[]).length));
+      // chaque ligne est coupée à la largeur de la boîte (nom de client ou adresse longs) ; ligne vide = ligne blanche
+      const rowsOf = (b)=>{ const out = [];
+        (b.lines||[]).forEach((l,li)=>{ const f = li===0 ? this.fontBold : this.font; const parts = wrapText(String(l||''), f, 9.5, boxW-24); (parts.length?parts:['']).forEach(t=>out.push({t, bold: li===0})); });
+        return out; };
+      const boxRows = boxes.map(rowsOf);
+      const maxLines = Math.max(...boxRows.map(r=>1+r.length));
       const boxH = 18 + maxLines*13 + 10;
       this.ensureSpace(boxH+10);
 
@@ -809,8 +822,8 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
         let ly = this.y - 16;
         this.page.drawText(b.label.toUpperCase(), {x:bx+12, y:ly, size:8, font:this.fontBold, color:this.color('brand')});
         ly -= 15;
-        (b.lines||[]).forEach((l,li)=>{
-          this.page.drawText(String(l||''), {x:bx+12, y:ly, size:9.5, font: li===0?this.fontBold:this.font, color:this.color('text')});
+        boxRows[i].forEach(r=>{
+          this.page.drawText(r.t, {x:bx+12, y:ly, size:9.5, font: r.bold?this.fontBold:this.font, color:this.color('text')});
           ly -= 13;
         });
       });
@@ -867,10 +880,13 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
       let rowIdx = 0;
       for(const row of table.rows){
         if(row.section){
-          const h = 20;
+          // l'intitulé passe à la ligne s'il est long (il ne recouvre jamais le sous-total)
+          const tw0 = row.subtotal ? this.fontBold.widthOfTextAtSize(row.subtotal, 9) : 0;
+          const labLines = wrapText(String(row.label).toUpperCase(), this.fontBold, 9, this.W-2*this.margin-16-(row.subtotal ? tw0+16 : 0));
+          const h = 20 + Math.max(0, labLines.length-1)*11;
           if(this.ensureSpace(h+4)) drawHeaderRow();
           this.rect(this.margin, this.y-h, this.W-2*this.margin, h, 'lightGray');
-          this.page.drawText(String(row.label).toUpperCase(), {x:this.margin+8, y:this.y-14, size:9, font:this.fontBold, color:this.color('dark')});
+          labLines.forEach((l,li)=> this.page.drawText(l, {x:this.margin+8, y:this.y-14-li*11, size:9, font:this.fontBold, color:this.color('dark')}));
           if(row.subtotal){
             const tw = this.fontBold.widthOfTextAtSize(row.subtotal, 9);
             this.page.drawText(row.subtotal, {x:this.W-this.margin-8-tw, y:this.y-14, size:9, font:this.fontBold, color:this.color('dark')});
@@ -879,16 +895,29 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
           rowIdx++;
           continue;
         }
-        const h = 19;
+        // chaque cellule passe à la ligne dans sa colonne ; la ligne du tableau prend la hauteur de la cellule la plus longue
+        // (colonnes de chiffres alignées à droite : le nombre n'est jamais coupé, on réduit un peu la police s'il est trop large)
+        const cellSize = colsScaled.map(()=>8.7);
+        const cellLines = colsScaled.map((c,ci)=>{
+          const val = String(row.cells[ci]==null?'':row.cells[ci]);
+          if(c.align==='right' && val && !/\s{2,}/.test(val)){
+            let sz = 8.7; while(sz>6 && this.font.widthOfTextAtSize(val, sz) > c.width-16) sz -= 0.3;
+            if(this.font.widthOfTextAtSize(val, sz) <= c.width-16){ cellSize[ci] = sz; return [val]; }
+          }
+          const l = wrapText(val, this.font, 8.7, c.width-16); return l.length ? l : [''];
+        });
+        const maxFit = Math.max(1, Math.floor((this.H - 2*this.margin - 90 - 8)/11));
+        const nLines = Math.min(maxFit, Math.max(...cellLines.map(l=>l.length)));
+        const h = 8 + nLines*11;
         if(this.ensureSpace(h+4)) drawHeaderRow();
         if(rowIdx%2===1) this.rect(this.margin, this.y-h, this.W-2*this.margin, h, 'lightGray');
         let cx = this.margin;
         colsScaled.forEach((c,ci)=>{
-          const val = String(row.cells[ci]==null?'':row.cells[ci]);
-          const fits = wrapText(val, this.font, 8.7, c.width-16)[0]||val;
-          const tw = this.font.widthOfTextAtSize(fits, 8.7);
-          const tx = c.align==='right' ? cx+c.width-tw-8 : cx+8;
-          this.page.drawText(fits, {x:tx, y:this.y-13.5, size:8.7, font:this.font, color:this.color('text')});
+          cellLines[ci].slice(0,nLines).forEach((t,li)=>{
+            const tw = this.font.widthOfTextAtSize(t, cellSize[ci]);
+            const tx = c.align==='right' ? cx+c.width-tw-8 : cx+8;
+            this.page.drawText(t, {x:tx, y:this.y-13.5-li*11, size:cellSize[ci], font:this.font, color:this.color('text')});
+          });
           cx += c.width;
         });
         this.y -= h;
@@ -919,7 +948,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     drawTextBlock(title, text, opts){
       opts = opts || {};
       const maxWidth = this.W - 2*this.margin - 24;
-      const lines = wrapText(text, this.font, 9.5, maxWidth);
+      const lines = String(text||'').split('\n').flatMap(par=>{ const l = wrapText(par, this.font, 9.5, maxWidth); return l.length ? l : ['']; });
       const h = 24 + lines.length*13 + 10;
       this.ensureSpace(h+10);
       this.rect(this.margin, this.y-h, this.W-2*this.margin, h, 'lightGray');
@@ -3084,6 +3113,11 @@ LYNEO`);
 
 // ── MODÈLE DE DEVIS LYNEO (PDF et Excel) ─────────────────────────────────────────────────
 // Textes fixes du modèle Excel de Lyneo ; seuls le délai de paiement, l'acompte et la validité viennent de la fiche du devis.
+const LYNEO_IBAN = 'LU89 0099 7800 0161 1797', LYNEO_BIC = 'CCRALULL';   // coordonnées bancaires (devis et factures)
+// Acompte d'un devis : pourcentage entre 0 (exclu) et 100, sinon 0 (= pas d'acompte). Une valeur négative ou absurde ne s'affiche jamais.
+function devisAcomptePct(d){ const a = parseFloat(d && d.conditions_acompte_pct); return (isFinite(a) && a>0 && a<=100) ? a : 0; }
+// Acompte proposé à la facturation : celui du devis s'il est valide (0 compris), sinon 30 %
+function devisAcomptePctFacture(d){ const a = parseFloat(d && d.conditions_acompte_pct); return (isFinite(a) && a>=0 && a<=100) ? a : 30; }
 const DEVIS_ATTENTION = "les prix peuvent varier en fonction de la consommation de carburant et du cours du carburant lors du transport.";
 
 function devisDelaiPaiementTexte(cond){
@@ -3098,11 +3132,12 @@ function devisValiditeTexte(jours){
   return (j%30===0 && j<=360) ? (j/30)+' mois' : j+' jours';
 }
 function devisTextesModele(d){
-  const acompte = parseFloat(d.conditions_acompte_pct)||0;
+  const acompte = devisAcomptePct(d);
   return {
     facturation: [
       ...(acompte>0 ? [`Acompte : ${String(acompte).replace('.',',')} % du montant total exigible à la commande (préalable au démarrage des travaux).`] : []),
-      devisDelaiPaiementTexte(d.conditions_paiement)
+      devisDelaiPaiementTexte(d.conditions_paiement),
+      `Coordonnées bancaires : IBAN ${LYNEO_IBAN} — BIC : ${LYNEO_BIC}.`
     ],
     cadreLegal: [
       "Réserve de propriété : Le vendeur conserve la pleine propriété des biens livrés jusqu'au paiement intégral du prix (principal et accessoires). Le défaut de paiement peut entraîner la revendication immédiate des biens.",
@@ -3310,8 +3345,7 @@ async function downloadPDF_PO(poId){
       {label:'TOTAL TTC', value: fmt(po.total_ttc), bold:true}
     ],
     notesBlock: po.observations ? {title:'Observations', text: po.observations} : null,
-    paymentBlock: {title:'Conditions', lines:[`Merci de mentionner notre référence ${po.numero} sur votre facture.`]},
-    footerText: `Document généré le ${new Date().toLocaleDateString('fr-FR')}`
+    paymentBlock: {title:'Conditions', lines:[`Merci de mentionner notre référence ${po.numero} sur votre facture.`]}
   };
 
   try{
@@ -5097,7 +5131,7 @@ async function openDevisModal(d=null){
         <div class="form-group"><label class="field-label">Statut</label>
           <select id="dv-statut">${Object.keys(STATUT_DV).map(s=>`<option value="${s}" ${(d?.statut||'brouillon')===s?'selected':''}>${STATUT_DV[s]}</option>`).join('')}</select>
         </div>
-        <div class="form-group"><label class="field-label">Acompte (%)</label><input type="number" id="dv-acompte" value="${d?.conditions_acompte_pct??40}"/></div>
+        <div class="form-group"><label class="field-label">Acompte (%)</label><input type="number" id="dv-acompte" value="${d ? devisAcomptePct(d) : 40}" min="0" max="100" step="any"/></div>
         <div class="form-group"><label class="field-label">Conditions de paiement</label><input id="dv-cond-paiement" value="${d?.conditions_paiement||'30 jours'}"/></div>
       </div>
 
@@ -5168,6 +5202,8 @@ async function saveDevis(id){
   const client_id = el('dv-client').value;
   if(!client_id){ showToast("Client obligatoire", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
   if(_devisLignes.principal.some(r=>!r.description)){ showToast("Toutes les lignes/sections doivent avoir une désignation", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
+  const acompteBrut = el('dv-acompte').value.trim(), acompteSaisi = parseFloat(acompteBrut);
+  if(acompteBrut!=='' && (!isFinite(acompteSaisi) || acompteSaisi<0 || acompteSaisi>100)){ showToast("Acompte : entrez un pourcentage entre 0 et 100 (0 = pas d'acompte)", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
 
   const totalHT = devisBlocTotal(_devisLignes.principal);
   const totalTVA = _devisLignes.principal.filter(r=>r.type==='ligne').reduce((a,r)=>a+(parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0)*(parseFloat(r.taux_tva)||0)/100,0);
@@ -5293,7 +5329,7 @@ async function openDevisDetail(devisId){
         <div class="info-item"><label>Date</label><span>${fmtDate(d.date_devis)}</span></div>
         <div class="info-item"><label>Validité</label><span>${d.validite_jours} jours</span></div>
         <div class="info-item"><label>Statut</label><span>${bDV(d.statut)}</span></div>
-        <div class="info-item"><label>Acompte</label><span>${d.conditions_acompte_pct}%</span></div>
+        <div class="info-item"><label>Acompte</label><span>${devisAcomptePct(d)}%</span></div>
         <div class="info-item"><label>Conditions</label><span>${d.conditions_paiement||'—'}</span></div>
       </div>
 
@@ -5740,7 +5776,7 @@ async function syncAcompteLibre(){
   if(block){
     block.style.display = 'block';
     block.innerHTML = `<div class="form-grid">
-      <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct??30}" min="0" max="100" step="1" oninput="updateAcompteMontantLibre()"/></div>
+      <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisAcomptePctFacture(devisInfo)}" min="0" max="100" step="1" oninput="updateAcompteMontantLibre()"/></div>
       <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
     </div>
     <div style="margin-top:6px;font-size:12px;color:var(--gray-6)">La ligne ci-dessous est calculée automatiquement à partir du pourcentage — vous pouvez l'ajuster librement.</div>`;
@@ -6018,7 +6054,7 @@ async function alerteAcomptesFvHTML(devisInfo){
 function acompteInnerFv(devisInfo){
   if(!devisInfo) return '<p style="font-size:13px;color:var(--gray-6)">Un devis lié est nécessaire pour calculer un acompte automatiquement. Passez en "Libre" ou "Situation" pour facturer sans devis.</p>';
   return `<div class="form-grid">
-          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisInfo.conditions_acompte_pct??30}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
+          <div class="form-group"><label class="field-label">Pourcentage d'acompte</label><input type="number" id="fv-acompte-pct" value="${devisAcomptePctFacture(devisInfo)}" min="0" max="100" step="1" oninput="updateAcompteMontant()"/></div>
           <div class="form-group"><label class="field-label">Montant HT du devis</label><input value="${fmt(devisInfo.montant_ht)}" disabled style="background:#fff"/></div>
         </div>
         <div style="margin-top:6px;font-size:12px;color:var(--gray-6)">La ligne ci-dessous est calculée automatiquement à partir du pourcentage — vous pouvez l'ajuster librement avant de créer la facture.</div>`;
@@ -6644,12 +6680,11 @@ async function downloadPDF_FactureVente(facId){
       lines: [origine ? `Cette note de crédit rectifie la facture N° ${origine.numero} du ${fmtDate(origine.date_creation)}.` : 'Note de crédit.', `Montant à votre crédit : ${fmt(-(parseFloat(f.total_ttc)||0))} TTC.`]
     } : {
       title:'Informations de règlement',
-      lines: ['Banque : LU89 0099 7800 0161 1797  |  BIC : CCRALULL', `Référence à indiquer : N° Facture ${f.numero}`]
+      lines: [`Banque : ${LYNEO_IBAN}  |  BIC : ${LYNEO_BIC}`, `Référence à indiquer : N° Facture ${f.numero}`]
     },
     extraPages: estAvoir ? [] : [
       {title:'CONDITIONS GÉNÉRALES DE VENTE — LYNEO SARL', articles: CGV_ARTICLES}
-    ],
-    footerText: `Document généré le ${new Date().toLocaleDateString('fr-FR')}`
+    ]
   };
 
   try{
