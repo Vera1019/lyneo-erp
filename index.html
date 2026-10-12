@@ -66,6 +66,19 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .login-hint{text-align:center;margin-top:20px;font-size:12px;color:var(--gray-4)}
 .doc-fleche{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:8px;border-radius:50%;background:var(--blue-light,#E6F0F7);color:var(--blue);font-size:14px;text-decoration:none;flex-shrink:0;vertical-align:middle}
 .doc-fleche:hover{background:var(--blue);color:#fff}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap}
+.radio-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1.5px solid var(--gray-3);border-radius:var(--radius-sm);cursor:pointer;font-size:13px;color:var(--gray-7);background:#fff;user-select:none;transition:all .15s}
+.radio-pill input{width:auto;padding:0;margin:0;accent-color:var(--blue);box-shadow:none}
+.radio-pill:hover{border-color:var(--gray-4)}
+.radio-pill:has(input:checked){border-color:var(--blue);background:var(--blue-light);color:var(--blue);font-weight:600}
+.emp-actif-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 16px;margin-bottom:14px;border-radius:var(--radius);background:var(--gray-1);border:1px solid var(--gray-3)}
+.emp-actif-bar select{width:auto;min-width:110px}
+.emp-section{border:1px solid var(--gray-3);border-radius:var(--radius);padding:14px 16px 16px;margin-bottom:14px;background:#fff}
+.emp-section-titre{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+.emp-section-titre i{font-size:16px}
+.emp-section-note{display:flex;align-items:center;gap:6px;font-size:12px;color:#92400E;margin:-4px 0 12px}
+.emp-section.confidentiel{border-color:#FDE68A;background:#FFFDF5}
+.emp-section.confidentiel .emp-section-titre{color:#B45309}
 input:disabled,select:disabled,textarea:disabled{background:var(--gray-1);color:var(--gray-5);cursor:not-allowed}
 
 /* ── LAYOUT ─────────────────────────────────────────────────── */
@@ -531,11 +544,13 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div class="nav-item" onclick="navigate('receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> Réceptions (BL)</div>
       <div class="nav-item" onclick="navigate('factures')" id="nav-factures"><i class="ti ti-file-invoice"></i> Factures fournisseurs</div>
 
-      <div id="nav-admin-section" class="hidden">
+      <div id="nav-rh-section" class="hidden">
         <div class="nav-section">Ressources humaines</div>
         <div class="nav-item" onclick="navigate('employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</div>
         <div class="nav-item" onclick="window.open('https://lyneo-pointages.netlify.app','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
+      </div>
 
+      <div id="nav-admin-section" class="hidden">
         <div class="nav-section">Administration</div>
         <div class="nav-item" onclick="navigate('utilisateurs')" id="nav-utilisateurs"><i class="ti ti-user-cog"></i> Utilisateurs</div>
         <div class="nav-item" onclick="navigate('controle')" id="nav-controle"><i class="ti ti-shield-check"></i> Contrôle &amp; clôture</div>
@@ -1515,6 +1530,7 @@ function afficherEcranConnexion(){
   el('login-page').classList.remove('hidden');
   el('app-layout').classList.add('hidden');
   const adm = el('nav-admin-section'); if(adm) adm.classList.add('hidden');
+  const rhn = el('nav-rh-section'); if(rhn) rhn.classList.add('hidden');
   const err = el('login-error'); if(err) err.classList.add('hidden');
   const btn = document.querySelector('.login-btn'); if(btn){ btn.disabled=false; btn.innerHTML='<i class="ti ti-login"></i> Se connecter'; }
   el('login-password').value = '';
@@ -1534,6 +1550,7 @@ function initApp(){
   const av = el('sidebar-avatar');
   if(av) av.textContent = (currentUser.prenom||'?')[0].toUpperCase();
   if(currentUser.role==='admin') el('nav-admin-section').classList.remove('hidden');
+  if(peutVoirSalaires()) el('nav-rh-section').classList.remove('hidden');   // administrateurs + personnes avec « Accès aux salaires » : module Employés
   const dateEl = el('topbar-date');
   if(dateEl) dateEl.innerHTML = '<i class="ti ti-calendar" style="font-size:13px"></i>'+new Date().toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
   chargerCloture();
@@ -7566,7 +7583,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','anexos','anexos_chantier','anexos_devis','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','anexos','anexos_chantier','anexos_devis','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
@@ -7604,6 +7621,46 @@ async function telechargerSauvegarde(){
 // ── EMPLOYÉS (RH) ─────────────────────────────────────────────
 let _employesRH = [];
 
+// Qui peut voir / modifier les salaires : les administrateurs + les personnes à qui un administrateur a donné
+// « Accès aux salaires » (fiche Utilisateurs). La base de données refuse elle-même la lecture aux autres
+// (table employes_remuneration, voir migration-employes-fiche-complete.sql) : l'écran ne fait que masquer la section.
+function peutVoirSalaires(){ return !!(currentUser && (currentUser.role==='admin' || currentUser.acces_salaires===true)); }
+
+const STATUTS_PRO = {ouvrier:'Ouvrier', employe:'Employé'};
+const PERIODES_ESSAI = [1,3,6,12];
+const CLASSES_IMPOT = ['1','1A','2'];
+const TYPES_VEHICULE = {fonction:'Véhicule de fonction', service:'Véhicule de service'};
+const TYPES_REMUNERATION = {traitement:'Traitement (mensuel)', horaire:'Horaire'};
+let _empRemEtat = 'ok';   // 'ok' · 'absente' (SQL pas encore exécuté) · 'refusee' (la base refuse l'accès) · 'masquee' (pas d'accès aux salaires)
+
+// Colonnes / table de migration-employes-fiche-complete.sql pas encore créées ?
+const migrationEmployeAbsente = msg => /schema cache|does not exist|could not find/i.test(String(msg||''));
+// Anciens champs libres « RIB / IBAN » et « Carte d'impôt » : repris tant que les nouveaux champs sont vides
+const empIban = e => (e && (e.iban || e.rib)) || '';
+const empImpotRef = e => (e && (e.carte_impot_reference || e.carte_impot)) || '';
+const dateExpiree = d => !!(d && String(d).slice(0,10) < new Date().toISOString().slice(0,10));
+// Date d'entrée + N mois − 1 jour (fin prévue de la période d'essai), au format AAAA-MM-JJ
+function finPeriodeEssaiISO(iso, mois){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); if(!m || !mois) return null;
+  let y = +m[1], mo = +m[2]-1+(+mois);
+  y += Math.floor(mo/12); mo = ((mo%12)+12)%12;
+  const dernier = new Date(Date.UTC(y, mo+1, 0)).getUTCDate(), jour = +m[3];
+  // entrée le 31 + 1 mois (mois plus court) → dernier jour du mois ; sinon la veille du même jour, N mois plus tard
+  if(jour > dernier) return new Date(Date.UTC(y, mo, dernier)).toISOString().slice(0,10);
+  return new Date(Date.UTC(y, mo, jour) - 86400000).toISOString().slice(0,10);
+}
+// Cases à cocher « une seule réponse » (Ouvrier / Employé, Traitement / Horaire)
+function empRadios(name, options, valeur, onchange){
+  return '<div class="radio-group">'+Object.entries(options).map(([k,l])=>
+    `<label class="radio-pill"><input type="radio" name="${name}" value="${k}"${valeur===k?' checked':''}${onchange?` onchange="${onchange}"`:''}/> ${escHtml(l)}</label>`).join('')+'</div>';
+}
+function valRadio(name){ const x = document.querySelector(`input[name="${name}"]:checked`); return x ? x.value : null; }
+const empSection = (titre, icone, contenu, opts={}) => `<div class="emp-section${opts.confidentiel?' confidentiel':''}">
+    <div class="emp-section-titre"><i class="ti ti-${icone}"></i> ${titre}</div>
+    ${opts.note?`<div class="emp-section-note">${opts.note}</div>`:''}
+    ${contenu}
+  </div>`;
+
 async function renderEmployesRH(search=''){
   const {data} = await sb.from('employes_rh').select('*').order('nom');
   _employesRH = data||[];
@@ -7613,24 +7670,25 @@ async function renderEmployesRH(search=''){
     <div class="page-header">
       <div class="page-header-left"><h1>Employés</h1><p>Dossiers du personnel</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderEmployesRH(this.value)" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderEmployesRH(this.value)" value="${escHtml(search)}"/></div>
         <button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>
       </div>
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>Nom</th><th>Poste</th><th>Email</th><th>Téléphone</th><th>Type contrat</th><th>Embauche</th><th>Actif</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Poste</th><th>Statut</th><th>Email</th><th>Téléphone</th><th>Type contrat</th><th>Entrée</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé enregistré</p><button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé enregistré</p><button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button></div></td></tr>' :
             items.map(e=>{
               const badge = '<span class="badge badge-'+(e.actif!==false?'oui':'non')+'">'+(e.actif!==false?'Oui':'Non')+'</span>';
               return `<tr style="cursor:pointer" onclick="openEmployeDetail('${e.id}')">
-                <td><strong>${e.prenom||''} ${e.nom}</strong></td>
-                <td>${e.poste||'—'}</td>
-                <td>${e.email||'—'}</td>
-                <td>${e.telephone||'—'}</td>
-                <td>${e.type_contrat||'—'}</td>
+                <td><strong>${escHtml(e.prenom||'')} ${escHtml(e.nom)}</strong></td>
+                <td>${escHtml(e.poste)||'—'}</td>
+                <td>${STATUTS_PRO[e.statut_professionnel]||'—'}</td>
+                <td>${escHtml(e.email)||'—'}</td>
+                <td>${escHtml(e.telephone)||'—'}</td>
+                <td>${escHtml(e.type_contrat)||'—'}</td>
                 <td>${fmtDate(e.date_embauche)}</td>
                 <td>${badge}</td>
                 <td><div class="td-actions">
@@ -7645,6 +7703,13 @@ async function renderEmployesRH(search=''){
     </div>`;
 }
 
+// Rémunération (traitement mensuel ou horaire) : champ « montant » et « heures par semaine » selon le type choisi
+function majFormRemuneration(){
+  const type = valRadio('emp-rem-type');
+  const lab = el('emp-rem-montant-label'); if(lab) lab.textContent = type==='horaire' ? 'Taux horaire brut (€ / h)' : 'Salaire mensuel brut (€)';
+  const h = el('emp-rem-heures-groupe'); if(h) h.style.display = type==='horaire' ? '' : 'none';
+}
+
 async function openEmployeModal(r=null){
   const isEdit = !!r;
   let pointageEmployes = [];
@@ -7653,82 +7718,155 @@ async function openEmployeModal(r=null){
     pointageEmployes = data||[];
   }catch(e){ /* système de pointages indisponible — ignore silencieusement */ }
 
+  // Rémunération : chargée seulement pour les personnes autorisées (la base applique la même règle)
+  let rem = null;
+  _empRemEtat = 'masquee';
+  if(peutVoirSalaires()){
+    _empRemEtat = 'ok';
+    const res = isEdit
+      ? await sb.from('employes_remuneration').select('*').eq('employe_id', r.id).maybeSingle()
+      : await sb.from('employes_remuneration').select('employe_id').limit(1);
+    if(res.error) _empRemEtat = migrationEmployeAbsente(res.error.message) ? 'absente' : 'refusee';
+    else if(isEdit) rem = res.data;
+  }
+  const remType = rem?.type_remuneration || '';
+  const optionsListe = (liste, courant, fmtLabel) => liste.map(v=>`<option value="${escHtml(v)}"${String(courant)===String(v)?' selected':''}>${escHtml(fmtLabel?fmtLabel(v):v)}</option>`).join('');
+  const champ = (label, id, valeur, extra='') => `<div class="form-group"><label class="field-label" for="${id}">${label}</label><input id="${id}" value="${escHtml(valeur)}" ${extra}/></div>`;
+  const champDate = (label, id, valeur) => `<div class="form-group"><label class="field-label" for="${id}">${label}</label><input type="date" id="${id}" value="${escHtml(valeur)}"/></div>`;
+
+  const sectionRemuneration = _empRemEtat==='masquee' ? '' : empSection('Rémunération', 'lock',
+    _empRemEtat==='absente'
+      ? `<div class="alert alert-warning" style="margin:0"><i class="ti ti-database-exclamation"></i><span>Pour enregistrer la rémunération, exécutez d'abord <strong>migration-employes-fiche-complete.sql</strong> dans Supabase (SQL Editor).</span></div>`
+    : _empRemEtat==='refusee'
+      ? `<div class="alert alert-error" style="margin:0"><i class="ti ti-lock"></i><span>La base de données refuse l'accès à la rémunération pour votre compte.</span></div>`
+    : `<div class="form-grid">
+        <div class="form-group full"><label class="field-label">Type de rémunération</label>${empRadios('emp-rem-type', TYPES_REMUNERATION, remType, 'majFormRemuneration()')}</div>
+        <div class="form-group"><label class="field-label" for="emp-rem-montant" id="emp-rem-montant-label">${remType==='horaire'?'Taux horaire brut (€ / h)':'Salaire mensuel brut (€)'}</label><input type="number" step="0.01" min="0" id="emp-rem-montant" value="${escHtml(rem?.salaire_brut??'')}"/></div>
+        <div class="form-group" id="emp-rem-heures-groupe" style="${remType==='horaire'?'':'display:none'}"><label class="field-label" for="emp-rem-heures">Heures par semaine</label><input type="number" step="0.25" min="0" max="80" id="emp-rem-heures" value="${escHtml(rem?.heures_semaine??'')}"/></div>
+      </div>`,
+    {confidentiel:true, note:'<i class="ti ti-eye-off"></i> Confidentiel — visible uniquement par les administrateurs et les personnes autorisées.'});
+
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>${isEdit?'Modifier employé':'Nouvel employé'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
 
-      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Identité</div>
-      <div class="form-grid" style="margin-bottom:20px">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="emp-nom" value="${r?.nom||''}"/></div>
-        <div class="form-group"><label class="field-label">Prénom</label><input id="emp-prenom" value="${r?.prenom||''}"/></div>
-        <div class="form-group"><label class="field-label">Poste / Fonction</label><input id="emp-poste" value="${r?.poste||''}" placeholder="Ex: Électricien, Chef de chantier..."/></div>
-        <div class="form-group"><label class="field-label">Date de naissance</label><input type="date" id="emp-naissance" value="${r?.date_naissance||''}"/></div>
-        <div class="form-group"><label class="field-label">Lieu de naissance</label><input id="emp-lieu-naissance" value="${r?.lieu_naissance||''}"/></div>
-        <div class="form-group"><label class="field-label">État civil</label>
+      <div class="emp-actif-bar">
+        <label class="field-label" for="emp-actif" style="margin:0"><i class="ti ti-user-check"></i> Employé actif</label>
+        <select id="emp-actif">
+          <option value="1" ${r?.actif!==false?'selected':''}>Oui</option>
+          <option value="0" ${r?.actif===false?'selected':''}>Non</option>
+        </select>
+        <span style="font-size:12px;color:var(--gray-5)">Choisissez « Non » quand la personne a quitté l'entreprise.</span>
+      </div>
+
+      ${empSection('Identité', 'user', `<div class="form-grid">
+        ${champ('Nom *','emp-nom',r?.nom)}
+        ${champ('Prénom','emp-prenom',r?.prenom)}
+        ${champDate('Date de naissance','emp-naissance',r?.date_naissance||'')}
+        ${champ('Lieu de naissance','emp-lieu-naissance',r?.lieu_naissance)}
+        <div class="form-group"><label class="field-label" for="emp-etat-civil">État civil</label>
           <select id="emp-etat-civil">
             <option value="">— Sélectionner —</option>
             ${['Célibataire','Marié(e)','Divorcé(e)','Veuf(ve)','Partenariat (PACS)'].map(s=>`<option ${r?.etat_civil===s?'selected':''}>${s}</option>`).join('')}
           </select>
         </div>
-        <div class="form-group"><label class="field-label">Enfants à charge</label><input type="number" min="0" id="emp-enfants" value="${r?.nombre_enfants_charge??0}"/></div>
-        <div class="form-group"><label class="field-label">Matricule CNS</label><input id="emp-cns" value="${r?.matricule_cns||''}"/></div>
-        <div class="form-group"><label class="field-label">Actif</label>
-          <select id="emp-actif">
-            <option value="1" ${r?.actif!==false?'selected':''}>Oui</option>
-            <option value="0" ${r?.actif===false?'selected':''}>Non</option>
-          </select>
-        </div>
-      </div>
+        <div class="form-group"><label class="field-label" for="emp-enfants">Enfants à charge</label><input type="number" min="0" id="emp-enfants" value="${escHtml(r?.nombre_enfants_charge??0)}"/></div>
+        ${champ('Matricule CNS','emp-cns',r?.matricule_cns)}
+      </div>`)}
 
-      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Contact</div>
-      <div class="form-grid" style="margin-bottom:20px">
-        <div class="form-group full"><label class="field-label">Adresse</label><input id="emp-adresse" value="${r?.adresse||''}"/></div>
-        <div class="form-group"><label class="field-label">Code postal</label><input id="emp-cp" value="${r?.code_postal||''}"/></div>
-        <div class="form-group"><label class="field-label">Ville</label><input id="emp-ville" value="${r?.ville||''}"/></div>
-        <div class="form-group"><label class="field-label">Email</label><input type="email" id="emp-email" value="${r?.email||''}"/></div>
-        <div class="form-group"><label class="field-label">Téléphone</label><input id="emp-tel" value="${r?.telephone||''}"/></div>
-      </div>
+      ${empSection("Carte d'identité et permis de conduire", 'id', `<div class="form-grid">
+        ${champ("N° de carte d'identité",'emp-ci-num',r?.numero_carte_identite)}
+        ${champDate("Validité de la carte d'identité",'emp-ci-date',r?.date_validite_carte_identite||'')}
+        ${champ('N° de permis de conduire','emp-permis-num',r?.numero_permis_conduire)}
+        ${champDate('Validité du permis','emp-permis-date',r?.date_validite_permis||'')}
+      </div>`)}
 
-      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Permis de conduire</div>
-      <div class="form-grid" style="margin-bottom:20px">
-        <div class="form-group"><label class="field-label">N° de permis</label><input id="emp-permis-num" value="${r?.numero_permis_conduire||''}"/></div>
-        <div class="form-group"><label class="field-label">Validité du permis</label><input type="date" id="emp-permis-date" value="${r?.date_validite_permis||''}"/></div>
-      </div>
+      ${empSection('Coordonnées', 'address-book', `<div class="form-grid">
+        <div class="form-group full"><label class="field-label" for="emp-adresse">Adresse</label><input id="emp-adresse" value="${escHtml(r?.adresse)}"/></div>
+        ${champ('Code postal','emp-cp',r?.code_postal)}
+        ${champ('Ville','emp-ville',r?.ville)}
+        <div class="form-group"><label class="field-label" for="emp-email">Email</label><input type="email" id="emp-email" value="${escHtml(r?.email)}"/></div>
+        ${champ('Téléphone','emp-tel',r?.telephone)}
+      </div>`)}
 
-      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Emploi</div>
-      <div class="form-grid" style="margin-bottom:20px">
-        <div class="form-group"><label class="field-label">Type de contrat</label>
+      ${empSection("Contact d'urgence", 'phone-call', `<div class="form-grid">
+        ${champ('Nom du contact','emp-urg-nom',r?.contact_urgence_nom)}
+        ${champ('Téléphone du contact','emp-urg-tel',r?.contact_urgence_telephone)}
+      </div>`)}
+
+      ${empSection('Contrat et emploi', 'briefcase', `<div class="form-grid">
+        ${champ('Poste / Fonction','emp-poste',r?.poste,'placeholder="Ex: Électricien, Chef de chantier..."')}
+        <div class="form-group"><label class="field-label" for="emp-contrat">Type de contrat</label>
           <select id="emp-contrat">
             <option value="">— Sélectionner —</option>
             ${['CDI','CDD','Intérim','Apprentissage','Stage','Indépendant'].map(s=>`<option ${r?.type_contrat===s?'selected':''}>${s}</option>`).join('')}
           </select>
         </div>
-        <div class="form-group"><label class="field-label">Date d'embauche</label><input type="date" id="emp-embauche" value="${r?.date_embauche||''}"/></div>
-        <div class="form-group"><label class="field-label">Salaire (€)</label><input type="number" step="0.01" id="emp-salaire" value="${r?.salaire||''}"/></div>
-        <div class="form-group"><label class="field-label">RIB / IBAN</label><input id="emp-rib" value="${r?.rib||''}"/></div>
-        <div class="form-group"><label class="field-label">Carte d'impôt</label><input id="emp-impot" value="${r?.carte_impot||''}" placeholder="Référence / classe d'impôt"/></div>
-        <div class="form-group"><label class="field-label">Visite médicale valable jusqu'au</label><input type="date" id="emp-visite-medicale" value="${r?.visite_medicale_valable_jusquau||''}"/></div>
-      </div>
+        <div class="form-group full"><label class="field-label">Statut</label>${empRadios('emp-statut-pro', STATUTS_PRO, r?.statut_professionnel||'')}</div>
+        ${champDate("Date d'entrée",'emp-embauche',r?.date_embauche||'')}
+        ${champDate('Date de sortie','emp-sortie',r?.date_sortie||'')}
+        <div class="form-group"><label class="field-label" for="emp-essai">Période d'essai</label>
+          <select id="emp-essai">
+            <option value="">— Aucune / non applicable —</option>
+            ${optionsListe(PERIODES_ESSAI, r?.periode_essai_mois||'', n=>n+' mois')}
+          </select>
+        </div>
+      </div>`)}
 
-      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Équipement / Tailles</div>
-      <div class="form-grid" style="margin-bottom:20px">
-        <div class="form-group"><label class="field-label">Taille (haut)</label><input id="emp-taille-haut" value="${r?.taille_haut||''}" placeholder="Ex: M, L, 42..."/></div>
-        <div class="form-group"><label class="field-label">Taille (bas)</label><input id="emp-taille-bas" value="${r?.taille_bas||''}" placeholder="Ex: 40, 42..."/></div>
-        <div class="form-group"><label class="field-label">Pointure</label><input id="emp-pointure" value="${r?.pointure||''}"/></div>
-      </div>
+      ${sectionRemuneration}
 
-      <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Lien avec le système de pointages</div>
-      <div class="form-grid" style="margin-bottom:20px">
-        <div class="form-group full"><label class="field-label">Employé pointages lié</label>
+      ${empSection('Coordonnées bancaires', 'building-bank', `<div class="form-grid">
+        ${champ('IBAN','emp-iban',empIban(r),'placeholder="LU.. .... .... .... ...."')}
+        ${champ('BIC','emp-bic',r?.bic,'placeholder="Ex: BCEELULL"')}
+      </div>`)}
+
+      ${empSection("Carte d'impôt", 'receipt-tax', `<div class="form-grid">
+        ${champ('Référence','emp-impot-ref',empImpotRef(r))}
+        <div class="form-group"><label class="field-label" for="emp-impot-classe">Classe d'impôt</label>
+          <select id="emp-impot-classe">
+            <option value="">— Sélectionner —</option>
+            ${optionsListe(CLASSES_IMPOT, r?.carte_impot_classe||'', c=>'Classe '+c)}
+          </select>
+        </div>
+      </div>`)}
+
+      ${empSection('Santé et sécurité — visite médicale', 'heartbeat', `<div class="form-grid">
+        ${champDate("Visite médicale valable jusqu'au",'emp-visite-medicale',r?.visite_medicale_valable_jusquau||'')}
+        <div class="form-group full"><label class="field-label" for="emp-visite-obs">Observations</label><textarea id="emp-visite-obs" rows="2">${escHtml(r?.visite_medicale_observations)}</textarea></div>
+      </div>`)}
+
+      ${empSection('Véhicule', 'car', `<div class="form-grid">
+        <div class="form-group full"><label class="field-label" for="emp-vehicule-type">Véhicule attribué</label>
+          <select id="emp-vehicule-type" onchange="el('emp-vehicule-detail').style.display=this.value?'':'none'">
+            <option value="">Aucun véhicule</option>
+            ${Object.entries(TYPES_VEHICULE).map(([k,l])=>`<option value="${k}"${r?.vehicule_type===k?' selected':''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <div id="emp-vehicule-detail" class="form-group full" style="${r?.vehicule_type?'':'display:none'}">
+          <div class="form-grid">
+            ${champ("Plaque d'immatriculation",'emp-vehicule-plaque',r?.vehicule_plaque)}
+            <div class="form-group full"><label class="field-label" for="emp-vehicule-obs">Observations</label><textarea id="emp-vehicule-obs" rows="2">${escHtml(r?.vehicule_observations)}</textarea></div>
+          </div>
+        </div>
+      </div>`)}
+
+      ${empSection('Équipement et tailles', 'shirt', `<div class="form-grid">
+        ${champ('Taille (haut)','emp-taille-haut',r?.taille_haut,'placeholder="Ex: M, L, 42..."')}
+        ${champ('Taille (bas)','emp-taille-bas',r?.taille_bas,'placeholder="Ex: 40, 42..."')}
+        ${champ('Pointure','emp-pointure',r?.pointure)}
+      </div>`)}
+
+      ${empSection('Système de pointages', 'clock-hour-4', `<div class="form-grid">
+        <div class="form-group full"><label class="field-label" for="emp-pointage-id">Employé pointages lié</label>
           <select id="emp-pointage-id">
             <option value="">— Aucun / non lié —</option>
-            ${pointageEmployes.map(p=>`<option value="${p.id}" ${r?.pointage_employe_id===p.id?'selected':''}>${p.nom||p.prenom||p.id}</option>`).join('')}
+            ${pointageEmployes.map(p=>`<option value="${escHtml(p.id)}" ${r?.pointage_employe_id===p.id?'selected':''}>${escHtml(p.nom||p.prenom||p.id)}</option>`).join('')}
           </select>
           ${pointageEmployes.length===0?'<span style="font-size:11px;color:var(--gray-5)">Impossible de charger la liste des employés du système de pointages pour le moment.</span>':''}
         </div>
-      </div>
+      </div>`)}
 
-      <div class="form-group full"><label class="field-label">Notes / informations complémentaires</label><textarea id="emp-notes">${r?.notes||''}</textarea></div>
+      <div class="form-group full"><label class="field-label" for="emp-notes">Notes / informations complémentaires</label><textarea id="emp-notes">${escHtml(r?.notes)}</textarea></div>
 
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -7755,16 +7893,26 @@ async function sincronizarEmployePointages(employeId, nomCompleto, actif, pointa
 }
 
 async function saveEmploye(id){
+  const reactiver = ()=>{ const b=el('btn-save-emp'); if(b) b.disabled=false; };
   const nom = el('emp-nom').value.trim();
-  if(!nom){ showToast("Nom obligatoire", 'error'); const b=el('btn-save-emp'); if(b) b.disabled=false; return; }
+  if(!nom){ showToast("Nom obligatoire", 'error'); reactiver(); return; }
+
+  const dateEntree = el('emp-embauche').value||null, dateSortie = el('emp-sortie').value||null;
+  if(dateEntree && dateSortie && dateSortie < dateEntree){ showToast("La date de sortie ne peut pas précéder la date d'entrée", 'error'); reactiver(); return; }
 
   const pointageSelect = el('emp-pointage-id');
   const pointageId = pointageSelect.value||null;
   const pointageNom = pointageId ? pointageSelect.options[pointageSelect.selectedIndex].text : null;
   const prenom = el('emp-prenom').value;
   const actif = el('emp-actif').value==='1';
+  const iban = el('emp-iban').value.replace(/\s+/g,' ').trim().toUpperCase();
+  const bic = el('emp-bic').value.replace(/\s+/g,'').toUpperCase();
+  const impotRef = el('emp-impot-ref').value.trim(), impotClasse = el('emp-impot-classe').value;
+  const vehiculeType = el('emp-vehicule-type').value||null;
+  const sinon = v => (v===''||v===undefined) ? null : v;
 
-  const data = {
+  // Colonnes qui existaient déjà avant la fiche complète (l'ancien champ « salaire » n'est plus écrit ici : il est dans employes_remuneration)
+  const dataBase = {
     nom, prenom, poste: el('emp-poste').value,
     actif,
     adresse: el('emp-adresse').value, code_postal: el('emp-cp').value, ville: el('emp-ville').value,
@@ -7773,26 +7921,67 @@ async function saveEmploye(id){
     etat_civil: el('emp-etat-civil').value, nombre_enfants_charge: parseInt(el('emp-enfants').value)||0,
     matricule_cns: el('emp-cns').value,
     numero_permis_conduire: el('emp-permis-num').value, date_validite_permis: el('emp-permis-date').value||null,
-    type_contrat: el('emp-contrat').value, date_embauche: el('emp-embauche').value||null,
-    salaire: parseFloat(el('emp-salaire').value)||null, rib: el('emp-rib').value, carte_impot: el('emp-impot').value,
+    type_contrat: el('emp-contrat').value, date_embauche: dateEntree,
+    rib: iban, carte_impot: [impotRef, impotClasse?('classe '+impotClasse):''].filter(Boolean).join(' — '),
     visite_medicale_valable_jusquau: el('emp-visite-medicale').value||null,
     taille_haut: el('emp-taille-haut').value, taille_bas: el('emp-taille-bas').value, pointure: el('emp-pointure').value,
     pointage_employe_id: pointageId, pointage_employe_nom: pointageNom,
     notes: el('emp-notes').value
   };
+  // Colonnes ajoutées par migration-employes-fiche-complete.sql
+  const dataNouveaux = {
+    statut_professionnel: valRadio('emp-statut-pro'),
+    date_sortie: dateSortie,
+    periode_essai_mois: parseInt(el('emp-essai').value)||null,
+    numero_carte_identite: el('emp-ci-num').value.trim(), date_validite_carte_identite: el('emp-ci-date').value||null,
+    iban, bic,
+    contact_urgence_nom: el('emp-urg-nom').value.trim(), contact_urgence_telephone: el('emp-urg-tel').value.trim(),
+    carte_impot_reference: impotRef, carte_impot_classe: sinon(impotClasse),
+    visite_medicale_observations: el('emp-visite-obs').value.trim(),
+    vehicule_type: vehiculeType,
+    vehicule_plaque: vehiculeType ? el('emp-vehicule-plaque').value.trim() : '',
+    vehicule_observations: vehiculeType ? el('emp-vehicule-obs').value.trim() : ''
+  };
 
-  let novoEmployeId = id;
-  const {data:savedRow, error} = id
-    ? await sb.from('employes_rh').update(data).eq('id',id).select().single()
-    : await sb.from('employes_rh').insert(data).select().single();
-  if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-emp'); if(b) b.disabled=false; return; }
-  novoEmployeId = savedRow?.id||id;
+  const ecrire = payload => id
+    ? sb.from('employes_rh').update(payload).eq('id',id).select().single()
+    : sb.from('employes_rh').insert(payload).select().single();
+  let {data:savedRow, error} = await ecrire({...dataBase, ...dataNouveaux});
+  let nouveauxChampsNonEnregistres = false;
+  if(error && migrationEmployeAbsente(error.message)){
+    // SQL pas encore exécuté : on enregistre quand même tout ce que la base connaît déjà
+    ({data:savedRow, error} = await ecrire(dataBase));
+    nouveauxChampsNonEnregistres = !error;
+  }
+  if(error){ showToast('Erreur: '+error.message, 'error'); reactiver(); return; }
+  const employeId = savedRow?.id||id;
+
+  // Rémunération : table à part, accès réservé (administrateurs + personnes autorisées)
+  let avertissementRem = null;
+  if(peutVoirSalaires() && _empRemEtat==='ok'){
+    const type = valRadio('emp-rem-type');
+    const montant = parseFloat(el('emp-rem-montant').value);
+    const heures = parseFloat(el('emp-rem-heures').value);
+    if(!type && isNaN(montant)){
+      if(id) await sb.from('employes_remuneration').delete().eq('employe_id', employeId);
+    } else {
+      const {error:remErr} = await sb.from('employes_remuneration').upsert({
+        employe_id: employeId, type_remuneration: type,
+        salaire_brut: isNaN(montant) ? null : montant,
+        heures_semaine: (type==='horaire' && !isNaN(heures)) ? heures : null,
+        updated_at: new Date().toISOString(), updated_by: (currentUser&&currentUser.email)||null
+      }, {onConflict:'employe_id'});
+      if(remErr) avertissementRem = "La rémunération n'a pas pu être enregistrée : "+remErr.message;
+    }
+  }
 
   const nomCompleto = (prenom?prenom+' ':'')+nom;
-  const resultadoSync = await sincronizarEmployePointages(novoEmployeId, nomCompleto, actif, pointageId);
+  const resultadoSync = await sincronizarEmployePointages(employeId, nomCompleto, actif, pointageId);
   setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
 
   showToast(id?'Employé mis à jour':'Employé créé');
+  if(nouveauxChampsNonEnregistres) showToast("⚠ Les nouveaux champs (carte d'identité, IBAN/BIC, véhicule…) ne sont pas enregistrés : exécutez d'abord « migration-employes-fiche-complete.sql » dans Supabase.", 'error');
+  if(avertissementRem) showToast('⚠ '+avertissementRem, 'error');
   closeModal();
   renderEmployesRH();
 }
@@ -7838,6 +8027,13 @@ async function openEmployeDetail(employeId){
   }
   if(!emp){ showToast("Employé introuvable", 'error'); return; }
   const {data:anexos} = await sb.from('anexos_employe').select('*').eq('employe_id',employeId).order('created_at',{ascending:false});
+  // Rémunération : seulement pour les administrateurs et les personnes autorisées (la base applique la même règle)
+  let rem = null, remEtat = 'masquee';
+  if(peutVoirSalaires()){
+    remEtat = 'ok';
+    const resRem = await sb.from('employes_remuneration').select('*').eq('employe_id',employeId).maybeSingle();
+    if(resRem.error) remEtat = migrationEmployeAbsente(resRem.error.message) ? 'absente' : 'refusee'; else rem = resRem.data;
+  }
   const docsCat = {}; (anexos||[]).forEach(a=>{ (docsCat[categorieDocEmploye(a)] = docsCat[categorieDocEmploye(a)]||[]).push(a); });
 
   // Heures encodées dans le système de pointages, pour cet employé
@@ -7861,10 +8057,22 @@ async function openEmployeDetail(employeId){
 
   const initiales = ((emp.prenom||'')[0]||'')+((emp.nom||'')[0]||'');
   // `cat` : type de document relié à cette ligne → petite flèche ↗ vers le(s) fichier(s) chargé(s)
-  const profileRow = (label,value,cat)=>`<div style="display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--gray-2)">
+  // `extra` : petit texte HTML après la valeur (ex. « Expirée »)
+  const profileRow = (label,value,cat,extra)=>`<div style="display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--gray-2)">
       <span style="width:220px;flex-shrink:0;font-size:12.5px;color:var(--gray-5)">${label}</span>
-      <span style="font-size:13px;color:var(--gray-8);font-weight:500;display:flex;align-items:center;flex-wrap:wrap">${(value===0||value)?escHtml(value):'—'}${cat?flechesDocsEmploye(docsCat[cat]):''}</span>
+      <span style="font-size:13px;color:var(--gray-8);font-weight:500;display:flex;align-items:center;flex-wrap:wrap">${(value===0||value)?escHtml(value):'—'}${extra||''}${cat?flechesDocsEmploye(docsCat[cat]):''}</span>
     </div>`;
+  const expiree = d => dateExpiree(d) ? '<span style="margin-left:8px;font-size:10.5px;font-weight:700;color:var(--red);background:var(--red-light);padding:2px 8px;border-radius:10px;text-transform:uppercase">Expirée</span>' : '';
+  const numEtValidite = (num,d)=> num&&d ? 'N° '+num+" (valable jusqu'au "+fmtDate(d)+')' : num ? 'N° '+num : d ? "Valable jusqu'au "+fmtDate(d) : '';
+  const finEssai = emp.periode_essai_mois ? finPeriodeEssaiISO(emp.date_embauche, emp.periode_essai_mois) : null;
+  const remRows = remEtat==='absente'
+      ? `<div class="alert alert-warning" style="margin:0"><i class="ti ti-database-exclamation"></i><span>Pour enregistrer la rémunération, exécutez d'abord <strong>migration-employes-fiche-complete.sql</strong> dans Supabase (SQL Editor).</span></div>`
+    : remEtat==='refusee'
+      ? `<div class="alert alert-error" style="margin:0"><i class="ti ti-lock"></i><span>La base de données refuse l'accès à la rémunération pour votre compte.</span></div>`
+    : profileRow('Type de rémunération', TYPES_REMUNERATION[rem?.type_remuneration]||'') +
+      (rem?.type_remuneration==='horaire'
+        ? profileRow('Taux horaire brut', rem.salaire_brut!=null ? fmt(rem.salaire_brut)+' / h' : '') + profileRow('Heures par semaine', rem.heures_semaine!=null ? String(rem.heures_semaine).replace('.',',')+' h' : '')
+        : profileRow('Salaire mensuel brut', rem?.salaire_brut!=null ? fmt(rem.salaire_brut) : ''));
   const profileSection = (title,rowsHtml)=>`<div style="margin-bottom:22px">
       <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">${title}</div>
       <div>${rowsHtml}</div>
@@ -7874,7 +8082,7 @@ async function openEmployeDetail(employeId){
     <div class="modal-header">
       <div style="display:flex;align-items:center;gap:12px">
         <div style="width:44px;height:44px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initiales.toUpperCase()||'?'}</div>
-        <div><h3 style="margin:0">${emp.prenom||''} ${emp.nom}</h3><span style="font-size:12px;color:var(--gray-5)">${emp.poste||'—'} ${emp.actif===false?' · <span style=\"color:var(--red)\">Inactif</span>':''}</span></div>
+        <div><h3 style="margin:0">${escHtml(emp.prenom||'')} ${escHtml(emp.nom)}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(emp.poste)||'—'} ${emp.actif===false?' · <span style=\"color:var(--red)\">Inactif</span>':''}</span></div>
       </div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
@@ -7884,22 +8092,43 @@ async function openEmployeDetail(employeId){
         profileRow('Téléphone', emp.telephone) +
         profileRow('Adresse', [emp.adresse, emp.code_postal, emp.ville].filter(Boolean).join(' '))
       )}
+      ${profileSection("Contact d'urgence",
+        profileRow('Nom du contact', emp.contact_urgence_nom) +
+        profileRow('Téléphone du contact', emp.contact_urgence_telephone)
+      )}
       ${profileSection('Identité',
         profileRow('Date de naissance', (fmtDate(emp.date_naissance)||'')+(emp.lieu_naissance?' — '+emp.lieu_naissance:'')) +
         profileRow('État civil', emp.etat_civil) +
         profileRow('Enfants à charge', emp.nombre_enfants_charge??0) +
         profileRow('Matricule CNS', emp.matricule_cns, 'cns') +
-        profileRow("Pièce d'identité", '', 'identite') +
-        profileRow('Permis de conduire', emp.numero_permis_conduire ? emp.numero_permis_conduire+(emp.date_validite_permis?" (valable jusqu'au "+fmtDate(emp.date_validite_permis)+')':'') : '', 'permis')
+        profileRow("Carte d'identité", numEtValidite(emp.numero_carte_identite, emp.date_validite_carte_identite), 'identite', expiree(emp.date_validite_carte_identite)) +
+        profileRow('Permis de conduire', numEtValidite(emp.numero_permis_conduire, emp.date_validite_permis).replace(/^N° /,''), 'permis', expiree(emp.date_validite_permis))
       )}
-      ${profileSection('Emploi',
+      ${profileSection('Contrat et emploi',
+        profileRow('Poste / Fonction', emp.poste) +
+        profileRow('Statut', STATUTS_PRO[emp.statut_professionnel]||'') +
         profileRow('Type de contrat', emp.type_contrat, 'contrat') +
-        profileRow("Date d'embauche", fmtDate(emp.date_embauche)) +
-        profileRow('Salaire', emp.salaire?fmt(emp.salaire):'') +
-        profileRow('RIB', emp.rib, 'rib') +
-        profileRow("Carte d'impôt", emp.carte_impot, 'carte_impot') +
-        profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau), 'visite_medicale') +
+        profileRow("Date d'entrée", fmtDate(emp.date_embauche)) +
+        profileRow('Date de sortie', emp.date_sortie ? fmtDate(emp.date_sortie) : '') +
+        profileRow("Période d'essai", emp.periode_essai_mois ? emp.periode_essai_mois+' mois'+(finEssai?' — fin prévue le '+fmtDate(finEssai):'') : '') +
         profileRow('Certificats / formations', '', 'certificat')
+      )}
+      ${remEtat==='masquee' ? '' : profileSection('<i class="ti ti-lock" style="font-size:13px"></i> Rémunération <span style="font-weight:600;color:var(--orange);text-transform:none;letter-spacing:0;margin-left:6px">confidentiel</span>', remRows)}
+      ${profileSection('Coordonnées bancaires',
+        profileRow('IBAN', empIban(emp), 'rib') +
+        profileRow('BIC', emp.bic)
+      )}
+      ${profileSection("Carte d'impôt",
+        profileRow('Référence', empImpotRef(emp), 'carte_impot') +
+        profileRow("Classe d'impôt", emp.carte_impot_classe ? 'Classe '+emp.carte_impot_classe : '')
+      )}
+      ${profileSection('Santé et sécurité',
+        profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau), 'visite_medicale', expiree(emp.visite_medicale_valable_jusquau)) +
+        profileRow('Observations', emp.visite_medicale_observations)
+      )}
+      ${profileSection('Véhicule',
+        profileRow('Véhicule attribué', TYPES_VEHICULE[emp.vehicule_type]||'Aucun') +
+        (emp.vehicule_type ? profileRow("Plaque d'immatriculation", emp.vehicule_plaque) + profileRow('Observations', emp.vehicule_observations) : '')
       )}
       ${profileSection('Équipement',
         profileRow('Tailles', `Haut : ${emp.taille_haut||'—'} · Bas : ${emp.taille_bas||'—'} · Pointure : ${emp.pointure||'—'}`)
@@ -7907,7 +8136,7 @@ async function openEmployeDetail(employeId){
       ${profileSection('Système de pointages',
         profileRow('Employé lié', emp.pointage_employe_nom)
       )}
-      ${emp.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${emp.notes}</p></div>`:''}
+      ${emp.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px;white-space:pre-wrap">${escHtml(emp.notes)}</p></div>`:''}
 
       <strong style="font-size:13px">Heures encodées (pointages)</strong>
       <div style="margin-top:8px;margin-bottom:20px">
@@ -8748,11 +8977,12 @@ async function renderUtilisateurs(){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>Prénom</th><th>Nom</th><th>Email</th><th>Rôle</th><th>Actif</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Prénom</th><th>Nom</th><th>Email</th><th>Rôle</th><th>Salaires</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${users.map(r=>`<tr>
               <td>${escHtml(r.prenom)}</td><td><strong>${escHtml(r.nom)}</strong></td><td>${escHtml(r.email)}</td>
               <td><span class="badge badge-envoyee">${ROLES[r.role]||r.role}</span></td>
+              <td>${r.role==='admin' ? '<span class="text-muted text-sm">toujours</span>' : (r.acces_salaires===true ? '<span class="badge badge-oui">Autorisé</span>' : '<span class="text-muted text-sm">—</span>')}</td>
               <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Actif':'Inactif'}</span></td>
               <td><button class="btn btn-secondary btn-sm" onclick='openUserModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
             </tr>`).join('')}
@@ -8784,6 +9014,13 @@ function openUserModal(r=null){
             <option value="0" ${r?.actif===false?'selected':''}>Non</option>
           </select>
         </div>
+        <div class="form-group full"><label class="field-label"><i class="ti ti-lock"></i> Accès aux salaires</label>
+          <select id="u-salaires">
+            <option value="0" ${r?.acces_salaires!==true?'selected':''}>Non</option>
+            <option value="1" ${r?.acces_salaires===true?'selected':''}>Oui — peut voir le module Employés et la rémunération</option>
+          </select>
+          <span style="font-size:11px;color:var(--gray-5)">Les administrateurs y ont toujours accès. « Oui » donne accès au module Employés (dossiers du personnel) et à la rémunération ; le reste de l'administration reste réservé aux administrateurs.</span>
+        </div>
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -8799,9 +9036,19 @@ async function saveUser(id){
   const data={prenom,nom,email,role:el('u-role').value,actif:el('u-actif').value==='1'};
   if(id && currentUser && id===currentUser.id && (!data.actif || data.role!=='admin') &&
      !confirm("Vous modifiez votre propre fiche : vous allez perdre l'accès administrateur (ou l'accès tout court). Continuer ?")) return;
-  const {error} = id ? await sb.from('utilisateurs').update(data).eq('id',id) : await sb.from('utilisateurs').insert(data);
+  const donneesAvecSalaires = {...data, acces_salaires: el('u-salaires').value==='1'};
+  const ecrire = d => id ? sb.from('utilisateurs').update(d).eq('id',id) : sb.from('utilisateurs').insert(d);
+  let {error} = await ecrire(donneesAvecSalaires);
+  let salairesNonEnregistre = false;
+  if(error && /acces_salaires/i.test(error.message||'')){
+    // Colonne pas encore créée (migration-employes-fiche-complete.sql) : on enregistre le reste
+    ({error} = await ecrire(data));
+    salairesNonEnregistre = !error && donneesAvecSalaires.acces_salaires;
+  }
   if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  if(currentUser && id===currentUser.id && !salairesNonEnregistre) currentUser.acces_salaires = donneesAvecSalaires.acces_salaires;
   showToast(id?'Utilisateur mis à jour':'Utilisateur créé');
+  if(salairesNonEnregistre) showToast("⚠ « Accès aux salaires » n'est pas enregistré : exécutez d'abord « migration-employes-fiche-complete.sql » dans Supabase.", 'error');
   closeModal(); renderUtilisateurs();
 }
 
