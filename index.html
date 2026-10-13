@@ -671,12 +671,13 @@ function modaliteFacture(f, client){
   const repli = (client && client.conditions_paiement) || '30 jours';
   if(!f || !f.date_creation || !f.date_echeance) return repli;
   if(/fin\s+de\s+mois/i.test(repli)) return repli;
-  const j = Math.round((new Date(f.date_echeance) - new Date(f.date_creation))/86400000);
+  const j = nbJoursEntre(f.date_creation, f.date_echeance);
+  if(j===null) return repli;
   if(j===0) return 'À réception de facture';
   if(j>0) return j+' jours date de facture';
   return repli;
 }
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const el = id => document.getElementById(id);
 const qs = sel => document.querySelector(sel);
 
@@ -5878,7 +5879,7 @@ function afficherDevis(){
   if(resume) resume.innerHTML =
     carte('Devis acceptés HT', fmt(totAcceptes), `${acceptes.length} devis`, 'var(--blue)') +
     carte('Déjà facturé HT', fmt(totFacture), totAcceptes>0 ? Math.round(totFacture/totAcceptes*100)+' % des devis acceptés' : '—', 'var(--green)') +
-    carte('Reste à facturer HT', fmt(totReste), nbAFacturer ? `${nbAFacturer} devis à facturer — cliquer pour les voir` : 'Tout est facturé', nbAFacturer?'var(--orange)':'var(--green)', nbAFacturer?"_dvFiltres.fact='afacturer';_dvFiltres.statut='';renderDevis()":'');
+    carte('Devis non validé', fmt(totReste), nbAFacturer ? `${nbAFacturer} devis à facturer — cliquer pour les voir` : 'Tout est facturé', nbAFacturer?'var(--orange)':'var(--green)', nbAFacturer?"_dvFiltres.fact='afacturer';_dvFiltres.statut='';renderDevis()":'');
 
   const sub = 'font-size:11.5px;color:var(--gray-5);line-height:1.35';
   const cellFact = d=>{
@@ -6668,7 +6669,7 @@ async function openNewFactureVenteLibre(){
           </select>
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
-        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" placeholder="N° de commande client, ou autre référence..."/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
@@ -7110,16 +7111,71 @@ async function chargerLignesDevisRestantes(devisId){
 // Calcule une date d'échéance à partir d'une date de départ et des conditions de
 // paiement du devis (ex: "30 jours" -> +30 jours). Renvoie null si aucun nombre
 // n'est trouvé (le champ reste vide, à remplir à la main).
-function calculerEcheanceDepuisConditions(dateDepart, conditionsPaiement){
-  if(!conditionsPaiement) return null;
-  const match = String(conditionsPaiement).match(/\d+/);
+// Délai (en jours) d'un libellé de conditions de paiement : « 30 jours » → 30 ; « Immédiat / à réception » → 0 ;
+// « 50 % à la commande, solde 30 jours » → 30 (on prend le nombre suivi de « jours », pas le premier chiffre) ; sinon null.
+function delaiJoursConditions(conditionsPaiement){
+  const c = String(conditionsPaiement||'');
+  if(!c.trim()) return null;
+  const m1 = c.match(/(\d+)\s*(?:jours?|j\b)/i);
+  if(m1) return parseInt(m1[1],10);
+  const m2 = c.match(/\d+/);
+  if(m2) return parseInt(m2[0],10);
   // « Immédiat », « à réception », « comptant » : échéance = date de la facture
-  const immediat = !match && /imm[ée]diat|r[ée]ception|comptant/i.test(String(conditionsPaiement));
-  if(!match && !immediat) return null;
-  const jours = immediat ? 0 : parseInt(match[0]);
-  const d = dateDepart ? new Date(dateDepart) : new Date();
-  d.setDate(d.getDate()+jours);
-  return d.toISOString().slice(0,10);
+  if(/imm[ée]diat|r[ée]ception|comptant/i.test(c)) return 0;
+  return null;
+}
+// Arithmétique de dates AAAA-MM-JJ en UTC pur : pas de décalage lié au passage heure d'été / heure d'hiver
+function _utcDeIso(iso){
+  const m = String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? Date.UTC(+m[1], +m[2]-1, +m[3]) : null;
+}
+function ajouterJoursISO(iso, n){
+  const base = _utcDeIso(iso) ?? _utcDeIso(today());
+  return new Date(base + n*86400000).toISOString().slice(0,10);
+}
+function nbJoursEntre(isoDebut, isoFin){
+  const a = _utcDeIso(isoDebut), b = _utcDeIso(isoFin);
+  return (a===null || b===null) ? null : Math.round((b-a)/86400000);
+}
+function calculerEcheanceDepuisConditions(dateDepart, conditionsPaiement){
+  const jours = delaiJoursConditions(conditionsPaiement);
+  if(jours===null) return null;
+  return ajouterJoursISO(dateDepart, jours);
+}
+// Sous le champ « Date échéance » : « N jours date de facture », en orange si ça ne correspond pas aux conditions du client.
+// prefix = 'fv' (création) ou 'efv' (modification d'une facture)
+function delaiAttenduEcheance(prefix){
+  return prefix==='efv' ? (window._delaiClientEfv ?? null) : delaiJoursConditions(condPaiementFv());
+}
+function infoEcheance(prefix){
+  prefix = prefix || 'fv';
+  const box = el(prefix+'-echeance-info'); if(!box) return;
+  const j = nbJoursEntre(el(prefix+'-date')?.value, el(prefix+'-echeance')?.value);
+  if(j===null){ box.innerHTML=''; return; }
+  const txt = j===0 ? 'À réception de facture' : j+' jours date de facture';
+  const attendu = delaiAttenduEcheance(prefix);
+  if(attendu!==null && attendu!==j && !el(prefix+'-echeance')?.disabled){
+    box.style.color = '#b45309';
+    box.innerHTML = '⚠ '+txt+' — conditions du client : '+(attendu===0?'à réception':attendu+' jours')+' · <a href="#" onclick="appliquerDelaiEcheance(\''+prefix+'\');return false">Appliquer</a>';
+  } else {
+    box.style.color = 'var(--gray-5)';
+    box.innerHTML = txt;
+  }
+}
+function appliquerDelaiEcheance(prefix){
+  const attendu = delaiAttenduEcheance(prefix);
+  const inp = el(prefix+'-echeance'), d = el(prefix+'-date');
+  if(attendu===null || !inp || !d || !d.value) return;
+  inp.value = ajouterJoursISO(d.value, attendu);
+  inp.dataset.auto = '1';
+  infoEcheance(prefix);
+}
+// « Modifier la facture » : si on change la date de facture, l'échéance suit (même délai), sauf échéance saisie à la main
+function majEcheanceEdit(){
+  const inp = el('efv-echeance'), d = el('efv-date'); if(!inp || !d || inp.disabled) return;
+  const attendu = window._delaiClientEfv ?? null;
+  if(inp.dataset.auto!=='0' && attendu!==null && d.value) inp.value = ajouterJoursISO(d.value, attendu);
+  infoEcheance('efv');
 }
 
 async function openGenerateFactureVente(chantierId){
@@ -7161,7 +7217,7 @@ async function openGenerateFactureVente(chantierId){
           </select>
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
-        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${devisInfo?devisInfo.numero:''}" placeholder="N° de commande client, ou autre référence..."/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
@@ -7218,10 +7274,11 @@ function condPaiementFv(){
 // sauf si la date d'échéance a été saisie à la main (cas particulier : on la modifie manuellement).
 function majEcheanceAuto(){
   const inp = el('fv-echeance'); if(!inp) return;
-  if(inp.dataset.auto==='0' && inp.value) return;
+  if(inp.dataset.auto==='0' && inp.value){ infoEcheance('fv'); return; }
   const e = calculerEcheanceDepuisConditions(el('fv-date')?.value, condPaiementFv());
   inp.value = e||'';
   inp.dataset.auto = '1';
+  infoEcheance('fv');
 }
 
 function toggleFvAcompteMode(){
@@ -7787,11 +7844,16 @@ async function openFactureVenteDetail(facId){
 // Modifier l'en-tête d'une facture client (n°, statut, dates, référence, observations).
 // Les lignes et les montants ne changent pas ici.
 async function openEditFactureVente(facId){
-  const {data:f} = await sb.from('factures_vente').select('*,clients(nom)').eq('id',facId).single();
+  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,conditions_paiement)').eq('id',facId).single();
   if(!f){ showToast("Facture introuvable", 'error'); return; }
   await chargerCloture();
   const clos = estClotureFV(f);
   const dis = clos ? ' disabled' : '';
+  // Délai attendu = conditions de la fiche client ; à défaut, l'écart actuel de cette facture (la date et l'échéance restent alors solidaires)
+  const ecartActuel = nbJoursEntre(f.date_creation, f.date_echeance);
+  const delaiClient = delaiJoursConditions(f.clients?.conditions_paiement);
+  window._delaiClientEfv = f.type_facture==='avoir' ? null : (delaiClient!==null ? delaiClient : ecartActuel);
+  const echeanceAuto = (window._delaiClientEfv===null || ecartActuel===null || ecartActuel===window._delaiClientEfv) ? '1' : '0';
   // Devis du même client (pour rattacher une facture encodée à la main) — pas pour une note de crédit, qui suit sa facture
   let devisClient = [];
   if(f.type_facture!=='avoir' && f.client_id){
@@ -7805,8 +7867,8 @@ async function openEditFactureVente(facId){
         <div class="form-group"><label class="field-label">${f.type_facture==='avoir'?'N° de note de crédit':'N° de facture'} *</label><input id="efv-numero" value="${a(f.numero)}"${dis} placeholder="${f.type_facture==='avoir'?'Ex: AV20261001':'Ex: FA20260801'}"/></div>
         <div class="form-group"><label class="field-label">Statut</label>
           <select id="efv-statut">${Object.entries(f.type_facture==='avoir'?STATUT_AVOIR:STATUT_FV).filter(([k])=>!clos || (k!=='brouillon' && k!=='annulee') || k===f.statut).map(([k,v])=>`<option value="${k}"${f.statut===k?' selected':''}>${v}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efv-date" value="${a((f.date_creation||'').slice(0,10))}"${dis}/></div>
-        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efv-echeance" value="${a((f.date_echeance||'').slice(0,10))}"${dis}/></div>
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efv-date" value="${a((f.date_creation||'').slice(0,10))}"${dis} onchange="majEcheanceEdit()"/></div>
+        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efv-echeance" value="${a((f.date_echeance||'').slice(0,10))}"${dis} data-auto="${echeanceAuto}" oninput="this.dataset.auto='0'; infoEcheance('efv')"/><div id="efv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group full"><label class="field-label">Référence</label><input id="efv-reference" value="${a(f.reference_client)}"${dis} placeholder="N° de commande client, ou autre référence..."/></div>
         ${f.type_facture!=='avoir'?`<div class="form-group full"><label class="field-label">Devis facturé <span style="font-weight:400;text-transform:none">(permet de savoir quels devis sont facturés)</span></label>
           <select id="efv-devis"><option value="">— Aucun devis lié —</option>${devisClient.map(d=>`<option value="${d.id}"${f.devis_id===d.id?' selected':''}>${a(d.numero)} — ${a(d.objet||'')} — ${fmt(d.montant_ht)} HT (${a(STATUT_DV[d.statut]||d.statut)})</option>`).join('')}</select></div>`:''}
@@ -7820,6 +7882,7 @@ async function openEditFactureVente(facId){
       </div>
     </div>
   </div></div>`);
+  if(f.type_facture!=='avoir') infoEcheance('efv');
 }
 
 async function saveEditFactureVente(facId){
@@ -9359,7 +9422,7 @@ async function openFactureSAVModal(interventionId){
       ${toutFacture?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Toutes les lignes de ce devis ont déjà été facturées (quantités à 0). Ajoutez une ligne si vous devez facturer autre chose.</div>`:''}
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
-        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${String(window._savFacCtx?.devisNumero||'').replace(/"/g,'&quot;')}" placeholder="N° de commande client, ou autre référence..."/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
