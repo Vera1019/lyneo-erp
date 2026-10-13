@@ -230,6 +230,7 @@ tbody tr:hover td{background:var(--blue-light)}
 #fv-liste tbody tr:hover td:last-child{background:var(--blue-light)}
 #fac-liste th{padding:11px 10px}#fac-liste td{padding:11px 10px}#fac-liste th:first-child,#fac-liste td:first-child{padding-left:16px}#fac-liste th:last-child,#fac-liste td:last-child{padding-right:16px}
 #fac-liste tbody tr.fac-sel td{background:#EFF6FF}
+.fac-int{font-weight:600;font-size:12.5px;color:var(--gray-7,#374151);font-variant-numeric:tabular-nums;letter-spacing:.2px}
 #fac-liste tr.fac-filtres th{padding:4px 10px 10px;text-transform:none;font-weight:400;letter-spacing:0;vertical-align:top;border-bottom:1px solid var(--gray-3)}
 #fac-liste tr.fac-filtres input,#fac-liste tr.fac-filtres select{padding:5px 7px;font-size:12px;border-width:1px;border-radius:6px;min-width:0}
 #fac-liste .fac-range{display:grid;grid-template-columns:auto minmax(104px,1fr);gap:3px 6px;align-items:center;font-size:10.5px;font-weight:600;color:var(--gray-5)}
@@ -4547,7 +4548,8 @@ async function saveBL(){
 let _posPourFac = [];
 // État de la page : les filtres et la sélection survivent aux rechargements de la liste
 let _facsListe = [], _facChantiers = [], _facSel = new Set();
-const filtresFacVides = () => ({search:'', num:'', cmd:'', four:'', chantier:'', statut:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:''});
+const nIntTxt = f => f && f.numero_interne ? ' · n° interne '+f.numero_interne : '';
+const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', statut:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:''});
 let _facFiltres = filtresFacVides();
 const nomFournisseurFac = r => r.fournisseurs?.nom || r.purchase_orders_lyneo?.fournisseurs?.nom || '';
 const libelleChantierFac = c => (c.numero ? c.numero+' — ' : '') + (c.nom||'');
@@ -4589,9 +4591,10 @@ async function renderFactures(){
       <div class="table-wrap" id="fac-liste" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th><th>N° interne</th><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr>
             <tr class="fac-filtres">
               <th></th>
+              <th><input id="facc-int" placeholder="Filtrer…" style="min-width:104px" value="${escHtml(F.interne)}" oninput="majFiltreFactures('interne',this.value)"/></th>
               <th><input id="facc-num" placeholder="Filtrer…" style="min-width:110px" value="${escHtml(F.num)}" oninput="majFiltreFactures('num',this.value)"/></th>
               <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
               <th><select id="facc-four" style="min-width:140px" onchange="majFiltreFactures('four',this.value)"><option value="">Tous</option>${fours.map(n=>`<option value="${escHtml(n)}"${sel(n,F.four)}>${escHtml(n)}</option>`).join('')}</select></th>
@@ -4613,13 +4616,14 @@ async function renderFactures(){
 
 function facturesFiltrees(){
   const F = _facFiltres, q = (F.search||'').trim().toLowerCase();
-  const num = (F.num||'').trim().toLowerCase(), cmd = (F.cmd||'').trim().toLowerCase();
+  const num = (F.num||'').trim().toLowerCase(), cmd = (F.cmd||'').trim().toLowerCase(), interne = (F.interne||'').trim().toLowerCase();
   const mMin = F.montMin===''||F.montMin==null ? null : parseFloat(F.montMin), mMax = F.montMax===''||F.montMax==null ? null : parseFloat(F.montMax);
   return _facsListe.filter(r=>{
     const nomF = nomFournisseurFac(r);
     if(F.four && nomF!==F.four) return false;
     if(F.statut && r.statut!==F.statut) return false;
     if(F.chantier==='sans' ? !!r.chantier_id : (F.chantier && r.chantier_id!==F.chantier)) return false;
+    if(interne && !String(r.numero_interne||'').toLowerCase().includes(interne)) return false;
     if(num && !String(r.numero_facture_fournisseur||'').toLowerCase().includes(num)) return false;
     if(cmd && !String(r.purchase_orders_lyneo?.numero||'').toLowerCase().includes(cmd)) return false;
     const d = jourFac(r.date_facture), e = jourFac(r.date_echeance);
@@ -4631,7 +4635,7 @@ function facturesFiltrees(){
     if(mMin!==null && !isNaN(mMin) && ttc<mMin) return false;
     if(mMax!==null && !isNaN(mMax) && ttc>mMax) return false;
     if(q){
-      const txt = [r.numero_facture_fournisseur, nomF, r.chantiers_lyneo?.nom, r.chantiers_lyneo?.numero, r.purchase_orders_lyneo?.numero, r.observations].join(' ').toLowerCase();
+      const txt = [r.numero_interne, r.numero_facture_fournisseur, nomF, r.chantiers_lyneo?.nom, r.chantiers_lyneo?.numero, r.purchase_orders_lyneo?.numero, r.observations].join(' ').toLowerCase();
       if(!txt.includes(q)) return false;
     }
     return true;
@@ -4648,7 +4652,7 @@ function afficherFactures(){
   const selectables = items.filter(r=>r.statut!=='annulee');
   const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
-  tbody.innerHTML = items.length===0 ? `<tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
+  tbody.innerHTML = items.length===0 ? `<tr><td colspan="12"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
     items.map(r=>{
       const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
       const choisie = _facSel.has(r.id);
@@ -4657,6 +4661,7 @@ function afficherFactures(){
           : `<select style="width:140px;max-width:140px;font-size:12px;border-color:var(--orange)" title="Affecter ce chantier à la facture" onchange="affecterChantierFacture('${r.id}',this.value)"><option value="">À affecter…</option>${optChantiers}</select>`);
       return `<tr id="fac-tr-${r.id}"${choisie?' class="fac-sel"':''}>
         <td><input type="checkbox" ${choisie?'checked':''} ${r.statut==='annulee'?'disabled':''} onchange="basculerSelFacture('${r.id}',this.checked)"/></td>
+        <td style="white-space:nowrap">${r.numero_interne ? `<span class="fac-int" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_interne)}</span>` : '<span style="color:var(--gray-4)">—</span>'}</td>
         <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong></td>
         <td>${escHtml(r.purchase_orders_lyneo?.numero||'—')}</td>
         <td>${escHtml(nomFournisseurFac(r)||'—')}</td>
@@ -4695,9 +4700,9 @@ async function exporterFacturesExcel(){
   }catch(e){}
   const serie = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); return m ? Math.round((Date.UTC(+m[1],+m[2]-1,+m[3]) - Date.UTC(1899,11,30))/86400000) : null; };
   const num = v => Math.round((parseFloat(v)||0)*100)/100;
-  const entetes = ['N° facture fournisseur','Commande','Fournisseur','N° chantier','Chantier','Date facture','Échéance','Montant HT','TVA','Montant TTC','Statut','Payée le','Observations'];
+  const entetes = ['N° interne','N° facture fournisseur','Commande','Fournisseur','N° chantier','Chantier','Date facture','Échéance','Montant HT','TVA','Montant TTC','Statut','Payée le','Observations'];
   const lignes = items.map(r=>[
-    r.numero_facture_fournisseur||'', r.purchase_orders_lyneo?.numero||'', nomFournisseurFac(r),
+    r.numero_interne||'', r.numero_facture_fournisseur||'', r.purchase_orders_lyneo?.numero||'', nomFournisseurFac(r),
     r.chantiers_lyneo?.numero||'', r.chantiers_lyneo?.nom||'',
     serie(jourFac(r.date_facture)), serie(jourFac(r.date_echeance)),
     num(r.montant_ht), num(r.montant_tva), num(r.montant_ttc),
@@ -4708,17 +4713,17 @@ async function exporterFacturesExcel(){
   const fmtDateXl = 'dd/mm/yyyy', fmtMontXl = '#,##0.00';
   for(let i=0;i<n;i++){
     const r = i+2;
-    [['F',fmtDateXl],['G',fmtDateXl],['L',fmtDateXl],['H',fmtMontXl],['I',fmtMontXl],['J',fmtMontXl]].forEach(([col,z])=>{
+    [['G',fmtDateXl],['H',fmtDateXl],['M',fmtDateXl],['I',fmtMontXl],['J',fmtMontXl],['K',fmtMontXl]].forEach(([col,z])=>{
       const c = ws[col+r]; if(c && c.v!=null && c.v!=='') c.z = z;
     });
   }
   // ligne de total : SUBTOTAL suit les filtres appliqués dans Excel
-  const tot = col => lignes.reduce((a,l)=>a+(l['HIJ'.indexOf(col)+7]||0),0);
+  const tot = col => lignes.reduce((a,l)=>a+(l['IJK'.indexOf(col)+8]||0),0);
   ws['A'+(n+3)] = {t:'s', v:'Total'};
-  ['H','I','J'].forEach(col=>{ ws[col+(n+3)] = {t:'n', f:`SUBTOTAL(109,${col}2:${col}${derniere})`, v:Math.round(tot(col)*100)/100, z:fmtMontXl}; });
-  ws['!ref'] = `A1:M${n+3}`;
-  ws['!autofilter'] = {ref:`A1:M${derniere}`};
-  ws['!cols'] = [{wch:20},{wch:14},{wch:24},{wch:14},{wch:26},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:12},{wch:50}];
+  ['I','J','K'].forEach(col=>{ ws[col+(n+3)] = {t:'n', f:`SUBTOTAL(109,${col}2:${col}${derniere})`, v:Math.round(tot(col)*100)/100, z:fmtMontXl}; });
+  ws['!ref'] = `A1:N${n+3}`;
+  ws['!autofilter'] = {ref:`A1:N${derniere}`};
+  ws['!cols'] = [{wch:15},{wch:20},{wch:14},{wch:24},{wch:14},{wch:26},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:12},{wch:50}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Factures fournisseurs');
   XLSX.writeFile(wb, `Factures_fournisseurs_${today()}.xlsx`);
@@ -4822,6 +4827,7 @@ async function openFacDetail(facId){
     <div class="modal-header">
       <div>
         <h3>${fac.numero_facture_fournisseur}</h3>
+        ${fac.numero_interne?`<div style="margin:2px 0 3px"><span class="fac-int" title="Numéro interne ERP">N° interne ${escHtml(fac.numero_interne)}</span></div>`:''}
         <span style="font-size:12px;color:var(--gray-5)">${fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||''} — ${fac.chantiers_lyneo?.nom||''}</span>
       </div>
       <div class="flex gap-8 items-center">
@@ -5066,7 +5072,7 @@ async function saveFacLibre(){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
-  showToast('Facture créée — '+numero);
+  showToast('Facture créée — '+numero+nIntTxt(fac));
   closeModal();
   await rafraichirPage();
   openFacDetail(fac.id);
@@ -5395,7 +5401,7 @@ async function saveFac(){
       }
     }
   }
-  showToast(_facFilesNew.length>0 ? 'Facture et '+_facFilesNew.length+' document(s) enregistrés' : 'Facture enregistrée — '+num);
+  showToast((_facFilesNew.length>0 ? 'Facture et '+_facFilesNew.length+' document(s) enregistrés' : 'Facture enregistrée — '+num)+nIntTxt(fac));
   _facFilesNew = [];
   closeModal();
   if(fac) openFacDetail(fac.id);
@@ -10289,9 +10295,9 @@ async function saveFacFromPO(poId){
         await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
       }
     }
-    showToast('Facture créée avec '+_facFilesNew.length+' document(s)');
+    showToast('Facture créée avec '+_facFilesNew.length+' document(s)'+nIntTxt(fac));
   } else {
-    showToast('Facture créée — '+num);
+    showToast('Facture créée — '+num+nIntTxt(fac));
   }
   _facFilesNew = [];
   closeModal();
@@ -10346,7 +10352,7 @@ async function openEditFacLignes(facId){
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
     +  '<div><h3>Modifier — '+fac.numero_facture_fournisseur+'</h3>'
-    +  '<div class="modal-header-sub">Modifiez les lignes, les montants et les informations</div></div>'
+    +  '<div class="modal-header-sub">'+(fac.numero_interne?'N° interne <strong>'+escHtml(fac.numero_interne)+'</strong> · ':'')+'Modifiez les lignes, les montants et les informations</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
@@ -10543,7 +10549,7 @@ async function creerNoteCredit(facId){
     if(lignesErr){ showToast("Note créée, mais erreur en copiant les lignes: "+lignesErr.message, 'error'); }
   }
 
-  showToast("Note de crédit créée — ajustez les lignes si nécessaire");
+  showToast("Note de crédit créée"+nIntTxt(newFac)+" — ajustez les lignes si nécessaire");
   closeModal();
   openEditFacLignes(newFac.id);
 }
@@ -10591,7 +10597,7 @@ async function duplicateFacture(facId){
     if(lignesErr){ showToast("Copie créée, mais erreur en dupliquant les lignes: "+lignesErr.message, 'error'); }
   }
 
-  showToast("Facture dupliquée — modifiez les champs nécessaires");
+  showToast("Facture dupliquée"+nIntTxt(newFac)+" — modifiez les champs nécessaires");
   closeModal();
   openEditFacLignes(newFac.id);
 }
