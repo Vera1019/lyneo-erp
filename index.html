@@ -228,6 +228,11 @@ tbody tr:hover td{background:var(--blue-light)}
 #fv-liste th{padding:11px 10px}#fv-liste td{padding:11px 10px}#fv-liste th:first-child,#fv-liste td:first-child{padding-left:16px}#fv-liste th:last-child,#fv-liste td:last-child{padding-right:16px}
 #fv-liste thead th:last-child,#fv-liste tbody td:last-child{position:sticky;right:0;background:#fff;box-shadow:-8px 0 8px -8px rgba(15,23,42,.18)}
 #fv-liste tbody tr:hover td:last-child{background:var(--blue-light)}
+#fac-liste th{padding:11px 10px}#fac-liste td{padding:11px 10px}#fac-liste th:first-child,#fac-liste td:first-child{padding-left:16px}#fac-liste th:last-child,#fac-liste td:last-child{padding-right:16px}
+#fac-liste tbody tr.fac-sel td{background:#EFF6FF}
+#fac-liste tr.fac-filtres th{padding:4px 10px 10px;text-transform:none;font-weight:400;letter-spacing:0;vertical-align:top;border-bottom:1px solid var(--gray-3)}
+#fac-liste tr.fac-filtres input,#fac-liste tr.fac-filtres select{padding:5px 7px;font-size:12px;border-width:1px;border-radius:6px;min-width:0}
+#fac-liste .fac-range{display:grid;grid-template-columns:auto minmax(104px,1fr);gap:3px 6px;align-items:center;font-size:10.5px;font-weight:600;color:var(--gray-5)}
 .td-primary{font-weight:600;color:var(--blue);font-size:13px}
 
 /* ── FORM ────────────────────────────────────────────────────── */
@@ -4540,52 +4545,255 @@ async function saveBL(){
 
 // ── FACTURES ─────────────────────────────────────────────────
 let _posPourFac = [];
+// État de la page : les filtres et la sélection survivent aux rechargements de la liste
+let _facsListe = [], _facChantiers = [], _facSel = new Set();
+const filtresFacVides = () => ({search:'', num:'', cmd:'', four:'', chantier:'', statut:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:''});
+let _facFiltres = filtresFacVides();
+const nomFournisseurFac = r => r.fournisseurs?.nom || r.purchase_orders_lyneo?.fournisseurs?.nom || '';
+const libelleChantierFac = c => (c.numero ? c.numero+' — ' : '') + (c.nom||'');
+const jourFac = v => String(v||'').slice(0,10);
+
 async function renderFactures(){
-  const [facsR, posR] = await Promise.all([
-    sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}),
-    sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false})
+  const [facsR, posR, chR] = await Promise.all([
+    sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom)),utilisateurs(nom,prenom)').order('created_at',{ascending:false}).order('date_facture',{ascending:false}),
+    sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false}),
+    sb.from('chantiers_lyneo').select('id,numero,nom').order('nom')
   ]);
-  const facs = facsR.data||[];
+  _facsListe = facsR.data||[];
   _posPourFac = posR.data||[];
+  _facChantiers = chR.data||[];
+  const ids = new Set(_facsListe.map(f=>f.id));
+  _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
+  const F = _facFiltres, sel = (a,b)=>a===b?' selected':'';
+  const fours = [...new Set(_facsListe.map(nomFournisseurFac).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Factures fournisseurs</h1><p>Validation et suivi des paiements</p></div>
       <button class="btn btn-primary" onclick="openFacModal()"><i class="ti ti-plus"></i> Saisir une facture</button>
       <button class="btn btn-secondary" onclick="openFacLibreModal()"><i class="ti ti-plus"></i> Facture sans commande</button>
     </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <div class="search-wrap"><i class="ti ti-search"></i><input id="fac-recherche" placeholder="Rechercher partout (n°, fournisseur, chantier...)" oninput="majFiltreFactures('search',this.value)" value="${escHtml(F.search)}"/></div>
+      <button class="btn btn-ghost btn-sm" id="facf-reset" onclick="reinitialiserFiltresFactures()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
+      <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
+      <button class="btn btn-secondary btn-sm" id="fac-export" onclick="exporterFacturesExcel()" style="margin-left:auto"><i class="ti ti-file-spreadsheet"></i> Exporter Excel <span id="fac-export-n"></span></button>
+    </div>
+    <div id="fac-bulk" style="display:none;position:sticky;top:0;z-index:5;gap:10px;flex-wrap:wrap;align-items:center;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
+      <strong id="fac-bulk-n" style="font-size:13px"></strong>
+      <select id="fac-bulk-chantier" style="width:auto;min-width:250px"><option value="">— Affecter au chantier… —</option>${optChantiers}</select>
+      <button class="btn btn-primary btn-sm" id="fac-bulk-ok" onclick="affecterChantierSelection()"><i class="ti ti-link"></i> Affecter</button>
+      <button class="btn btn-ghost btn-sm" onclick="viderSelectionFactures()">Désélectionner</button>
+    </div>
     <div class="card">
-      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <div class="table-wrap" id="fac-liste" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead><tr><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${facs.length===0?'<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture enregistrée</p></div></td></tr>':
-            facs.map(r=>{
-              const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
-              return `<tr>
-                <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${r.numero_facture_fournisseur}</strong></td>
-                <td>${r.purchase_orders_lyneo?.numero||'—'}</td>
-                <td>${r.fournisseurs?.nom||r.purchase_orders_lyneo?.fournisseurs?.nom||'—'}</td>
-                <td>${r.chantiers_lyneo?.nom||'—'}</td>
-                <td>${fmtDate(r.date_facture)}</td>
-                <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
-                <td><strong>${fmt(r.montant_ttc)}</strong></td>
-                <td><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button></td>
-                <td>${bFA(r.statut)}</td>
-                <td><div class="td-actions">
-                  <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
-                  <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${r.id}')" title="Dupliquer"><i class="ti ti-copy"></i></button>
-                  ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
-                  ${r.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="openPayModal('${r.id}','${r.po_id}',${r.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
-                  ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
-                  ${!['annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="creerNoteCredit('${r.id}')" title="Note de crédit"><i class="ti ti-receipt-refund"></i></button>`:''}
-                  ${!['annulee','payee'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="annulerFacture('${r.id}')" title="Annuler"><i class="ti ti-ban"></i></button>`:''}
-                </div></td>
-              </tr>`;
-            }).join('')}
-          </tbody>
+          <thead>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr>
+            <tr class="fac-filtres">
+              <th></th>
+              <th><input id="facc-num" placeholder="Filtrer…" style="min-width:110px" value="${escHtml(F.num)}" oninput="majFiltreFactures('num',this.value)"/></th>
+              <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
+              <th><select id="facc-four" style="min-width:140px" onchange="majFiltreFactures('four',this.value)"><option value="">Tous</option>${fours.map(n=>`<option value="${escHtml(n)}"${sel(n,F.four)}>${escHtml(n)}</option>`).join('')}</select></th>
+              <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans chantier (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
+              <th><div class="fac-range"><span>Du</span><input type="date" id="facc-date-de" value="${escHtml(F.dateDe)}" onchange="majFiltreFactures('dateDe',this.value)"/><span>Au</span><input type="date" id="facc-date-a" value="${escHtml(F.dateA)}" onchange="majFiltreFactures('dateA',this.value)"/></div></th>
+              <th><div class="fac-range"><span>Du</span><input type="date" id="facc-ech-de" value="${escHtml(F.echDe)}" onchange="majFiltreFactures('echDe',this.value)"/><span>Au</span><input type="date" id="facc-ech-a" value="${escHtml(F.echA)}" onchange="majFiltreFactures('echA',this.value)"/></div></th>
+              <th><div class="fac-range"><span>Min</span><input type="number" step="0.01" id="facc-mont-min" placeholder="€" value="${escHtml(F.montMin)}" oninput="majFiltreFactures('montMin',this.value)"/><span>Max</span><input type="number" step="0.01" id="facc-mont-max" placeholder="€" value="${escHtml(F.montMax)}" oninput="majFiltreFactures('montMax',this.value)"/></div></th>
+              <th></th>
+              <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fac-tbody"></tbody>
         </table>
       </div>
     </div>`;
+  afficherFactures();
+}
+
+function facturesFiltrees(){
+  const F = _facFiltres, q = (F.search||'').trim().toLowerCase();
+  const num = (F.num||'').trim().toLowerCase(), cmd = (F.cmd||'').trim().toLowerCase();
+  const mMin = F.montMin===''||F.montMin==null ? null : parseFloat(F.montMin), mMax = F.montMax===''||F.montMax==null ? null : parseFloat(F.montMax);
+  return _facsListe.filter(r=>{
+    const nomF = nomFournisseurFac(r);
+    if(F.four && nomF!==F.four) return false;
+    if(F.statut && r.statut!==F.statut) return false;
+    if(F.chantier==='sans' ? !!r.chantier_id : (F.chantier && r.chantier_id!==F.chantier)) return false;
+    if(num && !String(r.numero_facture_fournisseur||'').toLowerCase().includes(num)) return false;
+    if(cmd && !String(r.purchase_orders_lyneo?.numero||'').toLowerCase().includes(cmd)) return false;
+    const d = jourFac(r.date_facture), e = jourFac(r.date_echeance);
+    if(F.dateDe && !(d && d>=F.dateDe)) return false;
+    if(F.dateA && !(d && d<=F.dateA)) return false;
+    if(F.echDe && !(e && e>=F.echDe)) return false;
+    if(F.echA && !(e && e<=F.echA)) return false;
+    const ttc = parseFloat(r.montant_ttc)||0;
+    if(mMin!==null && !isNaN(mMin) && ttc<mMin) return false;
+    if(mMax!==null && !isNaN(mMax) && ttc>mMax) return false;
+    if(q){
+      const txt = [r.numero_facture_fournisseur, nomF, r.chantiers_lyneo?.nom, r.chantiers_lyneo?.numero, r.purchase_orders_lyneo?.numero, r.observations].join(' ').toLowerCase();
+      if(!txt.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function afficherFactures(){
+  const tbody = el('fac-tbody'); if(!tbody) return;
+  const items = facturesFiltrees();
+  const actif = Object.values(_facFiltres).some(v=>v!=='' && v!=null);
+  const rb = el('facf-reset'); if(rb) rb.style.display = actif ? '' : 'none';
+  const cpt = el('fac-compte'); if(cpt) cpt.textContent = actif ? `${items.length} sur ${_facsListe.length} factures` : `${_facsListe.length} facture${_facsListe.length>1?'s':''}`;
+  const ex = el('fac-export-n'); if(ex) ex.textContent = `(${items.length})`;
+  const selectables = items.filter(r=>r.statut!=='annulee');
+  const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
+  const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
+  tbody.innerHTML = items.length===0 ? `<tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
+    items.map(r=>{
+      const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
+      const choisie = _facSel.has(r.id);
+      const cellChantier = r.chantiers_lyneo?.nom ? escHtml(r.chantiers_lyneo.nom)
+        : (r.statut==='annulee' ? '—'
+          : `<select style="width:140px;max-width:140px;font-size:12px;border-color:var(--orange)" title="Affecter ce chantier à la facture" onchange="affecterChantierFacture('${r.id}',this.value)"><option value="">À affecter…</option>${optChantiers}</select>`);
+      return `<tr id="fac-tr-${r.id}"${choisie?' class="fac-sel"':''}>
+        <td><input type="checkbox" ${choisie?'checked':''} ${r.statut==='annulee'?'disabled':''} onchange="basculerSelFacture('${r.id}',this.checked)"/></td>
+        <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong></td>
+        <td>${escHtml(r.purchase_orders_lyneo?.numero||'—')}</td>
+        <td>${escHtml(nomFournisseurFac(r)||'—')}</td>
+        <td>${cellChantier}</td>
+        <td>${fmtDate(r.date_facture)}</td>
+        <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
+        <td><strong>${fmt(r.montant_ttc)}</strong></td>
+        <td><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button></td>
+        <td>${bFA(r.statut)}</td>
+        <td><div class="td-actions">
+          <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${r.id}')" title="Dupliquer"><i class="ti ti-copy"></i></button>
+          ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
+          ${r.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="openPayModal('${r.id}','${r.po_id}',${r.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
+          ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
+          ${!['annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="creerNoteCredit('${r.id}')" title="Note de crédit"><i class="ti ti-receipt-refund"></i></button>`:''}
+          ${!['annulee','payee'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="annulerFacture('${r.id}')" title="Annuler"><i class="ti ti-ban"></i></button>`:''}
+        </div></td>
+      </tr>`;
+    }).join('');
+  majBarreFactures();
+}
+
+// Export Excel : exactement les factures affichées (filtres appliqués), avec totaux et filtre automatique
+async function exporterFacturesExcel(){
+  const items = facturesFiltrees();
+  if(!items.length){ showToast('Aucune facture à exporter', 'error'); return; }
+  if(typeof XLSX==='undefined'){ showToast("La bibliothèque Excel n'est pas chargée — vérifiez la connexion internet et rechargez la page", 'error'); return; }
+  // dernière date de paiement de chaque facture (facultatif : si la lecture échoue, on exporte sans)
+  const payeLe = {};
+  try{
+    for(let i=0;i<items.length;i+=100){
+      const {data} = await sb.from('paiements').select('facture_id,date_paiement').in('facture_id', items.slice(i,i+100).map(f=>f.id));
+      (data||[]).forEach(p=>{ const d = jourFac(p.date_paiement); if(d && (!payeLe[p.facture_id] || d>payeLe[p.facture_id])) payeLe[p.facture_id] = d; });
+    }
+  }catch(e){}
+  const serie = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); return m ? Math.round((Date.UTC(+m[1],+m[2]-1,+m[3]) - Date.UTC(1899,11,30))/86400000) : null; };
+  const num = v => Math.round((parseFloat(v)||0)*100)/100;
+  const entetes = ['N° facture fournisseur','Commande','Fournisseur','N° chantier','Chantier','Date facture','Échéance','Montant HT','TVA','Montant TTC','Statut','Payée le','Observations'];
+  const lignes = items.map(r=>[
+    r.numero_facture_fournisseur||'', r.purchase_orders_lyneo?.numero||'', nomFournisseurFac(r),
+    r.chantiers_lyneo?.numero||'', r.chantiers_lyneo?.nom||'',
+    serie(jourFac(r.date_facture)), serie(jourFac(r.date_echeance)),
+    num(r.montant_ht), num(r.montant_tva), num(r.montant_ttc),
+    STATUT_FA[r.statut]||r.statut||'', serie(payeLe[r.id]), r.observations||''
+  ]);
+  const n = lignes.length, derniere = n+1;
+  const ws = XLSX.utils.aoa_to_sheet([entetes, ...lignes]);
+  const fmtDateXl = 'dd/mm/yyyy', fmtMontXl = '#,##0.00';
+  for(let i=0;i<n;i++){
+    const r = i+2;
+    [['F',fmtDateXl],['G',fmtDateXl],['L',fmtDateXl],['H',fmtMontXl],['I',fmtMontXl],['J',fmtMontXl]].forEach(([col,z])=>{
+      const c = ws[col+r]; if(c && c.v!=null && c.v!=='') c.z = z;
+    });
+  }
+  // ligne de total : SUBTOTAL suit les filtres appliqués dans Excel
+  const tot = col => lignes.reduce((a,l)=>a+(l['HIJ'.indexOf(col)+7]||0),0);
+  ws['A'+(n+3)] = {t:'s', v:'Total'};
+  ['H','I','J'].forEach(col=>{ ws[col+(n+3)] = {t:'n', f:`SUBTOTAL(109,${col}2:${col}${derniere})`, v:Math.round(tot(col)*100)/100, z:fmtMontXl}; });
+  ws['!ref'] = `A1:M${n+3}`;
+  ws['!autofilter'] = {ref:`A1:M${derniere}`};
+  ws['!cols'] = [{wch:20},{wch:14},{wch:24},{wch:14},{wch:26},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:12},{wch:50}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Factures fournisseurs');
+  XLSX.writeFile(wb, `Factures_fournisseurs_${today()}.xlsx`);
+  showToast(`${n} facture${n>1?'s':''} exportée${n>1?'s':''} vers Excel`);
+}
+
+// Barre « N factures sélectionnées » + case « tout sélectionner »
+function majBarreFactures(){
+  const choisies = _facsListe.filter(f=>_facSel.has(f.id));
+  const bar = el('fac-bulk');
+  if(bar){
+    bar.style.display = choisies.length ? 'flex' : 'none';
+    const n = el('fac-bulk-n');
+    if(n) n.textContent = `${choisies.length} facture${choisies.length>1?'s':''} sélectionnée${choisies.length>1?'s':''} · ${fmt(choisies.reduce((a,f)=>a+(parseFloat(f.montant_ttc)||0),0))} TTC`;
+  }
+  const all = el('fac-sel-all');
+  if(all){
+    const vis = facturesFiltrees().filter(r=>r.statut!=='annulee');
+    all.checked = vis.length>0 && vis.every(r=>_facSel.has(r.id));
+    all.indeterminate = !all.checked && vis.some(r=>_facSel.has(r.id));
+  }
+}
+function basculerSelFacture(id, on){
+  if(on) _facSel.add(id); else _facSel.delete(id);
+  const tr = el('fac-tr-'+id); if(tr) tr.classList.toggle('fac-sel', !!on);
+  majBarreFactures();
+}
+function toutSelectionnerFactures(on){
+  facturesFiltrees().filter(r=>r.statut!=='annulee').forEach(r=>{ if(on) _facSel.add(r.id); else _facSel.delete(r.id); });
+  afficherFactures();
+}
+function viderSelectionFactures(){ _facSel.clear(); afficherFactures(); }
+// Changer un filtre vide la sélection : l'action en masse ne touche jamais que ce qui est affiché
+function majFiltreFactures(k, v){ _facFiltres[k] = v; _facSel.clear(); afficherFactures(); }
+function reinitialiserFiltresFactures(){
+  _facFiltres = filtresFacVides(); _facSel.clear();
+  ['fac-recherche','facc-num','facc-cmd','facc-four','facc-chantier','facc-statut','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
+  afficherFactures();
+}
+
+// Affecte un chantier à plusieurs factures d'un coup (par paquets, pour ne pas dépasser la taille d'URL)
+async function affecterChantierFactures(ids, chantierId){
+  for(let i=0;i<ids.length;i+=50){
+    const {error} = await sb.from('factures').update({chantier_id:chantierId}).in('id', ids.slice(i,i+50));
+    if(error) return error;
+  }
+  const ch = _facChantiers.find(c=>c.id===chantierId);
+  _facsListe.forEach(f=>{ if(ids.includes(f.id)){ f.chantier_id = chantierId; f.chantiers_lyneo = ch ? {numero:ch.numero, nom:ch.nom} : null; } });
+  return null;
+}
+async function affecterChantierSelection(){
+  const chantierId = el('fac-bulk-chantier')?.value;
+  const ids = _facsListe.filter(f=>_facSel.has(f.id)).map(f=>f.id);
+  if(!ids.length) return;
+  if(!chantierId){ showToast("Choisissez d'abord le chantier", 'error'); return; }
+  const ch = _facChantiers.find(c=>c.id===chantierId);
+  const autres = _facsListe.filter(f=>_facSel.has(f.id) && f.chantier_id && f.chantier_id!==chantierId).length;
+  if(autres && !confirm(`${autres} des factures sélectionnées ont déjà un autre chantier. Les affecter quand même à « ${libelleChantierFac(ch||{})} » ?`)) return;
+  const btn = el('fac-bulk-ok'); if(btn) btn.disabled = true;
+  const err = await affecterChantierFactures(ids, chantierId);
+  if(btn) btn.disabled = false;
+  if(err){ showToast('Erreur: '+err.message, 'error'); return; }
+  _facSel.clear();
+  showToast(`${ids.length} facture${ids.length>1?'s':''} affectée${ids.length>1?'s':''} à ${libelleChantierFac(ch||{})}`);
+  afficherFactures();
+}
+// Une seule facture, directement depuis la liste (menu « À affecter… »)
+async function affecterChantierFacture(id, chantierId){
+  if(!chantierId) return;
+  const err = await affecterChantierFactures([id], chantierId);
+  if(err){ showToast('Erreur: '+err.message, 'error'); afficherFactures(); return; }
+  _facSel.delete(id);
+  const ch = _facChantiers.find(c=>c.id===chantierId);
+  showToast('Chantier affecté — '+libelleChantierFac(ch||{}));
+  afficherFactures();
 }
 
 // ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
@@ -10154,9 +10362,7 @@ async function openEditFacLignes(facId){
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
     +      '<select id="efac-statut">'
-    +        '<option value="recue"'+(fac.statut==='recue'?' selected':'')+'>Reçue</option>'
-    +        '<option value="validee"'+(fac.statut==='validee'?' selected':'')+'>Validée</option>'
-    +        '<option value="litige"'+(fac.statut==='litige'?' selected':'')+'>Litige</option>'
+    +        ['recue','validee','litige'].concat(['recue','validee','litige'].includes(fac.statut) ? [] : [fac.statut]).map(k=>'<option value="'+k+'"'+(fac.statut===k?' selected':'')+'>'+(STATUT_FA[k]||k)+'</option>').join('')
     +      '</select>'
     +    '</div>'
     +  '</div>'
