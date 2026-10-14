@@ -9572,11 +9572,15 @@ function majFormRemuneration(){
 async function openEmployeModal(r=null){
   const isEdit = !!r;
   if(!_empPaysOk){ try{ const t = await sb.from('employes_rh').select('pays_residence').limit(1); _empPaysOk = !t.error; }catch(e){ _empPaysOk = false; } }
-  let pointageEmployes = [];
+  let pointageEmployes = [], pointageListeOk = true;
   try{
-    const {data} = await sbPT.from('employes').select('*');
-    pointageEmployes = data||[];
-  }catch(e){ /* système de pointages indisponible — ignore silencieusement */ }
+    const {data, error} = await sbPT.from('employes').select('*');
+    if(error) pointageListeOk = false; else pointageEmployes = data||[];
+  }catch(e){ pointageListeOk = false; /* système de pointages indisponible */ }
+  // Le lien est stocké en TEXTE dans l'ERP (« 8 ») alors que l'id dans les pointages est un nombre (8) : on compare toujours en texte.
+  // Sinon la liste s'ouvrait sur « Aucun » et l'enregistrement effaçait le lien.
+  const lienPointage = (r && r.pointage_employe_id!=null && String(r.pointage_employe_id)!=='') ? String(r.pointage_employe_id) : '';
+  const lienDansListe = !!lienPointage && pointageEmployes.some(p=>String(p.id)===lienPointage);
 
   // Rémunération : chargée seulement pour les personnes autorisées (la base applique la même règle)
   let rem = null;
@@ -9731,9 +9735,11 @@ async function openEmployeModal(r=null){
         <div class="form-group full"><label class="field-label" for="emp-pointage-id">Employé pointages lié</label>
           <select id="emp-pointage-id">
             <option value="">— Aucun / non lié —</option>
-            ${pointageEmployes.map(p=>`<option value="${escHtml(p.id)}" ${r?.pointage_employe_id===p.id?'selected':''}>${escHtml(p.nom||p.prenom||p.id)}</option>`).join('')}
+            ${lienPointage && !lienDansListe ? `<option value="${escHtml(lienPointage)}" data-nom="${escHtml(r.pointage_employe_nom||'')}" selected>${escHtml(r.pointage_employe_nom||('n° '+lienPointage))} — ${pointageListeOk?'introuvable dans les pointages':'liste indisponible'}</option>` : ''}
+            ${pointageEmployes.map(p=>`<option value="${escHtml(p.id)}" data-nom="${escHtml(p.nom||p.prenom||p.id)}" ${String(p.id)===lienPointage?'selected':''}>${escHtml(p.nom||p.prenom||p.id)}</option>`).join('')}
           </select>
-          ${pointageEmployes.length===0?'<span style="font-size:11px;color:var(--gray-5)">Impossible de charger la liste des employés du système de pointages pour le moment.</span>':''}
+          ${!pointageListeOk?`<span style="font-size:11px;color:var(--gray-5)">Impossible de charger la liste des employés du système de pointages pour le moment.${lienPointage?' Le lien actuel est conservé.':''}</span>`:''}
+          ${lienPointage && pointageListeOk && !lienDansListe?'<span style="font-size:11px;color:var(--gray-5)">Cet employé n\'existe plus (ou a changé de numéro) dans les pointages : choisissez le bon, ou laissez tel quel pour garder le lien.</span>':''}
         </div>
       </div>`)}
 
@@ -9792,7 +9798,8 @@ async function saveEmploye(id){
 
   const pointageSelect = el('emp-pointage-id');
   const pointageId = pointageSelect.value||null;
-  const pointageNom = pointageId ? pointageSelect.options[pointageSelect.selectedIndex].text : null;
+  const optPointage = pointageSelect.options[pointageSelect.selectedIndex];
+  const pointageNom = pointageId ? ((optPointage && optPointage.dataset.nom) || (optPointage && optPointage.text) || null) : null;
   const prenom = el('emp-prenom').value;
   const actif = el('emp-actif').value==='1';
   const iban = el('emp-iban').value.replace(/\s+/g,' ').trim().toUpperCase();
