@@ -265,6 +265,11 @@ tbody tr:hover td{background:var(--blue-light)}
 .anniv-vide span{font-size:12px;display:block}
 .anniv-vide .anniv-tech{margin-top:8px;font-size:11px;color:var(--gray-4);word-break:break-word}
 .anniv-modal{max-height:70vh;overflow:auto;padding:4px 0 8px}
+.exp-groupe-titre{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-5);margin:14px 0 4px}
+.exp-grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 14px}
+.exp-col{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--gray-8);cursor:pointer;padding:3px 0}
+.exp-col input{width:auto;margin:0;flex:0 0 auto}
+#exp-corps{max-height:72vh;overflow:auto}
 .anniv-mois h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-5);padding:14px 20px 4px;margin:0}
 .anniv-jour{width:22px;text-align:right;font-weight:700;color:var(--gray-7);font-variant-numeric:tabular-nums}
 .anniv-note{font-size:11.5px;color:var(--gray-5);padding:10px 20px 0;margin:0}
@@ -2224,6 +2229,7 @@ async function renderChantiers(search=''){
       <div class="page-header-left"><h1>Chantiers</h1><p>Gestion des projets et chantiers</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${search}"/></div>
+        ${btnExport('chantiers')}
         <button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button>
       </div>
     </div>
@@ -3451,6 +3457,7 @@ async function renderFournisseurs(search=''){
       <div class="page-header-left"><h1>Fournisseurs</h1><p>Annuaire et conditions de paiement</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFournisseurs(this.value)" value="${search}"/></div>
+        ${btnExport('fournisseurs')}
         <button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>
       </div>
     </div>
@@ -3655,6 +3662,7 @@ async function renderPOS(search='', filterStatut=''){
         <select id="po-filter-statut" onchange="renderPOS(document.querySelector('.search-wrap input').value,this.value)" style="padding:7px 10px;border-radius:var(--radius);border:1px solid var(--gray-3);font-size:13px">
           <option value="">Tous les statuts</option>${statusOpts}
         </select>
+        ${btnExport('pos')}
         <button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Nouvelle commande</button>
       </div>
     </div>
@@ -4653,7 +4661,7 @@ async function renderReceptions(){
       </div>
     </div>`:''}
     <div class="card">
-      <div class="card-header"><h2>Historique des réceptions</h2></div>
+      <div class="card-header"><h2>Historique des réceptions</h2>${btnExport('receptions')}</div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
@@ -5837,6 +5845,7 @@ async function renderClients(search=''){
       <div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderClients(this.value)" value="${search}"/></div>
+        ${btnExport('clients')}
         <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
       </div>
     </div>
@@ -6408,6 +6417,7 @@ async function renderDevis(search){
       <div class="page-header-left"><h1>Devis</h1><p>Offres et devis clients</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input id="dv-recherche" placeholder="N°, client, objet, n° de facture..." oninput="_dvFiltres.search=this.value;afficherDevis()" value="${escHtml(F.search)}"/></div>
+        ${btnExport('devis')}
         <button class="btn btn-secondary" onclick="document.getElementById('devis-excel-input').click()"><i class="ti ti-file-spreadsheet"></i> Importer Excel</button>
         <input type="file" id="devis-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcel(this.files[0]);this.value=''"/>
         <button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>
@@ -7104,6 +7114,7 @@ async function renderFacturesVente(){
       <div class="page-header-left"><h1>Factures clients</h1><p>Facturation et encaissements</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input id="fv-recherche" placeholder="N°, client, devis, PO, centre, SAV..." oninput="_fvFiltres.search=this.value;afficherFacturesVente()" value="${escHtml(F.search)}"/></div>
+        ${btnExport('factures_vente')}
         <button class="btn btn-secondary" id="btn-cgv-liste" onclick="openCGV(&quot;navigate('factures_vente')&quot;)" title="Conditions générales de vente jointes aux factures"><i class="ti ti-scale"></i> CGV</button>
         <button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button>
       </div>
@@ -8759,6 +8770,7 @@ const PERIODES_ESSAI = [1,3,6,12];
 const CLASSES_IMPOT = ['1','1A','2'];
 const TYPES_VEHICULE = {fonction:'Véhicule de fonction', service:'Véhicule de service'};
 const TYPES_REMUNERATION = {traitement:'Traitement (mensuel)', horaire:'Horaire'};
+let _empPaysOk = false;   // colonne pays_residence présente (employes-pays-residence.sql exécuté)
 let _empRemEtat = 'ok';   // 'ok' · 'absente' (SQL pas encore exécuté) · 'refusee' (la base refuse l'accès) · 'masquee' (pas d'accès aux salaires)
 
 // Colonnes / table de migration-employes-fiche-complete.sql pas encore créées ?
@@ -8766,6 +8778,723 @@ const migrationEmployeAbsente = msg => /schema cache|does not exist|could not fi
 // Anciens champs libres « RIB / IBAN » et « Carte d'impôt » : repris tant que les nouveaux champs sont vides
 const empIban = e => (e && (e.iban || e.rib)) || '';
 const empImpotRef = e => (e && (e.carte_impot_reference || e.carte_impot)) || '';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXPORT EXCEL — commun à tous les modules (choix des colonnes, comme dans Odoo)
+// Chaque module décrit ses colonnes ; une seule fenêtre et un seul générateur servent partout.
+// Le fichier contient des lignes « à plat » (1 ligne = 1 enregistrement, 1 colonne = 1 information, avec Année et Mois)
+// pour filtrer et faire des tableaux croisés dynamiques dans Excel. Une feuille « Analyses » (répartitions + %) est ajoutée.
+// Lecture seule : rien n'est écrit dans la base.
+// ══════════════════════════════════════════════════════════════════════════════
+const PAYS_RESIDENCE = ['Luxembourg','France','Belgique','Allemagne','Autre'];
+const XL_FORMATS = {date:'dd/mm/yyyy', eur:'#,##0.00', num:'#,##0.##', int:'0', pct:'0.0%'};
+const serieXl = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); return m ? Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000) : null; };
+const jourISO = v => /^\d{4}-\d{2}-\d{2}/.test(String(v||'')) ? String(v).slice(0,10) : '';
+const anneeIso = v => jourISO(v) ? Number(jourISO(v).slice(0,4)) : '';
+const moisIso = v => jourISO(v) ? jourISO(v).slice(0,7) : '';
+const ouiNon = v => (v===true||v==='true') ? 'Oui' : ((v===false||v==='false') ? 'Non' : '');
+const numOuVide = v => { if(v===null||v===undefined||v==='') return ''; const n = parseFloat(v); return isNaN(n) ? '' : n; };
+const joursEntreISO = (a,b) => { const x = Date.parse(jourISO(a)), y = Date.parse(jourISO(b)); return (isNaN(x)||isNaN(y)) ? '' : Math.round((y-x)/86400000); };
+const ajouterJoursXl = (iso, n) => { const j = jourISO(iso); if(!j || isNaN(parseFloat(n))) return ''; const d = new Date(Date.parse(j)+Math.round(parseFloat(n))*86400000); return d.toISOString().slice(0,10); };
+function colX(id, titre, type, val, o){ o = o||{}; return {id, titre, type, val, groupe:o.g||'Général', defaut:o.d!==false, sensible:!!o.s, total:!!o.tot, si:o.si||null, dim:!!o.dim}; }
+const GROUPE_AUTRES = 'Autres champs de la base';
+const ESTUUID = v => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v||''));
+// Champs de la table qu'aucune colonne décrite ne lit : on les propose aussi (décochés), pour que TOUTES les données soient exportables.
+// Les clés lues par les colonnes décrites sont repérées avec un objet « espion » (aucune liste à maintenir à la main).
+function clesCouvertes(cfg, ctx){
+  const vus = new Set();
+  const sonde = new Proxy({}, {get:(t,k)=>{ if(typeof k==='string') vus.add(k); return undefined; }});
+  cfg.colonnes.forEach(c=>{ try{ c.val(sonde, ctx); }catch(e){} });
+  return vus;
+}
+function colonnesSupplementaires(cfg, lignes, ctx){
+  const couvertes = clesCouvertes(cfg, ctx), cles = [];
+  lignes.slice(0,300).forEach(r=>Object.keys(r||{}).forEach(k=>{ if(!cles.includes(k)) cles.push(k); }));
+  const out = [];
+  cles.forEach(k=>{
+    if(couvertes.has(k) || k==='id' || /_id$/.test(k)) return;
+    const ech = lignes.slice(0,200).map(r=>r[k]).filter(v=>v!==null && v!==undefined && v!=='');
+    if(ech.some(v=>typeof v==='object' || ESTUUID(v))) return;                       // listes, objets et identifiants techniques : inutiles dans Excel
+    const v0 = ech[0];
+    const type = typeof v0==='number' ? 'num' : /^\d{4}-\d{2}-\d{2}/.test(String(v0||'')) ? 'date' : 'txt';
+    const val = typeof v0==='boolean' ? (r=>ouiNon(r[k])) : (r=>r[k]);
+    const titre = k.replace(/_/g,' ').replace(/^./, s=>s.toUpperCase());
+    out.push({id:'x_'+k, titre, type: typeof v0==='boolean' ? 'txt' : type, val, groupe:GROUPE_AUTRES, defaut:false, sensible:cfg.donneesPersonnelles===true, total:false, si:null, dim:false, technique:true});
+  });
+  return out;
+}
+
+// Lecture complète d'une table (par pages de 1000 : la base n'en renvoie pas plus d'un coup)
+async function lireTableComplete(table, cle){
+  const out = []; let debut = 0;
+  for(;;){
+    const r = await sb.from(table).select('*').order(cle||'id',{ascending:true}).range(debut, debut+999);
+    if(r.error) throw new Error(r.error.message);
+    const l = r.data||[]; out.push(...l);
+    if(l.length<1000) break;
+    debut += 1000;
+  }
+  return out;
+}
+async function lireOptionnelle(table, cle){ try{ return await lireTableComplete(table, cle); }catch(e){ return []; } }
+const parIdExport = rows => { const m = {}; (rows||[]).forEach(r=>{ m[r.id] = r; }); return m; };
+
+// ── Calculs propres aux employés ──
+const trancheAnciennete = a => a==='' ? 'Non renseigné' : a<1 ? 'Moins de 1 an' : a<3 ? '1 à 3 ans' : a<5 ? '3 à 5 ans' : a<10 ? '5 à 10 ans' : '10 ans et plus';
+const trancheAge = a => a==='' ? 'Non renseigné' : a<30 ? 'Moins de 30 ans' : a<40 ? '30 à 39 ans' : a<50 ? '40 à 49 ans' : '50 ans et plus';
+function ageAnnees(naiss, ref){
+  const n = jourISO(naiss); if(!n) return '';
+  const a = ref || today(); let age = Number(a.slice(0,4)) - Number(n.slice(0,4));
+  if(a.slice(5) < n.slice(5)) age--;
+  return (age>=0 && age<120) ? age : '';
+}
+function ancienneteAnnees(emp, ref){
+  const d = jourISO(emp.date_embauche); if(!d) return '';
+  const auj = ref || today(), fin = (jourISO(emp.date_sortie) && jourISO(emp.date_sortie) <= auj) ? jourISO(emp.date_sortie) : auj;
+  const j = joursEntreISO(d, fin); return j==='' || j<0 ? '' : Math.round(j/365.25*10)/10;
+}
+function masseMensuelleEmploye(emp, ctx){
+  const rem = ctx && ctx.rem && ctx.rem[emp.id]; if(!rem) return '';
+  const s = numOuVide(rem.salaire_brut); if(s==='') return '';
+  if(rem.type_remuneration==='horaire'){ const h = numOuVide(rem.heures_semaine); return h==='' ? '' : Math.round(s*h*52/12*100)/100; }
+  return s;
+}
+
+// ── Description des exports (une entrée par module) ──
+function definitionsExport(){
+  const nomLieu = (map, id, repli) => (map && id && map[id] && map[id].nom) || repli || '';
+  const adresseUne = r => [r.adresse, r.code_postal, r.ville].filter(Boolean).join(', ');
+  const tvaFv = f => f.total_tva!=null && f.total_tva!=='' ? numOuVide(f.total_tva) : Math.round(((numOuVide(f.total_ttc)||0)-(numOuVide(f.total_ht)||0))*100)/100;
+  const ROLES = {admin:'Administrateur', acheteur:'Acheteur', reception:'Réception', comptabilite:'Comptabilité'};
+  const TYPES_CENTRE = {chantier:'Chantier', sav:'Centre SAV', interne:'Interne'};
+  const OFFRE_SAV = {en_attente:"En attente d'envoi", envoyee:'Envoyée au client', acceptee:'Acceptée', refusee:'Refusée'};
+  const ETAT_FACT = {non:'Non facturé', brouillon:'Facture en brouillon', partiel:'Partiellement facturé', total:'Facturé', sur:'Sur-facturé', na:''};
+  const coordonnees = [
+    colX('adresse','Adresse','txt',r=>r.adresse,{g:'Adresse'}), colX('cp','Code postal','txt',r=>r.code_postal,{g:'Adresse'}),
+    colX('ville','Ville','txt',r=>r.ville,{g:'Adresse'}), colX('pays','Pays','txt',r=>r.pays,{g:'Adresse'})];
+  const emises = f => !['brouillon','annulee'].includes(f.statut);
+
+  const defs = {
+    // ─────────────── EMPLOYÉS ───────────────
+    employes_rh:{ titre:'Employés', pivotDefaut:{ligne:'statut', colonne:'pays_res'}, fichier:'Employes', feuille:'Employés', nbLibelle:'Effectif', donneesPersonnelles:true,
+      avertissement:"Ce fichier contient des données personnelles et des rémunérations : ne le partagez qu'avec des personnes autorisées.",
+      filtreSynthese: r=>r.actif!==false,
+      charger: async()=>{
+        const lignes = await lireTableComplete('employes_rh');
+        let rem = {}, remOk = false;
+        if(peutVoirSalaires()){
+          try{ const r = await sb.from('employes_remuneration').select('*'); if(!r.error){ remOk = true; (r.data||[]).forEach(x=>{ rem[x.employe_id] = x; }); } }catch(e){}
+        }
+        return {lignes, ctx:{rem, remOk, paysOk: lignes.length ? ('pays_residence' in lignes[0]) : true, auj: today()}};
+      },
+      colonnes:[
+        colX('nom','Nom','txt',r=>String(r.nom||'').toLocaleUpperCase('fr'),{g:'Identité'}),
+        colX('prenom','Prénom','txt',r=>r.prenom,{g:'Identité'}),
+        colX('age','Âge (ans)','int',(r,c)=>ageAnnees(r.date_naissance,c.auj),{g:'Identité'}),
+        colX('tr_age',"Tranche d'âge",'txt',(r,c)=>trancheAge(ageAnnees(r.date_naissance,c.auj)),{g:'Identité',d:false}),
+        colX('naiss','Date de naissance','date',r=>r.date_naissance,{g:'Identité',d:false}),
+        colX('civil','État civil','txt',r=>r.etat_civil,{g:'Identité',d:false}),
+        colX('enfants','Enfants à charge','int',r=>r.nombre_enfants_charge,{g:'Identité'}),
+        colX('poste','Poste / Fonction','txt',r=>r.poste,{g:'Emploi'}),
+        colX('statut','Statut (ouvrier / employé)','txt',r=>STATUTS_PRO[r.statut_professionnel]||'',{g:'Emploi'}),
+        colX('contrat','Type de contrat','txt',r=>r.type_contrat,{g:'Emploi'}),
+        colX('actif','Actif','txt',r=>ouiNon(r.actif!==false),{g:'Emploi'}),
+        colX('entree',"Date d'entrée",'date',r=>r.date_embauche,{g:'Emploi'}),
+        colX('annee_entree',"Année d'entrée",'int',r=>anneeIso(r.date_embauche),{g:'Emploi',d:false}),
+        colX('sortie','Date de sortie','date',r=>r.date_sortie,{g:'Emploi'}),
+        colX('anciennete','Ancienneté (années)','num',(r,c)=>ancienneteAnnees(r,c.auj),{g:'Emploi'}),
+        colX('tr_anc',"Tranche d'ancienneté",'txt',(r,c)=>trancheAnciennete(ancienneteAnnees(r,c.auj)),{g:'Emploi',d:false}),
+        colX('essai',"Période d'essai (mois)",'int',r=>r.periode_essai_mois,{g:'Emploi',d:false}),
+        colX('pays_res','Pays de résidence','txt',r=>r.pays_residence,{g:'Résidence'}),
+        colX('cp','Code postal','txt',r=>r.code_postal,{g:'Résidence'}),
+        colX('ville','Ville','txt',r=>r.ville,{g:'Résidence'}),
+        colX('adresse','Adresse','txt',r=>r.adresse,{g:'Résidence',d:false}),
+        colX('email','Email','txt',r=>r.email,{g:'Contact'}),
+        colX('tel','Téléphone','txt',r=>r.telephone,{g:'Contact'}),
+        colX('rem_type','Type de rémunération','txt',(r,c)=>TYPES_REMUNERATION[(c.rem[r.id]||{}).type_remuneration]||'',{g:'Rémunération (confidentiel)',si:c=>c.remOk}),
+        colX('rem_mensuel','Salaire mensuel brut (€)','eur',(r,c)=>{ const x=c.rem[r.id]; return x && x.type_remuneration!=='horaire' ? x.salaire_brut : ''; },{g:'Rémunération (confidentiel)',si:c=>c.remOk,tot:true}),
+        colX('rem_horaire','Taux horaire brut (€/h)','eur',(r,c)=>{ const x=c.rem[r.id]; return x && x.type_remuneration==='horaire' ? x.salaire_brut : ''; },{g:'Rémunération (confidentiel)',si:c=>c.remOk}),
+        colX('rem_heures','Heures par semaine','num',(r,c)=>(c.rem[r.id]||{}).heures_semaine,{g:'Rémunération (confidentiel)',si:c=>c.remOk}),
+        colX('rem_cout','Coût employeur (€/h)','eur',(r,c)=>(c.rem[r.id]||{}).cout_horaire,{g:'Rémunération (confidentiel)',si:c=>c.remOk}),
+        colX('rem_masse','Masse mensuelle brute estimée (€)','eur',(r,c)=>masseMensuelleEmploye(r,c),{g:'Rémunération (confidentiel)',si:c=>c.remOk,tot:true}),
+        colX('visite','Visite médicale valable jusqu\'au','date',r=>r.visite_medicale_valable_jusquau,{g:'Santé et sécurité'}),
+        colX('vehicule','Véhicule attribué','txt',r=>TYPES_VEHICULE[r.vehicule_type]||'',{g:'Véhicule',d:false}),
+        colX('plaque',"Plaque d'immatriculation",'txt',r=>r.vehicule_plaque,{g:'Véhicule',d:false}),
+        colX('impot_classe',"Classe d'impôt",'txt',r=>r.carte_impot_classe,{g:'Carte d\'impôt',d:false}),
+        colX('impot_taux','Taux de retenue (%)','num',r=>r.carte_impot_taux,{g:'Carte d\'impôt',d:false}),
+        colX('taille_haut','Taille (haut)','txt',r=>r.taille_haut,{g:'Équipement',d:false}),
+        colX('taille_bas','Taille (bas)','txt',r=>r.taille_bas,{g:'Équipement',d:false}),
+        colX('pointure','Pointure','txt',r=>r.pointure,{g:'Équipement',d:false}),
+        colX('pointage','Lié au système de pointages','txt',r=>ouiNon(!!r.pointage_employe_id),{g:'Divers',d:false}),
+        colX('notes','Notes','txt',r=>r.notes,{g:'Divers',d:false}),
+        colX('iban','IBAN','txt',r=>empIban(r),{g:'Données sensibles',s:true,d:false}),
+        colX('bic','BIC','txt',r=>r.bic,{g:'Données sensibles',s:true,d:false}),
+        colX('cns','Matricule CNS','txt',r=>r.matricule_cns,{g:'Données sensibles',s:true,d:false}),
+        colX('ci_num',"N° de carte d'identité",'txt',r=>r.numero_carte_identite,{g:'Données sensibles',s:true,d:false}),
+        colX('permis_num','N° de permis de conduire','txt',r=>r.numero_permis_conduire,{g:'Données sensibles',s:true,d:false}),
+        colX('impot_ref',"Référence carte d'impôt",'txt',r=>r.carte_impot_reference,{g:'Données sensibles',s:true,d:false}),
+        colX('urg_nom',"Contact d'urgence (nom)",'txt',r=>r.contact_urgence_nom,{g:'Données sensibles',s:true,d:false}),
+        colX('urg_tel',"Contact d'urgence (téléphone)",'txt',r=>r.contact_urgence_telephone,{g:'Données sensibles',s:true,d:false})
+      ],
+      noteAnalyse: (lignes, ctx)=>{
+        const actifs = lignes.filter(r=>r.actif!==false), notes = [`Employés actifs uniquement : ${actifs.length} sur ${lignes.length} fiche${lignes.length>1?'s':''}.`];
+        if(!ctx.paysOk) notes.push("⚠ Le champ « Pays de résidence » n'existe pas encore dans la base : exécutez employes-pays-residence.sql (Supabase → SQL Editor), puis renseignez-le dans chaque fiche.");
+        else { const k = actifs.filter(r=>!String(r.pays_residence||'').trim()).length; if(k) notes.push(`⚠ ${k} employé${k>1?'s':''} actif${k>1?'s':''} sans pays de résidence renseigné (ligne « Non renseigné ») : à compléter dans la fiche.`); }
+        if(ctx.remOk) notes.push('Masse mensuelle brute estimée : traitement = salaire mensuel brut ; horaire = taux horaire × heures par semaine × 52 ÷ 12. Hors charges patronales.');
+        return notes;
+      },
+      syntheses:[
+        {titre:'Répartition par pays de résidence', colonne:'Pays de résidence', cle:r=>String(r.pays_residence||'').trim()||'Non renseigné', ordre:[...PAYS_RESIDENCE,'Non renseigné'], mesures:c=>mesSalaires(c)},
+        {titre:'Répartition par statut', colonne:'Statut', cle:r=>STATUTS_PRO[r.statut_professionnel]||'Non renseigné', ordre:[...Object.values(STATUTS_PRO),'Non renseigné'], mesures:c=>mesSalaires(c)},
+        {titre:'Répartition par type de contrat', colonne:'Type de contrat', cle:r=>r.type_contrat||'Non renseigné', ordre:['CDI','CDD','Intérim','Apprentissage','Stage','Indépendant','Non renseigné'], mesures:c=>mesSalaires(c)},
+        {titre:"Répartition par ancienneté", colonne:'Ancienneté', cle:(r,c)=>trancheAnciennete(ancienneteAnnees(r,c.auj)), ordre:['Moins de 1 an','1 à 3 ans','3 à 5 ans','5 à 10 ans','10 ans et plus','Non renseigné']},
+        {titre:"Répartition par tranche d'âge", colonne:'Âge', cle:(r,c)=>trancheAge(ageAnnees(r.date_naissance,c.auj)), ordre:['Moins de 30 ans','30 à 39 ans','40 à 49 ans','50 ans et plus','Non renseigné']},
+        {titre:'Répartition par poste', colonne:'Poste', cle:r=>String(r.poste||'').trim()||'Non renseigné'}
+      ],
+      croisements:[
+        {titre:'Statut × pays de résidence (effectif)', ligne:r=>STATUTS_PRO[r.statut_professionnel]||'Non renseigné', colonne:r=>String(r.pays_residence||'').trim()||'Non renseigné',
+         ordreLignes:[...Object.values(STATUTS_PRO),'Non renseigné'], ordreColonnes:[...PAYS_RESIDENCE,'Non renseigné']},
+        {titre:'Type de contrat × statut (effectif)', ligne:r=>r.type_contrat||'Non renseigné', colonne:r=>STATUTS_PRO[r.statut_professionnel]||'Non renseigné',
+         ordreLignes:['CDI','CDD','Intérim','Apprentissage','Stage','Indépendant','Non renseigné'], ordreColonnes:[...Object.values(STATUTS_PRO),'Non renseigné']}
+      ]
+    },
+
+    // ─────────────── CLIENTS ───────────────
+    clients:{ titre:'Clients', pivotDefaut:{ligne:'pays'}, fichier:'Clients', feuille:'Clients',
+      charger: async()=>({lignes: await lireTableComplete('clients'), ctx:{}}),
+      colonnes:[
+        colX('nom','Nom','txt',r=>r.nom,{g:'Identité'}), colX('contact','Contact principal','txt',r=>r.contact_principal,{g:'Identité'}),
+        colX('tva','N° TVA','txt',r=>r.numero_tva,{g:'Identité'}),
+        colX('email','Email','txt',r=>r.email,{g:'Contact'}), colX('tel','Téléphone','txt',r=>r.telephone,{g:'Contact'}),
+        ...coordonnees,
+        colX('liv','Adresse de livraison / intervention','txt',r=>r.adresse_livraison,{g:'Adresse',d:false}),
+        colX('cond','Conditions de paiement','txt',r=>r.conditions_paiement,{g:'Facturation'}),
+        colX('actif','Actif','txt',r=>ouiNon(r.actif!==false),{g:'Statut'}),
+        colX('notes','Notes','txt',r=>r.notes,{g:'Statut',d:false}), colX('cree','Créé le','date',r=>r.created_at,{g:'Statut',d:false})
+      ],
+      syntheses:[
+        {titre:'Répartition par pays', colonne:'Pays', cle:r=>r.pays||'Non renseigné'},
+        {titre:'Répartition par statut', colonne:'Statut', cle:r=>r.actif===false?'Inactif':'Actif', ordre:['Actif','Inactif']},
+        {titre:'Répartition par conditions de paiement', colonne:'Conditions', cle:r=>r.conditions_paiement||'Non renseigné'}
+      ]
+    },
+
+    // ─────────────── FOURNISSEURS ───────────────
+    fournisseurs:{ titre:'Fournisseurs', pivotDefaut:{ligne:'pays'}, fichier:'Fournisseurs', feuille:'Fournisseurs',
+      charger: async()=>({lignes: await lireTableComplete('fournisseurs'), ctx:{}}),
+      colonnes:[
+        colX('nom','Nom','txt',r=>r.nom,{g:'Identité'}), colX('tva','N° TVA','txt',r=>r.numero_tva,{g:'Identité'}),
+        colX('email','Email','txt',r=>r.email,{g:'Contact'}), colX('tel','Téléphone','txt',r=>r.telephone,{g:'Contact'}),
+        ...coordonnees,
+        colX('cond','Conditions de paiement','txt',r=>r.conditions_paiement,{g:'Facturation'}),
+        colX('actif','Actif','txt',r=>ouiNon(r.actif!==false),{g:'Statut'}),
+        colX('cree','Créé le','date',r=>r.created_at,{g:'Statut',d:false})
+      ],
+      syntheses:[
+        {titre:'Répartition par pays', colonne:'Pays', cle:r=>r.pays||'Non renseigné'},
+        {titre:'Répartition par conditions de paiement', colonne:'Conditions', cle:r=>r.conditions_paiement||'Non renseigné'}
+      ]
+    },
+
+    // ─────────────── CHANTIERS ───────────────
+    chantiers:{ titre:'Chantiers', pivotDefaut:{ligne:'statut'}, fichier:'Chantiers', feuille:'Chantiers',
+      charger: async()=>{
+        const [lignes, clients, emps, devis] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('clients'), lireOptionnelle('employes_rh'), lireOptionnelle('devis')]);
+        return {lignes, ctx:{clients:parIdExport(clients), emps:parIdExport(emps), devis:parIdExport(devis), auj: today()}};
+      },
+      colonnes:[
+        colX('numero','N° chantier','txt',r=>r.numero,{g:'Identification'}), colX('nom','Nom','txt',r=>r.nom,{g:'Identification'}),
+        colX('type','Type','txt',r=>TYPES_CENTRE[r.type_centre||'chantier']||r.type_centre,{g:'Identification'}),
+        colX('statut','Statut','txt',r=>STATUT_CH[r.statut]||r.statut,{g:'Identification'}),
+        colX('client','Client','txt',(r,c)=>nomLieu(c.clients,r.client_id,r.client),{g:'Identification'}),
+        colX('chef','Chef de chantier','txt',(r,c)=>(r.chef_chantier_id && c.emps[r.chef_chantier_id]) ? nomPers(c.emps[r.chef_chantier_id]) : (r.chef_chantier||''),{g:'Identification'}),
+        colX('devis','Devis lié','txt',(r,c)=>nomLieu(c.devis,r.devis_id,'')?'':((c.devis[r.devis_id]||{}).numero||''),{g:'Identification'}),
+        colX('adresse','Adresse','txt',r=>r.adresse,{g:'Lieu',d:false}), colX('site','Site d\'intervention','txt',r=>r.site_intervention,{g:'Lieu',d:false}),
+        colX('debut','Date de début','date',r=>r.date_debut,{g:'Planning'}), colX('annee_debut','Année de début','int',r=>anneeIso(r.date_debut),{g:'Planning',d:false}),
+        colX('fin','Fin prévue','date',r=>r.date_fin_prevue,{g:'Planning'}),
+        colX('retard','Jours de retard (chantier actif)','int',(r,c)=>{ if(r.statut!=='actif'||!jourISO(r.date_fin_prevue)) return ''; const j = joursEntreISO(r.date_fin_prevue, c.auj); return j>0 ? j : ''; },{g:'Planning'}),
+        colX('pointages','Code pointages','txt',r=>r.code_pointages,{g:'Divers',d:false}),
+        colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false}), colX('cree','Créé le','date',r=>r.created_at,{g:'Divers',d:false})
+      ],
+      syntheses:[
+        {titre:'Répartition par statut', colonne:'Statut', cle:r=>STATUT_CH[r.statut]||r.statut||'Non renseigné'},
+        {titre:'Répartition par type', colonne:'Type', cle:r=>TYPES_CENTRE[r.type_centre||'chantier']||r.type_centre},
+        {titre:'Répartition par client', colonne:'Client', cle:(r,c)=>nomLieu(c.clients,r.client_id,r.client)||'Non renseigné'},
+        {titre:'Répartition par chef de chantier', colonne:'Chef de chantier', cle:(r,c)=>((r.chef_chantier_id && c.emps[r.chef_chantier_id]) ? nomPers(c.emps[r.chef_chantier_id]) : (r.chef_chantier||''))||'Non renseigné'}
+      ]
+    },
+
+    // ─────────────── DEVIS ───────────────
+    devis:{ titre:'Devis', pivotDefaut:{ligne:'client', valeur:'sum:ht'}, fichier:'Devis', feuille:'Devis',
+      charger: async()=>{
+        const [lignes, clients, chantiers, facs] = await Promise.all([lireTableComplete('devis'), lireOptionnelle('clients'), lireOptionnelle('chantiers_lyneo'), lireOptionnelle('factures_vente')]);
+        const parDevis = {}; facs.forEach(f=>{ if(f.devis_id) (parDevis[f.devis_id] = parDevis[f.devis_id]||[]).push(f); });
+        return {lignes, ctx:{clients:parIdExport(clients), chantiers:parIdExport(chantiers), facs:parDevis}};
+      },
+      colonnes:[
+        colX('numero','N° devis','txt',r=>r.numero,{g:'Identification'}),
+        colX('date','Date du devis','date',r=>r.date_devis,{g:'Identification'}),
+        colX('annee','Année','int',r=>anneeIso(r.date_devis),{g:'Identification'}), colX('mois','Mois (AAAA-MM)','txt',r=>moisIso(r.date_devis),{g:'Identification'}),
+        colX('client','Client','txt',(r,c)=>nomLieu(c.clients,r.client_id),{g:'Identification'}),
+        colX('chantier_num','N° chantier','txt',(r,c)=>(c.chantiers[r.chantier_id]||{}).numero||'',{g:'Identification'}),
+        colX('chantier','Chantier','txt',(r,c)=>nomLieu(c.chantiers,r.chantier_id),{g:'Identification'}),
+        colX('objet','Objet','txt',r=>r.objet,{g:'Identification'}), colX('corresp','Correspondant','txt',r=>r.correspondant,{g:'Identification',d:false}),
+        colX('statut','Statut','txt',r=>STATUT_DV[r.statut]||r.statut,{g:'Suivi'}),
+        colX('validite','Validité (jours)','int',r=>r.validite_jours,{g:'Suivi',d:false}),
+        colX('valable','Valable jusqu\'au','date',r=>ajouterJoursXl(r.date_devis, r.validite_jours),{g:'Suivi'}),
+        colX('ht','Montant HT','eur',r=>r.montant_ht,{g:'Montants',tot:true}), colX('tva','TVA','eur',r=>r.montant_tva,{g:'Montants',tot:true}), colX('ttc','Montant TTC','eur',r=>r.montant_ttc,{g:'Montants',tot:true}),
+        colX('acompte','Acompte (%)','num',r=>r.conditions_acompte_pct,{g:'Conditions',d:false}), colX('cond','Conditions de paiement','txt',r=>r.conditions_paiement,{g:'Conditions',d:false}),
+        colX('etat_fact','État de facturation','txt',(r,c)=>{ const e = etatFacturationDevis(r, c.facs[r.id]); return ETAT_FACT[e.etat]||''; },{g:'Facturation'}),
+        colX('facture_ht','Facturé HT','eur',(r,c)=>{ const e = etatFacturationDevis(r, c.facs[r.id]); return e.etat==='na' ? '' : e.couvert; },{g:'Facturation',tot:true}),
+        colX('reste_ht','Reste à facturer HT (devis accepté)','eur',(r,c)=>{ const e = etatFacturationDevis(r, c.facs[r.id]); return r.statut==='accepte' ? Math.max(0,e.reste) : ''; },{g:'Facturation',tot:true}),
+        colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false}), colX('cree','Créé le','date',r=>r.created_at,{g:'Divers',d:false})
+      ],
+      syntheses:[
+        {titre:'Par statut', colonne:'Statut', cle:r=>STATUT_DV[r.statut]||r.statut||'Non renseigné', ordre:Object.values(STATUT_DV), mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.montant_ht),agr:'sum',type:'eur'},{t:'Montant TTC (€)',v:r=>numOuVide(r.montant_ttc),agr:'sum',type:'eur'}]},
+        {titre:'Par année', colonne:'Année', cle:r=>String(anneeIso(r.date_devis)||'Sans date'), tri:'label', mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.montant_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par mois', colonne:'Mois', cle:r=>moisIso(r.date_devis)||'Sans date', tri:'label', mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.montant_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par client', colonne:'Client', cle:(r,c)=>nomLieu(c.clients,r.client_id)||'Sans client', tri:'mesure', mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.montant_ht),agr:'sum',type:'eur'}]}
+      ],
+      croisements:[
+        {titre:'Année × statut (nombre de devis)', ligne:r=>String(anneeIso(r.date_devis)||'Sans date'), colonne:r=>STATUT_DV[r.statut]||r.statut||'Non renseigné', ordreColonnes:Object.values(STATUT_DV), triLignes:'label'}
+      ]
+    },
+
+    // ─────────────── FACTURES CLIENTS ───────────────
+    factures_vente:{ titre:'Factures clients', pivotDefaut:{ligne:'client', valeur:'sum:ht'}, fichier:'Factures_clients', feuille:'Factures clients',
+      charger: async()=>{
+        const [lignes, clients, chantiers, devis] = await Promise.all([lireTableComplete('factures_vente'), lireOptionnelle('clients'), lireOptionnelle('chantiers_lyneo'), lireOptionnelle('devis')]);
+        return {lignes, ctx:{clients:parIdExport(clients), chantiers:parIdExport(chantiers), devis:parIdExport(devis), orig:parIdExport(lignes), av:avoirsParFacture(lignes), auj:today()}};
+      },
+      colonnes:[
+        colX('numero','N° facture','txt',r=>r.numero,{g:'Identification'}),
+        colX('type','Type','txt',r=>TYPE_FV[r.type_facture]||r.type_facture,{g:'Identification'}),
+        colX('date','Date de facture','date',r=>r.date_creation,{g:'Identification'}),
+        colX('annee','Année','int',r=>anneeIso(r.date_creation),{g:'Identification'}), colX('mois','Mois (AAAA-MM)','txt',r=>moisIso(r.date_creation),{g:'Identification'}),
+        colX('echeance','Échéance','date',r=>r.date_echeance,{g:'Identification'}),
+        colX('client','Client','txt',(r,c)=>nomLieu(c.clients,r.client_id),{g:'Identification'}),
+        colX('chantier_num','N° chantier','txt',(r,c)=>(c.chantiers[r.chantier_id]||{}).numero||'',{g:'Identification'}),
+        colX('chantier','Chantier','txt',(r,c)=>nomLieu(c.chantiers,r.chantier_id),{g:'Identification'}),
+        colX('devis','Devis','txt',(r,c)=>(c.devis[r.devis_id]||{}).numero||'',{g:'Identification'}),
+        colX('ref_client','Référence client','txt',r=>r.reference_client,{g:'Identification',d:false}),
+        colX('orig','Facture d\'origine (note de crédit)','txt',(r,c)=>r.type_facture==='avoir' ? ((c.orig[r.facture_origine_id]||{}).numero||'') : '',{g:'Identification',d:false}),
+        colX('statut','Statut','txt',r=>(r.type_facture==='avoir' ? STATUT_AVOIR : STATUT_FV)[r.statut]||r.statut,{g:'Suivi'}),
+        colX('ht','Montant HT','eur',r=>r.total_ht,{g:'Montants',tot:true}), colX('tva','TVA','eur',tvaFv,{g:'Montants',tot:true}), colX('ttc','Montant TTC','eur',r=>r.total_ttc,{g:'Montants',tot:true}),
+        colX('a_encaisser','À encaisser TTC (notes de crédit déduites)','eur',(r,c)=>(r.type_facture!=='avoir' && ['envoyee','payee_partiel'].includes(r.statut)) ? Math.max(0, soldeFv(r,c.av)) : '',{g:'Suivi',tot:true}),
+        colX('retard','Jours de retard','int',(r,c)=>{ if(r.type_facture==='avoir' || !['envoyee','payee_partiel'].includes(r.statut) || !jourISO(r.date_echeance) || soldeFv(r,c.av)<=0.005) return ''; const j = joursEntreISO(r.date_echeance, c.auj); return j>0 ? j : ''; },{g:'Suivi'}),
+        colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false}), colX('cree','Créé le','date',r=>r.created_at,{g:'Divers',d:false})
+      ],
+      noteAnalyse: ()=>["Les notes de crédit ont des montants négatifs. Les totaux par client, type, mois et année ne comptent que les documents émis (hors brouillons et annulées) ; la synthèse par statut montre tout."],
+      syntheses:[
+        {titre:'Par statut (tous les documents)', colonne:'Statut', cle:r=>(r.type_facture==='avoir' ? STATUT_AVOIR : STATUT_FV)[r.statut]||r.statut||'Non renseigné', mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'},{t:'Montant TTC (€)',v:r=>numOuVide(r.total_ttc),agr:'sum',type:'eur'}]},
+        {titre:'Par type (émises)', colonne:'Type', cle:r=>TYPE_FV[r.type_facture]||r.type_facture||'Non renseigné', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par année (émises)', colonne:'Année', cle:r=>String(anneeIso(r.date_creation)||'Sans date'), tri:'label', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par mois (émises)', colonne:'Mois', cle:r=>moisIso(r.date_creation)||'Sans date', tri:'label', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par client (émises)', colonne:'Client', cle:(r,c)=>nomLieu(c.clients,r.client_id)||'Sans client', tri:'mesure', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]}
+      ]
+    },
+
+    // ─────────────── BONS DE COMMANDE ───────────────
+    pos:{ titre:'Bons de commande', pivotDefaut:{ligne:'four', valeur:'sum:ht'}, fichier:'Bons_de_commande', feuille:'Bons de commande',
+      charger: async()=>{
+        const [lignes, fours, chantiers] = await Promise.all([lireTableComplete('purchase_orders_lyneo'), lireOptionnelle('fournisseurs'), lireOptionnelle('chantiers_lyneo')]);
+        return {lignes, ctx:{fours:parIdExport(fours), chantiers:parIdExport(chantiers)}};
+      },
+      colonnes:[
+        colX('numero','N° commande','txt',r=>r.numero,{g:'Identification'}),
+        colX('date','Date de création','date',r=>r.date_creation,{g:'Identification'}),
+        colX('annee','Année','int',r=>anneeIso(r.date_creation),{g:'Identification'}), colX('mois','Mois (AAAA-MM)','txt',r=>moisIso(r.date_creation),{g:'Identification'}),
+        colX('four','Fournisseur','txt',(r,c)=>nomLieu(c.fours,r.fournisseur_id),{g:'Identification'}),
+        colX('chantier_num','N° chantier','txt',(r,c)=>(c.chantiers[r.chantier_id]||{}).numero||'',{g:'Identification'}),
+        colX('chantier','Chantier','txt',(r,c)=>nomLieu(c.chantiers,r.chantier_id),{g:'Identification'}),
+        colX('statut','Statut','txt',r=>STATUT_PO[r.statut]||r.statut,{g:'Suivi'}),
+        colX('livraison','Livraison souhaitée','date',r=>r.date_livraison_souhaitee,{g:'Suivi'}),
+        colX('envoye','Envoyée le','date',r=>r.envoye_le,{g:'Suivi',d:false}),
+        colX('ht','Total HT','eur',r=>r.total_ht,{g:'Montants',tot:true}), colX('tva','TVA','eur',r=>r.total_tva,{g:'Montants',tot:true}), colX('ttc','Total TTC','eur',r=>r.total_ttc,{g:'Montants',tot:true}),
+        colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false}), colX('cree','Créé le','date',r=>r.created_at,{g:'Divers',d:false})
+      ],
+      syntheses:[
+        {titre:'Par statut', colonne:'Statut', cle:r=>STATUT_PO[r.statut]||r.statut||'Non renseigné', ordre:Object.values(STATUT_PO), mesures:[{t:'Total HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par fournisseur (hors annulées)', colonne:'Fournisseur', cle:(r,c)=>nomLieu(c.fours,r.fournisseur_id)||'Sans fournisseur', tri:'mesure', filtre:r=>r.statut!=='annulee', mesures:[{t:'Total HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par chantier (hors annulées)', colonne:'Chantier', cle:(r,c)=>{ const ch=c.chantiers[r.chantier_id]; return ch ? [ch.numero,ch.nom].filter(Boolean).join(' — ') : 'Sans chantier'; }, tri:'mesure', filtre:r=>r.statut!=='annulee', mesures:[{t:'Total HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
+        {titre:'Par mois (hors annulées)', colonne:'Mois', cle:r=>moisIso(r.date_creation)||'Sans date', tri:'label', filtre:r=>r.statut!=='annulee', mesures:[{t:'Total HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]}
+      ]
+    },
+
+    // ─────────────── RÉCEPTIONS (BL) ───────────────
+    receptions:{ titre:'Réceptions (BL)', pivotDefaut:{ligne:'four'}, fichier:'Receptions_BL', feuille:'Réceptions',
+      charger: async()=>{
+        const [lignes, pos, fours, chantiers, users] = await Promise.all([lireTableComplete('bons_livraison'), lireOptionnelle('purchase_orders_lyneo'), lireOptionnelle('fournisseurs'), lireOptionnelle('chantiers_lyneo'), lireOptionnelle('utilisateurs')]);
+        return {lignes, ctx:{pos:parIdExport(pos), fours:parIdExport(fours), chantiers:parIdExport(chantiers), users:parIdExport(users)}};
+      },
+      colonnes:[
+        colX('bl','N° BL','txt',r=>r.numero_bl,{g:'Identification'}),
+        colX('po','Commande','txt',(r,c)=>(c.pos[r.po_id]||{}).numero||'',{g:'Identification'}),
+        colX('four','Fournisseur','txt',(r,c)=>nomLieu(c.fours,(c.pos[r.po_id]||{}).fournisseur_id),{g:'Identification'}),
+        colX('chantier_num','N° chantier','txt',(r,c)=>(c.chantiers[(c.pos[r.po_id]||{}).chantier_id]||{}).numero||'',{g:'Identification'}),
+        colX('chantier','Chantier','txt',(r,c)=>nomLieu(c.chantiers,(c.pos[r.po_id]||{}).chantier_id),{g:'Identification'}),
+        colX('date','Date de réception','date',r=>r.date_reception,{g:'Réception'}),
+        colX('annee','Année','int',r=>anneeIso(r.date_reception),{g:'Réception'}), colX('mois','Mois (AAAA-MM)','txt',r=>moisIso(r.date_reception),{g:'Réception'}),
+        colX('par','Reçu par','txt',(r,c)=>c.users[r.recu_par] ? nomPers(c.users[r.recu_par]) : '',{g:'Réception'}),
+        colX('etat','Réception','txt',r=>({complet:'Complète',partiel:'Partielle'})[r.statut_reception]||r.statut_reception,{g:'Réception'}),
+        colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false})
+      ],
+      syntheses:[
+        {titre:'Par type de réception', colonne:'Réception', cle:r=>({complet:'Complète',partiel:'Partielle'})[r.statut_reception]||r.statut_reception||'Non renseigné'},
+        {titre:'Par fournisseur', colonne:'Fournisseur', cle:(r,c)=>nomLieu(c.fours,(c.pos[r.po_id]||{}).fournisseur_id)||'Sans fournisseur'},
+        {titre:'Par mois', colonne:'Mois', cle:r=>moisIso(r.date_reception)||'Sans date', tri:'label'}
+      ]
+    },
+
+    // ─────────────── INTERVENTIONS SAV ───────────────
+    interventions_sav:{ titre:'Interventions SAV', pivotDefaut:{ligne:'tech'}, fichier:'Interventions_SAV', feuille:'Interventions SAV',
+      charger: async()=>{
+        const [lignes, clients, chantiers, emps, devis] = await Promise.all([lireTableComplete('interventions_sav'), lireOptionnelle('clients'), lireOptionnelle('chantiers_lyneo'), lireOptionnelle('employes_rh'), lireOptionnelle('devis')]);
+        return {lignes, ctx:{clients:parIdExport(clients), chantiers:parIdExport(chantiers), emps:parIdExport(emps), devis:parIdExport(devis)}};
+      },
+      colonnes:[
+        colX('ref','Réf.','txt',r=>r.ref,{g:'Identification'}),
+        colX('date','Date d\'intervention','date',r=>r.date_intervention,{g:'Identification'}),
+        colX('annee','Année','int',r=>anneeIso(r.date_intervention),{g:'Identification'}), colX('mois','Mois (AAAA-MM)','txt',r=>moisIso(r.date_intervention),{g:'Identification'}),
+        colX('client','Client','txt',(r,c)=>nomLieu(c.clients,r.client_id),{g:'Identification'}),
+        colX('site','Site','txt',r=>r.nom_site,{g:'Identification'}), colX('adresse','Adresse du site','txt',r=>r.adresse_site,{g:'Identification',d:false}),
+        colX('desc','Description','txt',r=>r.description,{g:'Identification'}),
+        colX('tech','Technicien','txt',(r,c)=>(r.technicien_id && c.emps[r.technicien_id]) ? nomPers(c.emps[r.technicien_id]) : (r.technicien_nom||''),{g:'Suivi'}),
+        colX('statut','Statut','txt',r=>STATUT_SAV[r.statut]||r.statut,{g:'Suivi'}),
+        colX('astreinte','Astreinte','txt',r=>ouiNon(r.astreinte===true),{g:'Suivi'}),
+        colX('offre_req','Offre requise','txt',r=>ouiNon(r.offre_requise===true),{g:'Offre'}), colX('offre_st','Statut de l\'offre','txt',r=>OFFRE_SAV[r.offre_statut]||r.offre_statut||'',{g:'Offre'}),
+        colX('centre','Centre de coûts','txt',(r,c)=>{ const ch=c.chantiers[r.chantier_id]; return ch ? [ch.numero,ch.nom].filter(Boolean).join(' — ') : ''; },{g:'Rattachement'}),
+        colX('devis','Devis','txt',(r,c)=>(c.devis[r.devis_id]||{}).numero||'',{g:'Rattachement'}),
+        colX('cree','Créé le','date',r=>r.created_at,{g:'Divers',d:false})
+      ],
+      syntheses:[
+        {titre:'Par statut', colonne:'Statut', cle:r=>STATUT_SAV[r.statut]||r.statut||'Non renseigné', ordre:Object.values(STATUT_SAV)},
+        {titre:'Par technicien', colonne:'Technicien', cle:(r,c)=>((r.technicien_id && c.emps[r.technicien_id]) ? nomPers(c.emps[r.technicien_id]) : (r.technicien_nom||''))||'Non attribué'},
+        {titre:'Par client', colonne:'Client', cle:(r,c)=>nomLieu(c.clients,r.client_id)||'Sans client'},
+        {titre:'Par mois', colonne:'Mois', cle:r=>moisIso(r.date_intervention)||'Sans date', tri:'label'}
+      ]
+    },
+
+    // ─────────────── UTILISATEURS ───────────────
+    utilisateurs:{ titre:'Utilisateurs', pivotDefaut:{ligne:'role'}, fichier:'Utilisateurs', feuille:'Utilisateurs',
+      charger: async()=>({lignes: await lireTableComplete('utilisateurs'), ctx:{}}),
+      colonnes:[
+        colX('nom','Nom','txt',r=>String(r.nom||'').toLocaleUpperCase('fr'),{g:'Identité'}), colX('prenom','Prénom','txt',r=>r.prenom,{g:'Identité'}),
+        colX('email','Email','txt',r=>r.email,{g:'Identité'}),
+        colX('role','Rôle','txt',r=>ROLES[r.role]||r.role,{g:'Accès'}),
+        colX('salaires','Accès aux salaires','txt',r=>(r.role==='admin' || r.acces_salaires===true) ? 'Oui' : 'Non',{g:'Accès'}),
+        colX('actif','Actif','txt',r=>ouiNon(r.actif!==false),{g:'Accès'}),
+        colX('cree','Créé le','date',r=>r.created_at,{g:'Accès',d:false})
+      ],
+      syntheses:[{titre:'Par rôle', colonne:'Rôle', cle:r=>ROLES[r.role]||r.role||'Non renseigné'}]
+    }
+  };
+  // Les colonnes « Année… » servent à regrouper (pas à additionner)
+  Object.values(defs).forEach(cfg=>cfg.colonnes.forEach(c=>{ if(/^annee/.test(c.id)) c.dim = true; }));
+  return defs;
+}
+// Mesures « rémunération » ajoutées aux analyses des employés quand l'utilisateur a accès aux salaires
+function mesSalaires(ctx){
+  return (ctx && ctx.remOk) ? [
+    {t:'Masse mensuelle brute estimée (€)', v:(r,c)=>masseMensuelleEmploye(r,c), agr:'sum', type:'eur'},
+    {t:'Moyenne mensuelle brute estimée (€)', v:(r,c)=>masseMensuelleEmploye(r,c), agr:'moy', type:'eur'}
+  ] : [];
+}
+
+// ── Génération du classeur ──
+function valeurXl(c, r, ctx){
+  let v; try{ v = c.val(r, ctx); }catch(e){ v = ''; }
+  switch(c.type){
+    case 'date': return serieXl(v);                                                    // null → cellule vide
+    case 'eur': { const x = numOuVide(v); return x==='' ? null : Math.round(x*100)/100; }
+    case 'num': case 'int': case 'pct': { const x = numOuVide(v); return x==='' ? null : x; }
+    default: return v==null ? '' : String(v);
+  }
+}
+function feuilleDonnees(cols, lignes, ctx){
+  const aoa = [cols.map(c=>c.titre)];
+  lignes.forEach(r=>aoa.push(cols.map(c=>valeurXl(c, r, ctx))));
+  const ws = XLSX.utils.aoa_to_sheet(aoa), n = lignes.length;
+  cols.forEach((c,j)=>{
+    const z = XL_FORMATS[c.type]; if(!z) return;
+    for(let i=1;i<=n;i++){ const cell = ws[XLSX.utils.encode_cell({r:i,c:j})]; if(cell && cell.v!=null && cell.v!=='') cell.z = z; }
+  });
+  const derniere = XLSX.utils.encode_col(cols.length-1);
+  let bas = n;                                                                         // dernière ligne utilisée (0-based)
+  const colsTot = cols.map((c,j)=>c.total ? j : -1).filter(j=>j>=0);
+  if(n && colsTot.length){
+    const jLib = cols.findIndex(c=>!c.total);
+    ws[XLSX.utils.encode_cell({r:n+2,c:Math.max(0,jLib)})] = {t:'s', v:'Total'};
+    colsTot.forEach(j=>{
+      const L = XLSX.utils.encode_col(j);
+      let somme = 0; for(let i=1;i<=n;i++){ const x = aoa[i][j]; if(typeof x==='number') somme += x; }
+      ws[XLSX.utils.encode_cell({r:n+2,c:j})] = {t:'n', f:`SUBTOTAL(109,${L}2:${L}${n+1})`, v:Math.round(somme*100)/100, z:XL_FORMATS[cols[j].type]};   // suit les filtres appliqués dans Excel
+    });
+    bas = n+2;
+  }
+  ws['!ref'] = `A1:${derniere}${bas+1}`;
+  ws['!autofilter'] = {ref:`A1:${derniere}${n+1}`};
+  ws['!cols'] = cols.map((c,j)=>{
+    let w = String(c.titre).length + 3;
+    for(let i=1;i<=Math.min(n,300);i++){ const v = aoa[i][j]; const l = v==null ? 0 : (c.type==='date' ? 10 : (typeof v==='number' ? String(v).length+3 : String(v).length)); if(l+2>w) w = l+2; }
+    return {wch: Math.max(8, Math.min(w, 48))};
+  });
+  return ws;
+}
+
+// Feuille « Analyses » : répartitions (effectif, %, totaux) et croisements, calculés sur les lignes de la feuille de données
+function feuilleAnalyses(cfg, lignes, ctx){
+  const ws = {}; let L = 0, maxC = 2;
+  const put = (r,c,cell)=>{ ws[XLSX.utils.encode_cell({r,c})] = cell; if(c>maxC) maxC = c; };
+  const txt = (r,c,v)=>put(r,c,{t:'s', v:String(v)});
+  const nb = (r,c,v,z)=>put(r,c,z ? {t:'n', v, z} : {t:'n', v});
+  const base = cfg.filtreSynthese ? lignes.filter(cfg.filtreSynthese) : lignes;
+  const nbLib = cfg.nbLibelle || 'Nombre';
+  txt(L++,0,'ANALYSES — '+cfg.titre.toUpperCase());
+  txt(L++,0,'Situation au '+fmtDate(today())+' · '+base.length+' enregistrement'+(base.length>1?'s':'')+' analysé'+(base.length>1?'s':''));
+  (cfg.noteAnalyse ? cfg.noteAnalyse(lignes, ctx) : []).forEach(t=>txt(L++,0,t));
+  L++;
+  const trier = (groupes, s)=>{
+    const labels = [...groupes.keys()], ordre = s.ordre || [];
+    const connus = ordre.filter(x=>groupes.has(x));
+    let reste = labels.filter(x=>!connus.includes(x));
+    if(s.tri==='label') reste.sort((a,b)=>String(a).localeCompare(String(b),'fr',{numeric:true}));
+    else if(s.tri==='mesure') reste.sort((a,b)=>((groupes.get(b).mes[0]||{somme:0}).somme - (groupes.get(a).mes[0]||{somme:0}).somme) || String(a).localeCompare(String(b),'fr'));
+    else reste.sort((a,b)=>groupes.get(b).n - groupes.get(a).n || String(a).localeCompare(String(b),'fr'));
+    return s.tri==='label' ? [...connus, ...reste].sort((a,b)=>ordre.length ? 0 : String(a).localeCompare(String(b),'fr',{numeric:true})) : [...connus, ...reste];
+  };
+  (cfg.syntheses||[]).forEach(s=>{
+    const src = (s.filtre ? base.filter(s.filtre) : base), mesures = typeof s.mesures==='function' ? s.mesures(ctx) : (s.mesures||[]);
+    const groupes = new Map();
+    src.forEach(r=>{
+      const k = String(s.cle(r, ctx)); if(!groupes.has(k)) groupes.set(k, {n:0, mes:mesures.map(()=>({somme:0,k:0}))});
+      const g = groupes.get(k); g.n++;
+      mesures.forEach((m,i)=>{ const x = numOuVide(m.v(r, ctx)); if(x!==''){ g.mes[i].somme += x; g.mes[i].k++; } });
+    });
+    txt(L++,0,s.titre);
+    txt(L,0,s.colonne||''); txt(L,1,nbLib); txt(L,2,'% du total'); mesures.forEach((m,i)=>txt(L,3+i,m.t)); L++;
+    const ordre = trier(groupes, s), premiere = L, derniereLigne = L + ordre.length - 1, ligneTot = L + ordre.length;
+    ordre.forEach(k=>{
+      const g = groupes.get(k); txt(L,0,k); nb(L,1,g.n,XL_FORMATS.int);
+      put(L,2,{t:'n', f:`IF(B${ligneTot+1}=0,0,B${L+1}/B${ligneTot+1})`, v: src.length ? g.n/src.length : 0, z:XL_FORMATS.pct});
+      mesures.forEach((m,i)=>{ const a = g.mes[i]; if(a.k){ nb(L,3+i, Math.round((m.agr==='moy' ? a.somme/a.k : a.somme)*100)/100, XL_FORMATS[m.type||'eur']); } });
+      L++;
+    });
+    txt(L,0,'Total');
+    if(ordre.length){ put(L,1,{t:'n', f:`SUM(B${premiere+1}:B${derniereLigne+1})`, v:src.length, z:XL_FORMATS.int}); put(L,2,{t:'n', f:`SUM(C${premiere+1}:C${derniereLigne+1})`, v:src.length?1:0, z:XL_FORMATS.pct}); }
+    else { nb(L,1,0,XL_FORMATS.int); nb(L,2,0,XL_FORMATS.pct); }
+    mesures.forEach((m,i)=>{
+      const tous = src.map(r=>numOuVide(m.v(r, ctx))).filter(x=>x!=='');
+      if(!tous.length) return;
+      const tot = tous.reduce((a,b)=>a+b,0), col = XLSX.utils.encode_col(3+i);
+      if(m.agr==='moy') nb(L,3+i, Math.round(tot/tous.length*100)/100, XL_FORMATS[m.type||'eur']);
+      else put(L,3+i,{t:'n', f:`SUM(${col}${premiere+1}:${col}${derniereLigne+1})`, v:Math.round(tot*100)/100, z:XL_FORMATS[m.type||'eur']});
+    });
+    L += 3;
+  });
+  (cfg.croisements||[]).forEach(x=>{
+    const src = x.filtre ? base.filter(x.filtre) : base, lignesK = new Map(), colsK = new Set();
+    src.forEach(r=>{ const a = String(x.ligne(r,ctx)), b = String(x.colonne(r,ctx)); colsK.add(b); if(!lignesK.has(a)) lignesK.set(a,{}); lignesK.get(a)[b] = (lignesK.get(a)[b]||0)+1; });
+    const colsT = [...(x.ordreColonnes||[]).filter(k=>colsK.has(k)), ...[...colsK].filter(k=>!(x.ordreColonnes||[]).includes(k)).sort((a,b)=>String(a).localeCompare(String(b),'fr',{numeric:true}))];
+    const labelsL = [...lignesK.keys()];
+    const lignesT = x.triLignes==='label' ? labelsL.sort((a,b)=>String(a).localeCompare(String(b),'fr',{numeric:true}))
+      : [...(x.ordreLignes||[]).filter(k=>lignesK.has(k)), ...labelsL.filter(k=>!(x.ordreLignes||[]).includes(k)).sort((a,b)=>String(a).localeCompare(String(b),'fr',{numeric:true}))];
+    txt(L++,0,x.titre);
+    txt(L,0,''); colsT.forEach((k,j)=>txt(L,1+j,k)); txt(L,1+colsT.length,'Total'); L++;
+    const premiere = L;
+    lignesT.forEach(a=>{
+      txt(L,0,a); let tot = 0;
+      colsT.forEach((k,j)=>{ const v = lignesK.get(a)[k]||0; tot += v; nb(L,1+j,v,XL_FORMATS.int); });
+      put(L,1+colsT.length,{t:'n', f:`SUM(B${L+1}:${XLSX.utils.encode_col(colsT.length)}${L+1})`, v:tot, z:XL_FORMATS.int}); L++;
+    });
+    txt(L,0,'Total');
+    for(let j=0;j<=colsT.length;j++){
+      const col = XLSX.utils.encode_col(1+j); let v = 0;
+      lignesT.forEach(a=>{ if(j<colsT.length) v += (lignesK.get(a)[colsT[j]]||0); else v += colsT.reduce((s,k)=>s+(lignesK.get(a)[k]||0),0); });
+      put(L,1+j,{t:'n', f: lignesT.length ? `SUM(${col}${premiere+1}:${col}${L})` : '0', v, z:XL_FORMATS.int});
+    }
+    L += 3;
+  });
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:Math.max(0,L-1), c:maxC}});
+  ws['!cols'] = [{wch:44}, ...Array.from({length:Math.max(1,maxC)},()=>({wch:20}))];
+  return ws;
+}
+// Tableau croisé choisi par l'utilisateur : lignes (+ colonnes) = n'importe quelle colonne de texte, valeur = nombre / somme / moyenne
+// spec = {ligne:idColonne, colonne:idColonne|'', agr:'n'|'sum'|'moy', mesure:idColonne|''}
+function feuilleTableauCroise(cfg, colsDispo, lignes, ctx, spec){
+  const col = id => colsDispo.find(c=>c.id===id);
+  const cL = col(spec.ligne), cC = spec.colonne ? col(spec.colonne) : null, cM = (spec.agr!=='n' && spec.mesure) ? col(spec.mesure) : null;
+  if(!cL) throw new Error('Colonne « lignes » introuvable');
+  if(spec.agr!=='n' && !cM) throw new Error('Colonne de valeur introuvable');
+  const base = cfg.filtreSynthese ? lignes.filter(cfg.filtreSynthese) : lignes;
+  const NR = 'Non renseigné';
+  const cle = (c, r)=>{ const v = valeurXl(c, r, ctx); return (v===''||v==null) ? NR : String(v); };
+  const cmp = (a,b)=> a===b ? 0 : a===NR ? 1 : b===NR ? -1 : String(a).localeCompare(String(b),'fr',{numeric:true});
+  const lab = spec.agr==='sum' ? 'Somme de '+cM.titre : spec.agr==='moy' ? 'Moyenne de '+cM.titre : (cfg.nbLibelle||'Nombre')+' (lignes)';
+  const zV = spec.agr==='n' ? XL_FORMATS.int : (XL_FORMATS[cM.type]||XL_FORMATS.num);
+  const celluleVide = () => ({n:0, s:0, k:0});
+  const ajoute = (a, r)=>{ a.n++; if(cM){ const x = numOuVide(valeurXl(cM, r, ctx)); if(x!==''){ a.s += x; a.k++; } } };
+  const valeur = a => spec.agr==='n' ? a.n : spec.agr==='sum' ? Math.round(a.s*100)/100 : (a.k ? Math.round(a.s/a.k*100)/100 : null);
+  const ws = {}; let maxC = 1, L = 0;
+  const put = (r,c,cell)=>{ ws[XLSX.utils.encode_cell({r,c})] = cell; if(c>maxC) maxC = c; };
+  const txt = (r,c,v)=>put(r,c,{t:'s', v:String(v)});
+  const num = (r,c,v,z)=>{ if(v!==null && v!==undefined) put(r,c,{t:'n', v, z}); };
+  txt(L++,0,'TABLEAU CROISÉ — '+cfg.titre.toUpperCase());
+  txt(L++,0,lab+' · lignes : '+cL.titre+(cC ? ' · colonnes : '+cC.titre : '')+' · '+base.length+' enregistrement'+(base.length>1?'s':'')+(cfg.filtreSynthese ? ' (actifs uniquement)' : ''));
+  L++;
+  const lignesK = new Map(), colsK = new Set(), totL = new Map(), totC = new Map(), tot = celluleVide();
+  base.forEach(r=>{
+    const a = cle(cL, r), b = cC ? cle(cC, r) : '';
+    if(!lignesK.has(a)) lignesK.set(a, new Map());
+    const m = lignesK.get(a); if(!m.has(b)) m.set(b, celluleVide());
+    ajoute(m.get(b), r); colsK.add(b);
+    if(!totL.has(a)) totL.set(a, celluleVide()); ajoute(totL.get(a), r);
+    if(!totC.has(b)) totC.set(b, celluleVide()); ajoute(totC.get(b), r);
+    ajoute(tot, r);
+  });
+  const ordL = [...lignesK.keys()].sort(cmp), ordC = [...colsK].sort(cmp);
+  if(!cC){
+    txt(L,0,cL.titre); txt(L,1,lab); if(spec.agr!=='moy') txt(L,2,'% du total'); L++;
+    const premiere = L;
+    ordL.forEach(a=>{
+      txt(L,0,a); num(L,1,valeur(totL.get(a)),zV);
+      if(spec.agr!=='moy') put(L,2,{t:'n', f:`IF(B${premiere+ordL.length+1}=0,0,B${L+1}/B${premiere+ordL.length+1})`, v: valeur(tot) ? valeur(totL.get(a))/valeur(tot) : 0, z:XL_FORMATS.pct});
+      L++;
+    });
+    txt(L,0,'Total');
+    if(spec.agr==='moy') num(L,1,valeur(tot),zV);
+    else if(ordL.length){ put(L,1,{t:'n', f:`SUM(B${premiere+1}:B${L})`, v:valeur(tot), z:zV}); put(L,2,{t:'n', f:`SUM(C${premiere+1}:C${L})`, v:valeur(tot)?1:0, z:XL_FORMATS.pct}); }
+    else num(L,1,0,zV);
+  } else {
+    txt(L,0,cL.titre+' \\ '+cC.titre); ordC.forEach((b,j)=>txt(L,1+j,b)); txt(L,1+ordC.length,'Total'); L++;
+    const premiere = L;
+    ordL.forEach(a=>{
+      txt(L,0,a);
+      ordC.forEach((b,j)=>{ const c = lignesK.get(a).get(b); if(c) num(L,1+j,valeur(c),zV); });
+      if(spec.agr==='moy') num(L,1+ordC.length,valeur(totL.get(a)),zV);
+      else put(L,1+ordC.length,{t:'n', f:`SUM(B${L+1}:${XLSX.utils.encode_col(ordC.length)}${L+1})`, v:valeur(totL.get(a)), z:zV});
+      L++;
+    });
+    txt(L,0,'Total');
+    ordC.forEach((b,j)=>{
+      const L2 = XLSX.utils.encode_col(1+j);
+      if(spec.agr==='moy') num(L,1+j,valeur(totC.get(b)),zV);
+      else put(L,1+j,{t:'n', f:`SUM(${L2}${premiere+1}:${L2}${L})`, v:valeur(totC.get(b)), z:zV});
+    });
+    if(spec.agr==='moy') num(L,1+ordC.length,valeur(tot),zV);
+    else put(L,1+ordC.length,{t:'n', f: ordL.length ? `SUM(${XLSX.utils.encode_col(1+ordC.length)}${premiere+1}:${XLSX.utils.encode_col(1+ordC.length)}${L})` : '0', v:valeur(tot), z:zV});
+  }
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:L, c:maxC}});
+  ws['!cols'] = [{wch:42}, ...Array.from({length:maxC},()=>({wch:18}))];
+  return ws;
+}
+function construireClasseurExport(cfg, cols, lignes, ctx, avecAnalyses, pivot, colsDispo){
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, feuilleDonnees(cols, lignes, ctx), cfg.feuille);
+  if(avecAnalyses && ((cfg.syntheses||[]).length || (cfg.croisements||[]).length) && lignes.length) XLSX.utils.book_append_sheet(wb, feuilleAnalyses(cfg, lignes, ctx), 'Analyses');
+  if(pivot && lignes.length) XLSX.utils.book_append_sheet(wb, feuilleTableauCroise(cfg, colsDispo || cols, lignes, ctx, pivot), 'Tableau croisé');
+  return wb;
+}
+
+// ── Fenêtre « Exporter vers Excel » (choix des colonnes) ──
+let _exp = null;
+const cleMemoExport = id => 'lyneo-export-colonnes-'+id;
+function colsExportDispo(){ return [..._exp.cfg.colonnes.filter(c=>!c.si || c.si(_exp.ctx)), ...(_exp.supp||[])]; }
+function selectionMemoriseeExport(id){
+  try{ const o = JSON.parse(localStorage.getItem(cleMemoExport(id))||'null'); if(o && Array.isArray(o.sel) && Array.isArray(o.connues)) return o; }catch(e){}
+  return null;
+}
+async function ouvrirExport(id){
+  const cfg = definitionsExport()[id]; if(!cfg) return;
+  if(typeof XLSX==='undefined'){ showToast("La bibliothèque Excel n'est pas chargée — vérifiez la connexion internet et rechargez la page", 'error'); return; }
+  _exp = {id, cfg, lignes:null, ctx:null};
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:700px">
+    <div class="modal-header"><h3><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i> Exporter vers Excel — ${escHtml(cfg.titre)}</h3>
+      <button class="modal-close" onclick="closeModal()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="exp-corps"><div class="empty" style="padding:30px"><p>Chargement des données…</p></div></div>
+  </div></div>`);
+  const mon = _exp;
+  try{
+    const res = await cfg.charger();
+    if(_exp!==mon || !el('exp-corps')) return;                                           // fenêtre fermée entre-temps
+    mon.lignes = res.lignes; mon.ctx = res.ctx;
+    try{ mon.supp = colonnesSupplementaires(cfg, mon.lignes, mon.ctx); }catch(e){ mon.supp = []; }
+    remplirFenetreExport();
+  }catch(e){
+    if(_exp===mon && el('exp-corps')) el('exp-corps').innerHTML = `<div class="alert alert-error" style="margin:0"><i class="ti ti-alert-circle"></i><span>Impossible de lire les données : ${escHtml(e.message||e)}</span></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
+  }
+}
+function remplirFenetreExport(){
+  const {cfg, lignes, id} = _exp, cols = colsExportDispo(), memo = selectionMemoriseeExport(id);
+  const coche = c => memo && memo.connues.includes(c.id) ? memo.sel.includes(c.id) : (c.defaut && !c.sensible);
+  const groupes = []; cols.forEach(c=>{ let g = groupes.find(x=>x.nom===c.groupe); if(!g){ g = {nom:c.groupe, cols:[]}; groupes.push(g); } g.cols.push(c); });
+  const aSynth = ((cfg.syntheses||[]).length + (cfg.croisements||[]).length) > 0;
+  const n = lignes.length;
+  el('exp-corps').innerHTML = `
+    ${cfg.avertissement ? `<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-shield-lock"></i><span>${escHtml(cfg.avertissement)}</span></div>` : ''}
+    <p style="margin:0 0 6px;font-size:13px;color:var(--gray-6)"><strong>${n}</strong> ligne${n>1?'s':''} (toutes, sans filtre — filtrez ensuite dans Excel). Cochez les colonnes à exporter :</p>
+    <div style="font-size:12.5px;margin-bottom:4px">
+      <a href="#" onclick="exportCocher('tout');return false">Tout cocher</a> · <a href="#" onclick="exportCocher('rien');return false">Tout décocher</a> · <a href="#" onclick="exportCocher('defaut');return false">Sélection par défaut</a>
+    </div>
+    ${groupes.map(g=>{
+      const grille = `<div class="exp-grille">${g.cols.map(c=>`<label class="exp-col"><input type="checkbox" class="exp-col-cb" value="${escHtml(c.id)}" data-defaut="${(c.defaut && !c.sensible)?1:0}" ${coche(c)?'checked':''}/><span>${escHtml(c.titre)}</span></label>`).join('')}</div>`;
+      return g.nom===GROUPE_AUTRES
+        ? `<details class="exp-groupe"><summary class="exp-groupe-titre" style="cursor:pointer">${escHtml(g.nom)} (${g.cols.length}) — tous les autres champs enregistrés${cfg.donneesPersonnelles?' <span title="Décochés par défaut">🔒</span>':''}</summary>${grille}</details>`
+        : `<div class="exp-groupe"><div class="exp-groupe-titre">${escHtml(g.nom)}${g.cols.some(c=>c.sensible)?' <span title="Décochées par défaut">🔒</span>':''}</div>${grille}</div>`;
+    }).join('')}
+    ${aSynth && n ? `<label class="exp-col" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--gray-2)"><input type="checkbox" id="exp-analyses" checked/><span><strong>Ajouter une feuille « Analyses »</strong> <span style="color:var(--gray-5)">(répartitions, pourcentages, totaux)</span></span></label>` : ''}
+    ${n ? htmlTableauCroiseExport(cols) : ''}
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" id="exp-go" onclick="lancerExport()" ${n?'':'disabled'}><i class="ti ti-download"></i> Exporter</button>
+    </div>
+    ${n?'':'<p style="font-size:12.5px;color:var(--gray-5);margin:6px 0 0">Aucune donnée à exporter pour le moment.</p>'}`;
+}
+// Bloc « Tableau croisé » : n'importe quelle colonne de texte en lignes / colonnes ; nombre, somme ou moyenne d'une colonne numérique
+function htmlTableauCroiseExport(cols){
+  const pd = (_exp && _exp.cfg.pivotDefaut) || {};
+  const dims = cols.filter(c=>(c.type==='txt' || c.type==='int') && !c.technique), mesures = cols.filter(c=>['eur','num','int'].includes(c.type) && !c.dim);
+  const optL = c => `<option value="${escHtml(c.id)}"${pd.ligne===c.id?' selected':''}>${escHtml(c.titre)}</option>`;
+  const optC = c => `<option value="${escHtml(c.id)}"${pd.colonne===c.id?' selected':''}>${escHtml(c.titre)}</option>`;
+  const optsV = `<option value="n">Nombre de lignes</option>` + mesures.map(c=>`<option value="sum:${escHtml(c.id)}"${pd.valeur==='sum:'+c.id?' selected':''}>Somme de ${escHtml(c.titre)}</option>`).join('') + mesures.map(c=>`<option value="moy:${escHtml(c.id)}">Moyenne de ${escHtml(c.titre)}</option>`).join('');
+  return `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--gray-2)">
+    <label class="exp-col"><input type="checkbox" id="exp-piv-on" onchange="el('exp-piv-champs').style.display=this.checked?'':'none'"/><span><strong>Ajouter un tableau croisé à ma façon</strong> <span style="color:var(--gray-5)">(comme « Regrouper par » dans Odoo)</span></span></label>
+    <div id="exp-piv-champs" style="display:none;margin-top:8px">
+      <div class="form-grid" style="gap:10px">
+        <div class="form-group"><label class="field-label" for="exp-piv-l">Lignes (regrouper par)</label><select id="exp-piv-l">${dims.map(optL).join('')}</select></div>
+        <div class="form-group"><label class="field-label" for="exp-piv-c">Colonnes (facultatif)</label><select id="exp-piv-c"><option value="">— Aucune —</option>${dims.map(optC).join('')}</select></div>
+        <div class="form-group full"><label class="field-label" for="exp-piv-m">Valeur à calculer</label><select id="exp-piv-m">${optsV}</select></div>
+      </div>
+      <p style="font-size:12px;color:var(--gray-5);margin:4px 0 0">Exemples : lignes = Statut, colonnes = Pays de résidence, valeur = Nombre de lignes ; ou lignes = Client, valeur = Somme de Montant HT.</p>
+    </div></div>`;
+}
+function exportCocher(mode){
+  document.querySelectorAll('.exp-col-cb').forEach(cb=>{ cb.checked = mode==='tout' ? true : mode==='rien' ? false : cb.dataset.defaut==='1'; });
+}
+async function lancerExport(){
+  if(!_exp || !_exp.ctx) return;
+  const ids = [...document.querySelectorAll('.exp-col-cb:checked')].map(x=>x.value);
+  if(!ids.length){ showToast('Cochez au moins une colonne', 'error'); return; }
+  const cfg = _exp.cfg, cols = colsExportDispo().filter(c=>ids.includes(c.id)), avecAn = !!(el('exp-analyses') && el('exp-analyses').checked);
+  try{ localStorage.setItem(cleMemoExport(_exp.id), JSON.stringify({sel:ids, connues:colsExportDispo().map(c=>c.id)})); }catch(e){}
+  let pivot = null;
+  if(el('exp-piv-on') && el('exp-piv-on').checked){
+    const v = el('exp-piv-m').value, [agr, mesure] = v==='n' ? ['n',''] : v.split(':');
+    pivot = {ligne: el('exp-piv-l').value, colonne: el('exp-piv-c').value, agr, mesure};
+    if(!pivot.ligne){ showToast('Tableau croisé : choisissez la colonne des lignes', 'error'); return; }
+    if(pivot.colonne && pivot.colonne===pivot.ligne){ showToast('Tableau croisé : les lignes et les colonnes doivent être différentes', 'error'); return; }
+  }
+  try{
+    const wb = construireClasseurExport(cfg, cols, _exp.lignes, _exp.ctx, avecAn, pivot, colsExportDispo());
+    XLSX.writeFile(wb, `${cfg.fichier}_${today()}.xlsx`);
+    const n = _exp.lignes.length;
+    showToast(`${n} ligne${n>1?'s':''} exportée${n>1?'s':''} vers Excel`);
+    closeModal();
+  }catch(e){ showToast('Erreur lors de la création du fichier : '+(e.message||e), 'error'); }
+}
+const btnExport = id => `<button class="btn btn-secondary" onclick="ouvrirExport('${id}')" title="Exporter vers Excel (choix des colonnes, feuille d'analyses)"><i class="ti ti-file-spreadsheet"></i> Exporter Excel</button>`;
+
 const fmtTauxImpot = n => (n===null||n===undefined||n==='') ? '' : String(+n).replace('.',',')+' %';
 const dateExpiree = d => !!(d && String(d).slice(0,10) < new Date().toISOString().slice(0,10));
 // Date d'entrée + N mois − 1 jour (fin prévue de la période d'essai), au format AAAA-MM-JJ
@@ -8800,6 +9529,7 @@ async function renderEmployesRH(search=''){
       <div class="page-header-left"><h1>Employés</h1><p>Dossiers du personnel</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderEmployesRH(this.value)" value="${escHtml(search)}"/></div>
+        ${peutVoirSalaires() ? btnExport('employes_rh') : ''}
         <button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>
       </div>
     </div>
@@ -8841,6 +9571,7 @@ function majFormRemuneration(){
 
 async function openEmployeModal(r=null){
   const isEdit = !!r;
+  if(!_empPaysOk){ try{ const t = await sb.from('employes_rh').select('pays_residence').limit(1); _empPaysOk = !t.error; }catch(e){ _empPaysOk = false; } }
   let pointageEmployes = [];
   try{
     const {data} = await sbPT.from('employes').select('*');
@@ -8912,6 +9643,8 @@ async function openEmployeModal(r=null){
         <div class="form-group full"><label class="field-label" for="emp-adresse">Adresse</label><input id="emp-adresse" value="${escHtml(r?.adresse)}"/></div>
         ${champ('Code postal','emp-cp',r?.code_postal)}
         ${champ('Ville','emp-ville',r?.ville)}
+        ${_empPaysOk ? `<div class="form-group"><label class="field-label" for="emp-pays">Pays de résidence</label>
+          <select id="emp-pays"><option value="">— Non renseigné —</option>${PAYS_RESIDENCE.map(p=>`<option${r?.pays_residence===p?' selected':''}>${p}</option>`).join('')}</select></div>` : ''}
         <div class="form-group"><label class="field-label" for="emp-email">Email</label><input type="email" id="emp-email" value="${escHtml(r?.email)}"/></div>
         ${champ('Téléphone','emp-tel',r?.telephone)}
       </div>`)}
@@ -9126,6 +9859,15 @@ async function saveEmploye(id){
   const employeId = savedRow?.id||id;
 
   // Anniversaire visible par l'équipe (colonne ajoutée par anniversaires-equipe.sql ; la case n'existe que si la colonne existe)
+  // Pays de résidence (colonne ajoutée par employes-pays-residence.sql ; le champ n'existe que si la colonne existe)
+  const selPays = el('emp-pays');
+  if(selPays){
+    const avantPays = (savedRow && savedRow.pays_residence) || '';
+    if(selPays.value !== avantPays){
+      const {error:pErr} = await sb.from('employes_rh').update({pays_residence: selPays.value||null}).eq('id', employeId);
+      if(pErr) showToast("⚠ Le pays de résidence n'a pas pu être enregistré : "+pErr.message, 'error');
+    }
+  }
   const caseAnniv = el('emp-anniv-visible');
   if(caseAnniv){
     const avant = savedRow && 'anniversaire_visible' in savedRow ? savedRow.anniversaire_visible!==false : true;
@@ -9278,7 +10020,8 @@ async function openEmployeDetail(employeId){
       ${profileSection('Contact', 
         profileRow('Email', emp.email) +
         profileRow('Téléphone', emp.telephone) +
-        profileRow('Adresse', [emp.adresse, emp.code_postal, emp.ville].filter(Boolean).join(' '))
+        profileRow('Adresse', [emp.adresse, emp.code_postal, emp.ville].filter(Boolean).join(' ')) +
+        ('pays_residence' in emp ? profileRow('Pays de résidence', emp.pays_residence) : '')
       )}
       ${profileSection("Contact d'urgence",
         profileRow('Nom du contact', emp.contact_urgence_nom) +
@@ -9546,6 +10289,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
       <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
+        ${btnExport('interventions_sav')}
         <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
         <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
       </div>
@@ -10161,7 +10905,7 @@ async function renderUtilisateurs(){
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Utilisateurs</h1><p>Gestion des accès et rôles</p></div>
-      <button class="btn btn-primary" onclick="openUserModal()"><i class="ti ti-plus"></i> Nouvel utilisateur</button>
+      <div class="page-actions">${btnExport('utilisateurs')}<button class="btn btn-primary" onclick="openUserModal()"><i class="ti ti-plus"></i> Nouvel utilisateur</button></div>
     </div>
     <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i><span>Chaque personne se connecte avec <strong>son propre mot de passe</strong>. Créer une fiche ici ne crée pas le compte de connexion : ajoutez aussi la personne dans <strong>Supabase → Authentication → Users</strong> (« Add user », avec le <strong>même e-mail</strong>, « Auto Confirm User » coché). Une fiche <strong>inactive</strong> coupe immédiatement l'accès aux données.</span></div>
     <div class="card">
