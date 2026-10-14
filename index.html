@@ -1343,6 +1343,15 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
       let y = this.enteteTableau(125);
       y = this.tableau(cfg.lignes,y);
       y = this.totaux(y,cfg.totaux);
+      // Notes / remarques / attentions : sous le total, en gras italique (un paragraphe par ligne)
+      if(cfg.attention){
+        const paras = String(cfg.attention).split('\n').filter(x=>x.trim());
+        const lignesN = paras.map(par=>this.wrap(par,10,330,true));
+        const hN = lignesN.reduce((a,l)=>a+l.length*12.5,0) + (paras.length-1)*4;
+        y += 20;
+        if(y + hN > this.bas){ this.enteteSuite(); y = 125; }
+        lignesN.forEach((ls,i)=>{ if(i>0) y += 4; ls.forEach(l=>{ this.t(l,32,y,10,{font:this.f.boldItalic}); y += 12.5; }); });
+      }
 
       if(cfg.options && cfg.options.length){
         if(y + 80 > this.bas){ this.enteteSuite(); y = 125; } else y += 22;
@@ -1354,7 +1363,6 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
       // Remarques sous le tableau
       y += 22;
       const blocs = [];
-      if(cfg.attention) blocs.push({gras:'Attention : ', txt:cfg.attention});
       if(cfg.observations) blocs.push({gras:'Observations : ', txt:cfg.observations, normal:true});
       blocs.forEach(b=>{
         const lignes = this.wrap(b.gras+b.txt,8,b.normal?500:335);
@@ -3950,7 +3958,12 @@ const LYNEO_IBAN = 'LU89 0099 7800 0161 1797', LYNEO_BIC = 'CCRALULL';   // coor
 function devisAcomptePct(d){ const a = parseFloat(d && d.conditions_acompte_pct); return (isFinite(a) && a>0 && a<=100) ? a : 0; }
 // Acompte proposé à la facturation : celui du devis s'il est valide (0 compris), sinon 30 %
 function devisAcomptePctFacture(d){ const a = parseFloat(d && d.conditions_acompte_pct); return (isFinite(a) && a>=0 && a<=100) ? a : 30; }
-const DEVIS_ATTENTION = "les prix peuvent varier en fonction de la consommation de carburant et du cours du carburant lors du transport.";
+// Notes / remarques / attentions imprimées sous le total (PDF et Excel). Elles ne s'impriment JAMAIS toutes seules : seul le texte saisi dans le devis
+// (ou repris d'un Excel importé) apparaît. Le texte est imprimé tel quel, le mot « Note : », « Attention : » ou « Remarque : » en fait partie.
+// Un paragraphe par ligne.
+const DEVIS_ATTENTION_EXEMPLE = "Attention : les prix peuvent varier en fonction de la consommation de carburant et du cours du carburant lors du transport.";
+const DEVIS_NOTE_ETIQUETTE = /^\s*(?:note|nota|attention|remarques?)(?:\s+importante)?\s*:/i;
+function devisNotesNormaliser(t){ return String(t==null?'':t).split(/\n+/).map(p=>p.replace(/\s+/g,' ').trim()).filter(Boolean).join('\n'); }
 
 function devisDelaiPaiementTexte(cond){
   const c = String(cond||'30 jours').trim();
@@ -3980,7 +3993,7 @@ function devisTextesModele(d){
       "Le présent document vaut engagement ferme et définitif sur les bases techniques et financières susmentionnées.",
       "Pour validation, cette offre est à retourner signée à l'adresse facturation@lyneo.lu."
     ],
-    attention: DEVIS_ATTENTION
+    attention: devisNotesNormaliser(d && d.attention)
   };
 }
 // Numérotation du modèle : sections 1, 2, 3… et lignes 1.1, 1.2… (2.1…). Sans section : 1, 2, 3…
@@ -4057,9 +4070,9 @@ const XLM = (function(){
     return out;
   };
 
-  const esc = (s)=> String(s==null?'':s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const esc = (s)=> String(s==null?'':s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const remplace = (str,cle,val)=> str.split(cle).join(val);
-  const num = (n)=> { n = Number(n); return isFinite(n) ? String(Math.round(n*1e8)/1e8) : '0'; };
+  const num = (n)=> { n = Number(n); if(!isFinite(n)) return '0'; const r = Math.round(n*1e8)/1e8; return isFinite(r) ? String(r) : String(n); };
   const cStr = (ref,s,txt)=> `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(txt)}</t></is></c>`;
   const cNum = (ref,s,n,f)=> `<c r="${ref}" s="${s}">${f?`<f>${esc(f)}</f>`:''}<v>${num(n)}</v></c>`;
   const cVide = (ref,s)=> `<c r="${ref}" s="${s}"/>`;
@@ -4069,7 +4082,7 @@ const XLM = (function(){
 
   // ── Une feuille : lignes (hauteurs fixes), fusions, saut de page manuels, formes dessinées
   function Feuille(){ this.rows = []; this.y = 0; this.merges = []; this.breaks = []; this.formes = []; }
-  Feuille.prototype.row = function(h,cells){ const r = this.rows.length+1; this.rows.push({r,h,cells:cells||[],top:this.y}); this.y += h; return r; };
+  Feuille.prototype.row = function(h,cells){ h = Math.min(h, 409); const r = this.rows.length+1; this.rows.push({r,h,cells:cells||[],top:this.y}); this.y += h; return r; };
   Feuille.prototype.pos = function(y){
     for(let i=0;i<this.rows.length;i++){ const t = this.rows[i].top, h = this.rows[i].h; if(y < t+h-1e-6 || i===this.rows.length-1) return {row:i, off:Math.max(0,Math.round((y-t)*EMU))}; }
     return {row:0, off:0};
@@ -4083,7 +4096,9 @@ const XLM = (function(){
   const TOP_PT = 14.17;   // marge haute du modèle (0,197 po) : intégrée à la 1re ligne de chaque page pour que les formes d'une page ne débordent jamais sur la suivante
   const ENTETE = [4.95+TOP_PT,16.05,14.4,14.4,14.4,14.4,14.4];   // lignes 1 à 7 : zone du logo, de la pastille et du trait dégradé
 
-  function ajouterEntete(F){ ENTETE.forEach((h,i)=> F.row(h, i===0 ? ['A','B','C','D','E','F','G'].map(c=>cVide(c+'1',8)) : [])); }
+  // Les cellules de la 1re ligne d'en-tête portent le numéro de leur vraie ligne : sur la 2e page et les suivantes, « A1 » en double faisait
+  // réparer le fichier par Excel (« Information de cellule dans /xl/worksheets/sheet2.xml »).
+  function ajouterEntete(F){ const r0 = F.rows.length+1; ENTETE.forEach((h,i)=> F.row(h, i===0 ? ['A','B','C','D','E','F','G'].map(c=>cVide(c+r0,8)) : [])); }
   function remplirPage(F,pageTop){
     let reste = PAGE_H - (F.y - pageTop);
     while(reste > 0.05){ const h = Math.min(reste,400); F.row(h); reste -= h; }
@@ -4109,8 +4124,18 @@ const XLM = (function(){
     const t = ajuste(txt, sz, largeurPt, false);
     return `<a:p><a:pPr algn="l"/><a:r><a:rPr lang="fr-FR" sz="${Math.round(sz*100)}"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:effectLst/><a:latin typeface="+mn-lt"/><a:ea typeface="+mn-ea"/><a:cs typeface="+mn-cs"/></a:rPr><a:t>${esc(t)}</a:t></a:r></a:p>`;
   }
-  function parasNote(txt){
-    return `<a:p><a:pPr rtl="0"/><a:r><a:rPr lang="fr-LU" sz="800" b="1" i="1"/><a:t>Attention : </a:t></a:r><a:r><a:rPr lang="fr-LU" sz="800" b="0" i="1"/><a:t>${esc(txt)}</a:t></a:r></a:p>`;
+  // Note sous le total : gras italique (comme dans le modèle), un paragraphe par ligne du texte
+  function parasNote(txt, pt){
+    const sz = Math.round((pt||11)*100);
+    return String(txt).split('\n').filter(x=>x.trim()).map((par,i)=>`<a:p><a:pPr rtl="0">${i>0?'<a:spcBef><a:spcPts val="400"/></a:spcBef>':''}</a:pPr><a:r><a:rPr lang="fr-LU" sz="${sz}" b="1" i="1"/><a:t>${esc(par)}</a:t></a:r></a:p>`).join('');
+  }
+  // Taille et hauteur de la caisse de la note : 11 pt, réduite si le texte est très long (jamais plus de ~300 pt de haut)
+  const NOTE_LARGEUR = 318;     // largeur utile (points) de la caisse : colonnes A à C moins les marges
+  function noteMesure(txt){
+    let pt = 11, h = 0;
+    const calc = ()=>{ const paras = String(txt).split('\n').filter(x=>x.trim()).map(par=>lignes(par,pt,NOTE_LARGEUR,true,1.12)); const n = paras.reduce((a,p)=>a+p.length,0); h = 7.6 + n*pt*1.25 + (paras.length-1)*4; };
+    calc(); while(h>300 && pt>7){ pt -= 0.5; calc(); }
+    return {pt, h:Math.ceil(h*10)/10};
   }
 
   // Dessin d'une feuille → XML
@@ -4134,7 +4159,7 @@ const XLM = (function(){
       } else if(f.type==='bandeau'){
         out.push(deux(f.y,f.h,0,19050,cols.fin,0, sp(g.bandeau,'Bandeau',19050,f.y*EMU,cols.largeurEmu-19050,f.h*EMU, parasBandeau(bandeauLignes,(cols.largeurEmu-19050)/EMU-16,11))));
       } else if(f.type==='note'){
-        out.push(deux(f.y,f.h,0,30480,3,0, sp(g.note,'Note',30480,f.y*EMU,4259580,f.h*EMU, parasNote(f.texte))));
+        out.push(deux(f.y,f.h,0,30480,3,0, sp(g.note,'Note',30480,f.y*EMU,4259580,f.h*EMU, parasNote(f.texte, f.pt))));
       }
     });
     return XML_HEAD+`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${out.join('')}</xdr:wsDr>`;
@@ -4180,8 +4205,9 @@ const XLM = (function(){
     F.row(5.4);
     enteteTableau();
 
-    const hLigne = (t)=> Math.max(22.8, 8.4 + 10*lignes(t,8,C_UTILE,false).length);
-    const hSection = (t)=> Math.max(24, 12.5 + 12.2*lignes(t,10,C_UTILE,true).length);
+    // (409 pt = hauteur maximale d'une ligne dans Excel ; un texte encore plus long reste entier dans la cellule, la ligne peut être agrandie à la main)
+    const hLigne = (t)=> Math.min(409, Math.max(22.8, 8.4 + 10*lignes(t,8,C_UTILE,false).length));
+    const hSection = (t)=> Math.min(409, Math.max(24, 12.5 + 12.2*lignes(t,10,C_UTILE,true).length));
 
     // bloc de lignes (principal ou options) → renvoie les termes de la formule du total
     const bloc = (arr)=>{
@@ -4211,14 +4237,19 @@ const XLM = (function(){
     const ligneTotal = (libelle, valeur, formule)=>{ const r = F.rows.length+1; F.row(14.4,[cVide('B'+r,23), cStr('C'+r,51,libelle), cVide('D'+r,52), cVide('E'+r,50), cVide('F'+r,50), cNum('G'+r,50,valeur,formule)]); return r; };
 
     const termesP = bloc(cfg.principal.lignes);
-    // Totaux (les 3 lignes + la note « Attention » restent ensemble)
-    placer(14.4*3 + 50);
+    // Totaux (les 3 lignes + la note sous le total restent ensemble si la page le permet)
+    const noteM = cfg.attention ? noteMesure(cfg.attention) : null;
+    placer(14.4*3 + (noteM ? noteM.h + 14 : 0));
     const rHT = ligneTotal(cfg.principal.libelleTotal || 'Prix de vente total', cfg.principal.totalHT, termesP.length ? termesP.join('+') : null);
     let r = F.rows.length+1;
     F.row(14.4,[cVide('B'+r,6), cStr('C'+r,48,cfg.principal.libelleTva), cNum('G'+r,57,cfg.principal.tva, cfg.principal.tauxUnique!=null ? `G${rHT}*${num(cfg.principal.tauxUnique/100)}` : null)]);
     const rTVA = r; r = F.rows.length+1;
     F.row(14.4,[cStr('C'+r,17,'Total TTC'), cNum('G'+r,56,cfg.principal.ttc,`G${rHT}+G${rTVA}`)]);
-    if(cfg.attention){ F.formes.push({type:'note', y:F.y+6.9, h:37.5, texte:cfg.attention}); F.row(46); }
+    if(noteM){
+      placer(noteM.h + 14);
+      F.formes.push({type:'note', y:F.y+6.9, h:noteM.h, texte:cfg.attention, pt:noteM.pt});
+      let reste = noteM.h + 8.5; while(reste > 0.05){ const hh = Math.min(reste,400); F.row(hh); reste -= hh; }
+    }
 
     // Options
     if(cfg.options && cfg.options.lignes.length){
@@ -4506,8 +4537,7 @@ async function downloadExcel_DevisSimple(devisId){
     ajouterBloc(lignesOption,'O');
     rowsDevis.push([null,null,'Total options HT',null,null,null,devisBlocTotal(lignesOption)]);
   }
-  rowsDevis.push([]);
-  rowsDevis.push([null,'Attention : '+txt.attention]);
+  if(txt.attention){ rowsDevis.push([]); txt.attention.split('\n').forEach(par=>rowsDevis.push([null,par])); }
   const wsDevis = XLSX.utils.aoa_to_sheet(rowsDevis);
   wsDevis['!cols'] = [{wch:3},{wch:6},{wch:60},{wch:8},{wch:8},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb, wsDevis, 'DEVIS');
@@ -6221,6 +6251,10 @@ function parseDevisExcelRows(rows, cols){
   cols = cols || {descCol:0, uteCol:1, qteCol:2, puCol:3, totalCol:4};
   const result = [];
   let inOptions = false;
+  // Notes / remarques / attentions (« Note : … », « Attention : … », « Remarque : … ») : elles vont dans le champ « Notes » du devis (imprimées sous le total),
+  // pas dans les lignes. Une « Note : » au milieu du tableau, suivie de lignes chiffrées, reste un simple titre.
+  const notes = [], enAttente = [];
+  let apresTotaux = false;
   for(const row of rows){
     // Le texte d'une ligne de titre/section est parfois décalé d'une colonne
     // par rapport aux lignes de détail (colonnes fusionnées) — on regarde
@@ -6233,14 +6267,21 @@ function parseDevisExcelRows(rows, cols){
 
     // Le marqueur "OPTIONS" peut aussi être décalé — on regarde toute la ligne ; une ligne chiffrée dont le texte commence par « Option … » reste une prestation
     const qteM = cols.qteCol>=0 ? _parseNumFR(row[cols.qteCol]) : null, puM = cols.puCol>=0 ? _parseNumFR(row[cols.puCol]) : null;
-    if(row.some(c=>c && /^options?\b/i.test(String(c).trim())) && !(qteM!==null && puM!==null)){ inOptions = true; continue; }
+    if(row.some(c=>c && /^options?\b/i.test(String(c).trim())) && !(qteM!==null && puM!==null)){ inOptions = true; apresTotaux = false; continue; }
+
+    // ligne de note : le texte peut être dans n'importe quelle colonne (cellules fusionnées)
+    const celluleNote = (qteM!==null && puM!==null) ? undefined : row.find(c=>typeof c==='string' && DEVIS_NOTE_ETIQUETTE.test(c));
+    if(celluleNote!==undefined){
+      const txtNote = celluleNote.replace(/\s+/g,' ').trim();
+      enAttente.push({txt:txtNote, pos:result.length, bloc:inOptions?'option':'principal', apres: apresTotaux || /^\s*attention/i.test(txtNote)});
+      continue;
+    }
 
     if(!desc) continue; // ligne vide
     if(/^d[ée]signation$/i.test(desc)) continue; // en-tête du tableau
-    if(/^total$/i.test(desc)) continue; // ligne de total final
+    if(/^total$/i.test(desc)){ apresTotaux = true; continue; } // ligne de total final
     // Lignes de totaux du modèle (« Prix de vente total », « TVA 17% », « Total TTC »…) : ce ne sont pas des prestations
-    if(/^(prix\s+de\s+vente\s+total|prix\s+total|total\s*(ht|ttc|g[ée]n[ée]ral)?|total\s+options?(\s+ht)?|sous[-\s]?total|tva(\s*\d+([.,]\d+)?\s*%)?)\s*:?$/i.test(desc)) continue;
-    if(/^attention\s*:/i.test(desc)) continue;   // remarque du modèle, pas une prestation
+    if(/^(prix\s+de\s+vente\s+total|prix\s+total|total\s*(ht|ttc|g[ée]n[ée]ral)?|total\s+options?(\s+ht)?|sous[-\s]?total|tva(\s*\d+([.,]\d+)?\s*%)?)\s*:?$/i.test(desc)){ apresTotaux = true; continue; }
     if(/^observations?\s*:/i.test(desc)) break;   // les observations terminent le tableau
     if(/^n[°o]$/i.test(desc)) continue; // parfois "N°" est répété comme en-tête
 
@@ -6250,12 +6291,19 @@ function parseDevisExcelRows(rows, cols){
     if(qte!==null && pu!==null){
       const unite = cols.uteCol>=0 && row[cols.uteCol] ? String(row[cols.uteCol]).trim() : 'u';
       result.push({bloc, type:'ligne', description:desc, unite:unite||'u', quantite:qte, prix_unitaire_ht:pu, taux_tva:17});
+      apresTotaux = false;
     } else {
       // Titre de section, sous-titre, ou note sans prix — importé comme ligne de section
       // (subtotal recalculé automatiquement à partir des lignes suivantes)
       result.push({bloc, type:'section', description:desc, unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:17});
     }
   }
+  for(let k=enAttente.length-1;k>=0;k--){
+    const n = enAttente[k];
+    if(n.apres || !result.slice(n.pos).some(r=>r.type==='ligne')) notes.unshift(n.txt);
+    else result.splice(n.pos,0,{bloc:n.bloc, type:'section', description:n.txt, unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:17});
+  }
+  result.notes = notes;
   return result;
 }
 
@@ -6280,6 +6328,32 @@ function extraireEnteteDevisExcel(wb){
     }
   }
   return out;
+}
+// Notes / remarques / attentions d'un fichier Excel importé : celles des cellules arrivent par parseDevisExcelRows ; ici on lit celles des zones de texte
+// dessinées sur la feuille (c'est là que les place l'Excel généré par l'ERP). Une zone de texte compte si elle commence par « Note : », « Attention : » ou « Remarque : ».
+async function extraireNotesDessins(data){
+  const out = [];
+  if(typeof JSZip==='undefined' || !data) return out;
+  try{
+    const z = await JSZip.loadAsync(data);
+    const deco = (t)=> t.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+    for(const n of Object.keys(z.files).filter(n=>/^xl\/drawings\/[^/]*\.xml$/.test(n))){
+      const xml = await z.file(n).async('string');
+      (xml.match(/<xdr:sp[\s>][\s\S]*?<\/xdr:sp>/g)||[]).forEach(sp=>{
+        const paras = (sp.match(/<a:p\b[\s\S]*?<\/a:p>/g)||[])
+          .map(p=>deco((p.match(/<a:t(?:\s[^>]*)?>[^<]*<\/a:t>/g)||[]).map(t=>t.replace(/<[^>]*>/g,'')).join('')).replace(/\s+/g,' ').trim()).filter(Boolean);
+        if(paras.length && DEVIS_NOTE_ETIQUETTE.test(paras[0])) paras.forEach(x=>out.push(x));
+      });
+    }
+  }catch(e){}
+  return out;
+}
+async function appliquerAttentionImportee(notesFeuille, data, repris){
+  const toutes = [...(notesFeuille||[]), ...(await extraireNotesDessins(data))];
+  const vues = new Set(), uniques = [];
+  toutes.forEach(t=>{ const k = String(t).toLowerCase().replace(/\s+/g,' ').trim(); if(k && !vues.has(k)){ vues.add(k); uniques.push(String(t).replace(/\s+/g,' ').trim()); } });
+  const ta = el('dv-attention');
+  if(uniques.length && ta && !ta.value.trim()){ ta.value = uniques.join('\n'); repris.push('Notes'); }
 }
 // Applique l'en-tête lu dans le formulaire de devis : ne remplace jamais un champ déjà rempli.
 // Pour le client, on ne choisit une option que si une seule correspond au nom lu. Le chantier n'est jamais choisi automatiquement.
@@ -6313,7 +6387,7 @@ function parseDevisWorkbook(wb){
     const cols = detectDevisColumns(rows);
     if(!cols) return null; // cette feuille n'a pas de tableau de lignes (ex: page de garde, synthèse)
     const parsed = parseDevisExcelRows(rows.slice(cols.headerRowIdx+1), cols);
-    return {parsed, nbLignes:parsed.filter(r=>r.type==='ligne').length, feuille:nomFeuille};
+    return {parsed, nbLignes:parsed.filter(r=>r.type==='ligne').length, feuille:nomFeuille, notes:parsed.notes||[]};
   };
   const meilleurDe = (noms)=>{
     let meilleur = {parsed:[], nbLignes:-1, feuille:null};
@@ -6345,11 +6419,11 @@ async function importDevisExcelDansModal(file){
   if(!file) return;
   if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
   const reader = new FileReader();
-  reader.onload = (e)=>{
+  reader.onload = async (e)=>{
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const {parsed, nbLignes, feuille} = parseDevisWorkbook(wb);
+      const {parsed, nbLignes, feuille, notes} = parseDevisWorkbook(wb);
       if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       // Ajoute les lignes importées à la suite de celles déjà présentes dans le formulaire
@@ -6359,6 +6433,7 @@ async function importDevisExcelDansModal(file){
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
       const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
+      await appliquerAttentionImportee(notes, data, repris);
 
       showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+` — vérifiez et complétez avant d'enregistrer`);
     }catch(err){
@@ -6376,7 +6451,7 @@ async function importDevisExcel(file){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const {parsed, nbLignes, feuille} = parseDevisWorkbook(wb);
+      const {parsed, nbLignes, feuille, notes} = parseDevisWorkbook(wb);
       if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       await openDevisModal();
@@ -6385,6 +6460,7 @@ async function importDevisExcel(file){
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
       const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
+      await appliquerAttentionImportee(notes, data, repris);
 
       const nbOptions = _devisLignes.option.length;
       showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+' — vérifiez et complétez avant d\'enregistrer');
@@ -6756,6 +6832,11 @@ async function openDevisModal(d=null){
       <div style="text-align:right;font-size:13px;font-weight:700;margin-top:8px">Total options HT : <span id="devis-option-total">0,00 €</span></div>
 
       <div class="form-group full" style="margin-top:20px"><label class="field-label">Observations</label><textarea id="dv-obs">${d?.observations||''}</textarea></div>
+      <div class="form-group full"><label class="field-label">Notes / remarques / attention <span style="font-weight:400;color:var(--gray-5)">(facultatif — imprimé sous le total, en gras italique, dans le PDF et l'Excel ; vide = rien ne s'imprime)</span></label>
+        <textarea id="dv-attention" rows="3" placeholder="Ex : Note : Lyneo S.à r.l. assume la responsabilité de ces installations, mais…">${escHtml(d?.attention||'')}</textarea>
+        <div style="font-size:11.5px;color:var(--gray-5);margin-top:4px">Écrivez vous-même « Note : », « Attention : » ou « Remarque : » au début. Un paragraphe par ligne.
+          <button type="button" class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="const t=el('dv-attention'); if(!t.value.includes(DEVIS_ATTENTION_EXEMPLE)) t.value=(t.value.trim()?t.value.trim()+String.fromCharCode(10):'')+DEVIS_ATTENTION_EXEMPLE;"><i class="ti ti-text-plus"></i> Insérer l'exemple « carburant »</button></div>
+      </div>
 
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -6792,18 +6873,19 @@ async function saveDevis(id){
     conditions_acompte_pct: parseFloat(el('dv-acompte').value)||0,
     conditions_paiement: el('dv-cond-paiement').value,
     montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
-    observations: el('dv-obs').value
+    observations: el('dv-obs').value,
+    attention: el('dv-attention') ? devisNotesNormaliser(el('dv-attention').value) : ''
   };
 
-  // Colonnes « affaire » / « objet_court » pas encore créées (migration-devis-affaire.sql) : le devis est enregistré quand même,
+  // Colonnes « affaire » / « objet_court » / « attention » pas encore créées (migration-devis-affaire.sql) : le devis est enregistré quand même,
   // sans le(s) champ(s) dont la colonne manque (l'erreur de la base nomme la colonne absente ; on réessaie sans elle).
-  let affaireNonSauvee = false;
-  const OPTIONNELLES = ['affaire','objet_court'];
+  let affaireNonSauvee = false, attentionNonSauvee = false;
+  const OPTIONNELLES = ['affaire','objet_court','attention'];
   const colonnesAbsentes = (error)=> OPTIONNELLES.filter(c=> new RegExp(c,'i').test((error&&error.message)||''));
   const essayerSauver = async (faire)=>{
     let absentes = [], res;
     for(let i=0;i<=OPTIONNELLES.length;i++){
-      const ligne = {...header}; absentes.forEach(c=>{ if(ligne[c]) affaireNonSauvee = true; delete ligne[c]; });
+      const ligne = {...header}; absentes.forEach(c=>{ if(ligne[c]){ if(c==='attention') attentionNonSauvee = true; else affaireNonSauvee = true; } delete ligne[c]; });
       res = await faire(ligne);
       const nouvelles = res.error ? colonnesAbsentes(res.error).filter(c=>!absentes.includes(c)) : [];
       if(!nouvelles.length) return res;
@@ -6847,6 +6929,7 @@ async function saveDevis(id){
 
   showToast(id?'Devis mis à jour':'Devis créé — '+header.objet);
   if(affaireNonSauvee) setTimeout(()=>showToast("L'« Affaire » / l'« Objet court » n'ont pas pu être enregistrés : exécutez d'abord migration-devis-affaire.sql dans Supabase", 'error'), 900);
+  if(attentionNonSauvee) setTimeout(()=>showToast("Les notes / remarques n'ont pas pu être enregistrées : exécutez d'abord migration-devis-attention.sql dans Supabase", 'error'), affaireNonSauvee?2400:900);
 
   // Synchronise le lien dans les deux sens : si un chantier est choisi ici,
   // ce chantier doit aussi savoir qu'il vient de ce devis.
@@ -6951,6 +7034,7 @@ async function openDevisDetail(devisId){
         <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(d.montant_ttc)}</span></div>
       </div></div>
       ${d.observations?`<div style="margin-bottom:20px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${d.observations}</p></div>`:''}
+      ${d.attention?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes / remarques</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px;font-style:italic;font-weight:600">${escHtml(d.attention).replace(/\n/g,'<br>')}</p></div>`:''}
 
       ${blocFacturation}
       <strong style="font-size:13px">Documents (PDF du devis, plans...)</strong>
