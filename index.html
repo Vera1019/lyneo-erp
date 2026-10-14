@@ -231,6 +231,57 @@ tbody tr:hover td{background:var(--blue-light)}
 #fac-liste th{padding:11px 10px}#fac-liste td{padding:11px 10px}#fac-liste th:first-child,#fac-liste td:first-child{padding-left:16px}#fac-liste th:last-child,#fac-liste td:last-child{padding-right:16px}
 #fac-liste tbody tr.fac-sel td{background:#EFF6FF}
 .fac-int{font-weight:600;font-size:12.5px;color:var(--gray-7,#374151);font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.scroll-top{overflow-x:auto;overflow-y:hidden;height:16px;border-bottom:1px solid var(--gray-2);scrollbar-width:auto;scrollbar-color:#94a3b8 #e8edf3}
+.scroll-top::-webkit-scrollbar{height:12px}
+.scroll-top::-webkit-scrollbar-track{background:#e8edf3}
+.scroll-top::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:6px;border:2px solid #e8edf3}
+.scroll-top::-webkit-scrollbar-thumb:hover{background:#64748b}
+.scroll-top>div{height:1px}
+.pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--gray-5)}
+.pager .pager-info{white-space:nowrap}
+.pager.pager-bas{justify-content:space-between;padding:10px 14px;border-top:1px solid var(--gray-2)}
+.pager .pager-nav{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
+.pager .pager-size{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.pager .pager-size select{width:auto;padding:4px 6px;font-size:12.5px}
+.pager .pg-num{min-width:30px;justify-content:center}
+.pager .pg-dots{padding:0 4px}
+.pager button[disabled]{opacity:.35;cursor:default}
+/* ── Anniversaires ── */
+.anniv-body{padding:6px 0 8px}
+.anniv-row{display:flex;align-items:center;gap:12px;padding:9px 20px}
+.anniv-row.anniv-auj{background:linear-gradient(90deg,#FFF7E6,#FFFBEB)}
+.anniv-avatar{width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:0 0 auto}
+.anniv-row-txt{min-width:0;flex:1}
+.anniv-row-nom{font-weight:600;font-size:13px;color:var(--gray-8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anniv-row-date{font-size:12px;color:var(--gray-5)}
+.anniv-moi{font-weight:500;color:var(--gray-5)}
+.anniv-pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--gray-2);color:var(--gray-6);white-space:nowrap}
+.anniv-pill-demain{background:var(--blue-light);color:var(--blue-mid)}
+.anniv-pill-auj{background:#FDE68A;color:#92400E}
+.anniv-plus{margin:4px 20px 2px;background:none;border:0;color:var(--blue);font-size:12.5px;font-weight:600;cursor:pointer;padding:6px 0}
+.anniv-vide{text-align:center;padding:26px 20px;color:var(--gray-5)}
+.anniv-vide i{font-size:30px;display:block;margin-bottom:6px;color:var(--gray-4)}
+.anniv-vide p{font-size:13px;color:var(--gray-6);margin:0 0 4px}
+.anniv-vide span{font-size:12px}
+.anniv-modal{max-height:70vh;overflow:auto;padding:4px 0 8px}
+.anniv-mois h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-5);padding:14px 20px 4px;margin:0}
+.anniv-jour{width:22px;text-align:right;font-weight:700;color:var(--gray-7);font-variant-numeric:tabular-nums}
+.anniv-note{font-size:11.5px;color:var(--gray-5);padding:10px 20px 0;margin:0}
+.anniv-notif{position:fixed;top:70px;right:24px;z-index:150;width:min(390px,calc(100vw - 32px));display:flex;gap:14px;align-items:flex-start;padding:16px 44px 16px 16px;background:#fff;border:1px solid #FDE68A;border-left:4px solid #F59E0B;border-radius:var(--radius);box-shadow:var(--shadow-xl);overflow:hidden;animation:annivIn .35s ease-out both}
+.anniv-notif.anniv-sortie{animation:annivOut .2s ease-in both}
+.anniv-notif-icone{font-size:28px;line-height:1}
+.anniv-notif-corps{min-width:0}
+.anniv-notif-titre{font-weight:700;font-size:14px;color:var(--gray-8);line-height:1.35}
+.anniv-notif-sous{font-size:12.5px;color:var(--gray-6);margin-top:4px;line-height:1.4}
+.anniv-notif-x{position:absolute;top:8px;right:8px;border:0;background:none;color:var(--gray-5);cursor:pointer;width:28px;height:28px;border-radius:6px;font-size:20px;line-height:1}
+.anniv-notif-x:hover{background:var(--gray-2);color:var(--gray-8)}
+.anniv-confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.anniv-confetti i{position:absolute;top:-10px;width:6px;height:10px;border-radius:2px;opacity:0;animation:annivConf 2.6s ease-in 1 both}
+@keyframes annivIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@keyframes annivOut{to{opacity:0;transform:translateY(-8px)}}
+@keyframes annivConf{0%{opacity:0;transform:translateY(0) rotate(0)}10%{opacity:1}100%{opacity:0;transform:translateY(130px) rotate(300deg)}}
+@media (prefers-reduced-motion: reduce){.anniv-notif,.anniv-notif.anniv-sortie{animation:none}.anniv-confetti{display:none}}
+@media (max-width:600px){.anniv-notif{top:auto;bottom:16px;right:16px;left:16px;width:auto}}
 #fac-liste tr.fac-filtres th{padding:4px 10px 10px;text-transform:none;font-weight:400;letter-spacing:0;vertical-align:top;border-bottom:1px solid var(--gray-3)}
 #fac-liste tr.fac-filtres input,#fac-liste tr.fac-filtres select{padding:5px 7px;font-size:12px;border-width:1px;border-radius:6px;min-width:0}
 #fac-liste .fac-range{display:grid;grid-template-columns:auto minmax(104px,1fr);gap:3px 6px;align-items:center;font-size:10.5px;font-weight:600;color:var(--gray-5)}
@@ -1562,6 +1613,7 @@ function initApp(){
   if(dateEl) dateEl.innerHTML = '<i class="ti ti-calendar" style="font-size:13px"></i>'+new Date().toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
   chargerCloture();
   navigate('dashboard');
+  setTimeout(()=>{ afficherNotifAnniversaire().catch(()=>{}); }, 900);   // « Aujourd'hui, c'est l'anniversaire de … » (une fois par jour)
 }
 
 // Mon mot de passe (chaque utilisateur change le sien)
@@ -1666,6 +1718,241 @@ function rafraichirPage(){
 }
 
 // ── DASHBOARD ────────────────────────────────────────────────
+// ── ANNIVERSAIRES ────────────────────────────────────────────────────────────
+// Source : fonction SQL anniversaires_equipe() (prénom, nom, JOUR, MOIS — jamais l'année ni l'âge).
+// Repli (avant d'avoir exécuté anniversaires-equipe.sql) : lecture directe de la fiche employé, seulement pour les
+// administrateurs / personnes ayant accès aux fiches ; on ne garde alors que le jour et le mois (l'année est jetée aussitôt).
+let _annivCache = null, _annivChargement = null, _annivRpcOk = false;
+const MOIS_FR_COURT = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+const MOIS_FR_LONG = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const JOURS_FR = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+const _annivVus = new Set();
+
+const estBissextile = y => (y%4===0 && y%100!==0) || y%400===0;
+// Date de référence = aujourd'hui, jour local (Luxembourg), sans heure
+function refAnniv(d){
+  d = d || new Date();
+  return {y:d.getFullYear(), m:d.getMonth()+1, d:d.getDate(), wd:d.getDay(), t:Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())};
+}
+// Jour effectif de l'anniversaire pour une année donnée : le 29 février est fêté le 28 février les années non bissextiles
+function jourEffectifAnniv(mois, jour, y){ return (mois===2 && jour===29 && !estBissextile(y)) ? 28 : jour; }
+function enrichirAnniv(e, y, ref){
+  const t = Date.UTC(y, e.mois-1, jourEffectifAnniv(e.mois, e.jour, y)), dt = new Date(t);
+  return {...e, t, diff: Math.round((t-ref.t)/86400000), wd: dt.getUTCDay(), jourAff: dt.getUTCDate(), moisAff: dt.getUTCMonth()+1};
+}
+const trierAnniv = (a,b)=> a.diff-b.diff || (a.nom||'').localeCompare(b.nom||'','fr') || (a.prenom||'').localeCompare(b.prenom||'','fr');
+// Prochain anniversaire de chacun (aujourd'hui inclus), du plus proche au plus lointain
+function prochainsAnniv(liste, ref){
+  return liste.map(e=>{
+    const a = enrichirAnniv(e, ref.y, ref);
+    return a.diff >= 0 ? a : enrichirAnniv(e, ref.y+1, ref);
+  }).sort(trierAnniv);
+}
+function anniversairesProches(liste, ref, jours){ return prochainsAnniv(liste, ref).filter(a=>a.diff<=jours); }
+// Anniversaires tombés le week-end (samedi/dimanche), à rappeler le lundi
+function anniversairesWeekEnd(liste, ref){
+  if(ref.wd!==1) return [];
+  const out = [];
+  [-2,-1].forEach(dec=>{
+    const t = ref.t + dec*86400000, dt = new Date(t), y = dt.getUTCFullYear();
+    liste.forEach(e=>{
+      const a = enrichirAnniv(e, y, ref);
+      if(a.t===t) out.push(a);
+    });
+  });
+  return out.sort(trierAnniv);
+}
+const listeFr = a => a.length<=1 ? (a[0]||'') : a.slice(0,-1).join(', ')+' et '+a[a.length-1];
+const deFr = nom => /^[AEIOUYÀÂÉÈÊËÎÏÔÙÛÜ]/i.test(nom||'') ? "d'"+nom : 'de '+nom;
+// Prénom ; si deux personnes de la liste ont le même prénom, on ajoute l'initiale du nom
+function nomsCourts(arr){
+  const comptes = {};
+  arr.forEach(a=>{ const k=(a.prenom||a.nom||'').toLowerCase(); comptes[k]=(comptes[k]||0)+1; });
+  return arr.map(a=>{
+    const base = a.prenom || a.nom || '?';
+    return (comptes[(a.prenom||a.nom||'').toLowerCase()]>1 && a.prenom && a.nom) ? base+' '+a.nom[0].toUpperCase()+'.' : base;
+  });
+}
+const nomComplet = a => [a.prenom, a.nom].filter(Boolean).join(' ');
+function libelleRelatifAnniv(a){
+  if(a.diff===0) return "Aujourd'hui";
+  if(a.diff===1) return 'Demain';
+  return 'dans '+a.diff+' jours';
+}
+const dateCourteAnniv = a => JOURS_FR[a.wd]+' '+a.jourAff+' '+MOIS_FR_COURT[a.moisAff-1];
+const initialesAnniv = a => ((a.prenom||'')[0]||'')+((a.nom||'')[0]||'') || '?';
+const COULEURS_ANNIV = [['#DBEAFE','#1D4ED8'],['#FCE7F3','#BE185D'],['#DCFCE7','#15803D'],['#FEF3C7','#B45309'],['#EDE9FE','#6D28D9'],['#CFFAFE','#0E7490']];
+function avatarAnniv(a){
+  const h = [...(a.prenom||'')+(a.nom||'')].reduce((s,c)=>s+c.charCodeAt(0),0), [bg,fg] = COULEURS_ANNIV[h%COULEURS_ANNIV.length];
+  return `<span class="anniv-avatar" style="background:${bg};color:${fg}" aria-hidden="true">${escHtml(initialesAnniv(a).toUpperCase())}</span>`;
+}
+
+function normaliserLigneAnniv(x){
+  return {id:x.id, prenom:String(x.prenom||'').trim(), nom:String(x.nom||'').trim(), mois:+x.mois, jour:+x.jour, estMoi:!!x.estMoi};
+}
+async function chargerAnniversaires(force){
+  if(_annivCache && !force) return _annivCache;
+  if(_annivChargement && !force) return _annivChargement;
+  _annivChargement = (async()=>{
+    let rows = null;
+    try{
+      const r = await sb.rpc('anniversaires_equipe');
+      if(!r.error && Array.isArray(r.data)){
+        rows = r.data.map(x=>normaliserLigneAnniv({...x, estMoi:x.est_moi}));
+        _annivRpcOk = true;
+      }
+    }catch(e){}
+    if(!rows && peutVoirSalaires()){
+      // Repli réservé aux personnes qui ont déjà accès aux fiches : lecture directe (l'année de naissance n'est pas conservée)
+      let r = null;
+      try{
+        r = await sb.from('employes_rh').select('id,prenom,nom,actif,email,date_naissance,date_sortie,anniversaire_visible');
+        if(r.error) r = await sb.from('employes_rh').select('id,prenom,nom,actif,email,date_naissance');
+      }catch(e){ r = null; }
+      if(r && !r.error && Array.isArray(r.data)){
+        const auj = formatISODate(new Date()), moi = String((currentUser&&currentUser.email)||'').trim().toLowerCase();
+        rows = r.data.filter(e=>e.date_naissance && e.actif!==false && e.anniversaire_visible!==false && (!e.date_sortie || String(e.date_sortie).slice(0,10)>=auj))
+          .map(e=>normaliserLigneAnniv({id:e.id, prenom:e.prenom, nom:e.nom, mois:+String(e.date_naissance).slice(5,7), jour:+String(e.date_naissance).slice(8,10),
+            estMoi: !!moi && String(e.email||'').trim().toLowerCase()===moi}))
+          .filter(e=>e.mois>=1 && e.mois<=12 && e.jour>=1 && e.jour<=31);
+      }
+    }
+    _annivCache = {rows: rows||[], dispo: rows!==null};
+    return _annivCache;
+  })();
+  try{ return await _annivChargement; } finally { _annivChargement = null; }
+}
+const formatISODate = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+
+// ── Carte « Anniversaires » du tableau de bord ──
+function htmlCarteAnniversaires(rows, ref){
+  const proches = anniversairesProches(rows, ref, 30);
+  const MAX = 5, visibles = proches.slice(0, MAX), reste = proches.length - visibles.length;
+  let corps;
+  if(!proches.length){
+    const suivant = prochainsAnniv(rows, ref)[0];
+    corps = `<div class="anniv-vide"><i class="ti ti-cake"></i><p>Aucun anniversaire dans les 30 prochains jours</p>
+      ${suivant ? `<span>Prochain : ${escHtml(nomComplet(suivant))} — ${suivant.jourAff} ${MOIS_FR_LONG[suivant.moisAff-1]}</span>` : ''}</div>`;
+  } else {
+    corps = visibles.map(a=>`
+      <div class="anniv-row${a.diff===0?' anniv-auj':''}">
+        ${avatarAnniv(a)}
+        <div class="anniv-row-txt">
+          <div class="anniv-row-nom">${escHtml(nomComplet(a))}${a.estMoi?' <span class="anniv-moi">(vous)</span>':''}</div>
+          <div class="anniv-row-date">${a.diff===0 ? '🎂 ' : ''}${escHtml(dateCourteAnniv(a))}</div>
+        </div>
+        <span class="anniv-pill${a.diff===0?' anniv-pill-auj':a.diff===1?' anniv-pill-demain':''}">${a.diff===0?'Aujourd\'hui':a.diff===1?'Demain':'dans '+a.diff+' j'}</span>
+      </div>`).join('') + (reste>0 ? `<button class="anniv-plus" onclick="ouvrirTousAnniversaires()">+ ${reste} autre${reste>1?'s':''} dans les 30 jours</button>` : '');
+  }
+  return `<div class="card-header">
+      <h2><i class="ti ti-cake"></i> Anniversaires</h2>
+      <button class="btn btn-ghost btn-sm" onclick="ouvrirTousAnniversaires()" title="Tous les anniversaires de l'année">Voir tout</button>
+    </div>
+    <div class="anniv-body">${corps}</div>`;
+}
+async function chargerCarteAnniversaires(){
+  const box = el('dash-anniv'); if(!box) return;
+  const {rows, dispo} = await chargerAnniversaires();
+  const box2 = el('dash-anniv'); if(!box2) return;                     // l'utilisateur a changé de page entre-temps
+  if(!dispo || (!rows.length && !peutVoirSalaires())){ box2.style.display = 'none'; return; }
+  if(!rows.length){
+    box2.innerHTML = `<div class="card-header"><h2><i class="ti ti-cake"></i> Anniversaires</h2></div>
+      <div class="anniv-body"><div class="anniv-vide"><i class="ti ti-cake"></i><p>Aucune date de naissance renseignée</p>
+      <span>Complétez-la dans la fiche de chaque employé pour afficher les anniversaires.</span></div></div>`;
+  } else box2.innerHTML = htmlCarteAnniversaires(rows, refAnniv());
+  box2.style.display = '';
+}
+
+// ── Fenêtre « Tous les anniversaires » (12 mois, par mois) ──
+async function ouvrirTousAnniversaires(){
+  const {rows} = await chargerAnniversaires();
+  const ref = refAnniv(), tous = prochainsAnniv(rows, ref).filter(a=>a.diff<=365);
+  const parMois = new Map();
+  tous.forEach(a=>{ const dt = new Date(a.t), k = dt.getUTCFullYear()+'-'+(dt.getUTCMonth()+1); if(!parMois.has(k)) parMois.set(k, []); parMois.get(k).push(a); });
+  const blocs = [...parMois.entries()].map(([k,arr])=>{
+    const [y,m] = k.split('-').map(Number);
+    return `<div class="anniv-mois"><h4>${MOIS_FR_LONG[m-1][0].toUpperCase()+MOIS_FR_LONG[m-1].slice(1)} ${y}</h4>
+      ${arr.map(a=>`<div class="anniv-row${a.diff===0?' anniv-auj':''}">
+        <span class="anniv-jour">${a.jourAff}</span>${avatarAnniv(a)}
+        <div class="anniv-row-txt"><div class="anniv-row-nom">${escHtml(nomComplet(a))}${a.estMoi?' <span class="anniv-moi">(vous)</span>':''}</div>
+        <div class="anniv-row-date">${a.diff===0?'🎂 ':''}${escHtml(JOURS_FR[a.wd])}</div></div>
+        ${a.diff<=30 ? `<span class="anniv-pill${a.diff===0?' anniv-pill-auj':a.diff===1?' anniv-pill-demain':''}">${libelleRelatifAnniv(a)}</span>` : ''}
+      </div>`).join('')}</div>`;
+  }).join('');
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:520px">
+    <div class="modal-header"><h3><i class="ti ti-cake" style="color:var(--orange)"></i> Anniversaires de l'équipe</h3>
+      <button class="modal-close" onclick="closeModal()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body anniv-modal">${blocs || '<div class="anniv-vide"><i class="ti ti-cake"></i><p>Aucun anniversaire à afficher</p></div>'}
+      <p class="anniv-note">Seuls le jour et le mois sont affichés. Le 29 février est fêté le 28 février les années non bissextiles.</p></div>
+  </div></div>`);
+}
+
+// ── Notification du jour (une fois par jour et par personne) ──
+const cleVuAnniv = ref => 'lyneo-anniv-vu-'+((currentUser&&(currentUser.id||currentUser.email))||'?')+'-'+ref.y+'-'+ref.m+'-'+ref.d;
+function dejaVuAnniv(ref){
+  const k = cleVuAnniv(ref);
+  if(_annivVus.has(k)) return true;
+  try{ return localStorage.getItem(k)==='1'; }catch(e){ return false; }
+}
+function marquerVuAnniv(ref){
+  const k = cleVuAnniv(ref); _annivVus.add(k);
+  try{
+    localStorage.setItem(k,'1');
+    for(let i=localStorage.length-1;i>=0;i--){ const c = localStorage.key(i); if(c && c.indexOf('lyneo-anniv-vu-')===0 && c!==k) localStorage.removeItem(c); }   // on ne garde que le jour courant
+  }catch(e){}
+}
+function fermerNotifAnniversaire(){
+  const n = el('anniv-notif'); if(n){ n.classList.add('anniv-sortie'); setTimeout(()=>n.remove(), 220); }
+  document.removeEventListener('keydown', _annivEsc);
+}
+function _annivEsc(ev){ if(ev.key==='Escape') fermerNotifAnniversaire(); }
+function contenuNotifAnniversaire(rows, ref){
+  const auj = anniversairesProches(rows, ref, 0), we = anniversairesWeekEnd(rows, ref), demain = prochainsAnniv(rows, ref).filter(a=>a.diff===1);
+  if(!auj.length && !we.length) return null;
+  const abreger = arr => { const n = nomsCourts(arr); return n.length>4 ? n.slice(0,3).concat([(n.length-3)+' autres collègues']) : n; };
+  const phraseDe = n => n.length===1 ? deFr(n[0]) : deFr(n[0])+(n.length===2 ? ' et '+n[1] : ', '+listeFr(n.slice(1)));
+  const moi = auj.find(a=>a.estMoi), autres = auj.filter(a=>!a.estMoi), sous = [];
+  const souhait = arr => arr.length>1 ? "N'oubliez pas de leur souhaiter un joyeux anniversaire !" : "N'oubliez pas de lui souhaiter un joyeux anniversaire !";
+  let titre;
+  if(moi){
+    titre = 'Joyeux anniversaire, '+(moi.prenom||moi.nom)+' ! 🎉';
+    sous.push("Toute l'équipe Lyneo vous souhaite une excellente journée.");
+    if(autres.length) sous.push("Aujourd'hui aussi : "+listeFr(abreger(autres))+'.');
+  } else if(auj.length){
+    titre = "Aujourd'hui, c'est l'anniversaire "+phraseDe(abreger(auj));
+    sous.push(souhait(auj));
+  } else {
+    titre = "Ce week-end, c'était l'anniversaire "+phraseDe(abreger(we));
+  }
+  if(we.length){
+    const nw = nomsCourts(we), det = listeFr(we.map((a,i)=>nw[i]+' ('+JOURS_FR[a.wd]+')'));
+    sous.push(auj.length ? 'Pendant le week-end : '+det+'.' : det+'. '+souhait(we));
+  }
+  if(demain.length) sous.push('Demain : '+listeFr(abreger(demain))+'.');
+  return {titre, sous, icone: moi ? '🎉' : '🎂'};
+}
+async function afficherNotifAnniversaire(){
+  const ref = refAnniv();
+  if(el('anniv-notif') || dejaVuAnniv(ref)) return;
+  const {rows, dispo} = await chargerAnniversaires();
+  if(!dispo) return;
+  const c = contenuNotifAnniversaire(rows, ref); if(!c) return;
+  const parent = el('app-layout'); if(!parent || parent.classList.contains('hidden')) return;
+  marquerVuAnniv(ref);
+  const confettis = Array.from({length:16},(_,i)=>`<i style="left:${(i*6.3+3)%98}%;animation-delay:${(i%6)*0.12}s;background:${['#F59E0B','#EC4899','#3B82F6','#10B981','#8B5CF6'][i%5]}"></i>`).join('');
+  const n = document.createElement('div');
+  n.id = 'anniv-notif'; n.className = 'anniv-notif'; n.setAttribute('role','status'); n.setAttribute('aria-live','polite');
+  n.innerHTML = `<div class="anniv-confetti" aria-hidden="true">${confettis}</div>
+    <div class="anniv-notif-icone" aria-hidden="true">${c.icone}</div>
+    <div class="anniv-notif-corps">
+      <div class="anniv-notif-titre">${escHtml(c.titre)}</div>
+      ${c.sous.map(s=>`<div class="anniv-notif-sous">${escHtml(s)}</div>`).join('')}
+    </div>
+    <button class="anniv-notif-x" onclick="fermerNotifAnniversaire()" aria-label="Fermer la notification">&times;</button>`;
+  parent.appendChild(n);
+  document.addEventListener('keydown', _annivEsc);
+}
+
 async function renderDashboard(){
   el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><div class="empty-icon" style="margin:0 auto 16px"><i class="ti ti-loader" style="font-size:36px;color:var(--gray-4)"></i></div><p>Chargement...</p></div>';
 
@@ -1830,6 +2117,9 @@ async function renderDashboard(){
               }).join('')}
         </div>
       </div>
+
+      <!-- ANNIVERSAIRES (rempli après coup : ne ralentit pas le tableau de bord) -->
+      <div class="card anniv-card" id="dash-anniv" style="margin-bottom:0;display:none"></div>
     </div>
 
     <!-- LIGNE 3 : Modules rapides -->
@@ -1866,6 +2156,7 @@ async function renderDashboard(){
       </div>
     </div>
     </div>`;
+  chargerCarteAnniversaires().catch(()=>{});
 }
 
 // ── Ordenação genérica de tabelas (clicar no cabeçalho da coluna) ──
@@ -4551,6 +4842,10 @@ let _facsListe = [], _facChantiers = [], _facSel = new Set();
 const nIntTxt = f => f && f.numero_interne ? ' · n° interne '+f.numero_interne : '';
 const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', statut:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:''});
 let _facFiltres = filtresFacVides();
+// Pagination : 10 / 20 / 30 / 50 factures par page ; le choix est mémorisé dans ce navigateur
+const PAR_PAGE_FAC = [10,20,30,50];
+let _facPage = 1;
+let _facParPage = (()=>{ try{ const v = parseInt(localStorage.getItem('lyneo-fac-par-page'),10); if(PAR_PAGE_FAC.includes(v)) return v; }catch(e){} return 20; })();
 const nomFournisseurFac = r => r.fournisseurs?.nom || r.purchase_orders_lyneo?.fournisseurs?.nom || '';
 const libelleChantierFac = c => (c.numero ? c.numero+' — ' : '') + (c.nom||'');
 const jourFac = v => String(v||'').slice(0,10);
@@ -4579,15 +4874,18 @@ async function renderFactures(){
       <div class="search-wrap"><i class="ti ti-search"></i><input id="fac-recherche" placeholder="Rechercher partout (n°, fournisseur, chantier...)" oninput="majFiltreFactures('search',this.value)" value="${escHtml(F.search)}"/></div>
       <button class="btn btn-ghost btn-sm" id="facf-reset" onclick="reinitialiserFiltresFactures()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
       <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
-      <button class="btn btn-secondary btn-sm" id="fac-export" onclick="exporterFacturesExcel()" style="margin-left:auto"><i class="ti ti-file-spreadsheet"></i> Exporter Excel <span id="fac-export-n"></span></button>
+      <div id="fac-pager-top" class="pager" style="margin-left:auto"></div>
+      <button class="btn btn-secondary btn-sm" id="fac-export" onclick="exporterFacturesExcel()"><i class="ti ti-file-spreadsheet"></i> Exporter Excel <span id="fac-export-n"></span></button>
     </div>
     <div id="fac-bulk" style="display:none;position:sticky;top:0;z-index:5;gap:10px;flex-wrap:wrap;align-items:center;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
       <strong id="fac-bulk-n" style="font-size:13px"></strong>
       <select id="fac-bulk-chantier" style="width:auto;min-width:250px"><option value="">— Affecter au chantier… —</option>${optChantiers}</select>
       <button class="btn btn-primary btn-sm" id="fac-bulk-ok" onclick="affecterChantierSelection()"><i class="ti ti-link"></i> Affecter</button>
+      <button class="btn btn-ghost btn-sm" id="fac-bulk-all" style="display:none" onclick="selectionnerToutesFiltreesFactures()"></button>
       <button class="btn btn-ghost btn-sm" onclick="viderSelectionFactures()">Désélectionner</button>
     </div>
     <div class="card">
+      <div id="fac-scroll-top" class="scroll-top" style="display:none" title="Faire défiler la liste"><div id="fac-scroll-top-in"></div></div>
       <div class="table-wrap" id="fac-liste" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead>
@@ -4610,6 +4908,7 @@ async function renderFactures(){
           <tbody id="fac-tbody"></tbody>
         </table>
       </div>
+      <div id="fac-pager" class="pager pager-bas"></div>
     </div>`;
   afficherFactures();
 }
@@ -4644,15 +4943,18 @@ function facturesFiltrees(){
 
 function afficherFactures(){
   const tbody = el('fac-tbody'); if(!tbody) return;
-  const items = facturesFiltrees();
+  const tous = facturesFiltrees();
+  const nbPages = Math.max(1, Math.ceil(tous.length/_facParPage));
+  _facPage = Math.min(Math.max(1, _facPage), nbPages);
+  const items = tous.slice((_facPage-1)*_facParPage, _facPage*_facParPage);
   const actif = Object.values(_facFiltres).some(v=>v!=='' && v!=null);
   const rb = el('facf-reset'); if(rb) rb.style.display = actif ? '' : 'none';
-  const cpt = el('fac-compte'); if(cpt) cpt.textContent = actif ? `${items.length} sur ${_facsListe.length} factures` : `${_facsListe.length} facture${_facsListe.length>1?'s':''}`;
-  const ex = el('fac-export-n'); if(ex) ex.textContent = `(${items.length})`;
+  const cpt = el('fac-compte'); if(cpt) cpt.textContent = actif ? `${tous.length} sur ${_facsListe.length} factures` : `${_facsListe.length} facture${_facsListe.length>1?'s':''}`;
+  const ex = el('fac-export-n'); if(ex) ex.textContent = `(${tous.length})`;
   const selectables = items.filter(r=>r.statut!=='annulee');
   const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
-  tbody.innerHTML = items.length===0 ? `<tr><td colspan="12"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
+  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="12"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
     items.map(r=>{
       const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
       const choisie = _facSel.has(r.id);
@@ -4683,6 +4985,57 @@ function afficherFactures(){
       </tr>`;
     }).join('');
   majBarreFactures();
+  majPagerFactures(tous.length);
+  syncDefilementFac();
+}
+
+// ── Pagination et barre de défilement du haut ──
+function facturesPage(){ return facturesFiltrees().slice((_facPage-1)*_facParPage, _facPage*_facParPage); }
+function pagesVisiblesFac(p, nb){
+  if(nb<=7) return Array.from({length:nb},(_,i)=>i+1);
+  const a = [...new Set([1,2,nb-1,nb,p-1,p,p+1].filter(x=>x>=1&&x<=nb))].sort((x,y)=>x-y), out = [];
+  a.forEach((x,i)=>{ if(i && x-a[i-1]>1) out.push('…'); out.push(x); });
+  return out;
+}
+function majPagerFactures(total){
+  const n = _facParPage, nb = Math.max(1, Math.ceil(total/n)), p = _facPage;
+  const d = total ? (p-1)*n+1 : 0, f = Math.min(total, p*n);
+  const bP = `<button class="btn btn-ghost btn-sm pg-prev" ${p>1?'':'disabled'} onclick="allerPageFac(${p-1})" title="Page précédente"><i class="ti ti-chevron-left"></i></button>`;
+  const bN = `<button class="btn btn-ghost btn-sm pg-next" ${p<nb?'':'disabled'} onclick="allerPageFac(${p+1})" title="Page suivante"><i class="ti ti-chevron-right"></i></button>`;
+  const haut = el('fac-pager-top');
+  if(haut) haut.innerHTML = total ? `<span class="pager-info">${d}–${f} / ${total}</span>${bP}${bN}` : '';
+  const bas = el('fac-pager');
+  if(bas){
+    if(!total){ bas.innerHTML = ''; return; }
+    const nums = pagesVisiblesFac(p, nb).map(x=> x==='…' ? '<span class="pg-dots">…</span>'
+      : `<button class="btn btn-sm pg-num ${x===p?'btn-primary':'btn-ghost'}" ${x===p?'aria-current="page"':''} onclick="allerPageFac(${x})">${x}</button>`).join('');
+    bas.innerHTML = `<label class="pager-size">Lignes par page <select id="fac-par-page" onchange="changerParPageFac(this.value)">${PAR_PAGE_FAC.map(v=>`<option value="${v}"${v===n?' selected':''}>${v}</option>`).join('')}</select></label>
+      <span class="pager-info">${d}–${f} sur ${total} facture${total>1?'s':''}</span>
+      <span class="pager-nav">${bP}${nums}${bN}</span>`;
+  }
+}
+function allerPageFac(p){
+  _facPage = p; afficherFactures();
+  const carte = el('fac-liste')?.parentElement;     // revient en haut de la liste si on a cliqué en bas
+  if(carte && carte.getBoundingClientRect().top < 0) carte.scrollIntoView({block:'start'});
+}
+function changerParPageFac(v){
+  v = parseInt(v,10); if(!PAR_PAGE_FAC.includes(v)) return;
+  _facParPage = v; _facPage = 1;
+  try{ localStorage.setItem('lyneo-fac-par-page', String(v)); }catch(e){}
+  afficherFactures();
+}
+// Barre de défilement horizontale en haut, synchronisée avec celle du bas (visible seulement si la liste déborde)
+function syncDefilementFac(){
+  const w = el('fac-liste'), t = el('fac-scroll-top'), i = el('fac-scroll-top-in'); if(!w||!t||!i) return;
+  i.style.width = w.scrollWidth+'px';
+  t.style.display = w.scrollWidth > w.clientWidth+1 ? '' : 'none';
+  if(!t._sync){
+    t._sync = true;
+    t.addEventListener('scroll', ()=>{ if(w.scrollLeft!==t.scrollLeft) w.scrollLeft = t.scrollLeft; });
+    w.addEventListener('scroll', ()=>{ if(t.scrollLeft!==w.scrollLeft) t.scrollLeft = w.scrollLeft; });
+    if(window.ResizeObserver){ const ro = new ResizeObserver(()=>syncDefilementFac()); ro.observe(w); const tb = w.querySelector('table'); if(tb) ro.observe(tb); }
+  }
 }
 
 // Export Excel : exactement les factures affichées (filtres appliqués), avec totaux et filtre automatique
@@ -4741,9 +5094,16 @@ function majBarreFactures(){
   }
   const all = el('fac-sel-all');
   if(all){
-    const vis = facturesFiltrees().filter(r=>r.statut!=='annulee');
+    const vis = facturesPage().filter(r=>r.statut!=='annulee');
     all.checked = vis.length>0 && vis.every(r=>_facSel.has(r.id));
     all.indeterminate = !all.checked && vis.some(r=>_facSel.has(r.id));
+  }
+  const ba = el('fac-bulk-all');
+  if(ba){
+    const selectables = facturesFiltrees().filter(r=>r.statut!=='annulee');
+    const reste = selectables.filter(r=>!_facSel.has(r.id)).length;
+    ba.style.display = (choisies.length && reste>0) ? '' : 'none';
+    ba.textContent = `Sélectionner les ${selectables.length} factures filtrées`;
   }
 }
 function basculerSelFacture(id, on){
@@ -4752,14 +5112,18 @@ function basculerSelFacture(id, on){
   majBarreFactures();
 }
 function toutSelectionnerFactures(on){
-  facturesFiltrees().filter(r=>r.statut!=='annulee').forEach(r=>{ if(on) _facSel.add(r.id); else _facSel.delete(r.id); });
+  facturesPage().filter(r=>r.statut!=='annulee').forEach(r=>{ if(on) _facSel.add(r.id); else _facSel.delete(r.id); });
+  afficherFactures();
+}
+function selectionnerToutesFiltreesFactures(){
+  facturesFiltrees().filter(r=>r.statut!=='annulee').forEach(r=>_facSel.add(r.id));
   afficherFactures();
 }
 function viderSelectionFactures(){ _facSel.clear(); afficherFactures(); }
 // Changer un filtre vide la sélection : l'action en masse ne touche jamais que ce qui est affiché
-function majFiltreFactures(k, v){ _facFiltres[k] = v; _facSel.clear(); afficherFactures(); }
+function majFiltreFactures(k, v){ _facFiltres[k] = v; _facSel.clear(); _facPage = 1; afficherFactures(); }
 function reinitialiserFiltresFactures(){
-  _facFiltres = filtresFacVides(); _facSel.clear();
+  _facFiltres = filtresFacVides(); _facSel.clear(); _facPage = 1;
   ['fac-recherche','facc-num','facc-cmd','facc-four','facc-chantier','facc-statut','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
   afficherFactures();
 }
@@ -8510,6 +8874,9 @@ async function openEmployeModal(r=null){
         ${champ('Prénom','emp-prenom',r?.prenom)}
         ${champDate('Date de naissance','emp-naissance',r?.date_naissance||'')}
         ${champ('Lieu de naissance','emp-lieu-naissance',r?.lieu_naissance)}
+        ${((r && 'anniversaire_visible' in r) || _annivRpcOk) ? `<div class="form-group full">
+          <label style="display:flex;gap:10px;align-items:center;font-weight:400;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="emp-anniv-visible" style="width:auto;flex:0 0 auto;margin:0" ${r?.anniversaire_visible===false?'':'checked'}/>
+          <span>Afficher son anniversaire à l'équipe <span style="color:var(--gray-5)">(jour et mois seulement, jamais l'âge ni l'année)</span></span></label></div>` : ''}
         <div class="form-group"><label class="field-label" for="emp-etat-civil">État civil</label>
           <select id="emp-etat-civil">
             <option value="">— Sélectionner —</option>
@@ -8737,6 +9104,17 @@ async function saveEmploye(id){
   if(error){ showToast('Erreur: '+error.message, 'error'); reactiver(); return; }
   const employeId = savedRow?.id||id;
 
+  // Anniversaire visible par l'équipe (colonne ajoutée par anniversaires-equipe.sql ; la case n'existe que si la colonne existe)
+  const caseAnniv = el('emp-anniv-visible');
+  if(caseAnniv){
+    const avant = savedRow && 'anniversaire_visible' in savedRow ? savedRow.anniversaire_visible!==false : true;
+    if(caseAnniv.checked !== avant){
+      const {error:aErr} = await sb.from('employes_rh').update({anniversaire_visible: caseAnniv.checked}).eq('id', employeId);
+      if(aErr) showToast("⚠ La préférence d'anniversaire n'a pas pu être enregistrée : "+aErr.message, 'error');
+    }
+  }
+  _annivCache = null;                                  // la liste des anniversaires est relue au prochain affichage
+
   // Rémunération : table à part, accès réservé (administrateurs + personnes autorisées)
   let avertissementRem = null;
   if(peutVoirSalaires() && _empRemEtat==='ok'){
@@ -8887,6 +9265,7 @@ async function openEmployeDetail(employeId){
       )}
       ${profileSection('Identité',
         profileRow('Date de naissance', (fmtDate(emp.date_naissance)||'')+(emp.lieu_naissance?' — '+emp.lieu_naissance:'')) +
+        ('anniversaire_visible' in emp ? profileRow("Anniversaire affiché à l'équipe", emp.anniversaire_visible===false?'Non':'Oui') : '') +
         profileRow('État civil', emp.etat_civil) +
         profileRow('Enfants à charge', emp.nombre_enfants_charge??0) +
         profileRow('Matricule CNS', emp.matricule_cns, 'cns') +
