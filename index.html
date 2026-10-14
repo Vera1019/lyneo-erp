@@ -262,7 +262,8 @@ tbody tr:hover td{background:var(--blue-light)}
 .anniv-vide{text-align:center;padding:26px 20px;color:var(--gray-5)}
 .anniv-vide i{font-size:30px;display:block;margin-bottom:6px;color:var(--gray-4)}
 .anniv-vide p{font-size:13px;color:var(--gray-6);margin:0 0 4px}
-.anniv-vide span{font-size:12px}
+.anniv-vide span{font-size:12px;display:block}
+.anniv-vide .anniv-tech{margin-top:8px;font-size:11px;color:var(--gray-4);word-break:break-word}
 .anniv-modal{max-height:70vh;overflow:auto;padding:4px 0 8px}
 .anniv-mois h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-5);padding:14px 20px 4px;margin:0}
 .anniv-jour{width:22px;text-align:right;font-weight:700;color:var(--gray-7);font-variant-numeric:tabular-nums}
@@ -1794,21 +1795,23 @@ async function chargerAnniversaires(force){
   if(_annivCache && !force) return _annivCache;
   if(_annivChargement && !force) return _annivChargement;
   _annivChargement = (async()=>{
-    let rows = null;
+    let rows = null, diag = '';
+    const court = e => String((e && (e.message || e.code)) || e || '').replace(/\s+/g,' ').slice(0,180);
     try{
       const r = await sb.rpc('anniversaires_equipe');
       if(!r.error && Array.isArray(r.data)){
         rows = r.data.map(x=>normaliserLigneAnniv({...x, estMoi:x.est_moi}));
         _annivRpcOk = true;
-      }
-    }catch(e){}
+      } else if(r.error) diag = court(r.error);
+    }catch(e){ diag = court(e); }
     if(!rows && peutVoirSalaires()){
       // Repli réservé aux personnes qui ont déjà accès aux fiches : lecture directe (l'année de naissance n'est pas conservée)
       let r = null;
       try{
         r = await sb.from('employes_rh').select('id,prenom,nom,actif,email,date_naissance,date_sortie,anniversaire_visible');
         if(r.error) r = await sb.from('employes_rh').select('id,prenom,nom,actif,email,date_naissance');
-      }catch(e){ r = null; }
+      }catch(e){ r = {error:e}; }
+      if(r && r.error) diag += (diag ? ' | ' : '') + court(r.error);
       if(r && !r.error && Array.isArray(r.data)){
         const auj = formatISODate(new Date()), moi = String((currentUser&&currentUser.email)||'').trim().toLowerCase();
         rows = r.data.filter(e=>e.date_naissance && e.actif!==false && e.anniversaire_visible!==false && (!e.date_sortie || String(e.date_sortie).slice(0,10)>=auj))
@@ -1817,7 +1820,7 @@ async function chargerAnniversaires(force){
           .filter(e=>e.mois>=1 && e.mois<=12 && e.jour>=1 && e.jour<=31);
       }
     }
-    _annivCache = {rows: rows||[], dispo: rows!==null};
+    _annivCache = {rows: rows||[], dispo: rows!==null, diag};
     return _annivCache;
   })();
   try{ return await _annivChargement; } finally { _annivChargement = null; }
@@ -1852,14 +1855,26 @@ function htmlCarteAnniversaires(rows, ref){
 }
 async function chargerCarteAnniversaires(){
   const box = el('dash-anniv'); if(!box) return;
-  const {rows, dispo} = await chargerAnniversaires();
+  const {rows, dispo, diag} = await chargerAnniversaires();
   const box2 = el('dash-anniv'); if(!box2) return;                     // l'utilisateur a changé de page entre-temps
-  if(!dispo || (!rows.length && !peutVoirSalaires())){ box2.style.display = 'none'; return; }
-  if(!rows.length){
-    box2.innerHTML = `<div class="card-header"><h2><i class="ti ti-cake"></i> Anniversaires</h2></div>
-      <div class="anniv-body"><div class="anniv-vide"><i class="ti ti-cake"></i><p>Aucune date de naissance renseignée</p>
-      <span>Complétez-la dans la fiche de chaque employé pour afficher les anniversaires.</span></div></div>`;
-  } else box2.innerHTML = htmlCarteAnniversaires(rows, refAnniv());
+  const admin = peutVoirSalaires();
+  // La carte est toujours visible : s'il n'y a rien à montrer, il explique pourquoi (au lieu de disparaître en silence)
+  const carteMessage = (titre, detail, technique) => `<div class="card-header"><h2><i class="ti ti-cake"></i> Anniversaires</h2></div>
+      <div class="anniv-body"><div class="anniv-vide"><i class="ti ti-cake"></i><p>${titre}</p>
+      <span>${detail}</span>${technique ? `<span class="anniv-tech">${escHtml(technique)}</span>` : ''}</div></div>`;
+  if(!dispo){
+    box2.innerHTML = admin
+      ? carteMessage('Anniversaires pas encore activés', "Exécutez le fichier <b>anniversaires-equipe.sql</b> dans Supabase (SQL Editor), puis rechargez l'ERP.", diag)
+      : carteMessage('Anniversaires pas encore activés', "Demandez à l'administrateur d'activer cette fonction.", '');
+  } else if(!rows.length){
+    box2.innerHTML = admin
+      ? carteMessage('Aucune date de naissance renseignée', 'Complétez-la dans la fiche de chaque employé pour afficher les anniversaires.', '')
+      : carteMessage('Aucun anniversaire à afficher', "Les dates de naissance n'ont pas encore été renseignées.", '');
+  } else {
+    box2.innerHTML = htmlCarteAnniversaires(rows, refAnniv());
+    // Tant que le SQL n'est pas exécuté, seuls les administrateurs voient la liste : on le leur dit
+    if(admin && !_annivRpcOk) box2.insertAdjacentHTML('beforeend', `<p class="anniv-note" style="padding-bottom:12px">Visible seulement par vous : exécutez <b>anniversaires-equipe.sql</b> pour l'activer pour toute l'équipe.</p>`);
+  }
   box2.style.display = '';
 }
 
