@@ -64,6 +64,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--gray-1);color:var
 .login-btn{width:100%;padding:12px;background:#106B9E;color:#fff;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px}
 .login-btn:hover{background:#0D5A85;transform:translateY(-1px);box-shadow:0 4px 12px rgba(16,107,158,.35)}
 .login-hint{text-align:center;margin-top:20px;font-size:12px;color:var(--gray-4)}
+.login-rester{display:flex;align-items:flex-start;gap:9px;margin:-4px 0 18px;font-size:13px;color:var(--gray-6);cursor:pointer;line-height:1.35}
+.login-rester input{flex:none;width:16px;height:16px;margin:2px 0 0;padding:0;cursor:pointer}
+.login-rester small{display:block;margin-top:1px;font-size:11.5px;color:var(--gray-5)}
 .doc-fleche{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:8px;border-radius:50%;background:var(--blue-light,#E6F0F7);color:var(--blue);font-size:14px;text-decoration:none;flex-shrink:0;vertical-align:middle}
 .doc-fleche:hover{background:var(--blue);color:#fff}
 .radio-group{display:flex;gap:8px;flex-wrap:wrap}
@@ -569,6 +572,7 @@ html,body{max-width:100vw;overflow-x:hidden}
         <label class="field-label">Mot de passe</label>
         <input type="password" id="login-password" class="field-input" placeholder="Mot de passe" autocomplete="current-password"/>
       </div>
+      <label class="login-rester" for="login-rester"><input type="checkbox" id="login-rester"/><span>Rester connecté sur cet appareil<small>30 jours maximum — à cocher seulement sur votre propre ordinateur</small></span></label>
       <button class="login-btn" onclick="doLogin()">
         <i class="ti ti-login"></i> Se connecter
       </button>
@@ -658,16 +662,31 @@ html,body{max-width:100vw;overflow-x:hidden}
 // ── CONFIG SUPABASE ──────────────────────────────────────────
 const SUPA_URL = 'https://uhqbdbxfpiinihfilcpe.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVocWJkYnhmcGlpbmloZmlsY3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzU4ODQsImV4cCI6MjA5ODExMTg4NH0.b7seaNoLiQH9N0JyUGJJTq4Uu87VDr3aC1q4PAjUNuE';
-// Session de connexion (Supabase Auth) gardée par onglet : elle disparaît à la fermeture de l'onglet.
-// Si le navigateur refuse le stockage, on retombe sur la mémoire (il faudra alors se reconnecter après un rechargement).
+// Session de connexion (Supabase Auth). Par défaut elle est gardée par onglet : elle disparaît à la fermeture.
+// Si « Rester connecté sur cet appareil » est coché à la connexion, elle est gardée sur l'appareil pendant 30 jours maximum
+// (ou jusqu'à « Déconnexion »). Si le navigateur refuse le stockage, on retombe sur la mémoire (reconnexion après rechargement).
+const RESTER_CLE = 'lyneo-erp-rester', RESTER_PREF = 'lyneo-erp-rester-pref', RESTER_JOURS = 30, AUTH_CLE = 'lyneo-erp-auth';
 const _memAuth = {};
+const resterDepuis = ()=>{ try{ const v = parseInt(localStorage.getItem(RESTER_CLE),10); return isNaN(v) ? 0 : v; }catch(e){ return 0; } };
+const resterActif = ()=>{ const t = resterDepuis(); return t>0 && (Date.now()-t) < RESTER_JOURS*86400000; };
+function viderAuthLocal(){ try{ Object.keys(localStorage).filter(k=>k.indexOf(AUTH_CLE)===0).forEach(k=>localStorage.removeItem(k)); }catch(e){} }
 const authStorage = {
-  getItem(k){ try{ return sessionStorage.getItem(k); }catch(e){ return Object.prototype.hasOwnProperty.call(_memAuth,k) ? _memAuth[k] : null; } },
-  setItem(k,v){ try{ sessionStorage.setItem(k,v); }catch(e){ _memAuth[k] = v; } },
-  removeItem(k){ try{ sessionStorage.removeItem(k); }catch(e){} delete _memAuth[k]; }
+  getItem(k){
+    try{ const s = sessionStorage.getItem(k); if(s!==null) return s; }catch(e){}
+    try{ if(resterActif()){ const l = localStorage.getItem(k); if(l!==null) return l; } }catch(e){}
+    return Object.prototype.hasOwnProperty.call(_memAuth,k) ? _memAuth[k] : null;
+  },
+  setItem(k,v){
+    const durable = resterActif();
+    try{ (durable ? localStorage : sessionStorage).setItem(k,v); try{ (durable ? sessionStorage : localStorage).removeItem(k); }catch(e){} delete _memAuth[k]; }
+    catch(e){ _memAuth[k] = v; }
+  },
+  removeItem(k){ try{ sessionStorage.removeItem(k); }catch(e){} try{ localStorage.removeItem(k); }catch(e){} delete _memAuth[k]; }
 };
+// Connexion gardée depuis plus de 30 jours : on l'efface
+if(resterDepuis()>0 && !resterActif()){ try{ localStorage.removeItem(RESTER_CLE); }catch(e){} viderAuthLocal(); }
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: authStorage, storageKey: 'lyneo-erp-auth' }
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: authStorage, storageKey: AUTH_CLE }
 });
 
 // Supabase Pointages (base séparée)
@@ -1562,6 +1581,12 @@ async function doLogin() {
   if(btn){ btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Connexion...'; }
 
   try {
+    // « Rester connecté » : on fixe le mode de stockage AVANT la connexion, la session est enregistrée selon ce choix
+    const rester = !!(el('login-rester') && el('login-rester').checked);
+    try{
+      if(rester) localStorage.setItem(RESTER_CLE, String(Date.now())); else { localStorage.removeItem(RESTER_CLE); viderAuthLocal(); }
+      localStorage.setItem(RESTER_PREF, rester ? '1' : '0');
+    }catch(e){}
     const {data:sess, error:authErr} = await sb.auth.signInWithPassword({email, password:pass});
     if(authErr){
       showLoginError(/invalid login|invalid credentials|invalid_credentials/i.test(authErr.message||'') ? 'Email ou mot de passe incorrect' : 'Connexion impossible : '+(authErr.message||'erreur inconnue'));
@@ -1606,11 +1631,13 @@ function afficherEcranConnexion(){
   const err = el('login-error'); if(err) err.classList.add('hidden');
   const btn = document.querySelector('.login-btn'); if(btn){ btn.disabled=false; btn.innerHTML='<i class="ti ti-login"></i> Se connecter'; }
   el('login-password').value = '';
+  const cr = el('login-rester'); if(cr){ try{ cr.checked = localStorage.getItem(RESTER_PREF)==='1'; }catch(e){ cr.checked = false; } }
 }
 
 async function doLogout(){
   afficherEcranConnexion();
   try{ await sb.auth.signOut(); }catch(e){}
+  try{ localStorage.removeItem(RESTER_CLE); }catch(e){} viderAuthLocal();
   try{ sessionStorage.removeItem('lyneo_user'); }catch(e){}
 }
 
@@ -11855,6 +11882,7 @@ async function duplicateFacture(facId){
 window.addEventListener('load', async ()=>{
   checkMobile();
   try{ sessionStorage.removeItem('lyneo_user'); }catch(e){}      // ancien mode de session (sans vraie connexion)
+  { const cr = el('login-rester'); if(cr){ try{ cr.checked = localStorage.getItem(RESTER_PREF)==='1'; }catch(e){} } }
   el('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   try{
     const {data} = await sb.auth.getSession();
