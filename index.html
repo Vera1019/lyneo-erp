@@ -291,10 +291,13 @@ tbody tr:hover td{background:var(--blue-light)}
 @keyframes annivConf{0%{opacity:0;transform:translateY(0) rotate(0)}10%{opacity:1}100%{opacity:0;transform:translateY(130px) rotate(300deg)}}
 @media (prefers-reduced-motion: reduce){.anniv-notif,.anniv-notif.anniv-sortie{animation:none}.anniv-confetti{display:none}}
 @media (max-width:600px){.anniv-notif{top:auto;bottom:16px;right:16px;left:16px;width:auto}}
-#fac-liste tr.fac-filtres th{padding:4px 10px 10px;text-transform:none;font-weight:400;letter-spacing:0;vertical-align:top;border-bottom:1px solid var(--gray-3)}
+#fac-liste tr.fac-filtres th{padding:10px 10px 6px;text-transform:none;font-weight:400;letter-spacing:0;vertical-align:bottom;border-bottom:none;background:var(--gray-1)}
 #fac-liste tr.fac-filtres input,#fac-liste tr.fac-filtres select{padding:5px 7px;font-size:12px;border-width:1px;border-radius:6px;min-width:0}
 #fac-liste .fac-range{display:grid;grid-template-columns:auto minmax(104px,1fr);gap:3px 6px;align-items:center;font-size:10.5px;font-weight:600;color:var(--gray-5)}
 .td-primary{font-weight:600;color:var(--blue);font-size:13px}
+.dbl-item{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--gray-3);border-radius:var(--radius-sm);margin-bottom:8px;background:#fff}
+.dbl-groupe{border:1px solid var(--gray-3);background:var(--gray-1);border-radius:var(--radius);padding:12px;margin-bottom:14px}
+.dbl-raison{display:inline-block;font-size:11px;font-weight:700;background:var(--orange-light);color:#92400E;border:1px solid #FDE68A;border-radius:999px;padding:2px 9px;margin:0 6px 4px 0}
 
 /* ── FORM ────────────────────────────────────────────────────── */
 .form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
@@ -2265,6 +2268,7 @@ async function renderChantiers(search=''){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${search}"/></div>
         ${btnExport('chantiers')}
+        ${btnDoublons('chantiers', _chantiers)}
         <button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button>
       </div>
     </div>
@@ -2297,6 +2301,7 @@ async function renderChantiers(search=''){
               <td onclick="event.stopPropagation()"><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')"><i class="ti ti-eye"></i></button>
                 <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'").replace(/"/g,'&quot;')})'><i class="ti ti-edit"></i></button>
+                <button class="btn btn-danger btn-sm" data-chantier-suppr="${r.id}" title="Supprimer" onclick="event.stopPropagation();supprimerChantier('${r.id}')"><i class="ti ti-trash"></i></button>
               </div></td>
             </tr>`;}).join('')}
           </tbody>
@@ -3364,6 +3369,7 @@ async function openChantierModal(r=null){
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
       </div>
       <div class="form-actions">
+        ${isEdit ? `<button class="btn btn-danger" id="ch-suppr" onclick="supprimerChantier('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
         <button class="btn btn-primary" onclick="saveChantier('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
@@ -3422,7 +3428,8 @@ function avisarSincronizacaoPointages(resultado){
   // Pour 'inactif' / 'deja_lie' / 'sans_numero' : pas de message, ce sont des cas normaux, pas des erreurs.
 }
 
-async function saveChantier(id){
+function saveChantier(id){ return gardeEnvoi('chantier', ()=>saveChantierCore(id)); }
+async function saveChantierCore(id){
   const nom = el('ch-nom').value.trim();
   const clientId = el('ch-client-id').value;
   // Un centre SAV « clients divers » (ex: SAV 1) ou interne (ex: FG) n'a pas de client fixe : client facultatif
@@ -3432,6 +3439,8 @@ async function saveChantier(id){
   const {data:clientRow} = clientId ? await sb.from('clients').select('nom').eq('id',clientId).single() : {data:null};
   const cpModal = el('ch-code-pt-modal');
   const numeroManuel = el('ch-numero').value.trim();
+  const ctlCh = await controlerDoublonsChantier({nom, client_id:clientId||null, client:clientRow?.nom||'', numero:numeroManuel, type:typeChoisi}, id);
+  if(ctlCh==='stop') return;
   const statutAtual = el('ch-statut').value;
   const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   // Le type n'est envoyé que s'il est différent de "chantier" ou si la colonne existe déjà
@@ -3497,6 +3506,7 @@ async function renderFournisseurs(search=''){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFournisseurs(this.value)" value="${search}"/></div>
         ${btnExport('fournisseurs')}
+        ${btnDoublons('fournisseurs', _fournisseurs)}
         <button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>
       </div>
     </div>
@@ -3520,6 +3530,7 @@ async function renderFournisseurs(search=''){
                 +'<td><div class="td-actions">'
                 +  '<button class="btn btn-secondary btn-sm" data-four-detail="'+r.id+'" title="Voir les factures"><i class="ti ti-eye"></i></button>'
                 +  '<button class="btn btn-secondary btn-sm" data-four-edit="'+r.id+'" title="Modifier"><i class="ti ti-edit"></i></button>'
+                +  '<button class="btn btn-danger btn-sm" data-four-suppr="'+r.id+'" title="Supprimer" onclick="event.stopPropagation();supprimerFournisseur(\''+r.id+'\')"><i class="ti ti-trash"></i></button>'
                 +'</div></td>'
                 +'</tr>';
             }).join('')}
@@ -3546,7 +3557,8 @@ async function renderFournisseurs(search=''){
 }
 
 async function openFourDetail(fourId){
-  const four = _fournisseurs.find(f=>f.id===fourId);
+  let four = _fournisseurs.find(f=>f.id===fourId);
+  if(!four){ const r = await sb.from('fournisseurs').select('*').eq('id',fourId).single(); four = r.data; }
   if(!four){ showToast("Fournisseur introuvable", 'error'); return; }
 
   const {data:posData} = await sb.from('purchase_orders_lyneo').select('id,numero,chantiers_lyneo!chantier_id(nom,numero)').eq('fournisseur_id',fourId);
@@ -3626,6 +3638,7 @@ async function openFourDetail(fourId){
         </table>
       </div>
       <div class="form-actions">
+        <button class="btn btn-danger" id="four-detail-suppr" onclick="supprimerFournisseur('${four.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
       </div>
     </div>
@@ -3658,6 +3671,7 @@ function openFourModal(r=null){
         </div>
       </div>
       <div class="form-actions">
+        ${isEdit ? `<button class="btn btn-danger" id="f-suppr" onclick="supprimerFournisseur('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
         <button class="btn btn-primary" onclick="saveFour('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
@@ -3665,12 +3679,16 @@ function openFourModal(r=null){
   </div></div>`);
 }
 
-async function saveFour(id){
+function saveFour(id){ return gardeEnvoi('fournisseur', ()=>saveFourCore(id)); }
+async function saveFourCore(id){
   const nom = el('f-nom').value.trim();
   if(!nom){ showToast('Nom obligatoire','error'); return; }
+  const ctl = await controlerDoublonsTiers('fournisseurs', {nom, tva:el('f-tva').value, email:el('f-email').value}, id, 'fournisseur', 'Voir la fiche');
+  if(ctl==='stop') return;
+  if(ctl && ctl.existant){ closeModal(); openFourDetail(ctl.existant); return; }
   const data = {nom,email:el('f-email').value,telephone:el('f-tel').value,numero_tva:el('f-tva').value,adresse:el('f-adresse').value,code_postal:el('f-cp').value,ville:el('f-ville').value,pays:el('f-pays').value,conditions_paiement:el('f-cond').value,actif:el('f-actif').value==='1'};
-  if(id) await sb.from('fournisseurs').update(data).eq('id',id);
-  else await sb.from('fournisseurs').insert(data);
+  const {error} = id ? await sb.from('fournisseurs').update(data).eq('id',id) : await sb.from('fournisseurs').insert(data);
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast(id?'Fournisseur mis à jour':'Fournisseur créé');
   closeModal(); renderFournisseurs();
 }
@@ -4968,6 +4986,7 @@ async function renderFactures(){
       <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
       <div id="fac-pager-top" class="pager" style="margin-left:auto"></div>
       <button class="btn btn-secondary btn-sm" id="fac-export" onclick="exporterFacturesExcel()"><i class="ti ti-file-spreadsheet"></i> Exporter Excel <span id="fac-export-n"></span></button>
+      ${btnDoublons('factures', _facsListe, true)}
     </div>
     <div id="fac-bulk" style="display:none;position:sticky;top:0;z-index:5;gap:10px;flex-wrap:wrap;align-items:center;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
       <strong id="fac-bulk-n" style="font-size:13px"></strong>
@@ -4981,7 +5000,6 @@ async function renderFactures(){
       <div class="table-wrap" id="fac-liste" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
           <thead>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th><th>N° interne</th><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant HT</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr>
             <tr class="fac-filtres">
               <th></th>
               <th><input id="facc-int" placeholder="Filtrer…" style="min-width:104px" value="${escHtml(F.interne)}" oninput="majFiltreFactures('interne',this.value)"/></th>
@@ -4997,6 +5015,7 @@ async function renderFactures(){
               <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
               <th></th>
             </tr>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th><th>N° interne</th><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant HT</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr>
           </thead>
           <tbody id="fac-tbody"></tbody>
         </table>
@@ -5075,6 +5094,7 @@ function afficherFactures(){
           ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
           ${!['annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="creerNoteCredit('${r.id}')" title="Note de crédit"><i class="ti ti-receipt-refund"></i></button>`:''}
           ${!['annulee','payee'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="annulerFacture('${r.id}')" title="Annuler"><i class="ti ti-ban"></i></button>`:''}
+          ${['recue','litige','annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" data-fac-suppr="${r.id}" onclick="supprimerFactureFournisseur('${r.id}')" title="Supprimer" style="color:var(--red)"><i class="ti ti-trash"></i></button>`:''}
         </div></td>
       </tr>`;
     }).join('');
@@ -5295,6 +5315,7 @@ async function openFacDetail(facId){
         ${fac.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="closeModal();openPayModal('${fac.id}','${fac.po_id}',${fac.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
         ${!['annulee','avoir'].includes(fac.statut)?`<button class="btn btn-secondary btn-sm" onclick="creerNoteCredit('${fac.id}')"><i class="ti ti-receipt-refund"></i> Note de crédit</button>`:''}
         ${!['annulee','payee'].includes(fac.statut)?`<button class="btn btn-danger btn-sm" onclick="annulerFacture('${fac.id}')"><i class="ti ti-ban"></i> Annuler</button>`:''}
+        ${['recue','litige','annulee','avoir'].includes(fac.statut)?`<button class="btn btn-danger btn-sm" id="fac-detail-suppr" onclick="supprimerFactureFournisseur('${fac.id}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
@@ -5512,6 +5533,9 @@ async function saveFacLibre(){
   const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
 
+  // la même facture d'un même fournisseur ne s'enregistre pas deux fois
+  if(!(await controlerFactureFournisseur({fournisseurId, numero, ttc:totalHT+totalTVA, date:el('facl-date').value}))){ const b=el('btn-save-facl'); if(b) b.disabled=false; return; }
+
   const {data:fac, error} = await sb.from('factures').insert({
     po_id: null, chantier_id: chantierId, fournisseur_id: fournisseurId,
     numero_facture_fournisseur: numero,
@@ -5521,7 +5545,7 @@ async function saveFacLibre(){
     statut: 'recue', saisie_par: currentUser.id,
     observations: el('facl-obs').value
   }).select().single();
-  if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-facl'); if(b) b.disabled=false; return; }
+  if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); const b=el('btn-save-facl'); if(b) b.disabled=false; return; }
 
   await sb.from('lignes_facture').insert(_facLignesLibre.map((l,i)=>({
     facture_id: fac.id, ordre: i+1,
@@ -5808,7 +5832,8 @@ async function recalcStatutFacturationPO(poId){
   }
 }
 
-async function saveFac(){
+function saveFac(){ return gardeEnvoi('facture-fournisseur', saveFacCore); }
+async function saveFacCore(){
   const po_id = el('fac-po')?.value;
   const num = el('fac-num')?.value.trim();
   const date = el('fac-date')?.value;
@@ -5823,6 +5848,7 @@ async function saveFac(){
   const mTTC = parseFloat(el('fac-ttc')?.value)||(mHT+mTVA);
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id,fournisseur_id').eq('id',po_id).single();
+  if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:mTTC, date}))) return;
 
   const {data:fac,error} = await sb.from('factures').insert({
     po_id, chantier_id: poRow?.chantier_id||null, fournisseur_id: poRow?.fournisseur_id||null, numero_facture_fournisseur:num,
@@ -5831,7 +5857,7 @@ async function saveFac(){
     statut:'recue', saisie_par:currentUser.id,
     observations:el('fac-obs')?.value||''
   }).select().single();
-  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return; }
 
   if(fac && _facLignesPO.length>0){
     const {error:lignesErr} = await sb.from('lignes_facture').insert(_facLignesPO.map((l,i)=>({
@@ -5901,6 +5927,550 @@ async function savePay(facId, poId){
   showToast('Paiement enregistré'); closeModal(); renderFactures();
 }
 
+// ══════════════════════════════════════════════════════════════
+// SUPPRESSION SÉCURISÉE · CONTRÔLE DES DOUBLONS · FUSION
+// ══════════════════════════════════════════════════════════════
+// Principes :
+//  • on ne supprime une fiche que si rien n'y est rattaché (devis, factures…) ; sinon on explique et on propose de la désactiver ;
+//  • les doublons « certains » bloquent (même facture d'un même fournisseur, même n° de sécurité sociale) ;
+//  • les doublons « possibles » (même nom, même TVA, même e-mail, noms très proches) demandent confirmation : une même société
+//    peut avoir plusieurs sites/magasins avec le même n° TVA, deux personnes peuvent porter le même nom ;
+//  • la base de données refuse aussi la même facture d'un même fournisseur (doublons-prevenir.sql).
+const _txt = v => String(v==null ? '' : v);
+const sansAccents = s => _txt(s).normalize('NFD').replace(/[̀-ͯ]/g,'');
+const FORMES_JURIDIQUES = /\b(s a r l|sarl|s r l|srl|s a|sa|sprl|bvba|bv|nv|gmbh|ag|sas|sasu|eurl|scs|snc|asbl|ltd|llc|inc)\b/g;
+// « Lyneo S.à r.l. » = « LYNEO SARL » = « lyneo »
+function cleNom(s){
+  const base = sansAccents(s).toLowerCase().replace(/&/g,' et ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+  const sans = base.replace(FORMES_JURIDIQUES,' ').replace(/\s+/g,' ').trim();
+  return sans || base;
+}
+// « LU 1234 5678 » = « lu12345678 » = « 12345678 »
+function cleTva(s){
+  let t = _txt(s).toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(/^[A-Z]{2}\d/.test(t) && t.length>=8) t = t.slice(2);
+  return t.length>=5 ? t : '';
+}
+function cleEmail(s){ const t = _txt(s).trim().toLowerCase(); return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t) ? t : ''; }
+// « Silva Vera » = « VERA SILVA » = « vera  silva »
+function clePersonne(nom, prenom){
+  return sansAccents(_txt(nom)+' '+_txt(prenom)).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().split(' ').filter(Boolean).sort().join(' ');
+}
+// « 099-IN89673 » = « 99IN89673 » = « 099 in 89673 »
+function cleNumeroFacture(s){ return sansAccents(s).toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/^0+/,''); }
+function cleIdentifiant(s){ const t = _txt(s).toUpperCase().replace(/[^A-Z0-9]/g,''); return t.length>=5 ? t : ''; }
+function distanceLev(a, b, max){
+  if(a===b) return 0;
+  if(Math.abs(a.length-b.length)>max) return max+1;
+  let prev = Array.from({length:b.length+1},(_,j)=>j);
+  for(let i=1;i<=a.length;i++){
+    const cur = [i]; let min = i;
+    for(let j=1;j<=b.length;j++){
+      const v = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+(a[i-1]===b[j-1]?0:1));
+      cur.push(v); if(v<min) min = v;
+    }
+    if(min>max) return max+1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// Noms de 6 caractères ou plus qui ne diffèrent que d'une lettre (« yesss electro » / « yess electro »)
+function nomsProches(a, b){ return !!a && !!b && a!==b && Math.min(a.length,b.length)>=6 && distanceLev(a,b,1)<=1; }
+
+// Regroupe les éléments qui se ressemblent selon des règles {libelle, cle(item), proche?(cleA,cleB)}
+function groupesDoublons(items, regles){
+  const n = items.length, parent = Array.from({length:n},(_,i)=>i);
+  const find = i => { while(parent[i]!==i){ parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const union = (a,b)=>{ a = find(a); b = find(b); if(a!==b) parent[b] = a; };
+  const raisons = [];
+  regles.forEach(r=>{
+    const parCle = new Map();
+    items.forEach((it,i)=>{ const k = r.cle(it); if(k){ if(!parCle.has(k)) parCle.set(k,[]); parCle.get(k).push(i); } });
+    if(r.proche){
+      const cles = [...parCle.keys()];
+      for(let a=0;a<cles.length;a++) for(let b=a+1;b<cles.length;b++){
+        if(r.proche(cles[a], cles[b])){ const idx = [...parCle.get(cles[a]), ...parCle.get(cles[b])]; idx.forEach(j=>union(idx[0],j)); raisons.push({libelle:r.libelle, membres:idx}); }
+      }
+    } else {
+      parCle.forEach(idx=>{ if(idx.length>1){ idx.forEach(j=>union(idx[0],j)); raisons.push({libelle:r.libelle, membres:idx}); } });
+    }
+  });
+  const groupes = new Map();
+  items.forEach((it,i)=>{ const root = find(i); if(!groupes.has(root)) groupes.set(root,{items:[], raisons:new Set()}); groupes.get(root).items.push(it); });
+  raisons.forEach(r=>{ const g = groupes.get(find(r.membres[0])); if(g) g.raisons.add(r.libelle); });
+  return [...groupes.values()].filter(g=>g.items.length>1).map(g=>({items:g.items, raisons:[...g.raisons]})).sort((a,b)=>b.items.length-a.items.length);
+}
+const factureActive = f => !['annulee','avoir'].includes(f.statut);
+const REGLES_DOUBLONS = {
+  clients: [
+    {libelle:'Même nom', cle:c=>cleNom(c.nom)},
+    {libelle:'Même n° TVA', cle:c=>cleTva(c.numero_tva)},
+    {libelle:'Noms très proches', cle:c=>cleNom(c.nom), proche:nomsProches}
+  ],
+  fournisseurs: [
+    {libelle:'Même nom', cle:c=>cleNom(c.nom)},
+    {libelle:'Même n° TVA', cle:c=>cleTva(c.numero_tva)},
+    {libelle:'Noms très proches', cle:c=>cleNom(c.nom), proche:nomsProches}
+  ],
+  employes: [
+    {libelle:'Même nom et prénom (ou inversés)', cle:e=>clePersonne(e.nom, e.prenom)},
+    {libelle:'Même n° de sécurité sociale', cle:e=>cleIdentifiant(e.matricule_cns)},
+    {libelle:"Même n° de carte d'identité", cle:e=>cleIdentifiant(e.numero_carte_identite)}
+  ],
+  chantiers: [
+    {libelle:'Même nom et même client', cle:c=>cleNom(c.nom) ? cleNom(c.nom)+'|'+(c.client_id||cleNom(c.client)) : ''}
+  ],
+  factures: [
+    {libelle:'Même fournisseur et même n° de facture', cle:f=>(factureActive(f) && cleNumeroFacture(f.numero_facture_fournisseur)) ? cleNom(nomFournisseurFac(f))+'|'+cleNumeroFacture(f.numero_facture_fournisseur) : ''},
+    {libelle:'Même fournisseur, même montant et même date', cle:f=>(factureActive(f) && (parseFloat(f.montant_ttc)||0)!==0 && f.date_facture) ? cleNom(nomFournisseurFac(f))+'|'+(parseFloat(f.montant_ttc)||0).toFixed(2)+'|'+String(f.date_facture).slice(0,10) : ''}
+  ]
+};
+function trouverDoublons(type, liste){
+  const l = type==='chantiers' ? (liste||[]).filter(c=>c.type_centre!=='sav') : (liste||[]);
+  return groupesDoublons(l, REGLES_DOUBLONS[type]);
+}
+// Bouton « Doublons (N) » : N = nombre de groupes trouvés dans la liste déjà chargée
+function btnDoublons(type, liste, petit){
+  const n = trouverDoublons(type, liste).length;
+  return `<button class="btn btn-secondary${petit?' btn-sm':''}" data-dbl-btn="${type}" onclick="ouvrirDoublons('${type}')" title="Rechercher les fiches en double"${n?' style="border-color:var(--orange);color:#92400E"':''}><i class="ti ti-copy"></i> Doublons${n?` <strong>(${n})</strong>`:''}</button>`;
+}
+
+// Évite un double clic / double envoi (source classique de doublons)
+const _envoiEnCours = {};
+async function gardeEnvoi(cle, fn){
+  if(_envoiEnCours[cle]) return;
+  _envoiEnCours[cle] = true;
+  try{ return await fn(); } finally{ _envoiEnCours[cle] = false; }
+}
+
+// ── Fenêtre « doublon possible » (au-dessus du formulaire en cours) ──
+// items : [{id, titre, detail, raisons[]}] — renvoie {action:'continuer'|'annuler'|'existant', id}
+function demanderDoublons(o){
+  return new Promise(resolve=>{
+    let c = el('doublon-container');
+    if(!c){ c = document.createElement('div'); c.id = 'doublon-container'; document.body.appendChild(c); }
+    window._dblRepondre = r => { c.innerHTML = ''; resolve(r); };
+    const idJs = id => JSON.stringify(String(id)).replace(/"/g,'&quot;');
+    c.innerHTML = `<div class="modal-overlay" style="z-index:400" id="dbl-overlay"><div class="modal" style="max-width:580px">
+      <div class="modal-header"><h3>${escHtml(o.titre)}</h3><button class="modal-close" onclick="_dblRepondre({action:'annuler'})"><i class="ti ti-x"></i></button></div>
+      <div class="modal-body">
+        <div class="alert ${o.bloquant?'alert-error':'alert-warning'}" id="dbl-intro"><i class="ti ti-${o.bloquant?'ban':'alert-triangle'}"></i><span>${o.intro}</span></div>
+        ${(o.items||[]).map(it=>`<div class="dbl-item" data-dbl-item="${escHtml(it.id)}">
+          <div style="min-width:0">
+            <strong>${escHtml(it.titre)}</strong>
+            ${it.detail?`<div style="font-size:12.5px;color:var(--gray-6);margin-top:2px">${escHtml(it.detail)}</div>`:''}
+            ${(it.raisons||[]).length?`<div style="margin-top:5px">${it.raisons.map(r=>`<span class="dbl-raison">${escHtml(r)}</span>`).join('')}</div>`:''}
+          </div>
+          ${o.existantLabel?`<button class="btn btn-secondary btn-sm" data-dbl-existant="${escHtml(it.id)}" onclick="_dblRepondre({action:'existant',id:${idJs(it.id)}})" style="white-space:nowrap">${escHtml(o.existantLabel)}</button>`:''}
+        </div>`).join('')}
+        <div class="form-actions">
+          <button class="btn btn-secondary" id="dbl-annuler" onclick="_dblRepondre({action:'annuler'})">${o.bloquant?'Fermer':'Annuler'}</button>
+          ${o.bloquant?'':`<button class="btn btn-primary" id="dbl-continuer" onclick="_dblRepondre({action:'continuer'})">${escHtml(o.labelContinuer||'Continuer quand même')}</button>`}
+        </div>
+      </div></div></div>`;
+    const ov = el('dbl-overlay'); if(ov) ov.addEventListener('click', e=>{ if(e.target===ov) window._dblRepondre({action:'annuler'}); });
+  });
+}
+
+// ── Clients / fournisseurs : doublon possible à la création ou quand le nom, le TVA ou l'e-mail changent ──
+async function verifierTiers(table, v, id){
+  let ancien = null;
+  if(id){ const r = await sb.from(table).select('nom,numero_tva,email').eq('id',id).single(); ancien = r.data||null; }
+  const kNom = cleNom(v.nom), kTva = cleTva(v.tva), kMail = cleEmail(v.email);
+  const test = {nom: !ancien || cleNom(ancien.nom)!==kNom, tva: !ancien || cleTva(ancien.numero_tva)!==kTva, mail: !ancien || cleEmail(ancien.email)!==kMail};
+  if(!(test.nom || test.tva || test.mail)) return [];
+  const {data, error} = await sb.from(table).select('*');
+  if(error) return [];
+  const out = [];
+  (data||[]).forEach(r=>{
+    if(id && String(r.id)===String(id)) return;
+    const raisons = [];
+    if(test.nom && kNom){ const kr = cleNom(r.nom); if(kr===kNom) raisons.push('Même nom'); else if(nomsProches(kNom,kr)) raisons.push('Nom très proche'); }
+    if(test.tva && kTva && cleTva(r.numero_tva)===kTva) raisons.push('Même n° TVA');
+    if(test.mail && kMail && cleEmail(r.email)===kMail) raisons.push('Même e-mail');
+    if(raisons.length) out.push({...r, raisons});
+  });
+  return out;
+}
+const itemsTiers = rows => rows.map(r=>({id:r.id, titre:_txt(r.nom)+(r.actif===false?' (inactif)':''), detail:[r.ville, r.numero_tva, r.email, r.telephone].filter(Boolean).join(' · '), raisons:r.raisons}));
+
+// Renvoie 'ok' (continuer) · 'stop' (annulé) · {existant:id}
+async function controlerDoublonsTiers(table, v, id, libelle, labelExistant){
+  const dups = await verifierTiers(table, v, id);
+  if(!dups.length) return 'ok';
+  const rep = await demanderDoublons({
+    titre: `${libelle[0].toUpperCase()+libelle.slice(1)} déjà existant ?`,
+    intro: `${dups.length>1?'Des fiches ressemblent':'Une fiche ressemble'} à « ${escHtml(v.nom)} ». Vérifiez avant de continuer : un doublon fausse les listes, les factures et les statistiques.`,
+    items: itemsTiers(dups), existantLabel: labelExistant, labelContinuer: id ? 'Enregistrer quand même' : 'Créer quand même'
+  });
+  if(rep.action==='annuler') return 'stop';
+  if(rep.action==='existant') return {existant: rep.id};
+  return 'ok';
+}
+
+// ── Factures fournisseur : la même facture ne doit pas être saisie deux fois ──
+async function facturesDuFournisseur(fournisseurId){
+  const sel = 'id,numero_interne,numero_facture_fournisseur,date_facture,montant_ttc,statut,fournisseur_id,po_id';
+  const [a, b] = await Promise.all([
+    sb.from('factures').select(sel).eq('fournisseur_id', fournisseurId),
+    sb.from('factures').select(sel).is('fournisseur_id', null)
+  ]);
+  const rows = (a.data||[]).slice();
+  const sansFour = (b.data||[]).filter(r=>r.po_id);
+  if(sansFour.length){
+    const pos = await selectInChunks(sb, 'purchase_orders_lyneo', 'id,fournisseur_id', 'id', sansFour.map(r=>r.po_id));
+    const ok = new Set(pos.filter(p=>String(p.fournisseur_id)===String(fournisseurId)).map(p=>p.id));
+    rows.push(...sansFour.filter(r=>ok.has(r.po_id)));
+  }
+  return rows;
+}
+const libFacture = f => [f.numero_interne, fmtDate(f.date_facture), fmt(f.montant_ttc), STATUT_FA[f.statut]||f.statut].filter(Boolean).join(' · ');
+// Renvoie true si on peut enregistrer. Doublon certain → bloque ; même montant et même date → demande confirmation.
+async function controlerFactureFournisseur(o){
+  if(!o.fournisseurId) return true;
+  let rows;
+  try{ rows = await facturesDuFournisseur(o.fournisseurId); }catch(e){ return true; }   // la base refuse de toute façon un doublon certain
+  rows = rows.filter(r=>String(r.id)!==String(o.excludeId||'') && factureActive(r));
+  const cle = cleNumeroFacture(o.numero);
+  const exacts = cle ? rows.filter(r=>cleNumeroFacture(r.numero_facture_fournisseur)===cle) : [];
+  if(exacts.length){
+    const rep = await demanderDoublons({
+      titre: 'Cette facture existe déjà', bloquant: true,
+      intro: `Ce fournisseur a déjà une facture n° <strong>${escHtml(exacts[0].numero_facture_fournisseur)}</strong>. La même facture ne peut pas être enregistrée deux fois.`,
+      items: exacts.map(r=>({id:r.id, titre:`Facture ${r.numero_facture_fournisseur}`, detail:libFacture(r)})), existantLabel:'Ouvrir cette facture'
+    });
+    if(rep.action==='existant'){ closeModal(); openFacDetail(rep.id); }
+    return false;
+  }
+  const ttc = Math.round((parseFloat(o.ttc)||0)*100)/100, jour = _txt(o.date).slice(0,10);
+  const proches = (ttc && jour) ? rows.filter(r=>Math.abs((parseFloat(r.montant_ttc)||0)-ttc)<0.005 && jourFac(r.date_facture)===jour) : [];
+  if(proches.length){
+    const rep = await demanderDoublons({
+      titre: 'Une facture très semblable existe', labelContinuer: 'Enregistrer quand même',
+      intro: `Ce fournisseur a déjà une facture du même montant et de la même date, avec un autre numéro. S'il s'agit de la même facture, ne l'enregistrez pas une seconde fois.`,
+      items: proches.map(r=>({id:r.id, titre:`Facture ${r.numero_facture_fournisseur}`, detail:libFacture(r)})), existantLabel:'Ouvrir cette facture'
+    });
+    if(rep.action==='existant'){ closeModal(); openFacDetail(rep.id); return false; }
+    return rep.action==='continuer';
+  }
+  return true;
+}
+// Message clair quand c'est la base qui refuse le doublon
+const erreurDoublonBase = e => (e && /doublon_facture_fournisseur/.test(e.message||'')) ? 'Cette facture existe déjà pour ce fournisseur (même numéro).' : null;
+
+// ── Employés : n° de sécurité sociale / carte d'identité identiques = même personne ──
+async function controlerDoublonsEmploye(v, id){
+  let ancien = null;
+  if(id){ const r = await sb.from('employes_rh').select('*').eq('id',id).single(); ancien = r.data||null; }
+  const kP = clePersonne(v.nom, v.prenom), kCns = cleIdentifiant(v.cns), kCi = cleIdentifiant(v.ci);
+  const test = {p: !ancien || clePersonne(ancien.nom, ancien.prenom)!==kP, cns: !ancien || cleIdentifiant(ancien.matricule_cns)!==kCns, ci: !ancien || cleIdentifiant(ancien.numero_carte_identite)!==kCi};
+  if(!(test.p || test.cns || test.ci)) return 'ok';
+  const {data, error} = await sb.from('employes_rh').select('*');
+  if(error) return 'ok';
+  const certains = [], possibles = [];
+  (data||[]).forEach(r=>{
+    if(id && String(r.id)===String(id)) return;
+    const raisonsC = [];
+    if(test.cns && kCns && cleIdentifiant(r.matricule_cns)===kCns) raisonsC.push('Même n° de sécurité sociale');
+    if(test.ci && kCi && cleIdentifiant(r.numero_carte_identite)===kCi) raisonsC.push("Même n° de carte d'identité");
+    if(raisonsC.length){ certains.push({r, raisons:raisonsC}); return; }
+    if(test.p && kP && clePersonne(r.nom, r.prenom)===kP) possibles.push({r, raisons:['Même nom et prénom']});
+  });
+  const items = l => l.map(x=>({id:x.r.id, titre:nomPers(x.r)+(x.r.actif===false?' (inactif)':''), detail:[x.r.poste, x.r.email].filter(Boolean).join(' · '), raisons:x.raisons}));
+  if(certains.length){
+    const rep = await demanderDoublons({titre:'Cet employé existe déjà', bloquant:true,
+      intro:`Un employé a le même numéro d'identification : <strong>c'est la même personne</strong>. Ouvrez sa fiche au lieu d'en créer une seconde.`,
+      items:items(certains), existantLabel:'Ouvrir la fiche'});
+    if(rep.action==='existant') return {existant:rep.id};
+    return 'stop';
+  }
+  if(possibles.length){
+    const rep = await demanderDoublons({titre:'Un employé du même nom existe déjà', labelContinuer: id?'Enregistrer quand même':'Créer quand même',
+      intro:`Une fiche porte déjà ce nom et ce prénom (dans n'importe quel ordre). Deux fiches pour la même personne séparent ses heures et ses documents.`,
+      items:items(possibles), existantLabel:'Ouvrir la fiche'});
+    if(rep.action==='existant') return {existant:rep.id};
+    if(rep.action==='annuler') return 'stop';
+  }
+  return 'ok';
+}
+
+// ── Chantiers : même nom + même client, numéro déjà pris ──
+async function controlerDoublonsChantier(v, id){
+  let ancien = null;
+  if(id){ const r = await sb.from('chantiers_lyneo').select('*').eq('id',id).single(); ancien = r.data||null; }
+  const {data, error} = await sb.from('chantiers_lyneo').select('*');
+  if(error) return 'ok';
+  const autres = (data||[]).filter(c=>!id || String(c.id)!==String(id));
+  if(v.numero && (!ancien || ancien.numero!==v.numero)){
+    const pris = autres.find(c=>_txt(c.numero).trim().toLowerCase()===v.numero.trim().toLowerCase());
+    if(pris){ showToast(`Le numéro ${v.numero} est déjà utilisé par « ${pris.nom} » — choisissez-en un autre`, 'error'); return 'stop'; }
+  }
+  const kNom = cleNom(v.nom);
+  const change = !ancien || cleNom(ancien.nom)!==kNom || _txt(ancien.client_id)!==_txt(v.client_id);
+  if(!change || !kNom || v.type==='sav') return 'ok';
+  const memes = autres.filter(c=>c.type_centre!=='sav' && cleNom(c.nom)===kNom && ( (v.client_id && c.client_id) ? String(c.client_id)===String(v.client_id) : (cleNom(c.client)===cleNom(v.client)) ));
+  if(!memes.length) return 'ok';
+  const rep = await demanderDoublons({titre:'Un chantier du même nom existe déjà', labelContinuer: id?'Enregistrer quand même':'Créer quand même',
+    intro:`Un chantier avec le même nom et le même client est déjà enregistré.`,
+    items: memes.map(c=>({id:c.id, titre:`${c.numero||''} — ${c.nom}`, detail:[c.client, STATUT_CH[c.statut]||c.statut].filter(Boolean).join(' · ')})), existantLabel:'Ouvrir ce chantier'});
+  if(rep.action==='existant'){ closeModal(); openChantierDetail(rep.id); return 'stop'; }
+  return rep.action==='continuer' ? 'ok' : 'stop';
+}
+
+// ── Devis : même client + même objet + même montant HT = probablement un devis saisi deux fois ──
+async function controlerDevisSemblable(clientId, objet, ht){
+  const kObj = cleNom(objet);
+  if(!clientId || !kObj) return true;
+  let rows = [];
+  try{ const r = await sb.from('devis').select('id,numero,objet,date_devis,statut,montant_ht').eq('client_id',clientId); rows = r.data||[]; }catch(e){ return true; }
+  const memes = rows.filter(d=>cleNom(d.objet)===kObj && Math.abs((parseFloat(d.montant_ht)||0)-(parseFloat(ht)||0))<0.005);
+  if(!memes.length) return true;
+  const rep = await demanderDoublons({
+    titre:'Un devis identique existe déjà', labelContinuer:'Créer quand même',
+    intro:"Ce client a déjà un devis avec le même objet et le même montant HT. Pour une révision, modifiez ce devis (ou dupliquez-le) au lieu d'en créer un second.",
+    items: memes.map(d=>({id:d.id, titre:d.numero, detail:[d.objet, d.date_devis?fmtDate(d.date_devis):'', fmt(d.montant_ht), STATUT_DV[d.statut]||d.statut].filter(Boolean).join(' · ')})),
+    existantLabel:'Ouvrir ce devis'
+  });
+  if(rep.action==='existant'){ closeModal(); openDevisDetail(rep.id); return false; }
+  return rep.action==='continuer';
+}
+
+// ══ SUPPRESSION ══════════════════════════════════════════════
+const LIENS_DEFS = {
+  client: [['devis','devis','client_id'], ['factures clients','factures_vente','client_id'], ['chantiers','chantiers_lyneo','client_id'], ['interventions SAV','interventions_sav','client_id']],
+  fournisseur: [['commandes','purchase_orders_lyneo','fournisseur_id'], ['factures fournisseur','factures','fournisseur_id']],
+  chantier: [['devis','devis','chantier_id'], ['commandes','purchase_orders_lyneo','chantier_id'], ['factures fournisseur','factures','chantier_id'], ['factures clients','factures_vente','chantier_id'], ['interventions SAV','interventions_sav','chantier_id']]
+};
+// Compte ce qui est rattaché à chaque fiche : {id:{total, parts:{'devis':2,…}}}
+async function liensDe(type, ids){
+  const res = {}; (ids||[]).forEach(id=>{ res[id] = {total:0, parts:{}}; });
+  if(!ids || !ids.length) return res;
+  for(const [label, table, col] of LIENS_DEFS[type]){
+    let rows = [];
+    try{ rows = await selectInChunks(sb, table, col, col, ids); }catch(e){ rows = []; }
+    rows.forEach(r=>{ const x = res[r[col]]; if(x){ x.total++; x.parts[label] = (x.parts[label]||0)+1; } });
+  }
+  return res;
+}
+const LIEN_SINGULIER = {'factures clients':'facture client', 'chantiers':'chantier', 'interventions SAV':'intervention SAV', 'commandes':'commande', 'factures fournisseur':'facture fournisseur'};
+const texteLiens = l => Object.entries(l.parts).map(([k,n])=>`${n} ${n===1 && LIEN_SINGULIER[k] ? LIEN_SINGULIER[k] : k}`).join(', ');
+
+const SUPPR_CFG = {
+  client: {table:'clients', article:'le client', desactiver:{actif:false}, desactiverLabel:'Désactiver ce client', dejaDesactive:f=>f.actif===false,
+           refresh:()=>{ if(currentPage==='clients') return renderClients(); }},
+  fournisseur: {table:'fournisseurs', article:'le fournisseur', desactiver:{actif:false}, desactiverLabel:'Désactiver ce fournisseur', dejaDesactive:f=>f.actif===false,
+           refresh:()=>{ if(currentPage==='fournisseurs') return renderFournisseurs(); }},
+  chantier: {table:'chantiers_lyneo', article:'le chantier', desactiver:{statut:'termine'}, desactiverLabel:'Marquer comme terminé', dejaDesactive:f=>f.statut==='termine',
+           refresh:()=>{ if(currentPage==='chantiers') return renderChantiers(); if(currentPage==='interventions_sav') return renderInterventionsSAV(); }}
+};
+function fenetreSuppressionImpossible(cfg, fiche, liens, apres){
+  return new Promise(resolve=>{
+    let c = el('doublon-container');
+    if(!c){ c = document.createElement('div'); c.id = 'doublon-container'; document.body.appendChild(c); }
+    window._supRepondre = r => { c.innerHTML = ''; resolve(r); };
+    const deja = cfg.dejaDesactive(fiche);
+    c.innerHTML = `<div class="modal-overlay" style="z-index:400" id="sup-overlay"><div class="modal" style="max-width:540px">
+      <div class="modal-header"><h3>Suppression impossible</h3><button class="modal-close" onclick="_supRepondre('fermer')"><i class="ti ti-x"></i></button></div>
+      <div class="modal-body">
+        <div class="alert alert-error" id="sup-msg"><i class="ti ti-ban"></i><span>« ${escHtml(fiche.nom)} » est utilisé : <strong>${escHtml(texteLiens(liens))}</strong>.</span></div>
+        <p style="font-size:13px;color:var(--gray-6);margin-bottom:14px">Pour garder l'historique (devis, factures, chiffres), on ne supprime pas ce qui a servi.
+          ${deja ? ' Cette fiche est déjà désactivée : elle n\'apparaît plus dans les listes de choix.' : ` Vous pouvez la <strong>${cfg.desactiverLabel.toLowerCase()}</strong> : elle disparaît des listes de choix mais l'historique reste intact.`}</p>
+        <div class="form-actions">
+          <button class="btn btn-secondary" id="sup-fermer" onclick="_supRepondre('fermer')">Fermer</button>
+          ${deja ? '' : `<button class="btn btn-primary" id="sup-desactiver" onclick="_supRepondre('desactiver')">${cfg.desactiverLabel}</button>`}
+        </div>
+      </div></div></div>`;
+    const ov = el('sup-overlay'); if(ov) ov.addEventListener('click', e=>{ if(e.target===ov) window._supRepondre('fermer'); });
+  });
+}
+// opts.panneau : on vient du panneau « Doublons » → on le rouvre au lieu de fermer la fenêtre
+async function supprimerFiche(type, id, opts){
+  opts = opts||{};
+  const cfg = SUPPR_CFG[type];
+  const {data:fiche} = await sb.from(cfg.table).select('*').eq('id',id).single();
+  if(!fiche){ showToast('Fiche introuvable', 'error'); return false; }
+  // On revérifie dans la base (pas seulement ce que l'écran affichait)
+  const liens = (await liensDe(type, [id]))[id];
+  if(liens.total>0){
+    const rep = await fenetreSuppressionImpossible(cfg, fiche, liens);
+    if(rep==='desactiver'){
+      const {error} = await sb.from(cfg.table).update(cfg.desactiver).eq('id',id);
+      if(error){ showToast('Erreur: '+error.message, 'error'); return false; }
+      showToast(`« ${fiche.nom} » désactivé — l'historique est conservé`);
+      if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
+    }
+    return false;
+  }
+  if(!confirm(`Supprimer définitivement ${cfg.article} « ${fiche.nom} » ? Cette action est irréversible.`)) return false;
+  // Fichiers du chantier à retirer du stockage — seulement APRÈS la suppression de la fiche (ses lignes de documents partent en cascade)
+  let chemins = [];
+  if(type==='chantier'){
+    try{
+      const {data:docs} = await sb.from('anexos_chantier').select('id,url').eq('chantier_id',id);
+      chemins = (docs||[]).map(d=>_txt(d.url).split('/Documents/')[1]).filter(Boolean);
+    }catch(e){}
+  }
+  const {data:suppr, error} = await sb.from(cfg.table).delete().eq('id',id).select('id');
+  if(error){
+    if(error.code==='23503' || /foreign key|violates|référence/i.test(error.message||'')) showToast(`Suppression refusée : « ${fiche.nom} » est encore utilisé ailleurs. Désactivez-le plutôt.`, 'error');
+    else showToast('Erreur: '+error.message, 'error');
+    return false;
+  }
+  // une base qui refuse l'accès (droits) ne renvoie parfois aucune erreur mais aucune ligne supprimée
+  if(!suppr || !suppr.length){ showToast(`« ${fiche.nom} » n'a pas été supprimé (droits insuffisants ?). Rien n'a changé.`, 'error'); return false; }
+  if(type==='chantier'){
+    try{
+      if(chemins.length) await sb.storage.from('Documents').remove(chemins);
+      await sb.from('anexos_chantier').delete().eq('chantier_id',id);
+    }catch(e){}
+  }
+  showToast(`${cfg.article.charAt(0).toUpperCase()+cfg.article.slice(1)} « ${fiche.nom} » supprimé`+(type==='chantier' && fiche.code_pointages ? " (le chantier de l'application Pointages et ses heures ne sont pas touchés)" : ''));
+  if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
+  return true;
+}
+const supprimerClient = (id, o) => supprimerFiche('client', id, o);
+const supprimerFournisseur = (id, o) => supprimerFiche('fournisseur', id, o);
+const supprimerChantier = (id, o) => supprimerFiche('chantier', id, o);
+
+// Factures fournisseur : suppression seulement si rien n'est validé ni payé (sinon « Annuler » / note de crédit)
+async function supprimerFactureFournisseur(id, opts){
+  opts = opts||{};
+  const {data:f} = await sb.from('factures').select('*').eq('id',id).single();
+  if(!f){ showToast('Facture introuvable', 'error'); return false; }
+  const {data:pays} = await sb.from('paiements').select('id').eq('facture_id',id);
+  if((pays||[]).length || f.statut==='payee'){
+    showToast("Cette facture a un paiement enregistré : elle ne peut pas être supprimée. Utilisez « Note de crédit » pour la corriger.", 'error'); return false; }
+  if(f.statut==='validee'){
+    showToast("Cette facture est validée : utilisez « Annuler » (ou « Note de crédit ») pour garder la trace, au lieu de la supprimer.", 'error'); return false; }
+  const nom = f.numero_facture_fournisseur||'';
+  if(!confirm(`Supprimer définitivement la facture ${nom}${f.numero_interne?' ('+f.numero_interne+')':''} de ${fmt(f.montant_ttc)} ? Ses lignes et documents seront aussi supprimés. Cette action est irréversible.`)) return false;
+  let chemins = [];
+  try{
+    const {data:docs} = await sb.from('anexos').select('id,url').eq('factura_id',id);
+    chemins = (docs||[]).map(d=>_txt(d.url).split('/Documents/')[1]).filter(Boolean);
+  }catch(e){}
+  // la facture d'abord (ses lignes et documents partent en cascade) ; fichiers et lignes seulement si elle a bien disparu
+  const {data:suppr, error} = await sb.from('factures').delete().eq('id',id).select('id');
+  if(error){ showToast('Erreur: '+error.message, 'error'); return false; }
+  if(!suppr || !suppr.length){ showToast("La facture n'a pas été supprimée (droits insuffisants ?). Rien n'a changé.", 'error'); return false; }
+  try{
+    if(chemins.length) await sb.storage.from('Documents').remove(chemins);
+    await sb.from('anexos').delete().eq('factura_id',id);
+    await sb.from('lignes_facture').delete().eq('facture_id',id);
+  }catch(e){}
+  if(f.po_id){ try{ await recalcStatutFacturationPO(f.po_id); }catch(e){} }
+  showToast(`Facture ${nom} supprimée`);
+  if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await rafraichirPage(); }
+  return true;
+}
+
+// ══ FUSION (clients, fournisseurs) ═══════════════════════════
+const FUSION_CFG = {
+  clients: {table:'clients', refs:[['devis','client_id'],['factures_vente','client_id'],['chantiers_lyneo','client_id'],['interventions_sav','client_id']],
+            champs:['contact_principal','email','telephone','numero_tva','adresse','adresse_livraison','code_postal','ville']},
+  fournisseurs: {table:'fournisseurs', refs:[['purchase_orders_lyneo','fournisseur_id'],['factures','fournisseur_id']],
+            champs:['email','telephone','numero_tva','adresse','code_postal','ville']}
+};
+// Rattache tout ce qui dépend de chaque fiche « à retirer » à la fiche « à garder », complète les champs vides, puis supprime les fiches retirées.
+async function fusionnerFiches(type, garderId, retirerIds){
+  const cfg = FUSION_CFG[type];
+  const {data:garde} = await sb.from(cfg.table).select('*').eq('id',garderId).single();
+  if(!garde){ showToast('Fiche à garder introuvable', 'error'); return false; }
+  for(const rid of retirerIds){
+    const {data:ret} = await sb.from(cfg.table).select('*').eq('id',rid).single();
+    if(!ret) continue;
+    for(const [table, col] of cfg.refs){
+      const patch = {[col]: garderId};
+      if(type==='clients' && table==='chantiers_lyneo') patch.client = garde.nom;
+      const {error} = await sb.from(table).update(patch).eq(col, rid);
+      if(error){ showToast(`Fusion interrompue (${table}) : ${error.message}. Rien n'a été supprimé ; vous pouvez réessayer après correction.`, 'error'); return false; }
+    }
+    const comble = {};
+    cfg.champs.forEach(c=>{ if(!_txt(garde[c]).trim() && _txt(ret[c]).trim()){ comble[c] = ret[c]; garde[c] = ret[c]; } });
+    if(type==='clients' && _txt(ret.notes).trim() && !_txt(garde.notes).includes(_txt(ret.notes).trim())){ comble.notes = [garde.notes, ret.notes].filter(Boolean).join('\n'); garde.notes = comble.notes; }
+    if(Object.keys(comble).length){ const {error} = await sb.from(cfg.table).update(comble).eq('id',garderId); if(error){ showToast('Erreur: '+error.message, 'error'); return false; } }
+    const {data:supprRet, error:de} = await sb.from(cfg.table).delete().eq('id',rid).select('id');
+    if(de){ showToast(`« ${ret.nom} » n'a pas pu être supprimé après la fusion : ${de.message}`, 'error'); return false; }
+    if(!supprRet || !supprRet.length){ showToast(`« ${ret.nom} » n'a pas pu être supprimé après la fusion (droits insuffisants ?) : ses données sont déjà rattachées à « ${garde.nom} ».`, 'error'); return false; }
+  }
+  return true;
+}
+
+// ══ PANNEAU « DOUBLONS » ═════════════════════════════════════
+const DOUBLONS_TYPES = {
+  clients: {titre:'Clients', charger:()=>sb.from('clients').select('*').order('nom'), voir:id=>openClientDetail(id), suppr:(id,o)=>supprimerClient(id,o), fusion:true,
+            ligne:r=>({titre:_txt(r.nom)+(r.actif===false?' (inactif)':''), detail:[r.ville, r.numero_tva, r.email, r.telephone].filter(Boolean).join(' · ')}), liens:'client'},
+  fournisseurs: {titre:'Fournisseurs', charger:()=>sb.from('fournisseurs').select('*').order('nom'), voir:id=>openFourDetail(id), suppr:(id,o)=>supprimerFournisseur(id,o), fusion:true,
+            ligne:r=>({titre:_txt(r.nom)+(r.actif===false?' (inactif)':''), detail:[r.ville, r.numero_tva, r.email, r.telephone].filter(Boolean).join(' · ')}), liens:'fournisseur'},
+  chantiers: {titre:'Chantiers', charger:()=>sb.from('chantiers_lyneo').select('*').order('numero'), voir:id=>openChantierDetail(id), suppr:(id,o)=>supprimerChantier(id,o), fusion:false,
+            ligne:r=>({titre:`${r.numero||''} — ${_txt(r.nom)}`, detail:[r.client, STATUT_CH[r.statut]||r.statut].filter(Boolean).join(' · ')}), liens:'chantier'},
+  employes: {titre:'Employés', charger:()=>sb.from('employes_rh').select('*').order('nom'), voir:id=>openEmployeDetail(id), suppr:null, fusion:false,
+            ligne:r=>({titre:nomPers(r)+(r.actif===false?' (inactif)':''), detail:[r.poste, r.email].filter(Boolean).join(' · ')}), liens:null},
+  factures: {titre:'Factures fournisseur', charger:()=>sb.from('factures').select('*,fournisseurs!fournisseur_id(nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom))').order('created_at',{ascending:false}),
+            voir:id=>openFacDetail(id), suppr:(id,o)=>supprimerFactureFournisseur(id,o), fusion:false,
+            ligne:r=>({titre:`${r.numero_interne?r.numero_interne+' · ':''}${_txt(r.numero_facture_fournisseur)}`, detail:[nomFournisseurFac(r), fmtDate(r.date_facture), fmt(r.montant_ttc), STATUT_FA[r.statut]||r.statut].filter(Boolean).join(' · ')}), liens:null}
+};
+let _dblType = null, _dblGroupes = [], _dblLiens = {};
+async function ouvrirDoublons(type){
+  const cfg = DOUBLONS_TYPES[type]; if(!cfg) return;
+  _dblType = type;
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg" id="dbl-panneau">
+    <div class="modal-header"><div><h3>Doublons possibles — ${cfg.titre}</h3><span style="font-size:12px;color:var(--gray-5)">Fiches qui se ressemblent (nom, n° TVA, identifiants…)</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="dbl-corps"><p style="color:var(--gray-5)">Analyse en cours…</p></div></div></div>`);
+  const {data, error} = await cfg.charger();
+  if(error){ el('dbl-corps').innerHTML = `<div class="alert alert-error"><i class="ti ti-alert-circle"></i><span>Lecture impossible : ${escHtml(error.message)}</span></div>`; return; }
+  _dblGroupes = trouverDoublons(type, data||[]);
+  _dblLiens = {};
+  if(cfg.liens && _dblGroupes.length){
+    const ids = _dblGroupes.flatMap(g=>g.items.map(i=>i.id));
+    _dblLiens = await liensDe(cfg.liens, ids);
+  }
+  rendreDoublons();
+}
+function rendreDoublons(){
+  const cfg = DOUBLONS_TYPES[_dblType], corps = el('dbl-corps'); if(!cfg || !corps) return;
+  const aide = `<p style="font-size:12.5px;color:var(--gray-5);margin-bottom:12px">Pour <strong>supprimer</strong> une fiche en double, il ne doit plus rien lui être rattaché.${cfg.fusion?' <strong>Fusionner</strong> garde la fiche choisie et lui rattache les devis, factures et chantiers des autres avant de les supprimer.':''}</p>`;
+  if(!_dblGroupes.length){
+    corps.innerHTML = `<div class="alert alert-success" id="dbl-vide"><i class="ti ti-circle-check"></i><span>Aucun doublon détecté dans ${cfg.titre.toLowerCase()}.</span></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
+    return;
+  }
+  corps.innerHTML = aide + _dblGroupes.map((g,gi)=>`<div class="dbl-groupe" data-dbl-groupe="${gi}">
+      <div style="margin-bottom:8px">${g.raisons.map(r=>`<span class="dbl-raison">${escHtml(r)}</span>`).join('')}</div>
+      ${g.items.map(r=>{
+        const l = cfg.ligne(r), lk = _dblLiens[r.id];
+        const lienTxt = cfg.liens ? (lk && lk.total ? texteLiens(lk) : 'rien de rattaché') : '';
+        return `<div class="dbl-item" data-dbl-ligne="${escHtml(r.id)}">
+          <div style="min-width:0"><strong>${escHtml(l.titre)}</strong>
+            <div style="font-size:12.5px;color:var(--gray-6);margin-top:2px">${escHtml(l.detail||'')}</div>
+            ${cfg.liens?`<div style="font-size:12px;margin-top:3px;color:${lk && lk.total?'var(--blue)':'var(--gray-4)'}"><i class="ti ti-link"></i> ${escHtml(lienTxt)}</div>`:''}</div>
+          <div class="td-actions" style="flex-shrink:0">
+            <button class="btn btn-secondary btn-sm" data-dbl-act="voir" onclick="actionDoublon('voir','${r.id}',${gi})" title="Voir la fiche"><i class="ti ti-eye"></i></button>
+            ${cfg.fusion?`<button class="btn btn-secondary btn-sm" data-dbl-act="garder" onclick="actionDoublon('garder','${r.id}',${gi})" title="Garder celle-ci et fusionner les autres dedans"><i class="ti ti-git-merge"></i> Garder</button>`:''}
+            ${cfg.suppr?`<button class="btn btn-danger btn-sm" data-dbl-act="suppr" onclick="actionDoublon('suppr','${r.id}',${gi})" title="Supprimer cette fiche"><i class="ti ti-trash"></i></button>`:''}
+          </div></div>`; }).join('')}
+    </div>`).join('') + `<div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
+}
+async function actionDoublon(act, id, gi){
+  const cfg = DOUBLONS_TYPES[_dblType], g = _dblGroupes[gi]; if(!cfg || !g) return;
+  if(act==='voir'){ closeModal(); await cfg.voir(id); return; }
+  if(act==='suppr'){ await cfg.suppr(id, {panneau:_dblType}); await rafraichirApresDoublons(); return; }
+  if(act==='garder'){
+    const garde = g.items.find(r=>String(r.id)===String(id)), autres = g.items.filter(r=>String(r.id)!==String(id));
+    if(!garde || !autres.length) return;
+    const noms = autres.map(r=>'« '+_txt(r.nom)+' »').join(', ');
+    if(!confirm(`Fusionner ${noms} dans « ${_txt(garde.nom)} » ?\n\nTout ce qui est rattaché (devis, factures, chantiers, interventions, commandes) sera rattaché à « ${_txt(garde.nom)} », puis ${autres.length>1?'les autres fiches seront supprimées':'l\'autre fiche sera supprimée'}. Cette action est irréversible.`)) return;
+    const ok = await fusionnerFiches(_dblType, id, autres.map(r=>r.id));
+    if(ok) showToast(`Fusion terminée dans « ${_txt(garde.nom)} »`);
+    await ouvrirDoublons(_dblType);
+    await rafraichirApresDoublons();
+  }
+}
+// La liste affichée derrière le panneau doit refléter les changements
+async function rafraichirApresDoublons(){
+  try{ const r = pageRenderers()[currentPage]; if(r && ['clients','fournisseurs','chantiers','employes_rh','factures'].includes(currentPage)) await r(); }catch(e){}
+}
+
 // ── UTILISATEURS ─────────────────────────────────────────────
 // ── CLIENTS ───────────────────────────────────────────────────
 let _clients = [];
@@ -5917,6 +6487,7 @@ async function renderClients(search=''){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderClients(this.value)" value="${search}"/></div>
         ${btnExport('clients')}
+        ${btnDoublons('clients', _clients)}
         <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
       </div>
     </div>
@@ -5940,6 +6511,7 @@ async function renderClients(search=''){
                 +'<td><div class="td-actions">'
                 +  '<button class="btn btn-secondary btn-sm" data-client-detail="'+r.id+'" title="Voir le détail"><i class="ti ti-eye"></i></button>'
                 +  '<button class="btn btn-secondary btn-sm" data-client-edit="'+r.id+'" title="Modifier"><i class="ti ti-edit"></i></button>'
+                +  '<button class="btn btn-danger btn-sm" data-client-suppr="'+r.id+'" title="Supprimer" onclick="event.stopPropagation();supprimerClient(\''+r.id+'\')"><i class="ti ti-trash"></i></button>'
                 +'</div></td>'
                 +'</tr>';
             }).join('')}
@@ -5997,6 +6569,7 @@ function openClientModal(r=null, selectId=null){
         <div class="form-group full"><label class="field-label">Notes</label><textarea id="cl-notes" placeholder="Informations complémentaires...">${r?.notes||''}</textarea></div>
       </div>
       <div class="form-actions">
+        ${isEdit && !selectId ? `<button class="btn btn-danger" id="cl-suppr" onclick="supprimerClient('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
         <button class="btn btn-secondary" onclick="${fermer}">Annuler</button>
         <button class="btn btn-primary" onclick="saveClient('${r?.id||''}'${selectId?`,'${selectId}'`:''})"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
@@ -6043,9 +6616,18 @@ function majSelectClient(selectId, c){
   sel.dispatchEvent(new Event('change'));
 }
 
-async function saveClient(id, selectId=null){
+function saveClient(id, selectId=null){ return gardeEnvoi('client', ()=>saveClientCore(id, selectId)); }
+async function saveClientCore(id, selectId=null){
   const nom = el('cl-nom').value.trim();
   if(!nom){ showToast('Nom obligatoire','error'); return; }
+  // doublon possible (même nom, même TVA, même e-mail, nom très proche) — seulement si l'un de ces champs a changé
+  const ctl = await controlerDoublonsTiers('clients', {nom, tva:el('cl-tva').value, email:el('cl-email').value}, id, 'client', selectId ? 'Utiliser celui-ci' : 'Voir la fiche');
+  if(ctl==='stop') return;
+  if(ctl && ctl.existant){
+    if(selectId){ fermerClientRapide(); const {data:ex} = await sb.from('clients').select('*').eq('id',ctl.existant).single(); if(ex) majSelectClient(selectId, ex); showToast('Client existant sélectionné'); }
+    else { closeModal(); openClientDetail(ctl.existant); }
+    return;
+  }
   const data = {
     nom,
     contact_principal: el('cl-contact').value,
@@ -6250,6 +6832,7 @@ async function openClientDetail(clientId){
       </div>
 
       <div class="form-actions">
+        <button class="btn btn-danger" id="cl-detail-suppr" onclick="supprimerClient('${client.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-primary" onclick="closeModal();editClientById('${client.id}')"><i class="ti ti-edit"></i> Modifier</button>
       </div>
@@ -6917,6 +7500,7 @@ async function saveDevis(id){
     observations: el('dv-obs').value,
     attention: el('dv-attention') ? devisNotesNormaliser(el('dv-attention').value) : ''
   };
+  if(!id && !(await controlerDevisSemblable(client_id, header.objet, totalHT))){ const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
 
   // Colonnes « affaire » / « objet_court » / « attention » pas encore créées (migration-devis-affaire.sql) : le devis est enregistré quand même,
   // sans le(s) champ(s) dont la colonne manque (l'erreur de la base nomme la colonne absente ; on réessaie sans elle).
@@ -8808,6 +9392,18 @@ async function renderControle(){
       <div id="ctl-jcorps">${journalOk ? journalLignes(_journalRows, true) : `<p style="font-size:13px;color:var(--gray-5)"><i class="ti ti-info-circle"></i> ${escHtml(MSG_SQL_JOURNAL)}</p>`}</div>
     </div>
 
+    <div class="card" style="padding:20px;margin-bottom:16px" id="ctl-doublons">
+      <h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-copy"></i> Contrôle des doublons</h3>
+      <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Recherche les fiches qui se ressemblent (même nom, même n° TVA, mêmes identifiants, même facture d'un même fournisseur…). Vous pouvez ensuite supprimer ou fusionner.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="ouvrirDoublons('clients')"><i class="ti ti-users"></i> Clients</button>
+        <button class="btn btn-secondary" onclick="ouvrirDoublons('fournisseurs')"><i class="ti ti-truck"></i> Fournisseurs</button>
+        <button class="btn btn-secondary" onclick="ouvrirDoublons('factures')"><i class="ti ti-file-invoice"></i> Factures fournisseur</button>
+        <button class="btn btn-secondary" onclick="ouvrirDoublons('chantiers')"><i class="ti ti-building-factory-2"></i> Chantiers</button>
+        <button class="btn btn-secondary" onclick="ouvrirDoublons('employes')"><i class="ti ti-id-badge-2"></i> Employés</button>
+      </div>
+    </div>
+
     <div class="card" style="padding:20px" id="ctl-sauvegarde">
       <h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-database-export"></i> Sauvegarde</h3>
       <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Télécharge un fichier JSON avec toutes les données de l'ERP (clients, devis, factures, achats, SAV, employés, utilisateurs, journal). Les fichiers joints (PDF, photos) restent dans Supabase Storage et ne sont pas inclus.
@@ -9655,6 +10251,7 @@ async function renderEmployesRH(search=''){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderEmployesRH(this.value)" value="${escHtml(search)}"/></div>
         ${peutVoirSalaires() ? btnExport('employes_rh') : ''}
+        ${peutVoirSalaires() ? btnDoublons('employes', _employesRH) : ''}
         <button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>
       </div>
     </div>
@@ -9913,13 +10510,18 @@ async function sincronizarEmployePointages(employeId, nomCompleto, actif, pointa
   }
 }
 
-async function saveEmploye(id){
+function saveEmploye(id){ return gardeEnvoi('employe', ()=>saveEmployeCore(id)); }
+async function saveEmployeCore(id){
   const reactiver = ()=>{ const b=el('btn-save-emp'); if(b) b.disabled=false; };
   const nom = el('emp-nom').value.trim();
   if(!nom){ showToast("Nom obligatoire", 'error'); reactiver(); return; }
 
   const dateEntree = el('emp-embauche').value||null, dateSortie = el('emp-sortie').value||null;
   if(dateEntree && dateSortie && dateSortie < dateEntree){ showToast("La date de sortie ne peut pas précéder la date d'entrée", 'error'); reactiver(); return; }
+  // même n° de sécurité sociale / carte d'identité = même personne (bloque) ; même nom et prénom = demande confirmation
+  const ctlE = await controlerDoublonsEmploye({nom, prenom:el('emp-prenom').value, cns:el('emp-cns').value, ci:el('emp-ci-num').value}, id);
+  if(ctlE==='stop'){ reactiver(); return; }
+  if(ctlE && ctlE.existant){ closeModal(); openEmployeDetail(ctlE.existant); return; }
 
   const pointageSelect = el('emp-pointage-id');
   const pointageId = pointageSelect.value||null;
@@ -11519,7 +12121,8 @@ function delFacPoLigne(i){
   if(window.renderFacPOLines) window.renderFacPOLines();
 }
 
-async function saveFacFromPO(poId){
+function saveFacFromPO(poId){ return gardeEnvoi('facture-fournisseur', ()=>saveFacFromPOCore(poId)); }
+async function saveFacFromPOCore(poId){
   const num = el('fac-gen-num')?.value.trim();
   const date = el('fac-gen-date')?.value;
   if(!num||!date){ showToast("N° facture et date obligatoires", 'error'); return; }
@@ -11528,6 +12131,7 @@ async function saveFacFromPO(poId){
   const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id,fournisseur_id').eq('id',poId).single();
+  if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:totalHT+totalTVA, date}))) return;
 
   const {data:fac,error} = await sb.from('factures').insert({
     po_id: poId,
@@ -11543,7 +12147,7 @@ async function saveFacFromPO(poId){
     saisie_par: currentUser.id,
     observations: el('fac-gen-obs')?.value||''
   }).select().single();
-  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return; }
 
   if(fac && _facFromPoLignes.length>0){
     const {error:lignesErr} = await sb.from('lignes_facture').insert(_facFromPoLignes.map((l,i)=>({
@@ -11708,13 +12312,25 @@ function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); }
 function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); }
 function delEfacLigne(i){ _efacLignes.splice(i,1); renderEfacLignes(); }
 
-async function saveEditFac(facId){
+function saveEditFac(facId){ return gardeEnvoi('facture-fournisseur', ()=>saveEditFacCore(facId)); }
+async function saveEditFacCore(facId){
   if(_efacLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
   const chantierId = el('efac-chantier').value;
   if(!chantierId){ showToast("Chantier obligatoire", 'error'); return; }
 
   const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+
+  // si le n° de facture change : il ne doit pas déjà exister chez le même fournisseur
+  {
+    const nouveauNum = el('efac-num').value;
+    const {data:avant} = await sb.from('factures').select('fournisseur_id,po_id,numero_facture_fournisseur').eq('id',facId).single();
+    if(avant && cleNumeroFacture(nouveauNum)!==cleNumeroFacture(avant.numero_facture_fournisseur)){
+      let fourId = avant.fournisseur_id;
+      if(!fourId && avant.po_id){ const r = await sb.from('purchase_orders_lyneo').select('fournisseur_id').eq('id',avant.po_id).single(); fourId = r.data?.fournisseur_id||null; }
+      if(!(await controlerFactureFournisseur({fournisseurId:fourId, numero:nouveauNum, ttc:totalHT+totalTVA, date:el('efac-date').value, excludeId:facId}))) return;
+    }
+  }
 
   // Sync lines: update existing, insert new, delete only the ones actually removed
   const {data:existingLignes, error:fetchErr} = await sb.from('lignes_facture').select('id').eq('facture_id', facId);
@@ -11765,7 +12381,7 @@ async function saveEditFac(facId){
     statut: el('efac-statut').value,
     observations: el('efac-obs').value
   }).eq('id', facId);
-  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return; }
   showToast("Facture mise à jour");
   closeModal();
   rafraichirPage();
