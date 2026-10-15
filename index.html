@@ -10275,6 +10275,7 @@ async function renderEmployesRH(search=''){
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderEmployesRH(this.value)" value="${escHtml(search)}"/></div>
         ${peutVoirSalaires() ? btnExport('employes_rh') : ''}
         ${peutVoirSalaires() ? btnDoublons('employes', _employesRH) : ''}
+        ${peutVoirSalaires() ? `<button class="btn btn-secondary" id="btn-harm" onclick="ouvrirHarmonisation()" title="Mettre les noms des pointages comme dans l'ERP et relier les employés"><i class="ti ti-refresh"></i> Aligner pointages</button>` : ''}
         <button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>
       </div>
     </div>
@@ -10533,6 +10534,155 @@ async function sincronizarEmployePointages(employeId, nomCompleto, actif, pointa
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// EMPLOYÉS ↔ POINTAGES : mêmes noms (« NOM Prénom ») et liens corrects
+// ══════════════════════════════════════════════════════════════
+// Compare chaque employé de l'ERP avec ceux de l'application Pointages (même personne = mêmes mots, dans n'importe quel ordre), puis :
+//  • renomme la fiche des pointages comme dans l'ERP ;  • relie l'employé de l'ERP à cette fiche ;
+//  • supprime les doublons qui n'ont AUCUN pointage (jamais une fiche qui a des heures).
+// Rien n'est modifié avant que la personne ait vu l'aperçu et confirmé.
+const nomPointageCible = e => nomPers(e);
+function memePersonnePointage(nomA, nomB){
+  const a = cleNomEmploye(nomA).split(' ').filter(Boolean), b = cleNomEmploye(nomB).split(' ').filter(Boolean);
+  if(!a.length || !b.length) return false;
+  const [pet, gr] = a.length<=b.length ? [a,b] : [b,a];
+  if(pet.length<2) return a.length===b.length && a[0]===b[0];
+  return pet.every(t=>gr.includes(t));          // « DOUMBE Henri » est contenu dans « DOUMBE NGOMBA Henri »
+}
+// Calcule ce qu'il faudrait faire. erpEmps : employes_rh ; ptEmps : employes des pointages avec _n (nb de pointages) et _h (heures)
+function planHarmonisation(erpEmps, ptEmps){
+  const lienDe = e => (e.pointage_employe_id!=null && String(e.pointage_employe_id)!=='') ? String(e.pointage_employe_id) : '';
+  const candidats = new Map();
+  erpEmps.forEach(e=>{
+    const cible = nomPointageCible(e), lien = lienDe(e);
+    candidats.set(e.id, ptEmps.filter(p=>String(p.id)===lien || memePersonnePointage(cible, p.nom)));
+  });
+  const proprietaires = new Map();
+  candidats.forEach((c,eid)=>c.forEach(p=>{ const k = String(p.id); if(!proprietaires.has(k)) proprietaires.set(k,[]); proprietaires.get(k).push(eid); }));
+  const nomErp = id => nomPointageCible(erpEmps.find(x=>x.id===id)||{});
+  const lignes = erpEmps.map(e=>{
+    const cible = nomPointageCible(e), lien = lienDe(e);
+    const l = {e, cible, cands:candidats.get(e.id)||[], canon:null, extras:[], actions:{}, etat:'ok', raison:''};
+    if(!l.cands.length){ l.etat = 'absent'; return l; }
+    const partages = l.cands.filter(p=>proprietaires.get(String(p.id)).length>1);
+    if(partages.length){
+      const autres = [...new Set(partages.flatMap(p=>proprietaires.get(String(p.id))).filter(id=>id!==e.id).map(nomErp))];
+      l.etat = 'bloque'; l.raison = `« ${partages.map(p=>p.nom).join(' / ')} » pourrait aussi être ${autres.join(' / ')} : à régler à la main dans la fiche (champ « Employé pointages lié »)`; return l;
+    }
+    const avecHeures = l.cands.filter(p=>p._n>0);
+    if(avecHeures.length>1){
+      l.etat = 'bloque'; l.raison = `plusieurs fiches ont des pointages (${avecHeures.map(p=>`« ${p.nom} » ${p._n}`).join(', ')}) : à fusionner dans l'application Pointages`; return l;
+    }
+    const ordre = [...l.cands].sort((a,b)=> (b._n-a._n) || ((String(b.id)===lien)-(String(a.id)===lien)) || (Number(a.id)-Number(b.id)));
+    l.canon = ordre[0]; l.extras = ordre.slice(1);
+    if(l.canon.nom!==cible) l.actions.renommer = true;
+    if(String(l.canon.id)!==lien || _txt(e.pointage_employe_nom)!==cible) l.actions.lier = true;
+    if(l.extras.length) l.actions.supprimer = true;
+    l.etat = Object.keys(l.actions).length ? 'modif' : 'ok';
+    return l;
+  });
+  const utilises = new Set(); candidats.forEach(c=>c.forEach(p=>utilises.add(String(p.id))));
+  return {lignes, orphelins: ptEmps.filter(p=>!utilises.has(String(p.id)))};
+}
+// Employés des pointages + nombre de pointages et d'heures de chacun
+async function chargerEmployesPointages(){
+  const {data:emps, error} = await sbPT.from('employes').select('*');
+  if(error) throw new Error(error.message);
+  const stats = {}; (emps||[]).forEach(e=>{ stats[e.id] = {n:0, h:0}; });
+  for(let d=0; ; d+=1000){
+    const {data, error:e2} = await sbPT.from('picages').select('employe_id,heures').order('id',{ascending:true}).range(d, d+999);
+    if(e2) throw new Error(e2.message);
+    (data||[]).forEach(p=>{ const s = stats[p.employe_id]; if(s){ s.n++; s.h += parseFloat(p.heures)||0; } });
+    if(!data || data.length<1000) break;
+  }
+  return (emps||[]).map(e=>({...e, _n:stats[e.id].n, _h:stats[e.id].h}));
+}
+async function nbPointagesEmploye(id){
+  const {data, error} = await sbPT.from('picages').select('id').eq('employe_id', id).limit(1);
+  return error ? null : (data||[]).length;
+}
+let _harm = null;
+async function ouvrirHarmonisation(){
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg" id="harm-panneau">
+    <div class="modal-header"><div><h3>Employés ↔ Pointages</h3><span style="font-size:12px;color:var(--gray-5)">Mêmes noms que dans l'ERP (« NOM Prénom ») et employés correctement reliés</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="harm-corps"><p style="color:var(--gray-5)">Analyse en cours…</p></div></div></div>`);
+  await analyserHarmonisation();
+}
+async function analyserHarmonisation(resultats){
+  try{
+    const [erp, pt] = await Promise.all([sb.from('employes_rh').select('*').order('nom'), chargerEmployesPointages()]);
+    if(erp.error) throw new Error(erp.error.message);
+    _harm = planHarmonisation(erp.data||[], pt);
+    rendreHarmonisation(resultats);
+  }catch(e){
+    const c = el('harm-corps'); if(c) c.innerHTML = bilanHarmonisation(resultats) + `<div class="alert alert-error"><i class="ti ti-alert-circle"></i><span>Lecture impossible : ${escHtml(e.message||String(e))}. L'application Pointages est peut-être indisponible.</span></div><div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
+  }
+}
+function bilanHarmonisation(resultats){
+  if(!resultats) return '';
+  const pb = resultats.filter(r=>!r.ok), n = resultats.length-pb.length;
+  return `<div class="alert ${pb.length?'alert-warning':'alert-success'}" id="harm-resultat"><i class="ti ti-${pb.length?'alert-triangle':'circle-check'}"></i><span><strong>${n} modification(s) faite(s)${pb.length?`, ${pb.length} problème(s)`:''}.</strong>${pb.map(r=>`<br>${escHtml(r.txt)}`).join('')}</span></div>`;
+}
+function rendreHarmonisation(resultats){
+  const c = el('harm-corps'); if(!c || !_harm) return;
+  const L = _harm.lignes, modifs = L.filter(l=>l.etat==='modif');
+  const nR = modifs.filter(l=>l.actions.renommer).length, nL = modifs.filter(l=>l.actions.lier).length, nS = modifs.reduce((a,l)=>a+l.extras.length,0);
+  const fiche = p => `${escHtml(p.nom)} <span style="color:var(--gray-5);font-size:12px">· ${p._n} pointage${p._n>1?'s':''}${p._n?' · '+(Math.round(p._h*100)/100).toString().replace('.',',')+' h':''}</span>`;
+  const badge = (txt, coul) => `<span class="dbl-raison" style="${coul||''}">${txt}</span>`;
+  const bilan = bilanHarmonisation(resultats);
+  const lignesHtml = L.map(l=>{
+    let gauche = l.cands.length ? l.cands.map(fiche).join('<br>') : '<span style="color:var(--gray-4)">—</span>';
+    let actions;
+    if(l.etat==='absent') actions = badge("Pas dans les pointages (créé à l'enregistrement de la fiche)", 'background:var(--gray-2);color:var(--gray-6)');
+    else if(l.etat==='bloque') actions = `<span style="color:#92400E;font-size:12.5px"><i class="ti ti-alert-triangle"></i> ${escHtml(l.raison)}</span>`;
+    else if(l.etat==='ok') actions = badge('<i class="ti ti-check"></i> Déjà correct', 'background:#D1FAE5;color:#065F46');
+    else actions = [
+        l.actions.renommer ? badge(`Renommer en « ${escHtml(l.cible)} »`) : '',
+        l.actions.lier ? badge('Relier à la fiche ERP') : '',
+        ...l.extras.map(x=>badge(`Supprimer le doublon « ${escHtml(x.nom)} » (0 pointage)`, 'background:#FEE2E2;color:#991B1B'))
+      ].join(' ');
+    return `<tr data-harm-ligne="${escHtml(l.e.id)}" data-harm-etat="${l.etat}"><td style="vertical-align:top"><strong>${escHtml(l.cible)}</strong></td><td style="vertical-align:top">${gauche}</td><td style="vertical-align:top">${actions}</td></tr>`;
+  }).join('');
+  const orph = _harm.orphelins.length ? `<p style="font-size:12.5px;color:var(--gray-6);margin-top:12px"><i class="ti ti-info-circle"></i> Dans les pointages mais sans fiche ERP (non touchés) : ${_harm.orphelins.map(p=>escHtml(p.nom)).join(', ')}.</p>` : '';
+  c.innerHTML = bilan + (modifs.length
+    ? `<div class="alert alert-warning" id="harm-resume"><i class="ti ti-alert-triangle"></i><span><strong>${modifs.length} personne(s) à mettre en ordre</strong> : ${nR} renommage(s), ${nL} lien(s) à corriger, ${nS} doublon(s) à supprimer. Rien n'est modifié tant que vous n'avez pas cliqué sur « Appliquer ». Une fiche qui a des pointages n'est jamais supprimée.</span></div>`
+    : `<div class="alert alert-success" id="harm-resume"><i class="ti ti-circle-check"></i><span>Tout est déjà harmonisé : noms identiques à l'ERP et employés correctement reliés.</span></div>`)
+    + `<div class="table-wrap" style="overflow-x:auto"><table><thead><tr><th>Dans l'ERP</th><th>Dans les pointages</th><th>Ce qui sera fait</th></tr></thead><tbody>${lignesHtml}</tbody></table></div>` + orph
+    + `<div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button>${modifs.length?`<button class="btn btn-primary" id="harm-appliquer" onclick="appliquerHarmonisation()"><i class="ti ti-check"></i> Appliquer (${nR+nL+nS} modification${nR+nL+nS>1?'s':''})</button>`:''}</div>`;
+}
+function appliquerHarmonisation(){ return gardeEnvoi('harmonisation', appliquerHarmonisationCore); }
+async function appliquerHarmonisationCore(){
+  if(!_harm) return;
+  const b = el('harm-appliquer'); if(b) b.disabled = true;
+  const res = [];
+  for(const l of _harm.lignes.filter(x=>x.etat==='modif')){
+    // 1) doublons : on revérifie à l'instant qu'ils n'ont aucun pointage
+    let bloque = false;
+    for(const d of l.extras){
+      const n = await nbPointagesEmploye(d.id);
+      if(n===null || n>0){ res.push({ok:false, txt:`« ${d.nom} » ${n===null?'n\'a pas pu être vérifié':'a des pointages'} : conservé, rien d'autre n'a été changé pour ${l.cible}.`}); bloque = true; continue; }
+      const {data, error} = await sbPT.from('employes').delete().eq('id', d.id).select('id');
+      if(error || !data || !data.length){ res.push({ok:false, txt:`Suppression de « ${d.nom} » impossible${error?' : '+error.message:' (droits insuffisants ?)'} — rien d'autre n'a été changé pour ${l.cible}.`}); bloque = true; }
+      else res.push({ok:true, txt:`Doublon « ${d.nom} » supprimé`});
+    }
+    if(bloque) continue;
+    // 2) nom dans les pointages = nom dans l'ERP
+    if(l.actions.renommer){
+      const {data, error} = await sbPT.from('employes').update({nom:l.cible}).eq('id', l.canon.id).select('id');
+      if(error || !data || !data.length){ res.push({ok:false, txt:`Renommage de « ${l.canon.nom} » impossible${error?' : '+error.message:' (droits insuffisants ?)'}`}); continue; }
+      res.push({ok:true, txt:`« ${l.canon.nom} » renommé « ${l.cible} »`});
+    }
+    // 3) l'employé de l'ERP pointe vers la bonne fiche (le lien est stocké en texte)
+    if(l.actions.lier){
+      const {data, error} = await sb.from('employes_rh').update({pointage_employe_id:String(l.canon.id), pointage_employe_nom:l.cible}).eq('id', l.e.id).select('id');
+      if(error || !data || !data.length){ res.push({ok:false, txt:`Lien de ${l.cible} impossible${error?' : '+error.message:' (droits insuffisants ?)'}`}); continue; }
+      res.push({ok:true, txt:`${l.cible} relié à la fiche des pointages n° ${l.canon.id}`});
+    }
+  }
+  await analyserHarmonisation(res);
+  if(currentPage==='employes_rh') { try{ await renderEmployesRH(); }catch(e){} }
+}
+
 function saveEmploye(id){ return gardeEnvoi('employe', ()=>saveEmployeCore(id)); }
 async function saveEmployeCore(id){
   const reactiver = ()=>{ const b=el('btn-save-emp'); if(b) b.disabled=false; };
@@ -10660,7 +10810,7 @@ async function saveEmployeCore(id){
     }
   }
 
-  const nomCompleto = (prenom?prenom+' ':'')+nom;
+  const nomCompleto = nomPers({nom, prenom});   // « NOM Prénom », comme dans l'ERP
   const resultadoSync = await sincronizarEmployePointages(employeId, nomCompleto, actif, pointageId);
   setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
 
