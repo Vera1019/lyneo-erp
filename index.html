@@ -3472,7 +3472,7 @@ async function saveChantierCore(id){
     showToast('Chantier mis à jour');
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   } else {
-    const num = numeroManuel || (await sb.rpc('generate_chantier_number')).data;
+    const num = numeroManuel || await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);
     const devisIdOrigine = window._chantierFromDevisId||null;
     const {data:newChantier} = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
     let resultadoSync = {ok:false, motif:'non_cree'};
@@ -6194,6 +6194,26 @@ async function controlerDoublonsEmploye(v, id){
   return 'ok';
 }
 
+// Le numéro proposé par la base (CH-AAAA-NNN) peut déjà servir de code dans l'application Pointages ou sur un autre chantier
+// (ex.: un chantier renommé « STOCK » garde son code CH-2026-001 : la base proposerait de nouveau CH-2026-001).
+// On saute alors au numéro suivant, pour ne jamais créer un code en double dans les pointages.
+async function numeroChantierLibre(propose){
+  const m = /^(.*?)(\d+)$/.exec(_txt(propose));
+  if(!m) return propose;
+  const pris = new Set();
+  try{
+    const {data} = await sb.from('chantiers_lyneo').select('numero,code_pointages');
+    (data||[]).forEach(c=>{ const n = _txt(c.numero).trim().toLowerCase(); if(n) pris.add(n); codesPointagesDe(c).forEach(x=>pris.add(x.toLowerCase())); });
+  }catch(e){}
+  try{
+    const {data} = await sbPT.from('chantiers').select('code');
+    (data||[]).forEach(c=>{ const k = _txt(c.code).trim().toLowerCase(); if(k) pris.add(k); });
+  }catch(e){}
+  let n = parseInt(m[2],10), num = propose, garde = 0;
+  while(pris.has(_txt(num).toLowerCase()) && garde++ < 1000){ n++; num = m[1] + String(n).padStart(m[2].length,'0'); }
+  return num;
+}
+
 // ── Chantiers : même nom + même client, numéro déjà pris ──
 async function controlerDoublonsChantier(v, id){
   let ancien = null;
@@ -6204,6 +6224,9 @@ async function controlerDoublonsChantier(v, id){
   if(v.numero && (!ancien || ancien.numero!==v.numero)){
     const pris = autres.find(c=>_txt(c.numero).trim().toLowerCase()===v.numero.trim().toLowerCase());
     if(pris){ showToast(`Le numéro ${v.numero} est déjà utilisé par « ${pris.nom} » — choisissez-en un autre`, 'error'); return 'stop'; }
+    const cle = v.numero.trim().toLowerCase();
+    const codePris = autres.find(c=>codesPointagesDe(c).some(x=>x.toLowerCase()===cle));
+    if(codePris){ showToast(`Le numéro ${v.numero} est déjà le code pointages de « ${codePris.nom} » — choisissez-en un autre`, 'error'); return 'stop'; }
   }
   const kNom = cleNom(v.nom);
   const change = !ancien || cleNom(ancien.nom)!==kNom || _txt(ancien.client_id)!==_txt(v.client_id);
