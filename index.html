@@ -2675,6 +2675,7 @@ async function openChantierDetail(chantierId, tab){
     : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:580px">'
       + '<thead><tr style="background:var(--gray-1)">'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
+      + (montreInterventions ? '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Intervention</th>' : '')
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Date</th>'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Échéance</th>'
       + '<th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Montant HT</th>'
@@ -2685,6 +2686,7 @@ async function openChantierDetail(chantierId, tab){
           const enRetard = f.date_echeance && f.date_echeance < new Date().toISOString().split('T')[0] && f.statut!=='payee';
           return '<tr>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+f.numero_facture_fournisseur+'</strong></td>'
+            +(montreInterventions ? '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-weight:600;color:var(--blue)">'+escHtml((intervCentre.find(i=>i.id===f.intervention_id)||{}).ref||'')+'</td>' : '')
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(f.date_facture)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);color:'+(enRetard?'var(--red)':'inherit')+'">'+fmtDate(f.date_echeance)+(enRetard?' ⚠️':'')+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;white-space:nowrap">'+fmtHtFacture(f)+'</td>'
@@ -2753,10 +2755,7 @@ async function openChantierDetail(chantierId, tab){
   const nbFacturesPartielles = facsVente.filter(f=>f.statut==='payee_partiel').length;
 
   const facsFournValides = facsFourn.filter(f=>f.statut!=='annulee');
-  const coutsAchats = facsFournValides.reduce((a,f)=>{
-    const montant = parseFloat(f.montant_ht)||0;
-    return a + (f.statut==='avoir' ? -montant : montant);
-  },0);
+  const coutsAchats = facsFournValides.reduce((a,f)=>a+montantAchatHT(f),0);
 
   const margeBrute = caFacture - coutsAchats;
   const margePct = caFacture>0 ? (margeBrute/caFacture*100) : null;
@@ -2832,17 +2831,27 @@ async function openChantierDetail(chantierId, tab){
   const totFactInt = intervCentre.reduce((a,i)=>a+(intervFact[i.id]||0),0);
   const totHeuresInt = intervCentre.reduce((a,i)=>a+(intervHeures[i.ref]||0),0);
   const totHeuresTout = totHeuresInt + heuresCentre;
+  // Achats imputés aux interventions de ce centre (facturas fournisseur déjà chargées ci-dessus) et achats pas encore imputés
+  const achatsInt = {}; let totAchatsInt = 0, nbImputes = 0;
+  facsFourn.forEach(f=>{ if(f.intervention_id){ const m = montantAchatHT(f); achatsInt[f.intervention_id] = (achatsInt[f.intervention_id]||0) + m; totAchatsInt += m; if(f.statut!=='annulee') nbImputes++; } });
+  const nonImputes = facsFourn.filter(f=>!f.intervention_id && f.statut!=='annulee');
+  const totNonImpute = nonImputes.reduce((a,f)=>a+montantAchatHT(f),0);
+  const colonneAchatsOk = facsFourn.length===0 || Object.prototype.hasOwnProperty.call(facsFourn[0],'intervention_id');
   const tabInterventions = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();navigate('interventions_sav');setTimeout(()=>openInterventionModal({client_id:'${chantier.client_id||''}',chantier_id:'${chantierId}'}),300)"><i class="ti ti-plus"></i> Nouvelle intervention</button></div>`
     + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
           ${statCard('Interventions', String(intervCentre.length), 'var(--blue)', intervCentre.filter(i=>i.statut==='facturee').length+' facturée(s)')}
           ${statCard('Devis (HT)', fmt(totDevisInt), 'var(--blue)', 'montant des devis liés')}
           ${statCard('Facturé (HT)', fmt(totFactInt), 'var(--green)', 'factures clients non annulées')}
+          ${statCard('Achats imputés (HT)', fmt(totAchatsInt), 'var(--orange)', nbImputes+' facture'+(nbImputes>1?'s':'')+' fournisseur imputée'+(nbImputes>1?'s':'')+' aux interventions')}
+          ${statCard('Marge brute (HT)', fmt(totFactInt-totAchatsInt), (totFactInt-totAchatsInt)<0?'var(--red)':'var(--green)', 'facturé − achats imputés')}
           ${statCard('Heures pointées', totHeuresTout.toFixed(1)+' h', 'var(--orange)', codesCentre.length ? heuresCentre.toFixed(1)+' h sur '+(codesCentre.length>1 ? 'les '+codesCentre.length+' codes du centre' : '« '+codesCentre[0]+' »')+' + '+totHeuresInt.toFixed(1)+' h sur les interventions' : 'codes SAV26… des interventions (centre pas encore lié aux pointages)')}
         </div>`
+    + (!colonneAchatsOk ? `<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>Pour imputer les factures et commandes fournisseur aux interventions, exécutez d'abord le fichier SQL <strong>migration-sav-achats-intervention.sql</strong> dans Supabase.</span></div>`
+        : (nonImputes.length && intervCentre.length ? `<div class="alert alert-info" id="int-non-imputes" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span><strong>${nonImputes.length} facture${nonImputes.length>1?'s':''} fournisseur de ce centre (${fmt(totNonImpute)} HT)</strong> ${nonImputes.length>1?'ne sont imputées':"n'est imputée"} à aucune intervention : ${nonImputes.length>1?'elles restent':'elle reste'} dans le coût du centre mais pas dans la marge d'une intervention. <a href="#" onclick="openChantierDetail('${chantierId}','fac_fourn');return false" style="color:var(--blue);font-weight:600">Voir les factures</a> (modifier la facture pour choisir l'intervention).</span></div>` : ''))
     + (intervCentre.length===0
       ? `<div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention dans ce centre de coûts</p><p style="font-size:12px;color:var(--gray-5)">Dans une intervention, choisissez ce centre dans « Centre de coûts SAV ».</p></div>`
       : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
-          <thead><tr style="background:var(--gray-1)">${thI('N°')}${thI('Site')}${thI('Date')}${thI('Devis')}${thI('Statut')}${thI('Heures','right')}${thI('Facturé HT','right')}</tr></thead><tbody>`
+          <thead><tr style="background:var(--gray-1)">${thI('N°')}${thI('Site')}${thI('Date')}${thI('Devis')}${thI('Statut')}${thI('Heures','right')}${thI('Facturé HT','right')}${thI('Achats HT','right')}${thI('Marge brute','right')}</tr></thead><tbody>`
         + intervCentre.map(i=>{
             const dv = intervDevis[i.devis_id];
             const h = intervHeures[i.ref];
@@ -2854,12 +2863,14 @@ async function openChantierDetail(chantierId, tab){
               +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bSAV(i.statut)+'</td>'
               +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'+(h!==undefined?h.toFixed(1)+' h':'—')+'</td>'
               +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+(intervFact[i.id]?fmt(intervFact[i.id]):'—')+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;white-space:nowrap">'+(achatsInt[i.id]?fmt(achatsInt[i.id]):'—')+'</td>'
+              +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;white-space:nowrap;font-weight:700;color:'+(((intervFact[i.id]||0)-(achatsInt[i.id]||0))<0?'var(--red)':'inherit')+'">'+((intervFact[i.id]||achatsInt[i.id]) ? fmt((intervFact[i.id]||0)-(achatsInt[i.id]||0)) : '—')+'</td>'
               +'</tr>';
           }).join('')
         + codesCentre.filter(code=>(heuresParCode[code]||0)>0 || codesIntrouvables.has(code)).map(code=>{
             const nom = nomParCode[code];
             return '<tr style="background:var(--gray-1)"><td colspan="5" style="padding:9px 12px;font-size:12.5px;color:var(--gray-6)">Heures pointées directement sur le centre « '+escHtml(code)+' »'+(nom && nom!==code ? ' — '+escHtml(nom) : '')+' (sans intervention précise)'
-              +(codesIntrouvables.has(code) ? ' <span style="color:var(--orange)">· code introuvable dans les pointages</span>' : '')+'</td><td style="padding:9px 12px;text-align:right">'+(heuresParCode[code]||0).toFixed(1)+' h</td><td></td></tr>';
+              +(codesIntrouvables.has(code) ? ' <span style="color:var(--orange)">· code introuvable dans les pointages</span>' : '')+'</td><td style="padding:9px 12px;text-align:right">'+(heuresParCode[code]||0).toFixed(1)+' h</td><td></td><td></td><td></td></tr>';
           }).join('')
         + '</tbody></table></div>');
 
@@ -3694,7 +3705,7 @@ async function saveFourCore(id){
 }
 
 // ── PURCHASE ORDERS ──────────────────────────────────────────
-let _pos = [], _chantiersActive = [], _foursActive = [];
+let _pos = [], _chantiersActive = [], _foursActive = [], _poRefs = {};
 let poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
 
 async function renderPOS(search='', filterStatut=''){
@@ -3704,6 +3715,7 @@ async function renderPOS(search='', filterStatut=''){
     sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
   ]);
   _pos = posR.data||[]; _chantiersActive = chantsR.data||[]; _foursActive = foursR.data||[];
+  _poRefs = await chargerRefsInterventions(_pos.map(p=>p.intervention_id));
   const q = search.toLowerCase();
   const items = _pos.filter(i=>{
     const match = !q || (i.numero+i.chantiers?.nom+i.fournisseurs?.nom).toLowerCase().includes(q);
@@ -3740,7 +3752,7 @@ async function renderPOS(search='', filterStatut=''){
               return `<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
               <td>${r.fournisseurs?.nom||'—'}</td>
-              <td><strong>${chantierNom}</strong></td>
+              <td><strong>${chantierNom}</strong>${_poRefs[r.intervention_id] ? `<div style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_poRefs[r.intervention_id])}</div>` : ''}</td>
               <td>${fmtDate(r.date_creation)}</td>
               <td>
                 <div style="display:flex;align-items:center;gap:8px">
@@ -3772,7 +3784,8 @@ function openNewPO(){
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
+        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier" onchange="majInterventionAchat('po','purchase_orders_lyneo')"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
+        ${htmlChampIntervention('po')}
         <div class="form-group"><label class="field-label">Fournisseur *</label><select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -3833,6 +3846,7 @@ async function savePO(marquerEnvoyee){
   const {data:num} = await sb.rpc('generate_po_number');
   const {data:po,error} = await sb.from('purchase_orders_lyneo').insert({
     numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
+    ...achatIntervPayload('po', null),
 
     observations:el('po-obs').value
   }).select().single();
@@ -3875,6 +3889,7 @@ async function openPODetail(poId){
   });
   const four = _foursActive.find(f=>f.id===po.fournisseur_id) || po.fournisseurs;
   const chant = _chantiersActive.find(c=>c.id===po.chantier_id) || po.chantiers_lyneo;
+  const refIntPO = po.intervention_id ? await refIntervention(po.intervention_id) : '';
 
   const blsHtml = bls.length===0 ? '' : `
     <div class="section-title"><i class="ti ti-truck-delivery"></i> Bons de livraison</div>
@@ -3910,6 +3925,7 @@ async function openPODetail(poId){
       <div class="info-grid">
         <div class="info-item"><label>Fournisseur</label><span><strong>${four?.nom||'—'}</strong></span></div>
         <div class="info-item"><label>Chantier</label><span>${chant?.nom||'—'}</span></div>
+        ${refIntPO ? `<div class="info-item"><label>Intervention SAV</label><span style="font-weight:600;color:var(--blue)">${escHtml(refIntPO)}</span></div>` : ''}
         <div class="info-item"><label>Client</label><span>${chant?.client||po.chantiers?.client||'—'}</span></div>
         <div class="info-item"><label>Date commande</label><span>${fmtDate(po.date_creation)}</span></div>
         <div class="info-item"><label>Livraison souhaitée</label><span>${fmtDate(po.date_livraison_souhaitee)}</span></div>
@@ -4940,7 +4956,7 @@ async function saveBL(){
 // ── FACTURES ─────────────────────────────────────────────────
 let _posPourFac = [];
 // État de la page : les filtres et la sélection survivent aux rechargements de la liste
-let _facsListe = [], _facChantiers = [], _facSel = new Set();
+let _facsListe = [], _facChantiers = [], _facSel = new Set(), _facIntervRefs = {};
 const nIntTxt = f => f && f.numero_interne ? ' · n° interne '+f.numero_interne : '';
 const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', statut:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:''});
 let _facFiltres = filtresFacVides();
@@ -4969,6 +4985,7 @@ async function renderFactures(){
   _facsListe = facsR.data||[];
   _posPourFac = posR.data||[];
   _facChantiers = chR.data||[];
+  _facIntervRefs = await chargerRefsInterventions(_facsListe.map(f=>f.intervention_id));
   const ids = new Set(_facsListe.map(f=>f.id));
   _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
   const F = _facFiltres, sel = (a,b)=>a===b?' selected':'';
@@ -5070,7 +5087,7 @@ function afficherFactures(){
     items.map(r=>{
       const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
       const choisie = _facSel.has(r.id);
-      const cellChantier = r.chantiers_lyneo?.nom ? escHtml(r.chantiers_lyneo.nom)
+      const cellChantier = r.chantiers_lyneo?.nom ? escHtml(r.chantiers_lyneo.nom) + (_facIntervRefs[r.intervention_id] ? `<div class="fac-int-ref" style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_facIntervRefs[r.intervention_id])}</div>` : '')
         : (r.statut==='annulee' ? '—'
           : `<select style="width:140px;max-width:140px;font-size:12px;border-color:var(--orange)" title="Affecter ce chantier à la facture" onchange="affecterChantierFacture('${r.id}',this.value)"><option value="">À affecter…</option>${optChantiers}</select>`);
       return `<tr id="fac-tr-${r.id}"${choisie?' class="fac-sel"':''}>
@@ -5167,13 +5184,13 @@ async function exporterFacturesExcel(){
   }catch(e){}
   const serie = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); return m ? Math.round((Date.UTC(+m[1],+m[2]-1,+m[3]) - Date.UTC(1899,11,30))/86400000) : null; };
   const num = v => Math.round((parseFloat(v)||0)*100)/100;
-  const entetes = ['N° interne','N° facture fournisseur','Commande','Fournisseur','N° chantier','Chantier','Date facture','Échéance','Montant HT','TVA','Montant TTC','Statut','Payée le','Observations'];
+  const entetes = ['N° interne','N° facture fournisseur','Commande','Fournisseur','N° chantier','Chantier','Date facture','Échéance','Montant HT','TVA','Montant TTC','Statut','Payée le','Observations','Intervention SAV'];
   const lignes = items.map(r=>[
     r.numero_interne||'', r.numero_facture_fournisseur||'', r.purchase_orders_lyneo?.numero||'', nomFournisseurFac(r),
     r.chantiers_lyneo?.numero||'', r.chantiers_lyneo?.nom||'',
     serie(jourFac(r.date_facture)), serie(jourFac(r.date_echeance)),
     num(montantHtFacture(r)), num(r.montant_tva), num(r.montant_ttc),
-    STATUT_FA[r.statut]||r.statut||'', serie(payeLe[r.id]), r.observations||''
+    STATUT_FA[r.statut]||r.statut||'', serie(payeLe[r.id]), r.observations||'', _facIntervRefs[r.intervention_id]||''
   ]);
   const n = lignes.length, derniere = n+1;
   const ws = XLSX.utils.aoa_to_sheet([entetes, ...lignes]);
@@ -5188,9 +5205,9 @@ async function exporterFacturesExcel(){
   const tot = col => lignes.reduce((a,l)=>a+(l['IJK'.indexOf(col)+8]||0),0);
   ws['A'+(n+3)] = {t:'s', v:'Total'};
   ['I','J','K'].forEach(col=>{ ws[col+(n+3)] = {t:'n', f:`SUBTOTAL(109,${col}2:${col}${derniere})`, v:Math.round(tot(col)*100)/100, z:fmtMontXl}; });
-  ws['!ref'] = `A1:N${n+3}`;
-  ws['!autofilter'] = {ref:`A1:N${derniere}`};
-  ws['!cols'] = [{wch:15},{wch:20},{wch:14},{wch:24},{wch:14},{wch:26},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:12},{wch:50}];
+  ws['!ref'] = `A1:O${n+3}`;
+  ws['!autofilter'] = {ref:`A1:O${derniere}`};
+  ws['!cols'] = [{wch:15},{wch:20},{wch:14},{wch:24},{wch:14},{wch:26},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:12},{wch:50},{wch:16}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Factures fournisseurs');
   XLSX.writeFile(wb, `Factures_fournisseurs_${today()}.xlsx`);
@@ -5249,7 +5266,13 @@ async function affecterChantierFactures(ids, chantierId){
     if(error) return error;
   }
   const ch = _facChantiers.find(c=>c.id===chantierId);
-  _facsListe.forEach(f=>{ if(ids.includes(f.id)){ f.chantier_id = chantierId; f.chantiers_lyneo = ch ? {numero:ch.numero, nom:ch.nom} : null; } });
+  // Une facture imputée à une intervention d'un AUTRE centre perd son intervention : l'intervention doit rester dans le centre de la facture
+  const aDetacher = _facsListe.filter(f=>ids.includes(f.id) && f.intervention_id && f.chantier_id!==chantierId).map(f=>f.id);
+  for(let i=0;i<aDetacher.length;i+=50){
+    const {error} = await sb.from('factures').update({intervention_id:null}).in('id', aDetacher.slice(i,i+50));
+    if(error) return error;
+  }
+  _facsListe.forEach(f=>{ if(ids.includes(f.id)){ f.chantier_id = chantierId; f.chantiers_lyneo = ch ? {numero:ch.numero, nom:ch.nom} : null; if(aDetacher.includes(f.id)) f.intervention_id = null; } });
   return null;
 }
 async function affecterChantierSelection(){
@@ -5284,6 +5307,7 @@ async function openFacDetail(facId){
   const {data:fac} = await sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom))').eq('id',facId).single();
   const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
   const docs = annexes||[];
+  const refInt = fac.intervention_id ? await refIntervention(fac.intervention_id) : '';
 
   const iconeType = (tipo) => {
     if(!tipo) return 'ti-file';
@@ -5306,7 +5330,7 @@ async function openFacDetail(facId){
       <div>
         <h3>${fac.numero_facture_fournisseur}</h3>
         ${fac.numero_interne?`<div style="margin:2px 0 3px"><span class="fac-int" title="Numéro interne ERP">N° interne ${escHtml(fac.numero_interne)}</span></div>`:''}
-        <span style="font-size:12px;color:var(--gray-5)">${fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||''} — ${fac.chantiers_lyneo?.nom||''}</span>
+        <span style="font-size:12px;color:var(--gray-5)">${fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||''} — ${fac.chantiers_lyneo?.nom||''}${refInt?` · <strong id="fac-det-interv" style="color:var(--blue)">${escHtml(refInt)}</strong>`:''}</span>
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -5446,6 +5470,113 @@ let _facFilesNew = [];
 // ── FACTURE FOURNISSEUR SANS COMMANDE (liée directement au chantier) ──
 let _facLignesLibre = [];
 
+// ══════════════════════════════════════════════════════════════
+// SAV : imputer un achat (facture fournisseur / commande) à UNE intervention
+// ══════════════════════════════════════════════════════════════
+// Avant, un achat ne se rattachait qu'au centre de coûts (SAV 1, SAV 2…). On peut maintenant choisir aussi
+// l'intervention (SAV26009…) : le coût réel et la marge de chaque intervention deviennent calculables.
+// Le champ n'apparaît que si le chantier choisi est un centre qui a des interventions. La colonne intervention_id
+// vient de migration-sav-achats-intervention.sql : tant qu'elle n'existe pas, le champ est grisé avec une explication
+// et rien n'est envoyé à la base (le reste du formulaire fonctionne comme avant).
+const _achatsColonne = {};
+async function colonneAchatsInterv(table){
+  if(_achatsColonne[table]) return true;
+  try{ const {error} = await sb.from(table).select('intervention_id').limit(1); if(!error){ _achatsColonne[table] = true; return true; } }catch(e){}
+  return false;
+}
+async function interventionsDuCentre(chantierId){
+  if(!chantierId) return [];
+  try{ const {data,error} = await sb.from('interventions_sav').select('id,ref,nom_site,statut').eq('chantier_id',chantierId).order('ref',{ascending:false}); return error ? [] : (data||[]); }catch(e){ return []; }
+}
+// p = préfixe des champs du formulaire : 'facl' (facture sans commande), 'efac' (modifier une facture), 'po' (commande)
+function htmlChampIntervention(p){
+  return `<div class="form-group" id="${p}-int-wrap" style="display:none"><label class="field-label">Intervention SAV <span style="font-weight:400;color:var(--gray-5)">(facultatif)</span></label><select id="${p}-intervention"></select><div id="${p}-int-note" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>`;
+}
+async function majInterventionAchat(p, table, valeur){
+  const chSel = el(p+'-chantier'), wrap = el(p+'-int-wrap'), sel = el(p+'-intervention'), note = el(p+'-int-note');
+  if(!chSel || !wrap || !sel) return;
+  wrap.dataset.pret = '0';
+  const courant = valeur!==undefined ? valeur : sel.value, chantierId = chSel.value;
+  const [liste, dispo] = await Promise.all([interventionsDuCentre(chantierId), colonneAchatsInterv(table)]);
+  if(el(p+'-chantier')!==chSel || chSel.value!==chantierId) return;   // formulaire fermé ou chantier changé entre-temps
+  if(!liste.length){ wrap.style.display = 'none'; sel.innerHTML = ''; wrap.dataset.pret = '1'; return; }
+  wrap.style.display = '';
+  if(!dispo){
+    sel.disabled = true; sel.innerHTML = '<option value="">—</option>';
+    note.innerHTML = '<span style="color:var(--orange)">⚠ Pour imputer à une intervention, exécutez d\'abord le fichier SQL <strong>migration-sav-achats-intervention.sql</strong> dans Supabase.</span>';
+    wrap.dataset.pret = '1'; return;
+  }
+  sel.disabled = false;
+  note.textContent = "Sert à calculer le coût réel et la marge de l'intervention. Vide = coût du centre seulement.";
+  sel.innerHTML = '<option value="">— Centre seulement (aucune intervention précise) —</option>'
+    + liste.map(i=>`<option value="${i.id}"${i.id===courant?' selected':''}>${escHtml(i.ref)}${i.nom_site?' — '+escHtml(i.nom_site):''}</option>`).join('');
+  wrap.dataset.pret = '1';
+}
+// Ce qu'il faut ajouter à l'enregistrement (insert/update). `existant` = la ligne chargée pour une modification
+// (elle ne contient la clé intervention_id que si la colonne existe : on ne touche rien sinon).
+function achatIntervPayload(p, existant){
+  const wrap = el(p+'-int-wrap'), sel = el(p+'-intervention');
+  if(!wrap || wrap.dataset.pret!=='1') return {};          // champ pas encore prêt : on ne modifie pas l'imputation existante
+  const v = sel && !sel.disabled ? sel.value : '';
+  if(v) return {intervention_id: v};
+  if(existant && Object.prototype.hasOwnProperty.call(existant,'intervention_id')) return {intervention_id: null};
+  return {};
+}
+// Un achat annulé ne compte pas ; une note de crédit (avoir) se retranche, qu'elle soit stockée en positif ou en négatif
+function montantAchatHT(f){
+  if(!f || f.statut==='annulee') return 0;
+  const m = parseFloat(f.montant_ht)||0;
+  return f.statut==='avoir' ? -Math.abs(m) : m;
+}
+async function chargerRefsInterventions(ids){
+  const liste = [...new Set((ids||[]).filter(Boolean))], out = {};
+  if(!liste.length) return out;
+  try{ (await chargerParIds('interventions_sav','id,ref',liste)).forEach(x=>{ out[x.id] = x.ref; }); }catch(e){}
+  return out;
+}
+async function refIntervention(id){ return id ? ((await chargerRefsInterventions([id]))[id]||'') : ''; }
+// Achats imputés à des interventions : factures fournisseur (avoirs en négatif) + commandes passées pas encore facturées (information)
+async function chargerAchatsInterventions(ids){
+  ids = [...new Set((ids||[]).filter(Boolean))];
+  const res = {dispo:false, parInterv:{}};
+  ids.forEach(id=>{ res.parInterv[id] = {facs:[], pos:[], achatsHT:0, engageHT:0}; });
+  const [okF, okP] = await Promise.all([colonneAchatsInterv('factures'), colonneAchatsInterv('purchase_orders_lyneo')]);
+  res.dispo = okF;
+  if(!ids.length) return res;
+  if(okF){
+    (await selectInChunks(sb,'factures','id,intervention_id,numero_facture_fournisseur,date_facture,montant_ht,statut,fournisseurs!fournisseur_id(nom)','intervention_id',ids))
+      .forEach(f=>{ const r = res.parInterv[f.intervention_id]; if(!r) return; r.facs.push(f); r.achatsHT += montantAchatHT(f); });
+  }
+  if(okP){
+    (await selectInChunks(sb,'purchase_orders_lyneo','id,intervention_id,numero,statut,total_ht,fournisseurs!fournisseur_id(nom)','intervention_id',ids))
+      .forEach(q=>{ const r = res.parInterv[q.intervention_id]; if(!r) return; r.pos.push(q); if(['envoyee','rec_partielle','rec_totale'].includes(q.statut)) r.engageHT += parseFloat(q.total_ht)||0; });
+  }
+  return res;
+}
+const carteCout = (lib, val, coul, sub) => `<div style="background:${coul}11;border:1px solid ${coul}33;border-radius:var(--radius);padding:12px"><div style="font-size:10.5px;font-weight:700;color:${coul};text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">${lib}</div><div style="font-size:18px;font-weight:700;color:var(--gray-8)">${val}</div>${sub?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">${sub}</div>`:''}</div>`;
+// Bloc « Coûts et marge » de la fiche d'une intervention. d = {factureHT, ach, dispo, coutMO, heuresSansCout}
+function htmlCoutsIntervention(d){
+  const ach = d.ach, marge = d.factureHT - ach.achatsHT, pct = d.factureHT>0 ? marge/d.factureHT*100 : null;
+  const margeMO = d.coutMO!==null ? marge - d.coutMO : null, pctMO = (margeMO!==null && d.factureHT>0) ? margeMO/d.factureHT*100 : null;
+  const couleur = v => v<0 ? 'var(--red)' : 'var(--green)';
+  const factsOk = ach.facs.filter(f=>f.statut!=='annulee');
+  const th = (t,a)=>`<th style="padding:7px 10px;text-align:${a||'left'};font-size:10.5px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">${t}</th>`;
+  const lignesFac = ach.facs.map(f=>`<tr style="cursor:pointer" onclick="closeModal();openFacDetail('${f.id}')"><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">${escHtml(f.numero_facture_fournisseur||'')}</strong></td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(f.fournisseurs?.nom||'—')}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(f.date_facture)}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;white-space:nowrap">${fmt(parseFloat(f.montant_ht)||0)}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bFA(f.statut)}</td></tr>`).join('');
+  return `<div id="int-couts" style="margin-bottom:20px"><strong style="font-size:13px">Coûts et marge</strong>
+    ${d.dispo ? '' : `<div class="alert alert-warning" style="margin-top:8px"><i class="ti ti-alert-triangle"></i><span>Pour imputer des factures ou commandes fournisseur à une intervention, exécutez d'abord le fichier SQL <strong>migration-sav-achats-intervention.sql</strong> dans Supabase.</span></div>`}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0">
+      ${carteCout('Facturé (HT)', fmt(d.factureHT), 'var(--blue)', 'factures clients non annulées')}
+      ${carteCout('Achats imputés (HT)', fmt(ach.achatsHT), 'var(--orange)', factsOk.length+' facture'+(factsOk.length>1?'s':'')+' fournisseur'+(ach.engageHT>0 ? ' · + '+fmt(ach.engageHT)+' de commandes pas encore facturées' : ''))}
+      ${d.coutMO!==null ? carteCout("Main-d'œuvre", fmt(d.coutMO), 'var(--orange)', 'heures pointées × coût horaire'+(d.heuresSansCout>0 ? ' — ⚠ '+fmtHeures(d.heuresSansCout)+' h sans coût horaire non comptées' : '')) : ''}
+      ${carteCout('Marge brute', fmt(marge), couleur(marge), (pct!==null ? pct.toFixed(1)+' % du facturé · ' : '')+'facturé − achats')}
+      ${margeMO!==null ? carteCout('Marge après main-d\'œuvre', fmt(margeMO), couleur(margeMO), pctMO!==null ? pctMO.toFixed(1)+' % du facturé' : '—') : ''}
+    </div>
+    ${ach.facs.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr style="background:var(--gray-1)">${th('Facture fournisseur')}${th('Fournisseur')}${th('Date')}${th('Montant HT','right')}${th('Statut')}</tr></thead><tbody>${lignesFac}</tbody></table></div>` : '<p style="font-size:12.5px;color:var(--gray-5)">Aucun achat imputé à cette intervention. Dans une facture ou une commande fournisseur, choisissez le centre puis cette intervention.</p>'}
+    ${ach.pos.length ? `<div style="margin-top:8px;font-size:12.5px;color:var(--gray-6)">Commandes : ${ach.pos.map(q=>`<a href="#" onclick="closeModal();openPODetail('${q.id}');return false" style="color:var(--blue);font-weight:600">${escHtml(q.numero)}</a> (${escHtml(q.fournisseurs?.nom||'—')}, ${fmt(parseFloat(q.total_ht)||0)} HT)`).join(' · ')}</div>` : ''}
+    <div style="font-size:11.5px;color:var(--gray-5);margin-top:8px">Les achats du centre qui ne sont imputés à aucune intervention restent dans le coût du centre (fiche du centre → Rentabilité). Montants calculés en direct.</div>
+  </div>`;
+}
+
 async function openFacLibreModal(){
   const [{data:chantiersData},{data:foursData}] = await Promise.all([
     sb.from('chantiers_lyneo').select('id,numero,nom').order('nom'),
@@ -5460,8 +5591,9 @@ async function openFacLibreModal(){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Chantier *</label>
-          <select id="facl-chantier"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${c.id}">${c.numero||''} — ${c.nom}</option>`).join('')}</select>
+          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${c.id}">${c.numero||''} — ${c.nom}</option>`).join('')}</select>
         </div>
+        ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">Fournisseur *</label>
           <select id="facl-fournisseur"><option value="">— Sélectionner —</option>${fours.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('')}</select>
         </div>
@@ -5543,6 +5675,7 @@ async function saveFacLibre(){
     date_echeance: el('facl-echeance').value||null,
     montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
     statut: 'recue', saisie_par: currentUser.id,
+    ...achatIntervPayload('facl', null),
     observations: el('facl-obs').value
   }).select().single();
   if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); const b=el('btn-save-facl'); if(b) b.disabled=false; return; }
@@ -5847,11 +5980,12 @@ async function saveFacCore(){
   const mTVA = parseFloat(el('fac-tva')?.value)||totalTVA;
   const mTTC = parseFloat(el('fac-ttc')?.value)||(mHT+mTVA);
 
-  const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id,fournisseur_id').eq('id',po_id).single();
+  const {data:poRow} = await sb.from('purchase_orders_lyneo').select('*').eq('id',po_id).single();
   if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:mTTC, date}))) return;
 
   const {data:fac,error} = await sb.from('factures').insert({
     po_id, chantier_id: poRow?.chantier_id||null, fournisseur_id: poRow?.fournisseur_id||null, numero_facture_fournisseur:num,
+    ...(poRow?.intervention_id ? {intervention_id: poRow.intervention_id} : {}),
     date_facture:date, date_echeance:el('fac-echeance')?.value||null,
     montant_ht:mHT, montant_tva:mTVA, montant_ttc:mTTC,
     statut:'recue', saisie_par:currentUser.id,
@@ -11440,6 +11574,13 @@ async function saveIntervention(id){
   if(id){
     const {error} = await sb.from('interventions_sav').update(data).eq('id',id);
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+    // Les factures / commandes fournisseur imputées à cette intervention suivent son centre (cohérence centre ↔ intervention)
+    if(data.chantier_id){
+      try{
+        await sb.from('factures').update({chantier_id:data.chantier_id}).eq('intervention_id',id);
+        await sb.from('purchase_orders_lyneo').update({chantier_id:data.chantier_id}).eq('intervention_id',id);
+      }catch(e){}
+    }
     showToast('Intervention mise à jour');
   } else {
     const {data:ref} = await sb.rpc('generate_intervention_number');
@@ -11522,6 +11663,17 @@ async function deleteAnexoIntervention(id, interventionId){
 }
 
 async function deleteIntervention(id){
+  // Des factures / commandes fournisseur imputées à cette intervention : on ne la supprime pas (leurs coûts perdraient leur intervention)
+  let nF = 0, nP = 0;
+  try{
+    const [f, q] = await Promise.all([sb.from('factures').select('id').eq('intervention_id',id), sb.from('purchase_orders_lyneo').select('id').eq('intervention_id',id)]);
+    nF = (f.data||[]).length; nP = (q.data||[]).length;
+  }catch(e){}
+  if(nF+nP>0){
+    const morceaux = [nF ? nF+' facture'+(nF>1?'s':'')+' fournisseur' : '', nP ? nP+' commande'+(nP>1?'s':'')+' fournisseur' : ''].filter(Boolean).join(' et ');
+    showToast(`Suppression impossible : ${morceaux} ${nF+nP>1?'sont imputées':'est imputée'} à cette intervention. Changez d'abord l'intervention de ${nF+nP>1?'ces achats':'cet achat'} (Modifier), puis réessayez.`, 'error');
+    return;
+  }
   if(!confirm("Supprimer définitivement cette intervention ? Cette action est irréversible.")) return;
   const {error} = await sb.from('interventions_sav').delete().eq('id',id);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
@@ -11540,7 +11692,7 @@ async function openInterventionDetail(interventionId){
   ]);
   // Devis d'origine, centre de coûts et heures pointées. Requêtes séparées : elles ne cassent
   // rien si les colonnes n'existent pas encore ou si le système de pointages est indisponible.
-  let devisLie = null, centreSav = null, heuresPointees = null;
+  let devisLie = null, centreSav = null, heuresPointees = null, coutMOInterv = null, heuresSansCoutInterv = 0;
   if(i.devis_id){
     const {data:dv} = await sb.from('devis').select('id,numero,objet,statut,montant_ht').eq('id',i.devis_id).single();
     devisLie = dv||null;
@@ -11554,12 +11706,19 @@ async function openInterventionDetail(interventionId){
     const {data:ptRows} = await sbPT.from('chantiers').select('id').eq('code',i.ref).limit(1);
     const ptCh = ptRows && ptRows[0];
     if(ptCh){
-      const {data:pics} = await sbPT.from('picages').select('heures').eq('chantier_id',ptCh.id);
+      const {data:pics} = await sbPT.from('picages').select('employe_id,heures').eq('chantier_id',ptCh.id);
       heuresPointees = (pics||[]).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
+      const couts = await chargerCoutsHoraires();      // seulement pour qui voit les salaires
+      if(couts.etat==='ok'){ const r = coutDesPicages(pics||[], couts.parPt); coutMOInterv = r.cout; heuresSansCoutInterv = r.heuresSansCout; }
     }
   }catch(e){ /* système de pointages indisponible */ }
   const photos = (anexos||[]).filter(a=>a.categorie==='photo');
   const documents = (anexos||[]).filter(a=>a.categorie!=='photo');
+  const achatsInterv = await chargerAchatsInterventions([i.id]);
+  const blocCouts = htmlCoutsIntervention({
+    factureHT: (facturesLiees||[]).filter(f=>f.statut!=='annulee').reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0),
+    ach: achatsInterv.parInterv[i.id], dispo: achatsInterv.dispo, coutMO: coutMOInterv, heuresSansCout: heuresSansCoutInterv
+  });
   const technicienLabel = escHtml(i.employes_rh ? nomPers(i.employes_rh) : (i.technicien_nom||'—'));
   const statusOrder = ['nouvelle','attribuee','encours','terminee','facturee'];
 
@@ -11585,6 +11744,8 @@ async function openInterventionDetail(interventionId){
         <div class="info-item"><label>Heures pointées</label><span>${heuresPointees!==null?heuresPointees.toFixed(1)+' h':'—'}</span></div>
       </div>
       ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${i.description}</p></div>`:''}
+
+      ${blocCouts}
 
       <div class="form-actions" style="margin-bottom:20px">
         <button class="btn btn-ghost" onclick="closeModal();editInterventionById('${i.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -12005,6 +12166,7 @@ async function openEditPO(poId){
     po = data;
   }
   if(!po){ showToast("Commande introuvable", 'error'); return; }
+  window._poEdit = po;
 
   const {data:lignesData} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
   poLignes = (lignesData||[]).map(l=>({
@@ -12038,7 +12200,8 @@ async function openEditPO(poId){
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">Chantier *</label>'
-    +      '<select id="po-chantier"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
+    +      '<select id="po-chantier" onchange="majInterventionAchat(\'po\',\'purchase_orders_lyneo\')"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
+    +    htmlChampIntervention('po')
     +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
     +      '<select id="po-four"><option value="">— Sélectionner —</option>'+foursOpts+'</select></div>'
     +  '</div>'
@@ -12072,6 +12235,7 @@ async function openEditPO(poId){
   +'</div></div>');
   renderPoLignes();
   setTimeout(()=>{
+    majInterventionAchat('po', 'purchase_orders_lyneo', po.intervention_id||'');
     const btn = el('btn-save-edit-po');
     if(btn) btn.addEventListener('click', ()=>saveEditPO(poId));
   }, 50);
@@ -12085,7 +12249,7 @@ async function saveEditPO(poId){
 
   await sb.from('purchase_orders_lyneo').update({
     chantier_id, fournisseur_id,
-
+    ...achatIntervPayload('po', window._poEdit||null),
     observations: el('po-obs').value
   }).eq('id', poId);
 
@@ -12303,13 +12467,14 @@ async function saveFacFromPOCore(poId){
   const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
 
-  const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id,fournisseur_id').eq('id',poId).single();
+  const {data:poRow} = await sb.from('purchase_orders_lyneo').select('*').eq('id',poId).single();
   if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:totalHT+totalTVA, date}))) return;
 
   const {data:fac,error} = await sb.from('factures').insert({
     po_id: poId,
     chantier_id: poRow?.chantier_id||null,
     fournisseur_id: poRow?.fournisseur_id||null,
+    ...(poRow?.intervention_id ? {intervention_id: poRow.intervention_id} : {}),
     numero_facture_fournisseur: num,
     date_facture: date,
     date_echeance: el('fac-gen-echeance')?.value||null,
@@ -12363,6 +12528,7 @@ let _efacLignes = [];
 async function openEditFacLignes(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
+  window._efacOrig = fac;
 
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
   const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom').order('nom');
@@ -12412,12 +12578,13 @@ async function openEditFacLignes(facId){
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Chantier *</label>'
-    +      '<select id="efac-chantier">'
+    +      '<select id="efac-chantier" onchange="majInterventionAchat(\'efac\',\'factures\')">'
     +        '<option value="">— Sélectionner —</option>'
     +        chantiers.map(c=>'<option value="'+c.id+'"'+(chantierIdActuel===c.id?' selected':'')+'>'+(c.numero||'')+' — '+c.nom+'</option>').join('')
     +      '</select>'
     +    '</div>'
-    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+fac.date_facture+'"/></div>'
+    +    htmlChampIntervention('efac')
+    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value=""'+fac.date_facture+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
     +      '<select id="efac-statut">'
@@ -12452,6 +12619,7 @@ async function openEditFacLignes(facId){
     +  '</div>'
     +'</div></div></div>');
   renderEfacLignes();
+  majInterventionAchat('efac', 'factures', fac.intervention_id||'');
   setTimeout(()=>{ const b=el('btn-save-edit-fac'); if(b) b.addEventListener('click',()=>saveEditFac(facId)); },50);
 }
 
@@ -12546,6 +12714,7 @@ async function saveEditFacCore(facId){
   const {error} = await sb.from('factures').update({
     numero_facture_fournisseur: el('efac-num').value,
     chantier_id: chantierId,
+    ...achatIntervPayload('efac', window._efacOrig||null),
     date_facture: el('efac-date').value,
     date_echeance: el('efac-echeance').value||null,
     montant_ht: totalHT,
@@ -12589,6 +12758,7 @@ async function creerNoteCredit(facId){
     po_id: fac.po_id,
     chantier_id: chantierId,
     fournisseur_id: fournisseurId,
+    ...(fac.intervention_id ? {intervention_id: fac.intervention_id} : {}),
     numero_facture_fournisseur: 'AVOIR — '+(fac.numero_facture_fournisseur||''),
     date_facture: today(),
     date_echeance: null,
@@ -12637,6 +12807,7 @@ async function duplicateFacture(facId){
     po_id: fac.po_id,
     chantier_id: chantierId,
     fournisseur_id: fournisseurId,
+    ...(fac.intervention_id ? {intervention_id: fac.intervention_id} : {}),
     numero_facture_fournisseur: (fac.numero_facture_fournisseur||'')+' (copie)',
     date_facture: today(),
     date_echeance: fac.date_echeance,
