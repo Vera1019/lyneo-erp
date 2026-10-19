@@ -941,10 +941,9 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
         `${E.nom} — ${E.adresse}, ${E.cp_ville} — TVA : ${E.tva} — Matricule : ${E.matricule} — RC : ${E.rc}`,
         `Tél. : ${E.tel} — ${E.mail} — Autorisation d'établissement : ${E.autorisation}`
       ],
-      bandeau: [                                                                         // bandeau bleu du devis (PDF et Excel) : 2 mentions + le site
-        `${E.nom}   Adresse : ${E.adresse} ${E.cp_ville}   TVA : ${E.tva}   Matricule : ${E.matricule}`,
-        `RC : ${E.rc}   Autorisation d'établissement : ${E.autorisation}   Mail : ${E.mail}   Tél. : ${E.tel}`,
-        E.site
+      bandeau: [                                                                         // bandeau bleu du devis (PDF et Excel) : 2 lignes seulement, comme le modèle Excel de Lyneo
+        `${E.nom}   Adresse : ${E.adresse} ${E.cp_ville}   TVA : ${E.tva}   Matricule : ${E.matricule}   RC : ${E.rc}`,
+        `Site : ${E.site}   Mail : ${E.mail}   Autorisation d'établissement : ${E.autorisation}`
       ],
       pied_excel: E.nom + ' — ' + E.site,                                                  // pied d'impression des classeurs Excel
       site_url: 'https://' + E.site
@@ -1426,13 +1425,18 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     }
     bandeauLegal(){
       this.cadreDiag(24,738,548,51,14,DM.bandeau);
-      // Les lignes (2 mentions + le site) sont centrées dans le bandeau (738 → 789) : pas de 12,2 pt, texte centré optiquement
+      // Les 2 lignes sont centrées dans le bandeau (738 → 789) : pas de 12,2 pt, texte centré optiquement
       const n = BANDEAU_LEGAL.length, pas = 12.2, debut = 763.5 - ((n-1)*pas - 6.2)/2;
       BANDEAU_LEGAL.forEach((txt,i)=>{
         let size = 8.6; while(size>6 && this.w(txt,size) > 520) size -= 0.2;
         const top = debut + i*pas;
         const wd = this.t(txt,298,top,size,{align:'c',color:DM.blanc});
-        if(txt===SITE_WEB) lienPdf(this.L, this.pdf, this.page, 298-wd/2-1, this.Y(top)-2.5, wd+2, size+4, SITE_URL);
+        // Le site est dans la ligne « Site : … » : le lien cliquable couvre uniquement l'adresse du site (pas le reste de la ligne)
+        const etiq = 'Site : ', k = txt.indexOf(etiq + SITE_WEB);
+        if(k>=0){
+          const x0 = 298 - wd/2 + this.w(txt.slice(0, k+etiq.length), size), wSite = this.w(SITE_WEB, size);
+          lienPdf(this.L, this.pdf, this.page, x0-1, this.Y(top)-2.5, wSite+2, size+4, SITE_URL);
+        }
       });
     }
     // ── Page 1 : page de garde ──
@@ -4357,7 +4361,7 @@ const XLM = (function(){
   function parasBandeau(lignesTxt, largeurPt, tailleMax){
     // Le bandeau fait BANDEAU_H (47,8 pt) et coupe ce qui dépasse (vertOverflow="clip"). Hauteur utile du texte = hauteur − 2 × 6,64 pt
     // (retrait du texte dans la forme « coins arrondis en diagonale ») − 3 pt de sécurité ; interligne Calibri ~1,22.
-    // Avec 3 lignes (2 mentions + le site) la police est donc plafonnée à 8,5 pt ; avec 2 lignes, la taille demandée (11 pt) tient.
+    // Le bandeau a 2 lignes (comme le modèle Excel de Lyneo) : la taille demandée (11 pt) tient, réduite seulement si une ligne est plus large que le bandeau. Avec 3 lignes elle serait plafonnée à 8,5 pt.
     let sz = Math.min(tailleMax, Math.floor((BANDEAU_H - 13.3 - 3)/(lignesTxt.length*1.22)*4)/4);
     while(sz>7 && Math.max(...lignesTxt.map(l=>estW(l,sz,false))) > largeurPt) sz -= 0.25;
     const t = Math.round(sz*100);
@@ -9729,7 +9733,7 @@ const OU_ENTREPRISE = {
   matricule:'Pied des PDF · bandeau du devis',
   rc:'Pied des PDF · bandeau du devis',
   autorisation:'Pied des PDF · bandeau du devis',
-  tel:'Pied des PDF · bandeau du devis',
+  tel:'Pied des PDF (bons de commande, factures, avoirs) · non imprimé sur le devis',
   mail:'Pied des PDF · bandeau du devis · texte « à retourner signée à… » du devis',
   site:'Pied des PDF (lien cliquable) · bandeau du devis · pied Excel',
   nom_doc:'Bloc Émetteur des bons de commande et factures',
