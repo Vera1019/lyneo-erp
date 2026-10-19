@@ -937,9 +937,9 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
   function textesEntreprise(E){
     return {
       emetteur: [E.nom_doc, E.rue_doc, E.cp_ville, 'TVA : ' + E.tva],                      // bloc « Émetteur » des bons de commande et factures
-      mentions: [                                                                        // pied des PDF de bons de commande, factures et avoirs (2 lignes)
+      mentions: [                                                                        // pied des PDF de bons de commande, factures et avoirs : 2 lignes seulement, le site est dans la 2e (gras bleu, cliquable)
         `${E.nom} — ${E.adresse}, ${E.cp_ville} — TVA : ${E.tva} — Matricule : ${E.matricule} — RC : ${E.rc}`,
-        `Tél. : ${E.tel} — ${E.mail} — Autorisation d'établissement : ${E.autorisation}`
+        `Tél. : ${E.tel} — ${E.site} — ${E.mail} — Autorisation d'établissement : ${E.autorisation}`
       ],
       bandeau: [                                                                         // bandeau bleu du devis (PDF et Excel) : 2 lignes seulement, comme le modèle Excel de Lyneo
         `${E.nom}   Adresse : ${E.adresse} ${E.cp_ville}   TVA : ${E.tva}   Matricule : ${E.matricule}   RC : ${E.rc}`,
@@ -977,13 +977,29 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
   // Bloc « Émetteur » des bons de commande et factures
   const emetteurLignes = () => textesEntreprise(ENTREPRISE).emetteur;
 
-  // Les lignes imprimées doivent tenir dans la largeur de la page : pied des PDF (6 pt minimum après réduction automatique), bandeau du devis (7 pt minimum).
+  // Pied des PDF : une ligne est découpée autour de l'adresse du site (« … — www.lyneo.lu — … ») pour l'imprimer en gras bleu avec un lien cliquable.
+  // Renvoie une liste de [texte, estLeSite]. Sans site dans la ligne : un seul morceau.
+  const PIED_SEP = ' — ';
+  // Largeur d'un texte SANS crénage : pdf-lib dessine le texte sans appliquer les paires de crénage, mais widthOfTextAtSize() les compte
+  // (ex. « Té » -0,9 pt) ; en découpant une ligne en plusieurs morceaux, l'écart s'accumulerait et le site chevaucherait l'espace qui le précède.
+  const largeurTexte = (font, t, sz) => { let w = 0; for(const c of t) w += font.widthOfTextAtSize(c, sz); return w; };
+  function decouperPied(txt, site){
+    const k = site ? txt.indexOf(PIED_SEP + site + PIED_SEP) : -1;
+    if(k < 0) return [[txt, false]];
+    return [[txt.slice(0, k + PIED_SEP.length), false], [site, true], [txt.slice(k + PIED_SEP.length + site.length), false]];
+  }
+  // Largeurs utiles du pied : 1re ligne = largeur de la page moins les marges ; 2e ligne = même chose moins la place de « Page n/N » à droite
+  // (réservée aussi à gauche pour que la ligne reste centrée sur la page).
+  const PIED_MARGE = 42, PIED_PAGINATION = 46;
+  const piedLargeurMax = (i, W) => i===0 ? W - 2*PIED_MARGE : W - 2*(PIED_MARGE + PIED_PAGINATION);
+
+  // Les lignes imprimées doivent tenir dans la largeur de la page : pied des PDF (5,5 pt minimum après réduction automatique), bandeau du devis (7 pt minimum).
   // Mesure avec la vraie police Helvetica ; renvoie la liste des lignes trop longues (vide = tout tient).
   async function lignesTropLongues(PDFLib, vals){
     const doc = await PDFLib.PDFDocument.create();
-    const f = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+    const f = await doc.embedFont(PDFLib.StandardFonts.Helvetica), fb = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
     const T = textesEntreprise(vals), trop = [];
-    T.mentions.forEach(l=>{ if(f.widthOfTextAtSize(l, 5.5) > 595.28-2*42) trop.push(l); });
+    T.mentions.forEach((l,i)=>{ const w = decouperPied(l, vals && vals.site).reduce((a,[t,gras])=>a+largeurTexte(gras?fb:f, t, 5.5), 0); if(w > piedLargeurMax(i, 595.28)) trop.push(l); });
     T.bandeau.forEach(l=>{ if(f.widthOfTextAtSize(l, 7) > 520) trop.push(l); });
     return trop;
   }
@@ -1301,29 +1317,30 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     }
 
     // ── Pied de page + numérotation, à appeler une fois tout le contenu généré ──
+    // 2 lignes seulement (comme le bandeau du devis) : mentions légales, puis téléphone — site — e-mail — autorisation.
+    // Le site (gras, bleu Lyneo) est cliquable ; la pagination est à droite, sur la même rangée que la 2e ligne.
     finalizeFooters(){
       const pages = this.pdfDoc.getPages();
-      const maxW = this.W - 2*this.margin;
       pages.forEach((p,idx)=>{
         p.drawLine({start:{x:this.margin,y:56}, end:{x:this.W-this.margin,y:56}, thickness:0.6, color:this.color('gray')});
-        // Mentions légales : centrées, taille réduite si une ligne dépassait la largeur utile
         MENTIONS_LEGALES_LYNEO.forEach((txt,i)=>{
+          const y = 46 - i*9, morceaux = decouperPied(txt, SITE_WEB), maxW = piedLargeurMax(i, this.W);
+          const larg = sz => morceaux.reduce((a,[t,gras])=>a+largeurTexte(gras?this.fontBold:this.font, t, sz), 0);
           let size = 7.5;
-          while(size > 5.5 && this.font.widthOfTextAtSize(txt, size) > maxW) size -= 0.25;
-          const w = this.font.widthOfTextAtSize(txt, size);
-          p.drawText(txt, {x:(this.W-w)/2, y:46 - i*9, size, font:this.font, color:this.color('gray')});
+          while(size > 5.5 && larg(size) > maxW) size -= 0.25;     // taille réduite si la ligne dépasse la largeur utile
+          let x = (this.W - larg(size))/2;
+          morceaux.forEach(([t,gras])=>{
+            const f = gras ? this.fontBold : this.font, w = largeurTexte(f, t, size);
+            p.drawText(t, {x, y, size, font:f, color:this.color(gras ? 'brand' : 'gray')});
+            if(gras) lienPdf(this.PDFLib, this.pdfDoc, p, x-1, y-2.5, w+2, size+4, SITE_URL);
+            x += w;
+          });
         });
-        // Adresse du site : ligne de fermeture centrée du pied (même rangée que la pagination), bleu Lyneo, cliquable
-        {
-          const szSite = 8, wSite = this.fontBold.widthOfTextAtSize(SITE_WEB, szSite), xSite = (this.W-wSite)/2;
-          p.drawText(SITE_WEB, {x:xSite, y:27, size:szSite, font:this.fontBold, color:this.color('brand')});
-          lienPdf(this.PDFLib, this.pdfDoc, p, xSite-2, 24, wSite+4, 12, SITE_URL);
-        }
-        // Dernière ligne : date de génération à gauche, pagination à droite
-        if(this.footerText) p.drawText(this.footerText, {x:this.margin, y:27, size:7, font:this.font, color:this.color('gray')});
+        // Rangée de la 2e ligne : date de génération à gauche (si présente), pagination à droite
+        if(this.footerText) p.drawText(this.footerText, {x:this.margin, y:37, size:7, font:this.font, color:this.color('gray')});
         const pn = `Page ${idx+1}/${pages.length}`;
         const pw = this.font.widthOfTextAtSize(pn, 7);
-        p.drawText(pn, {x:this.W-this.margin-pw, y:27, size:7, font:this.font, color:this.color('gray')});
+        p.drawText(pn, {x:this.W-this.margin-pw, y:37, size:7, font:this.font, color:this.color('gray')});
       });
     }
   }
@@ -1434,7 +1451,8 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
         // Le site est dans la ligne « Site : … » : le lien cliquable couvre uniquement l'adresse du site (pas le reste de la ligne)
         const etiq = 'Site : ', k = txt.indexOf(etiq + SITE_WEB);
         if(k>=0){
-          const x0 = 298 - wd/2 + this.w(txt.slice(0, k+etiq.length), size), wSite = this.w(SITE_WEB, size);
+          const mesure = t => largeurTexte(this.f.regular, this.ansi(t), size);      // sans crénage : comme le texte réellement dessiné
+          const x0 = 298 - wd/2 + mesure(txt.slice(0, k+etiq.length)), wSite = mesure(SITE_WEB);
           lienPdf(this.L, this.pdf, this.page, x0-1, this.Y(top)-2.5, wSite+2, size+4, SITE_URL);
         }
       });
@@ -1656,7 +1674,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     return await pdfDoc.save();
   }
 
-  return { generate, generateDevis, BANDEAU_LEGAL, ENTREPRISE, ENTREPRISE_DEFAUT, CHAMPS_ENTREPRISE, emetteurLignes, textesEntreprise,
+  return { generate, generateDevis, BANDEAU_LEGAL, ENTREPRISE, ENTREPRISE_DEFAUT, CHAMPS_ENTREPRISE, emetteurLignes, textesEntreprise, decouperPied,
     validerChampEntreprise, validerEntreprise, appliquerEntreprise, reinitialiserEntreprise, lignesTropLongues,
     get SITE_WEB(){ return SITE_WEB; }, get SITE_URL(){ return SITE_URL; } };
 });
@@ -9838,7 +9856,7 @@ function apercuEntrepriseHtml(E){
   const dc = devisTextesModele({}, E);
   return bloc('Pied de page des bons de commande, factures et notes de crédit',
       `<div style="border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:10px 12px;background:#fff;text-align:center;font-size:11.5px;line-height:1.55;color:var(--gray-6)">
-        ${T.mentions.map(x=>`<div>${l(x)}</div>`).join('')}<div style="color:#1E4F9B;font-weight:700;margin-top:2px">${l(E.site)}</div></div>`)
+        ${T.mentions.map(x=>`<div>${LyneoPDF.decouperPied(x, E.site).map(([t,gras])=>gras?`<span style="color:#1E4F9B;font-weight:700">${l(t)}</span>`:l(t)).join('')}</div>`).join('')}</div>`)
     + bloc('Bandeau bleu du devis (PDF et Excel)',
       `<div style="background:#376CB0;color:#fff;border-radius:16px 3px 16px 3px;padding:10px 14px;text-align:center;font-size:11.5px;line-height:1.6">${T.bandeau.map(x=>`<div>${l(x)}</div>`).join('')}</div>`)
     + bloc('Bloc « Émetteur » des bons de commande et factures',
