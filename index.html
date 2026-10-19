@@ -1797,6 +1797,18 @@ function showModal(html) {
   });
 }
 function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } }
+// ── Fond sombre des fenêtres : ne se ferme que sur un VRAI clic (appui ET relâchement sur le fond) ──────────────
+// Quand on sélectionne du texte dans un champ en glissant la souris puis qu'on relâche hors de la fenêtre, le navigateur
+// envoie un « clic » au fond sombre (ancêtre commun) : toutes les fenêtres se fermaient en perdant la saisie.
+// Garde unique, en phase de capture : si l'appui OU le relâchement n'a pas eu lieu sur le fond lui-même, le clic est annulé avant que
+// les gestionnaires de fermeture (showModal, fenêtres empilées, etc.) ne le voient.
+let _appuiFond = null, _reliFond = null;
+document.addEventListener('pointerdown', e=>{ _appuiFond = e.target; _reliFond = null; }, true);
+document.addEventListener('pointerup', e=>{ _reliFond = e.target; }, true);
+document.addEventListener('click', e=>{
+  const t = e.target, bas = _appuiFond, haut = _reliFond; _appuiFond = _reliFond = null;
+  if(t && t.classList && t.classList.contains('modal-overlay') && ((bas && bas !== t) || (haut && haut !== t))) e.stopImmediatePropagation();
+}, true);
 
 // ── AUTH ─────────────────────────────────────────────────────
 // Connexion par compte individuel (Supabase Auth). L'accès aux données est ensuite contrôlé par la base
