@@ -1796,7 +1796,7 @@ function showModal(html) {
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } }
+function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } }
 
 // ── AUTH ─────────────────────────────────────────────────────
 // Connexion par compte individuel (Supabase Auth). L'accès aux données est ensuite contrôlé par la base
@@ -4426,7 +4426,12 @@ async function openPODetail(poId){
   (lignesBlR.data||[]).forEach(lb=>{
     qtesRecues[lb.ligne_po_id] = (qtesRecues[lb.ligne_po_id]||0) + parseFloat(lb.quantite_recue||0);
   });
-  const four = _foursActive.find(f=>f.id===po.fournisseur_id) || po.fournisseurs;
+  let four = _foursActive.find(f=>f.id===po.fournisseur_id) || po.fournisseurs;
+  // La liste des fournisseurs chargée par la page ne contient que les fournisseurs ACTIFS, et la commande n'embarque que « nom, email » : ouvert depuis un autre écran
+  // (réception, chantier…) ou pour un fournisseur désactivé, le PDF partait sans adresse. On relit donc la fiche entière quand elle n'est pas complète.
+  if(po.fournisseur_id && !(four && 'adresse' in four)){
+    try{ const rf = await sb.from('fournisseurs').select('*').eq('id', po.fournisseur_id).maybeSingle(); if(rf && rf.data) four = rf.data; }catch(e){}
+  }
   const chant = _chantiersActive.find(c=>c.id===po.chantier_id) || po.chantiers_lyneo;
   const refIntPO = po.intervention_id ? await refIntervention(po.intervention_id) : '';
 
@@ -4528,31 +4533,127 @@ async function markSent(poId){
   closeModal(); renderPOS();
 }
 
+// ── ENVOI D'UN BON DE COMMANDE PAR E-MAIL, PDF JOINT ─────────────────────────────────────────
+// Un lien « mailto: » ne peut JAMAIS joindre un fichier (les navigateurs l'interdisent) : l'ancien bouton téléchargeait le PDF sans l'annexer.
+// Trois voies, au choix dans la fenêtre « Envoyer » :
+//   1) fichier .eml : e-mail déjà rédigé (destinataire, objet, texte, PDF joint) ; un double-clic l'ouvre dans Outlook / Thunderbird / Mail, prêt à envoyer ;
+//   2) partage du système (Web Share) : le PDF est transmis à l'application de messagerie choisie, quand le navigateur le permet ;
+//   3) lien mailto (comme avant) : destinataire, objet et texte remplis, PDF téléchargé à joindre à la main.
+const EMAIL_RE = /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']{2,}$/;
+const adressesEmail = t => String(t||'').split(/[;,\s]+/).map(x=>x.trim()).filter(Boolean);
+const emlUtf8 = t => new TextEncoder().encode(String(t));
+function emlBase64(octets){
+  let bin = ''; for(let k=0; k<octets.length; k+=0x8000) bin += String.fromCharCode.apply(null, octets.subarray(k, k+0x8000));
+  return btoa(bin).replace(/.{1,76}/g, '$&\r\n').replace(/\r\n$/, '');
+}
+// En-tête MIME : ASCII tel quel ; sinon « mots codés » UTF-8 (RFC 2047) de 45 octets au plus, sans couper un caractère. Aucun saut de ligne ne passe (pas d'injection d'en-tête).
+function emlEnTeteTexte(t){
+  t = String(t).replace(/[\r\n]+/g, ' ').trim();
+  if(/^[\x20-\x7e]*$/.test(t)) return t;
+  const mots = []; let cur = '', n = 0;
+  for(const ch of t){ const b = emlUtf8(ch).length; if(n + b > 45){ mots.push(cur); cur = ''; n = 0; } cur += ch; n += b; }
+  if(cur) mots.push(cur);
+  return mots.map(m=>'=?UTF-8?B?'+emlBase64(emlUtf8(m))+'?=').join('\r\n ');
+}
+// Message complet (RFC 5322 / MIME) : texte + PDF en pièce jointe. « X-Unsent: 1 » = brouillon : Outlook / Thunderbird l'ouvrent en rédaction, prêt à envoyer.
+function construireEml({destinataires, sujet, corps, nomPdf, pdf}){
+  const bord = '----=_Lyneo_' + Date.now().toString(36) + Math.random().toString(36).slice(2,10);
+  const nom = String(nomPdf).replace(/[^A-Za-z0-9._-]+/g, '_');
+  const adr = (destinataires||[]).filter(a=>EMAIL_RE.test(a));
+  const texte = String(corps).replace(/\r?\n/g, '\r\n');
+  return emlUtf8([
+    'X-Unsent: 1', 'To: '+adr.join(', '), 'Subject: '+emlEnTeteTexte(sujet), 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="'+bord+'"', '',
+    '--'+bord, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', emlBase64(emlUtf8(texte)),
+    '--'+bord, 'Content-Type: application/pdf; name="'+nom+'"', 'Content-Transfer-Encoding: base64', 'Content-Disposition: attachment; filename="'+nom+'"', '', emlBase64(new Uint8Array(pdf)),
+    '--'+bord+'--', ''
+  ].join('\r\n'));
+}
+function ouvrirLienMailto(url){ window.location.href = url; }
+let _envPO = null;
 function envoyerPOParEmail(poId){
   if(!window._detailPO) return;
   const {po, fournisseur} = window._detailPO;
-  if(!fournisseur?.email){
-    showToast("Ce fournisseur n'a pas d'adresse email enregistrée", 'error');
-    return;
-  }
-  const subject = encodeURIComponent(`Bon de commande ${po.numero} — LYNEO`);
-  const body = encodeURIComponent(
-`Bonjour,
+  const dest = (fournisseur && fournisseur.email) || '';
+  const sujet = `Bon de commande ${po.numero} — LYNEO`;
+  const corps = `Bonjour,
 
 Veuillez trouver ci-joint notre bon de commande ${po.numero}.
 
 Merci de bien vouloir nous confirmer la bonne réception de cette commande ainsi que le délai de livraison prévu.
 
 Cordialement,
-LYNEO`);
-  // Ouvre d'abord le PDF (pour que l'utilisateur puisse l'enregistrer et le joindre),
-  // puis ouvre le client mail — les navigateurs ne permettent pas de joindre
-  // un fichier automatiquement à un lien mailto pour des raisons de sécurité.
-  downloadPDF_PO(poId);
-  setTimeout(()=>{
-    window.location.href = `mailto:${fournisseur.email}?subject=${subject}&body=${body}`;
-    showToast("Pensez à joindre le PDF téléchargé/imprimé à l'email");
-  }, 400);
+LYNEO`;
+  const mon = _envPO = {poId, pdf:null, erreur:null, pret:null};
+  // le PDF est préparé dès l'ouverture : les boutons répondent tout de suite (le partage exige un clic « récent »)
+  mon.pret = pdfBytesPO().then(r=>{ mon.pdf = r; const e = el('envpo-pj'); if(_envPO===mon && e) e.innerHTML = '<i class="ti ti-paperclip"></i> <strong>'+escHtml(r.nom)+'</strong> — '+Math.max(1,Math.round(r.bytes.length/1024))+' Ko — joint automatiquement'; })
+                       .catch(err=>{ mon.erreur = err; const e = el('envpo-pj'); if(_envPO===mon && e) e.innerHTML = '<span style="color:var(--red)"><i class="ti ti-alert-circle"></i> Le PDF n\'a pas pu être généré : '+escHtml(err.message||err)+'</span>'; });
+  let c = el('envoi-po-container');
+  if(!c){ c = document.createElement('div'); c.id = 'envoi-po-container'; document.body.appendChild(c); }
+  const partage = typeof navigator!=='undefined' && typeof navigator.share==='function' && typeof navigator.canShare==='function';
+  const bouton = (id, cls, icone, titre, aide, clic) => `<div style="margin-bottom:10px"><button type="button" class="btn ${cls}" id="${id}" onclick="${clic}" style="width:100%;justify-content:center"><i class="ti ${icone}"></i> ${titre}</button><div style="font-size:12px;color:var(--gray-6);margin-top:3px">${aide}</div></div>`;
+  c.innerHTML = `<div class="modal-overlay" style="z-index:300" onclick="if(event.target===this)fermerEnvoiPO()"><div class="modal" style="max-width:660px">
+    <div class="modal-header"><h3><i class="ti ti-mail"></i> Envoyer le bon de commande ${escHtml(po.numero)}</h3><button class="modal-close" onclick="fermerEnvoiPO()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="field-label" for="envpo-a">À (e-mail du fournisseur)</label>
+        <input id="envpo-a" type="text" value="${escHtml(dest)}" placeholder="commandes@fournisseur.lu" autocomplete="off"/>
+        ${dest ? '' : '<div id="envpo-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce fournisseur : saisissez-la ici (et ajoutez-la dans Fournisseurs pour la prochaine fois).</div>'}</div>
+      <div class="form-group"><label class="field-label" for="envpo-sujet">Objet</label><input id="envpo-sujet" value="${escHtml(sujet)}" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="envpo-corps">Message</label><textarea id="envpo-corps" rows="8">${escHtml(corps)}</textarea></div>
+      <div id="envpo-pj" style="font-size:13px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px"><i class="ti ti-loader"></i> Préparation du PDF…</div>
+      ${bouton('envpo-eml','btn-primary','ti-mail-forward','E-mail prêt à envoyer (PDF joint)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et le PDF déjà joints.",'envpoEml()')}
+      ${partage ? bouton('envpo-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF.",'envpoPartager()') : ''}
+      ${bouton('envpo-mailto','btn-ghost','ti-external-link','Ouvrir ma messagerie (sans PDF joint)',"Comme avant : le PDF est téléchargé et le message ouvert ; il faut glisser le PDF dedans (un navigateur ne peut pas le joindre tout seul).",'envpoMailto()')}
+      <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiPO()">Fermer</button></div>
+    </div></div></div>`;
+  const a = el('envpo-a'); if(a && !dest) a.focus();
+}
+function fermerEnvoiPO(){ const c = el('envoi-po-container'); if(c) c.innerHTML = ''; _envPO = null; }
+// Lit et vérifie le formulaire d'envoi (renvoie null + message si quelque chose ne va pas)
+function envpoLire(exigerAdresse){
+  const a = adressesEmail((el('envpo-a')||{}).value);
+  if(exigerAdresse && !a.length){ showToast("Saisissez l'adresse e-mail du fournisseur", 'error'); const i = el('envpo-a'); if(i) i.focus(); return null; }
+  const mauvaise = a.find(x=>!EMAIL_RE.test(x));
+  if(mauvaise){ showToast('Adresse e-mail invalide : '+mauvaise, 'error'); const i = el('envpo-a'); if(i) i.focus(); return null; }
+  const po = window._detailPO.po;
+  return {a, sujet: ((el('envpo-sujet')||{}).value||'').replace(/[\r\n]+/g,' ').trim() || `Bon de commande ${po.numero} — LYNEO`, corps: (el('envpo-corps')||{}).value||''};
+}
+// Attend le PDF préparé à l'ouverture de la fenêtre
+async function envpoPdf(){
+  const mon = _envPO; if(!mon) return null;
+  await mon.pret;
+  if(mon.erreur || !mon.pdf){ showToast('Erreur génération PDF: '+((mon.erreur&&mon.erreur.message)||'inconnue'), 'error'); return null; }
+  return mon.pdf;
+}
+async function envpoEml(){
+  const d = envpoLire(true); if(!d) return;
+  const b = el('envpo-eml'); if(b) b.disabled = true;
+  try{
+    const pdf = await envpoPdf(); if(!pdf) return;
+    const nomEml = pdf.nom.replace(/\.pdf$/i,'') + '-email.eml';
+    await baixarBytes(construireEml({destinataires:d.a, sujet:d.sujet, corps:d.corps, nomPdf:pdf.nom, pdf:pdf.bytes}), nomEml, 'message/rfc822');
+    showToast('E-mail créé : ouvrez le fichier « '+nomEml+' » (double-clic) — le PDF est déjà joint, il ne reste qu\'à envoyer');
+  }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
+  finally{ const b2 = el('envpo-eml'); if(b2) b2.disabled = false; }
+}
+async function envpoPartager(){
+  const d = envpoLire(false); if(!d) return;
+  try{
+    const pdf = await envpoPdf(); if(!pdf) return;
+    const f = new File([pdf.bytes], pdf.nom, {type:'application/pdf'});
+    if(!navigator.canShare({files:[f]})){ showToast("Ce navigateur ne peut pas partager de fichier : utilisez « E-mail prêt à envoyer »", 'error'); return; }
+    await navigator.share({files:[f], title:d.sujet, text:d.corps});
+  }catch(e){ if(!(e && e.name==='AbortError')) showToast('Partage impossible : '+(e.message||e), 'error'); }
+}
+async function envpoMailto(){
+  const d = envpoLire(true); if(!d) return;
+  try{
+    const pdf = await envpoPdf(); if(!pdf) return;
+    await baixarPdfBytes(pdf.bytes, pdf.nom);
+    setTimeout(()=>{
+      ouvrirLienMailto(`mailto:${d.a.join(',')}?subject=${encodeURIComponent(d.sujet)}&body=${encodeURIComponent(d.corps)}`);
+      showToast("Joignez le PDF téléchargé « "+pdf.nom+" » au message (glissez-le dedans)");
+    }, 300);
+  }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
 }
 
 // ── MODÈLE DE DEVIS LYNEO (PDF et Excel) ─────────────────────────────────────────────────
@@ -5316,17 +5417,20 @@ function configPdfPO(po, lignes, fournisseur, chantier){
   };
 }
 
+// PDF d'un bon de commande, en mémoire (sert au téléchargement, à l'e-mail et au partage)
+async function pdfBytesPO(){
+  await entrepriseChargee();
+  const {po, lignes, fournisseur, chantier} = window._detailPO;
+  const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, configPdfPO(po, lignes, fournisseur, chantier));
+  return {bytes, nom: `${po.numero}.pdf`};
+}
 async function downloadPDF_PO(poId){
   if(!window._detailPO) return;
   await entrepriseChargee();
-  const {po, lignes, fournisseur, chantier} = window._detailPO;
   showToast('Génération du PDF...');
-
-  const config = configPdfPO(po, lignes, fournisseur, chantier);
-
   try{
-    const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, config);
-    await baixarPdfBytes(bytes, `${po.numero}.pdf`);
+    const {bytes, nom} = await pdfBytesPO();
+    await baixarPdfBytes(bytes, nom);
   }catch(e){
     showToast('Erreur génération PDF: '+e.message, 'error');
   }
