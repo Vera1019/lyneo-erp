@@ -306,6 +306,26 @@ tbody tr:hover td{background:var(--blue-light)}
 label.field-label{font-size:11px;font-weight:700;color:var(--gray-6);text-transform:uppercase;letter-spacing:.06em}
 input,select,textarea{padding:9px 13px;border:1.5px solid var(--gray-3);border-radius:var(--radius-sm);font-size:13px;color:var(--gray-8);background:#fff;transition:all .15s;font-family:inherit;width:100%}
 input[data-calc]{text-align:right;font-variant-numeric:tabular-nums}
+.sel-lab{display:inline-flex;align-items:center;justify-content:center;padding:7px 9px 7px 3px;margin:-7px 1px -7px -3px;vertical-align:middle;cursor:pointer}
+.sel-lab input{width:16px;height:16px;padding:0;margin:0;border-radius:3px;cursor:pointer;accent-color:var(--blue)}
+.exp-clear[hidden]{display:none!important}
+.cr-inactif input:not([type=checkbox]){opacity:.55;text-decoration:line-through}
+.cr-gerer{white-space:nowrap;text-decoration:none}
+.cr-gerer:hover{text-decoration:underline}
+.cr-select{max-width:220px}
+body.apercu-ouvert{--apercu-w:min(48vw,780px)}
+#apercu-doc{position:fixed;top:0;right:0;bottom:0;width:var(--apercu-w);z-index:250;background:#fff;border-left:1px solid var(--gray-3);box-shadow:-10px 0 30px rgba(15,23,42,.18);display:flex;flex-direction:column}
+#apercu-doc .ap-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--gray-2);background:var(--gray-1);flex-wrap:wrap}
+#apercu-doc .ap-titre{flex:1 1 160px;min-width:0;display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+#apercu-doc #ap-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#apercu-doc #ap-n{font-weight:400;color:var(--gray-5);white-space:nowrap}
+#apercu-doc .ap-corps{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--gray-2);overflow:auto}
+#apercu-doc .ap-corps iframe{width:100%;height:100%;border:0;background:#fff}
+#apercu-doc .ap-corps img{max-width:100%;max-height:100%;object-fit:contain}
+#apercu-doc .ap-msg{padding:24px;text-align:center;color:var(--gray-5);font-size:13px}
+body.apercu-ouvert .main{margin-right:var(--apercu-w)}
+body.apercu-ouvert .modal-overlay{right:var(--apercu-w)}
+@media(max-width:900px){ body.apercu-ouvert .main{margin-right:0} body.apercu-ouvert .modal-overlay{right:0} #apercu-doc{width:100vw;z-index:400} }
 th.tri-th{cursor:pointer;user-select:none;white-space:nowrap}th.tri-th:hover{color:var(--blue)}th.tri-th:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 th.tri-th::after{content:'↕';display:inline-block;margin-left:5px;font-size:10px;font-weight:400;opacity:.35}th.tri-th[aria-sort="ascending"]::after{content:'▲';opacity:1;color:var(--blue)}th.tri-th[aria-sort="descending"]::after{content:'▼';opacity:1;color:var(--blue)}
 .dvh{display:flex;align-items:center;gap:4px}.dvh-r{justify-content:flex-end}.dvh-lib{cursor:pointer;user-select:none}.dvh-fl{font-size:9px;color:var(--blue)}#dv-colpop .dvp-fl{display:inline-block;width:14px;text-align:center;font-weight:700}
@@ -1776,7 +1796,7 @@ function showModal(html) {
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; }
+function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } }
 
 // ── AUTH ─────────────────────────────────────────────────────
 // Connexion par compte individuel (Supabase Auth). L'accès aux données est ensuite contrôlé par la base
@@ -2039,6 +2059,8 @@ const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisse
 function navigate(page){
   currentPage = page;
   razTri('P');
+  _selExp = {};
+  fermerApercu();
   if(page==='interventions_sav') _savCentreFiltre = '';   // on arrive toujours sur la vue complète
   if(page==='factures_vente') _fvFiltres = {search:'', mois:'', statut:'', centre:''};
   if(page==='devis') _dvFiltres = dvFiltresVides();
@@ -2693,12 +2715,65 @@ function clicEnteteTri(th){
   appliquerTriTable(table);
   _obsTri.takeRecords();
 }
+// ── Sélection de lignes pour l'export Excel ─────────────────────────────────────────────────────────
+// Un tableau marqué data-export="<liste>" (ses lignes : data-sel-id="<id>") reçoit une case à cocher au début de la première
+// cellule de chaque ligne et une case « tout » dans le premier titre : le nombre de colonnes ne change pas. Le bouton « Exporter
+// Excel » de la page devient « Exporter la sélection (N) » ; la fenêtre d'export propose alors seulement les lignes cochées
+// (et visibles : une ligne masquée par la recherche ou un filtre n'est jamais exportée sans qu'on la voie).
+let _selExp = {};       // liste → Set des identifiants cochés (conservés au rechargement de la liste ; remis à zéro au changement de page)
+const selExpSet = id => _selExp[id] || (_selExp[id] = new Set());
+const idsSelectionExport = id => Array.from(document.querySelectorAll('table[data-export="'+id+'"] .sel-cb:checked')).map(c=>c.value);
+function injecterSelectionExport(table){
+  const set = selExpSet(table.dataset.export);
+  const hr = table.tHead && table.tHead.rows[table.tHead.rows.length-1];
+  if(hr && hr.cells.length && !hr.cells[0].querySelector('.sel-all'))
+    (hr.cells[0].querySelector('.dvh') || hr.cells[0]).insertAdjacentHTML('afterbegin', '<label class="sel-lab" title="Tout sélectionner" onclick="event.stopPropagation()"><input type="checkbox" class="sel-all" aria-label="Tout sélectionner"/></label>');
+  Array.from(table.tBodies).forEach(tb=>Array.from(tb.rows).forEach(r=>{
+    const rid = r.dataset.selId;
+    if(rid===undefined || !r.cells.length || r.querySelector('.sel-cb')) return;
+    r.cells[0].insertAdjacentHTML('afterbegin', '<label class="sel-lab" onclick="event.stopPropagation()"><input type="checkbox" class="sel-cb" value="'+escHtml(rid)+'" aria-label="Sélectionner cette ligne"'+(set.has(rid)?' checked':'')+'/></label>');
+  }));
+  majEtatToutSel(table);
+}
+function majEtatToutSel(table){
+  const all = table.querySelector('.sel-all'), cbs = Array.from(table.querySelectorAll('.sel-cb')), n = cbs.filter(c=>c.checked).length;
+  if(all){ all.checked = cbs.length>0 && n===cbs.length; all.indeterminate = n>0 && n<cbs.length; all.disabled = !cbs.length; }
+  majBoutonsExport();
+}
+function majBoutonsExport(){
+  document.querySelectorAll('[data-exp-btn]').forEach(b=>{
+    const n = idsSelectionExport(b.dataset.expBtn).length;
+    const lib = b.querySelector('.exp-lib'), nb = b.querySelector('.exp-n'), l = n ? 'Exporter la sélection' : 'Exporter Excel', c = n ? ' ('+n+')' : '';
+    if(lib && lib.textContent!==l) lib.textContent = l;
+    if(nb && nb.textContent!==c) nb.textContent = c;
+    b.title = n ? n+' ligne'+(n>1?'s':'')+' cochée'+(n>1?'s':'')+' : seules ces lignes seront proposées à l\'export' : "Exporter vers Excel (choix des colonnes, feuille d'analyses)";
+  });
+  document.querySelectorAll('[data-exp-clear]').forEach(b=>{ const h = idsSelectionExport(b.dataset.expClear).length===0; if(b.hidden!==h) b.hidden = h; });
+}
+function selExpVider(id){
+  selExpSet(id).clear();
+  document.querySelectorAll('table[data-export="'+id+'"]').forEach(t=>{ t.querySelectorAll('.sel-cb').forEach(c=>{ c.checked = false; }); majEtatToutSel(t); });
+  majBoutonsExport();
+}
+document.addEventListener('change', e=>{
+  const t = e.target, table = t && t.classList && t.closest ? t.closest('table[data-export]') : null;
+  if(!table) return;
+  const set = selExpSet(table.dataset.export);
+  if(t.classList.contains('sel-cb')){ if(t.checked) set.add(t.value); else set.delete(t.value); majEtatToutSel(table); }
+  else if(t.classList.contains('sel-all')){
+    table.querySelectorAll('.sel-cb').forEach(cb=>{ cb.checked = t.checked; if(t.checked) set.add(cb.value); else set.delete(cb.value); });
+    majEtatToutSel(table);
+  }
+});
+
 // Après chaque changement de l'écran : trie les listes déroulantes et remet en ordre les tableaux
 let _triEnCours = false;
 const _obsTri = new MutationObserver(()=>{
   if(_triEnCours) return;
   _triEnCours = true;
   try{
+    document.querySelectorAll('table[data-export]').forEach(injecterSelectionExport);          // cases de sélection (avant le tri : le nombre de colonnes ne change pas)
+    majBoutonsExport();
     document.querySelectorAll('select').forEach(trierOptionsSelect);
     document.querySelectorAll('table[data-tri="oui"]').forEach(appliquerTriTable);
   }catch(e){ console.warn('tri', e); }
@@ -2739,7 +2814,7 @@ async function renderChantiers(search=''){
     ${centresSav.length?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${centresSav.length} centre${centresSav.length>1?'s':''} de coûts SAV (${centresSav.map(c=>c.numero).sort().join(', ')}) — gérés dans <a href="#" onclick="navigate('interventions_sav');return false" style="color:var(--blue);font-weight:600">Interventions</a>, avec leurs interventions.</div>`:''}
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-export="chantiers">
           <thead><tr>
             ${sortableTh('Numéro','chantiers','numero',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Nom','chantiers','nom',"renderChantiers(_chantiersSearchAtual)")}
@@ -2754,7 +2829,7 @@ async function renderChantiers(search=''){
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
             items.map(r=>{
               const enRetard = r.date_fin_prevue && r.date_fin_prevue < new Date().toISOString().split('T')[0] && r.statut==='actif';
-              return `<tr style="cursor:pointer${enRetard?';border-left:3px solid var(--red)':''}" onclick="openChantierDetail('${r.id}')">
+              return `<tr data-sel-id="${r.id}" style="cursor:pointer${enRetard?';border-left:3px solid var(--red)':''}" onclick="openChantierDetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
               <td><strong>${r.nom}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}${enRetard?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">En retard</span>':''}</td>
               <td>${r.client}</td>
@@ -3987,14 +4062,14 @@ async function renderFournisseurs(search=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui" data-export="fournisseurs">
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
             items.map(r=>{
               const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif?'oui':'non')+'">'+(r.actif?'Oui':'Non')+'</span>';
-              return '<tr>'
+              return '<tr data-sel-id="'+r.id+'">'
                 +'<td><strong>'+r.nom+'</strong></td>'
                 +'<td>'+email+'</td>'
                 +'<td>'+(r.telephone||'—')+'</td>'
@@ -4201,7 +4276,7 @@ async function renderPOS(search='', filterStatut=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui" data-export="pos">
           <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
@@ -4213,7 +4288,7 @@ async function renderPOS(search='', filterStatut=''){
                 : r.statut==='rec_partielle' ? 50
                 : r.statut==='envoyee' ? 10 : 0;
               const pctColor = pct===100?'var(--green)':pct>0?'var(--blue)':'var(--gray-3)';
-              return `<tr style="cursor:pointer" onclick="openPODetail('${r.id}')">
+              return `<tr data-sel-id="${r.id}" style="cursor:pointer" onclick="openPODetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
               <td>${r.fournisseurs?.nom||'—'}</td>
               <td><strong>${chantierNom}</strong>${_poRefs[r.intervention_id] ? `<div style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_poRefs[r.intervention_id])}</div>` : ''}</td>
@@ -5281,14 +5356,14 @@ async function renderReceptions(){
     <div class="card">
       <div class="card-header"><h2>Historique des réceptions</h2>${btnExport('receptions')}</div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui" data-export="receptions">
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
           <tbody>
             ${bls.length===0?'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
             bls.map(b=>{
               const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
               const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
-              return '<tr style="cursor:pointer" onclick="openBLDetail(\''+b.id+'\')">'
+              return '<tr data-sel-id="'+b.id+'" style="cursor:pointer" onclick="openBLDetail(\''+b.id+'\')">'
                 +'<td><strong class="text-blue">'+b.numero_bl+'</strong></td>'
                 +'<td>'+(b.purchase_orders_lyneo?.numero||'—')+'</td>'
                 +'<td>'+(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
@@ -5525,13 +5600,15 @@ async function renderFactures(){
       <button class="btn btn-ghost btn-sm" id="facf-reset" onclick="reinitialiserFiltresFactures()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
       <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
       <div id="fac-pager-top" class="pager" style="margin-left:auto"></div>
-      <button class="btn btn-secondary btn-sm" id="fac-export" onclick="exporterFacturesExcel()"><i class="ti ti-file-spreadsheet"></i> Exporter Excel <span id="fac-export-n"></span></button>
+      <button class="btn btn-secondary btn-sm" id="fac-export" onclick="exporterFacturesExcel()"><i class="ti ti-file-spreadsheet"></i> <span id="fac-export-lib">Exporter Excel</span> <span id="fac-export-n"></span></button>
+      <button class="btn btn-secondary btn-sm" id="fac-export-lignes" onclick="ouvrirExport('lignes_factures')" title="Une ligne par ligne de facture, avec le code ressource : pour analyser les coûts par chantier"><i class="ti ti-table-export"></i> Export lignes (analyse)</button>
       ${btnDoublons('factures', _facsListe, true)}
     </div>
     <div id="fac-bulk" style="display:none;position:sticky;top:0;z-index:5;gap:10px;flex-wrap:wrap;align-items:center;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
       <strong id="fac-bulk-n" style="font-size:13px"></strong>
       <select id="fac-bulk-chantier" style="width:auto;min-width:250px"><option value="">— Affecter au chantier… —</option>${optChantiers}</select>
       <button class="btn btn-primary btn-sm" id="fac-bulk-ok" onclick="affecterChantierSelection()"><i class="ti ti-link"></i> Affecter</button>
+      <button class="btn btn-secondary btn-sm" id="fac-bulk-export" onclick="exporterFacturesExcel()" title="Exporter seulement les factures cochées"><i class="ti ti-file-spreadsheet"></i> Exporter la sélection</button>
       <button class="btn btn-ghost btn-sm" id="fac-bulk-all" style="display:none" onclick="selectionnerToutesFiltreesFactures()"></button>
       <button class="btn btn-ghost btn-sm" onclick="viderSelectionFactures()">Désélectionner</button>
     </div>
@@ -5656,7 +5733,7 @@ function afficherFactures(){
         <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
         <td style="white-space:nowrap">${fmtHtFacture(r)}</td>
         <td style="white-space:nowrap"><strong>${fmt(r.montant_ttc)}</strong></td>
-        <td><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button></td>
+        <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button> <button class="btn btn-ghost btn-sm" data-fac-apercu="${r.id}" onclick="apercuFactureListe('${r.id}')" title="Aperçu du PDF (sans le télécharger)"><i class="ti ti-eye"></i></button></td>
         <td>${bFA(r.statut)}</td>
         <td><div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
@@ -5725,9 +5802,17 @@ function syncDefilementFac(){
   }
 }
 
-// Export Excel : exactement les factures affichées (filtres appliqués), avec totaux et filtre automatique
+// Factures cochées (dans l'ordre affiché) ; vide s'il n'y a aucune sélection
+function facturesSelectionnees(){
+  const ch = _facsListe.filter(f=>_facSel.has(f.id));
+  return ch.length ? trierFactures(ch) : [];
+}
+// Export Excel : les factures COCHÉES s'il y en a (même réparties sur plusieurs pages, comme annoncé dans la barre
+// « N factures sélectionnées » ; changer un filtre remet la sélection à zéro), sinon exactement les factures affichées
+// (filtres appliqués) ; avec totaux et filtre automatique
 async function exporterFacturesExcel(){
-  const items = facturesFiltrees();
+  const sel = facturesSelectionnees();
+  const items = sel.length ? sel : facturesFiltrees();
   if(!items.length){ showToast('Aucune facture à exporter', 'error'); return; }
   if(typeof XLSX==='undefined'){ showToast("La bibliothèque Excel n'est pas chargée — vérifiez la connexion internet et rechargez la page", 'error'); return; }
   // dernière date de paiement de chaque facture (facultatif : si la lecture échoue, on exporte sans)
@@ -5766,8 +5851,8 @@ async function exporterFacturesExcel(){
   ws['!cols'] = [{wch:15},{wch:20},{wch:14},{wch:24},{wch:14},{wch:26},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:12},{wch:50},{wch:16}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Factures fournisseurs');
-  await ecrireClasseur(wb, `Factures_fournisseurs_${today()}.xlsx`);
-  showToast(`${n} facture${n>1?'s':''} exportée${n>1?'s':''} vers Excel`);
+  await ecrireClasseur(wb, `Factures_fournisseurs_${sel.length ? 'selection_' : ''}${today()}.xlsx`);
+  showToast(sel.length ? `${n} facture${n>1?'s':''} sélectionnée${n>1?'s':''} exportée${n>1?'s':''} vers Excel` : `${n} facture${n>1?'s':''} exportée${n>1?'s':''} vers Excel`);
 }
 
 // Barre « N factures sélectionnées » + case « tout sélectionner »
@@ -5779,6 +5864,9 @@ function majBarreFactures(){
     const n = el('fac-bulk-n');
     if(n) n.textContent = `${choisies.length} facture${choisies.length>1?'s':''} sélectionnée${choisies.length>1?'s':''} · ${fmt(choisies.reduce((a,f)=>a+(parseFloat(f.montant_ttc)||0),0))} TTC`;
   }
+  const lib = el('fac-export-lib'), nb = el('fac-export-n');
+  if(lib) lib.textContent = choisies.length ? 'Exporter la sélection' : 'Exporter Excel';
+  if(nb) nb.textContent = `(${choisies.length || facturesFiltrees().length})`;
   const all = el('fac-sel-all');
   if(all){
     const vis = facturesPage().filter(r=>r.statut!=='annulee');
@@ -5858,11 +5946,96 @@ async function affecterChantierFacture(id, chantierId){
   afficherFactures();
 }
 
+// ── Aperçu des documents (PDF, images) dans un panneau à droite, sans les télécharger ───────────────────
+// ouvrirApercu([{url, nom, tipo}], i, local) : le panneau reste ouvert quand on passe d'une fenêtre à l'autre (fiche → Modifier),
+// les fenêtres se décalent à gauche pour ne pas être recouvertes. Un fichier distant est lu en mémoire puis affiché avec son
+// vrai type (le PDF s'affiche même si le serveur le propose en téléchargement). `local` = fichier choisi dans un formulaire pas
+// encore enregistré : l'aperçu se ferme avec la fenêtre.
+let _ap = null;
+const apEstPdf = d => /pdf/i.test(d.tipo||'') || /\.pdf$/i.test(String(d.nom||'').trim());
+const apEstImage = d => /^image\//i.test(d.tipo||'') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(d.nom||'').trim());
+const apPrevisualisable = d => apEstPdf(d) || apEstImage(d);
+function apLibererBlobs(){
+  if(!_ap) return;
+  Object.values(_ap.blobs).forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(e){} });
+  if(_ap.local) _ap.docs.forEach(d=>{ try{ URL.revokeObjectURL(d.url); }catch(e){} });
+}
+function ouvrirApercu(docs, i, local){
+  docs = (docs||[]).filter(d=>d && d.url);
+  if(!docs.length) return;
+  apLibererBlobs();
+  _ap = {docs, i:Math.min(Math.max(0, i||0), docs.length-1), jeton:0, blobs:{}, local:!!local};
+  let p = el('apercu-doc');
+  if(!p){ p = document.createElement('div'); p.id = 'apercu-doc'; p.setAttribute('role','dialog'); p.setAttribute('aria-label','Aperçu du document'); document.body.appendChild(p); }
+  p.innerHTML = `<div class="ap-bar">
+      <div class="ap-titre"><i class="ti ti-eye" style="color:var(--blue)"></i><span id="ap-nom"></span><span id="ap-n"></span></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="ap-prec" onclick="apAller(-1)" title="Document précédent"><i class="ti ti-chevron-left"></i></button>
+      <button type="button" class="btn btn-ghost btn-sm" id="ap-suiv" onclick="apAller(1)" title="Document suivant"><i class="ti ti-chevron-right"></i></button>
+      <a class="btn btn-secondary btn-sm" id="ap-onglet" target="_blank" rel="noopener" title="Ouvrir dans un nouvel onglet"><i class="ti ti-external-link"></i></a>
+      <a class="btn btn-secondary btn-sm" id="ap-dl" title="Télécharger"><i class="ti ti-download"></i></a>
+      <button type="button" class="btn btn-ghost btn-sm" id="ap-fermer" onclick="fermerApercu()" title="Fermer l'aperçu" aria-label="Fermer l'aperçu"><i class="ti ti-x"></i></button>
+    </div><div class="ap-corps" id="ap-corps"></div>`;
+  document.body.classList.add('apercu-ouvert');
+  apAfficher();
+}
+function apAller(delta){ if(!_ap) return; _ap.i = (_ap.i + delta + _ap.docs.length) % _ap.docs.length; apAfficher(); }
+async function apUrlBlob(d){
+  if(_ap.blobs[d.url]) return _ap.blobs[d.url];
+  let blob = null;
+  const chemin = (String(d.url).split('/Documents/')[1]||'').split('?')[0];
+  if(chemin){ try{ const r = await sb.storage.from('Documents').download(decodeURIComponent(chemin)); if(r && !r.error && r.data) blob = r.data; }catch(e){} }
+  if(!blob){ const rep = await fetch(d.url); if(!rep.ok) throw new Error('HTTP '+rep.status); blob = await rep.blob(); }
+  const typed = new Blob([blob], {type: apEstPdf(d) ? 'application/pdf' : (blob.type || d.tipo || 'application/octet-stream')});
+  const u = URL.createObjectURL(typed);
+  _ap.blobs[d.url] = u;
+  return u;
+}
+async function apAfficher(){
+  const A = _ap; if(!A) return;
+  const d = A.docs[A.i], jeton = ++A.jeton, corps = el('ap-corps'); if(!corps) return;
+  const multi = A.docs.length>1;
+  el('ap-nom').textContent = d.nom || 'Document';
+  el('ap-n').textContent = multi ? (A.i+1)+' / '+A.docs.length : '';
+  el('ap-prec').style.display = el('ap-suiv').style.display = multi ? '' : 'none';
+  el('ap-onglet').href = d.url; el('ap-dl').href = d.url; el('ap-dl').setAttribute('download', d.nom || 'document');
+  if(!apPrevisualisable(d)){
+    corps.innerHTML = `<div class="ap-msg"><i class="ti ti-file-off" style="font-size:34px;display:block;margin-bottom:8px"></i>Ce type de fichier ne peut pas être affiché ici.<br><a class="btn btn-primary btn-sm" style="margin-top:12px" href="${escHtml(d.url)}" download="${escHtml(d.nom||'document')}"><i class="ti ti-download"></i> Télécharger</a></div>`;
+    return;
+  }
+  corps.innerHTML = '<div class="ap-msg">Chargement…</div>';
+  let src = d.url;
+  if(!d.local){ try{ src = await apUrlBlob(d); }catch(e){ src = d.url; } }
+  if(_ap!==A || jeton!==A.jeton) return;                                    // fermé ou changé de document pendant le chargement
+  corps.innerHTML = apEstImage(d)
+    ? `<img src="${escHtml(src)}" alt="${escHtml(d.nom||'')}"/>`
+    : `<iframe title="${escHtml(d.nom||'Document')}" src="${escHtml(src)}#view=FitH"></iframe>`;
+}
+function fermerApercu(){
+  apLibererBlobs(); _ap = null;
+  const p = el('apercu-doc'); if(p) p.remove();
+  document.body.classList.remove('apercu-ouvert');
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && _ap) fermerApercu(); });
+// Documents joints d'une facture fournisseur : directement depuis la liste (les PDF et images d'abord)
+async function apercuFactureListe(facId){
+  const {data, error} = await sb.from('anexos').select('*').eq('factura_id', facId).order('created_at', {ascending:false});
+  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  const docs = (data||[]).map(d=>({url:d.url, nom:d.nome_ficheiro, tipo:d.tipo}));
+  if(!docs.length){ showToast('Aucun document joint à cette facture', 'error'); return; }
+  ouvrirApercu(docs.filter(apPrevisualisable).concat(docs.filter(d=>!apPrevisualisable(d))), 0, false);
+}
+function apercuDocFac(i){ ouvrirApercu(window._facDocsDetail||[], i, false); }
+function apercuFichierLocal(i){
+  const fs = _facFilesNew || []; if(!fs[i]) return;
+  ouvrirApercu(fs.map(f=>({url:URL.createObjectURL(f), nom:f.name, tipo:f.type})), i, true);
+}
+
 // ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
 async function openFacDetail(facId){
   const {data:fac} = await sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom))').eq('id',facId).single();
   const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
   const docs = annexes||[];
+  window._facDocsDetail = docs.map(d=>({url:d.url, nom:d.nome_ficheiro, tipo:d.tipo}));
   const refInt = fac.intervention_id ? await refIntervention(fac.intervention_id) : '';
 
   const iconeType = (tipo) => {
@@ -5930,17 +6103,18 @@ async function openFacDetail(facId){
       <div id="annexes-list">
         ${docs.length===0
           ? '<div style="text-align:center;padding:20px;color:var(--gray-4)"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>Aucun document joint</div>'
-          : docs.map(d=>`
+          : docs.map((d,idx)=>`
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
               <div style="display:flex;align-items:center;gap:12px">
                 <i class="ti ${iconeType(d.tipo)}" style="font-size:24px;color:var(--blue)"></i>
                 <div>
-                  <div style="font-weight:600;font-size:13px">${d.nome_ficheiro}</div>
+                  <div style="font-weight:600;font-size:13px">${escHtml(d.nome_ficheiro)}</div>
                   <div style="font-size:11px;color:var(--gray-5)">${fmtSize(d.tamanho)} — Ajouté par ${escHtml(nomPers(d.utilisateurs))} le ${fmtDate(d.created_at)}</div>
                 </div>
               </div>
               <div class="flex gap-8">
-                <a href="${d.url}" target="_blank" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i> Ouvrir</a>
+                <button class="btn btn-primary btn-sm" data-apercu-doc="${idx}" onclick="apercuDocFac(${idx})" title="Voir le document ici, sans le télécharger"><i class="ti ti-eye"></i> Aperçu</button>
+                <a href="${d.url}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="Ouvrir dans un nouvel onglet"><i class="ti ti-external-link"></i> Ouvrir</a>
                 <a href="${d.url}" download="${d.nome_ficheiro}" class="btn btn-secondary btn-sm"><i class="ti ti-download"></i></a>
                 <button class="btn btn-danger btn-sm" onclick="deleteAnnexe('${d.id}','${facId}','${d.url}')"><i class="ti ti-trash"></i></button>
               </div>
@@ -6133,6 +6307,152 @@ function htmlCoutsIntervention(d){
   </div>`;
 }
 
+// ── CODES RESSOURCE (analyse des chantiers par la direction financière) ──────────────────────
+// Liste modifiable (page Documents → « Codes ressource », ou lien « Gérer les codes » dans les formulaires de facture).
+// Chaque ligne de facture fournisseur porte un code (colonne lignes_facture.code_ressource_id).
+// Sans le script « migration-codes-ressource.sql » rien ne change : pas de colonne, et aucune écriture ne mentionne le code.
+const SQL_CODES_RESSOURCE = "Exécutez d'abord le script « migration-codes-ressource.sql » dans Supabase (SQL Editor) pour activer les codes ressource.";
+let _codesRes = [];                 // [{id, code, description, actif}] triés par code
+let _codesResDispo = false;         // la table ET la colonne existent
+let _codesResColOk = false;         // colonne vérifiée (mémorisé quand oui)
+let _crRafraichir = '';             // nom de la fonction qui redessine les lignes du formulaire ouvert derrière « Gérer »
+const peutGererCodesRes = () => !!currentUser && ['admin','comptabilite'].includes(currentUser.role);
+const cmpCodeRes = (a,b) => String(a.code||'').localeCompare(String(b.code||''), 'fr', {numeric:true, sensitivity:'base'});
+async function chargerCodesRessource(){
+  try{
+    const r = await sb.from('codes_ressource').select('*');
+    if(r.error) throw r.error;
+    if(!_codesResColOk){
+      const c = await sb.from('lignes_facture').select('code_ressource_id').limit(1);
+      if(c.error) throw c.error;
+      _codesResColOk = true;
+    }
+    _codesRes = (r.data||[]).slice().sort(cmpCodeRes);
+    _codesResDispo = true;
+  }catch(e){ _codesRes = []; _codesResDispo = false; _codesResColOk = false; }
+  return _codesResDispo;
+}
+// Liste déroulante d'une ligne (les codes désactivés ne sont plus proposés, sauf celui déjà choisi sur la ligne)
+const crOptions = courant => '<option value="">— Code ressource —</option>'
+  + _codesRes.filter(c=>c.actif!==false || c.id===courant).map(c=>'<option value="'+escHtml(c.id)+'"'+(c.id===courant?' selected':'')+'>'+escHtml(c.code)+(c.actif===false?' (désactivé)':'')+'</option>').join('');
+const crTh = stl => _codesResDispo ? '<th class="cr-col"'+(stl?' style="'+stl+'"':'')+'>Code ressource</th>' : '';
+const crTd = (courant, onchange, stl) => _codesResDispo
+  ? '<td class="cr-col"'+(stl?' style="'+stl+'"':'')+'><select class="cr-select" aria-label="Code ressource" onchange="'+onchange+'" style="width:100%;min-width:120px;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'+crOptions(courant||'')+'</select></td>' : '';
+// ce qu'on écrit dans lignes_facture (rien tant que le script SQL n'a pas été exécuté) / ce qu'on recopie (duplication, note de crédit)
+const crPayload = l => _codesResDispo ? {code_ressource_id: l.code_ressource_id || null} : {};
+const crCopie = l => (l && 'code_ressource_id' in l) ? {code_ressource_id: l.code_ressource_id || null} : {};
+const crLienGerer = (fnRedessiner, couleur) => (_codesResDispo && peutGererCodesRes())
+  ? '<a href="#" class="cr-gerer" onclick="ouvrirGestionCodesRes(\''+fnRedessiner+'\');return false" title="Ajouter, renommer ou désactiver des codes ressource" style="font-size:12px;font-weight:600;margin-left:12px;color:'+(couleur||'var(--blue-mid)')+'"><i class="ti ti-settings"></i> Gérer les codes</a>' : '';
+const crErreur = e => { const m = String((e && e.message) || e || ''); return (e && e.code==='23505') || /duplicate key|unique/i.test(m) ? 'Ce code existe déjà' : (e && e.code==='23503') || /foreign key|violates/i.test(m) ? 'Ce code est utilisé par des lignes de facture : désactivez-le au lieu de le supprimer' : 'Erreur: '+m; };
+
+async function lireUsageCodesRes(){
+  const usage = {};
+  try{
+    let debut = 0;
+    for(;;){
+      const r = await sb.from('lignes_facture').select('code_ressource_id').not('code_ressource_id','is',null).order('id',{ascending:true}).range(debut, debut+999);
+      if(r.error) break;
+      const l = r.data||[]; l.forEach(x=>{ if(x.code_ressource_id) usage[x.code_ressource_id] = (usage[x.code_ressource_id]||0)+1; });
+      if(l.length<1000) break;
+      debut += 1000;
+    }
+  }catch(e){}
+  return usage;
+}
+function htmlGestionCodesRes(usage){
+  const ch = 'width:100%;padding:6px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px';
+  const lignes = _codesRes.map(c=>{
+    const n = usage[c.id]||0, id = escHtml(c.id);
+    return '<tr data-cr-id="'+id+'" class="'+(c.actif===false?'cr-inactif':'')+'">'
+      +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2)"><input class="cr-in-code" aria-label="Code" value="'+escHtml(c.code)+'" maxlength="40" onchange="crSauver(\''+id+'\',\'code\',this)" style="'+ch+';font-weight:600"/></td>'
+      +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2)"><input class="cr-in-desc" aria-label="Description" value="'+escHtml(c.description||'')+'" maxlength="200" onchange="crSauver(\''+id+'\',\'description\',this)" style="'+ch+'"/></td>'
+      +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:center"><input type="checkbox" class="cr-in-actif" aria-label="Actif" '+(c.actif!==false?'checked':'')+' onchange="crSauver(\''+id+'\',\'actif\',this)" title="Décoché : le code n\'est plus proposé dans les listes (l\'historique est conservé)"/></td>'
+      +'<td class="cr-usage" style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-6)">'+n+'</td>'
+      +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:center"><button type="button" class="cr-suppr" onclick="crSupprimer(\''+id+'\')" title="'+(n?'Utilisé par '+n+' ligne(s) : désactivez-le':'Supprimer ce code')+'" style="background:none;border:none;cursor:pointer;color:'+(n?'var(--gray-4)':'var(--red)')+'"><i class="ti ti-trash"></i></button></td></tr>';
+  }).join('');
+  return '<div class="cr-ajout" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+    +'<input id="cr-new-code" class="cr-new-code" aria-label="Nouveau code" placeholder="Nouveau code (ex. FOURNITURE)" maxlength="40" autocomplete="off" onkeydown="if(event.key===\'Enter\'){event.preventDefault();crAjouter();}" style="'+ch+';flex:1 1 180px;width:auto"/>'
+    +'<input id="cr-new-desc" class="cr-new-desc" aria-label="Description du nouveau code" placeholder="Description (facultatif)" maxlength="200" autocomplete="off" onkeydown="if(event.key===\'Enter\'){event.preventDefault();crAjouter();}" style="'+ch+';flex:2 1 240px;width:auto"/>'
+    +'<button type="button" class="btn btn-primary btn-sm cr-add" id="cr-add" onclick="crAjouter()"><i class="ti ti-plus"></i> Ajouter</button></div>'
+    +'<div style="overflow-x:auto"><table class="cr-table" style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr style="background:var(--gray-1)">'
+    +'<th style="padding:7px 8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray-5);width:28%">Code</th><th style="padding:7px 8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray-5)">Description</th>'
+    +'<th style="padding:7px 8px;text-align:center;font-size:11px;text-transform:uppercase;color:var(--gray-5);width:60px">Actif</th><th style="padding:7px 8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray-5);width:70px">Lignes</th><th style="width:40px"></th></tr></thead>'
+    +'<tbody>'+(lignes || '<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--gray-5)">Aucun code pour le moment : ajoutez-en un ci-dessus.</td></tr>')+'</tbody></table></div>';
+}
+async function rendreGestionCodesRes(){
+  const ok = await chargerCodesRessource();
+  const zones = document.querySelectorAll('.cr-zone');
+  if(!zones.length) return;
+  if(!ok){
+    zones.forEach(z=>{ z.innerHTML = '<div class="alert alert-warning" style="margin:0"><i class="ti ti-alert-triangle"></i><span>'+escHtml(SQL_CODES_RESSOURCE)+'</span></div>'; });
+    return;
+  }
+  const html = htmlGestionCodesRes(await lireUsageCodesRes());
+  document.querySelectorAll('.cr-zone').forEach(z=>{ z.innerHTML = html; });
+}
+async function ouvrirGestionCodesRes(redessiner){
+  if(!peutGererCodesRes()){ showToast('Réservé aux administrateurs et à la comptabilité', 'error'); return; }
+  _crRafraichir = redessiner || '';
+  let c = el('code-res-container');
+  if(!c){ c = document.createElement('div'); c.id = 'code-res-container'; document.body.appendChild(c); }
+  c.innerHTML = '<div class="modal-overlay" style="z-index:300" onclick="if(event.target===this)fermerGestionCodesRes()"><div class="modal" style="max-width:720px">'
+    +'<div class="modal-header"><h3><i class="ti ti-tags"></i> Codes ressource</h3><button class="modal-close" onclick="fermerGestionCodesRes()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>'
+    +'<div class="modal-body"><p style="font-size:13px;color:var(--gray-6);margin:0 0 12px">Les modifications sont enregistrées dès que vous quittez le champ. Un code déjà utilisé ne peut pas être supprimé : décochez « Actif » pour ne plus le proposer.</p>'
+    +'<div class="cr-zone"><p style="color:var(--gray-5)">Chargement…</p></div>'
+    +'<div class="form-actions"><button class="btn btn-primary" onclick="fermerGestionCodesRes()">Fermer</button></div></div></div></div>';
+  await rendreGestionCodesRes();
+}
+function fermerGestionCodesRes(){
+  const c = el('code-res-container'); if(!c || !c.innerHTML) return;
+  c.innerHTML = '';
+  const f = _crRafraichir; _crRafraichir = '';
+  if(f && typeof window[f]==='function') window[f]();                 // les listes du formulaire reprennent la liste à jour
+}
+async function crSauver(id, champ, inp){
+  if(!peutGererCodesRes()) return;
+  const c = _codesRes.find(x=>x.id===id); if(!c) return;
+  let patch;
+  if(champ==='code'){
+    const v = inp.value.trim();
+    if(!v){ showToast('Le code ne peut pas être vide', 'error'); inp.value = c.code; return; }
+    if(_codesRes.some(x=>x.id!==id && String(x.code).trim().toLowerCase()===v.toLowerCase())){ showToast('Le code « '+v+' » existe déjà', 'error'); inp.value = c.code; return; }
+    patch = {code: v};
+  }else if(champ==='description'){ patch = {description: inp.value.trim() || null}; }
+  else{ patch = {actif: !!inp.checked}; }
+  const {error} = await sb.from('codes_ressource').update(patch).eq('id', id);
+  if(error){ showToast(crErreur(error), 'error'); await rendreGestionCodesRes(); return; }
+  Object.assign(c, patch);
+  if(champ==='code'){ inp.value = patch.code; _codesRes.sort(cmpCodeRes); }
+  const tr = inp.closest('tr'); if(tr && champ==='actif') tr.classList.toggle('cr-inactif', patch.actif===false);
+  showToast(champ==='code' ? 'Code renommé : « '+patch.code+' »' : champ==='actif' ? (patch.actif ? 'Code activé' : 'Code désactivé : il n\'est plus proposé') : 'Description enregistrée');
+}
+async function crAjouter(){
+  if(!peutGererCodesRes()) return;
+  const zs = document.querySelectorAll('.cr-zone'), z = zs[zs.length-1];                  // la zone la plus récente = celle de la fenêtre ouverte par-dessus
+  const inC = z && z.querySelector('.cr-new-code'), inD = z && z.querySelector('.cr-new-desc'); if(!inC) return;
+  const code = inC.value.trim();
+  if(!code){ showToast('Saisissez le code à ajouter', 'error'); inC.focus(); return; }
+  if(_codesRes.some(x=>String(x.code).trim().toLowerCase()===code.toLowerCase())){ showToast('Le code « '+code+' » existe déjà', 'error'); inC.focus(); return; }
+  const b = z.querySelector('.cr-add'); if(b) b.disabled = true;
+  const {error} = await sb.from('codes_ressource').insert({code, description: (inD && inD.value.trim()) || null, actif:true});
+  if(b) b.disabled = false;
+  if(error){ showToast(crErreur(error), 'error'); return; }
+  showToast('Code ajouté : « '+code+' »');
+  await rendreGestionCodesRes();
+  const zs2 = document.querySelectorAll('.cr-zone'), n = zs2.length ? zs2[zs2.length-1].querySelector('.cr-new-code') : null; if(n) n.focus();
+}
+async function crSupprimer(id){
+  if(!peutGererCodesRes()) return;
+  const c = _codesRes.find(x=>x.id===id); if(!c) return;
+  const u = await sb.from('lignes_facture').select('id').eq('code_ressource_id', id).limit(1);
+  if(!u.error && (u.data||[]).length){ showToast('« '+c.code+' » est utilisé par des lignes de facture : décochez « Actif » pour ne plus le proposer', 'error'); return; }
+  if(!confirm('Supprimer le code « '+c.code+' » ?')) return;
+  const {error} = await sb.from('codes_ressource').delete().eq('id', id);
+  if(error){ showToast(crErreur(error), 'error'); await rendreGestionCodesRes(); return; }
+  showToast('Code supprimé : « '+c.code+' »');
+  await rendreGestionCodesRes();
+}
+
 async function openFacLibreModal(){
   const [{data:chantiersData},{data:foursData}] = await Promise.all([
     sb.from('chantiers_lyneo').select('id,numero,nom').order('nom'),
@@ -6140,6 +6460,7 @@ async function openFacLibreModal(){
   ]);
   const chantiers = chantiersData||[];
   const fours = foursData||[];
+  await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
@@ -6158,7 +6479,7 @@ async function openFacLibreModal(){
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="facl-echeance"/></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <strong style="font-size:13px">Lignes</strong>
+        <span><strong style="font-size:13px">Lignes</strong>${crLienGerer('renderFacLignesLibre')}</span>
         <button class="btn btn-secondary btn-sm" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
       <div style="overflow-x:auto;max-width:100%">
@@ -6166,9 +6487,10 @@ async function openFacLibreModal(){
           <thead><tr style="background:var(--gray-1)">
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Référence</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description</th>
+            ${crTh('padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:140px')}
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
-            <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:65px">TVA</th>
+            <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:65px;min-width:66px">TVA</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
             <th style="width:34px"></th>
           </tr></thead>
@@ -6192,6 +6514,7 @@ function renderFacLignesLibre(){
   body.innerHTML = _facLignesLibre.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.reference_article||''}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    ${crTd(l.code_ressource_id, "updFacLigneLibre("+i+",'code_ressource_id',this.value)", 'padding:6px 10px;border-bottom:1px solid var(--gray-2)')}
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updFacLigneLibre(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updFacLigneLibre(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updFacLigneLibre(${i},'taux_tva',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">${[17,14,8,3,0].map(t=>`<option value="${t}" ${l.taux_tva==t?'selected':''}>${t}%</option>`).join('')}</select></td>
@@ -6240,7 +6563,8 @@ async function saveFacLibre(){
     facture_id: fac.id, ordre: i+1,
     description: l.description, reference_article: l.reference_article||'',
     quantite: parseFloat(l.quantite)||0, unite: l.unite,
-    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva),
+    ...crPayload(l)
   })));
 
   showToast('Facture créée — '+numero+nIntTxt(fac));
@@ -6360,6 +6684,7 @@ async function loadLignesPourFac(poId){
     (ligBL||[]).forEach(lb=>{ dejRecu[lb.ligne_po_id]=(dejRecu[lb.ligne_po_id]||0)+parseFloat(lb.quantite_recue||0); });
   }
 
+  await chargerCodesRessource();
   _facLignesPO = (lignes||[]).map(l=>({
     id: l.id,
     description: l.description,
@@ -6389,11 +6714,12 @@ function renderFacLignesEdit(){
   let html = '<div style="border:1px solid var(--gray-3);border-radius:var(--radius);overflow:hidden">'
     +'<div style="background:var(--navy);padding:10px 16px;display:flex;align-items:center;justify-content:space-between">'
     +  '<span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.06em">Lignes de la commande — modifiez quantités et prix</span>'
-    +  '<span style="font-size:11px;color:rgba(255,255,255,.5)">'+_facLignesPO.length+' article(s)</span>'
+    +  '<span style="font-size:11px;color:rgba(255,255,255,.5)">'+crLienGerer('renderFacLignesEdit','#fff')+' &nbsp; '+_facLignesPO.length+' article(s)</span>'
     +'</div>'
     +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:550px">'
     +'<thead><tr style="background:var(--gray-1)">'
     +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>'
+    +crTh('padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);min-width:140px')
     +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:90px">Quantité</th>'
     +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:55px">Unité</th>'
     +'<th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3);width:110px">P.U. HT €</th>'
@@ -6408,6 +6734,7 @@ function renderFacLignesEdit(){
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
       +  '<input value="'+l.description.replace(/"/g,'&quot;')+'" data-field="description" data-idx="'+i+'" class="fac-ligne-input" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;background:var(--blue-light)"/>'
       +'</td>'
+      +crTd(l.code_ressource_id,'_facLignesPO['+i+'].code_ressource_id=this.value','padding:6px 10px;border-bottom:1px solid var(--gray-2)')
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" data-field="quantite" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
       +'</td>'
@@ -6482,8 +6809,9 @@ function previewFacFiles(files){
   if(!preview) return;
   preview.innerHTML = _facFilesNew.map((f,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:4px;margin-bottom:4px">'
     +'<i class="ti ti-file-type-pdf" style="font-size:18px;color:var(--red)"></i>'
-    +'<span style="font-size:13px;flex:1">'+f.name+'</span>'
+    +'<span style="font-size:13px;flex:1">'+escHtml(f.name)+'</span>'
     +'<span style="font-size:11px;color:var(--gray-5)">'+(f.size/1024).toFixed(0)+' KB</span>'
+    +'<button type="button" class="btn btn-secondary btn-sm" data-apercu-local="'+i+'" onclick="apercuFichierLocal('+i+')" title="Voir le document à côté du formulaire"><i class="ti ti-eye"></i> Aperçu</button>'
     +'<button onclick="_facFilesNew.splice('+i+',1);previewFacFiles(_facFilesNew)" style="background:none;border:none;cursor:pointer;color:var(--gray-4);font-size:16px">&times;</button>'
     +'</div>').join('');
 }
@@ -6558,7 +6886,8 @@ async function saveFacCore(){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: tvaNum(l.taux_tva)
+      taux_tva: tvaNum(l.taux_tva),
+      ...crPayload(l)
     })));
     if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
@@ -7206,14 +7535,14 @@ async function renderClients(search=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui" data-export="clients">
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Aucun client trouvé</p><button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button></div></td></tr>' :
             items.map(r=>{
               const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif!==false?'oui':'non')+'">'+(r.actif!==false?'Oui':'Non')+'</span>';
-              return '<tr>'
+              return '<tr data-sel-id="'+r.id+'">'
                 +'<td><strong>'+r.nom+'</strong></td>'
                 +'<td>'+email+'</td>'
                 +'<td>'+(r.telephone||'—')+'</td>'
@@ -7925,11 +8254,11 @@ function afficherDevis(){
     return `<span title="${escHtml(nums)}">${bFD(e)}</span><div style="${sub}">${l2}</div>${e.horsStatut?`<div style="${sub};color:var(--red)">Devis « ${escHtml(STATUT_DV[d.statut]||d.statut)} » mais facturé</div>`:''}`;
   };
   const liste = el('dv-liste'); if(!liste) return;
-  liste.innerHTML = `<table>
+  liste.innerHTML = `<table data-export="devis">
     <thead><tr>${COLS_DEVIS.map(enteteColDevis).join('')}<th>Actions</th></tr></thead>
     <tbody>
       ${items.length===0 ? `<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>${_devis.length===0?'Aucun devis trouvé':'Aucun devis ne correspond à ces critères'}</p>${_devis.length===0?'<button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>':'<button class="btn btn-secondary" onclick="reinitialiserFiltresDevis()">Réinitialiser les filtres</button>'}</div></td></tr>` :
-      items.map(d=>`<tr style="cursor:pointer" onclick="openDevisDetail('${d.id}')">
+      items.map(d=>`<tr data-sel-id="${d.id}" style="cursor:pointer" onclick="openDevisDetail('${d.id}')">
         <td style="white-space:nowrap"><strong class="text-blue">${escHtml(d.numero)}</strong></td>
         <td>${escHtml(d.clients?.nom||'—')}</td>
         <td>${d.chantiers_lyneo?escHtml(d.chantiers_lyneo.nom):'—'}</td>
@@ -8803,7 +9132,7 @@ function afficherFacturesVente(){
     const lienSav = iv ? `<a href="#" class="text-blue" style="${dv?'font-size:11.5px;':'font-weight:600;'}white-space:nowrap" onclick="event.stopPropagation();openInterventionDetail('${iv.id}');return false">${escHtml(iv.ref)}</a>${iv.nom_site?`<span style="${sub}"> — ${escHtml(iv.nom_site)}</span>`:''}` : '';
     const montant = v=>`<td style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;${annulee?'text-decoration:line-through;color:var(--gray-5)':(avoir?'color:var(--red)':'')}">${fmt(v)}</td>`;
     const lienOrig = avoir ? `<div style="${sub}">Sur ${orig?`<a href="#" class="text-blue" onclick="event.stopPropagation();openFactureVenteDetail('${orig.id}');return false">${escHtml(orig.numero)}</a>`:'—'}</div>` : '';
-    return `<tr style="cursor:pointer" onclick="openFactureVenteDetail('${f.id}')">
+    return `<tr data-sel-id="${f.id}" style="cursor:pointer" onclick="openFactureVenteDetail('${f.id}')">
       <td style="white-space:nowrap"><strong class="text-blue">${escHtml(f.numero)}</strong>${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
       <td style="white-space:nowrap">${fmtDate(f.date_creation)}</td>
       <td style="white-space:nowrap;${jr?'color:var(--red);font-weight:600':''}">${f.date_echeance?fmtDate(f.date_echeance):'—'}${jr?`<div style="font-size:11.5px;font-weight:500">+${jr} j</div>`:''}</td>
@@ -8827,7 +9156,7 @@ function afficherFacturesVente(){
 
   const liste = el('fv-liste');
   if(!liste) return;
-  liste.innerHTML = `<table data-tri="oui">
+  liste.innerHTML = `<table data-tri="oui" data-export="factures_vente">
     <thead><tr>${th('N°')}${th('Date')}${th('Échéance')}${th('Client')}${th('Centre de coûts')}${th('Origine')}${th('Type')}${th('HT','right')}${th('TVA','right')}${th('TTC','right')}${th('Statut')}</tr></thead>
     <tbody>${items.length===0 ? `<tr><td colspan="11">${vide}</td></tr>` : items.map(ligne).join('')}</tbody>
     ${items.length ? `<tfoot><tr style="background:var(--gray-1);font-weight:700">
@@ -10745,12 +11074,19 @@ async function renderDocuments(){
       ${catalogueDocumentsHtml()}
     </div>
 
+    <div class="card" style="padding:20px;margin-bottom:16px" id="doc-codes-ressource">
+      <h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-tags"></i> Codes ressource des factures fournisseurs</h3>
+      <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Chaque ligne d’une facture fournisseur reçoit un code (ex. FOURNITURE, FLOTTE…) : la direction financière s’en sert pour analyser les coûts par chantier (Factures fournisseurs → « Export lignes (analyse) »). Ajoutez, renommez ou désactivez les codes ici ; ils sont aussi modifiables depuis le formulaire de facture (« Gérer les codes »). Un code déjà utilisé ne se supprime pas : décochez « Actif » pour ne plus le proposer.</p>
+      <div class="cr-zone" id="cr-zone-doc"><p style="color:var(--gray-5)">Chargement…</p></div>
+    </div>
+
     <div class="card" style="padding:20px;margin-bottom:16px" id="doc-exports">
       <h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-file-spreadsheet"></i> Exports Excel des listes</h3>
       <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Bouton « Exporter Excel » de chaque module : vous choisissez les colonnes, avec en option une feuille d’analyses et un tableau croisé. Chaque feuille porte en pied d’impression « ${escHtml(E.nom)} — ${escHtml(E.site)} » et la pagination.</p>
       ${exportsCatalogueHtml()}
     </div>`;
   majApercuEntreprise();
+  rendreGestionCodesRes();
 }
 
 // ── CLÔTURE DE PÉRIODE, JOURNAL D'AUDIT, SAUVEGARDE ───────────
@@ -10919,7 +11255,7 @@ async function enregistrerCloture(supprimer){
   renderControle();
 }
 
-const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
+const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','codes_ressource','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
   'employes_rh','employes_remuneration','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
@@ -11058,6 +11394,12 @@ function masseMensuelleEmploye(emp, ctx){
   if(rem.type_remuneration==='horaire'){ const h = numOuVide(rem.heures_semaine); return h==='' ? '' : Math.round(s*h*52/12*100)/100; }
   return s;
 }
+
+// ── Assistants de l'export « lignes de factures fournisseurs » ──
+const totalHtLigne = r => { const q = numOuVide(r.quantite), p = numOuVide(r.prix_unitaire_ht); return (q==='' || p==='') ? '' : Math.round(q*p*100)/100; };
+const chantierLigne = (r,c) => { const f = (c.facs||{})[r.facture_id] || {}; const id = f.chantier_id || ((c.pos||{})[f.po_id]||{}).chantier_id; return (c.chantiers||{})[id] || null; };
+const libChantierLigne = (r,c) => { const ch = chantierLigne(r,c); return ch ? [ch.numero,ch.nom].filter(Boolean).join(' — ') : ''; };
+const codeLigne = (r,c) => r.code_ressource_id ? (((c.codes||{})[r.code_ressource_id]||{}).code||'') : '';
 
 // ── Description des exports (une entrée par module) ──
 function definitionsExport(){
@@ -11290,6 +11632,48 @@ function definitionsExport(){
         {titre:'Par année (émises)', colonne:'Année', cle:r=>String(anneeIso(r.date_creation)||'Sans date'), tri:'label', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
         {titre:'Par mois (émises)', colonne:'Mois', cle:r=>moisIso(r.date_creation)||'Sans date', tri:'label', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]},
         {titre:'Par client (émises)', colonne:'Client', cle:(r,c)=>nomLieu(c.clients,r.client_id)||'Sans client', tri:'mesure', filtre:emises, mesures:[{t:'Montant HT (€)',v:r=>numOuVide(r.total_ht),agr:'sum',type:'eur'}]}
+      ]
+    },
+
+    // ─────────────── LIGNES DE FACTURES FOURNISSEURS (analyse par code ressource) ───────────────
+    lignes_factures:{ titre:'Lignes de factures fournisseurs (analyse)', pivotDefaut:{ligne:'chantier_lib', colonne:'code', valeur:'sum:ht'}, pivotCoche:true, fichier:'Lignes_factures_fournisseurs', feuille:'Lignes de factures', nbLibelle:'Lignes',
+      filtreSynthese: r=>r.facture_statut!=='annulee',
+      charger: async()=>{
+        const [lignes, facs, fours, chantiers, pos, codes] = await Promise.all([lireTableComplete('lignes_facture'), lireTableComplete('factures'), lireOptionnelle('fournisseurs'), lireOptionnelle('chantiers_lyneo'), lireOptionnelle('purchase_orders_lyneo'), lireOptionnelle('codes_ressource')]);
+        const F = parIdExport(facs);
+        return {lignes: lignes.map(l=>({...l, facture_statut: (F[l.facture_id]||{}).statut||''})),
+                ctx:{facs:F, fours:parIdExport(fours), chantiers:parIdExport(chantiers), pos:parIdExport(pos), codes:parIdExport(codes), codesOk: lignes.length ? ('code_ressource_id' in lignes[0]) : true}};
+      },
+      colonnes:[
+        colX('fac_int','N° interne','txt',(r,c)=>(c.facs[r.facture_id]||{}).numero_interne||'',{g:'Facture'}),
+        colX('fac_num','N° facture fournisseur','txt',(r,c)=>(c.facs[r.facture_id]||{}).numero_facture_fournisseur||'',{g:'Facture'}),
+        colX('date','Date de facture','date',(r,c)=>(c.facs[r.facture_id]||{}).date_facture,{g:'Facture'}),
+        colX('annee','Année','int',(r,c)=>anneeIso((c.facs[r.facture_id]||{}).date_facture),{g:'Facture'}),
+        colX('mois','Mois (AAAA-MM)','txt',(r,c)=>moisIso((c.facs[r.facture_id]||{}).date_facture),{g:'Facture'}),
+        colX('four','Fournisseur','txt',(r,c)=>nomLieu(c.fours,(c.facs[r.facture_id]||{}).fournisseur_id),{g:'Facture'}),
+        colX('chantier_lib','Chantier (n° — nom)','txt',(r,c)=>libChantierLigne(r,c),{g:'Facture'}),
+        colX('chantier_num','N° chantier','txt',(r,c)=>(chantierLigne(r,c)||{}).numero||'',{g:'Facture',d:false}),
+        colX('chantier','Nom du chantier','txt',(r,c)=>(chantierLigne(r,c)||{}).nom||'',{g:'Facture',d:false}),
+        colX('statut','Statut de la facture','txt',r=>STATUT_FA[r.facture_statut]||r.facture_statut||'',{g:'Facture'}),
+        colX('code','Code ressource','txt',(r,c)=>codeLigne(r,c),{g:'Ligne'}),
+        colX('code_desc','Description du code','txt',(r,c)=>(c.codes[r.code_ressource_id]||{}).description||'',{g:'Ligne',d:false}),
+        colX('ref','Référence','txt',r=>r.reference_article,{g:'Ligne'}),
+        colX('desc','Description','txt',r=>r.description,{g:'Ligne'}),
+        colX('qte','Quantité','num',r=>numOuVide(r.quantite),{g:'Ligne'}),
+        colX('unite','Unité','txt',r=>r.unite,{g:'Ligne',d:false}),
+        colX('pu','P.U. HT','eur',r=>numOuVide(r.prix_unitaire_ht),{g:'Ligne'}),
+        colX('taux','TVA (%)','num',r=>numOuVide(r.taux_tva),{g:'Ligne',d:false}),
+        colX('ht','Total HT','eur',r=>totalHtLigne(r),{g:'Montants',tot:true}),
+        colX('tva','TVA','eur',r=>{ const h = totalHtLigne(r); return h==='' ? '' : Math.round(h*(numOuVide(r.taux_tva)||0))/100; },{g:'Montants',tot:true,d:false}),
+        colX('ttc','Total TTC','eur',r=>{ const h = totalHtLigne(r); return h==='' ? '' : Math.round(h*(100+(numOuVide(r.taux_tva)||0)))/100; },{g:'Montants',tot:true,d:false})
+      ],
+      noteAnalyse: (l,c)=>["Une ligne de ce fichier = une ligne de facture fournisseur. Les notes de crédit ont des quantités négatives ; les factures annulées ne sont pas comptées dans les synthèses ni dans le tableau croisé."]
+        .concat(c && c.codesOk===false ? ["Les codes ressource ne sont pas encore activés : exécutez « migration-codes-ressource.sql » dans Supabase."] : []),
+      syntheses:[
+        {titre:'Par code ressource (hors factures annulées)', colonne:'Code ressource', cle:(r,c)=>codeLigne(r,c)||'Sans code', tri:'mesure', mesures:[{t:'Total HT (€)',v:r=>totalHtLigne(r),agr:'sum',type:'eur'}]},
+        {titre:'Par chantier (hors factures annulées)', colonne:'Chantier', cle:(r,c)=>libChantierLigne(r,c)||'Sans chantier', tri:'mesure', mesures:[{t:'Total HT (€)',v:r=>totalHtLigne(r),agr:'sum',type:'eur'}]},
+        {titre:'Par fournisseur (hors factures annulées)', colonne:'Fournisseur', cle:(r,c)=>nomLieu(c.fours,(c.facs[r.facture_id]||{}).fournisseur_id)||'Sans fournisseur', tri:'mesure', mesures:[{t:'Total HT (€)',v:r=>totalHtLigne(r),agr:'sum',type:'eur'}]},
+        {titre:'Par mois (hors factures annulées)', colonne:'Mois', cle:(r,c)=>moisIso((c.facs[r.facture_id]||{}).date_facture)||'Sans date', tri:'label', mesures:[{t:'Total HT (€)',v:r=>totalHtLigne(r),agr:'sum',type:'eur'}]}
       ]
     },
 
@@ -11598,6 +11982,8 @@ function construireClasseurExport(cfg, cols, lignes, ctx, avecAnalyses, pivot, c
 // ── Fenêtre « Exporter vers Excel » (choix des colonnes) ──
 let _exp = null;
 const cleMemoExport = id => 'lyneo-export-colonnes-'+id;
+const lignesAExporter = () => (_exp.mode==='sel' && _exp.lignesCochees.length) ? _exp.lignesCochees : _exp.lignes;
+function choisirPorteeExport(mode){ if(_exp) _exp.mode = mode; }
 function colsExportDispo(){ return [..._exp.cfg.colonnes.filter(c=>!c.si || c.si(_exp.ctx)), ...(_exp.supp||[])]; }
 function selectionMemoriseeExport(id){
   try{ const o = JSON.parse(localStorage.getItem(cleMemoExport(id))||'null'); if(o && Array.isArray(o.sel) && Array.isArray(o.connues)) return o; }catch(e){}
@@ -11606,7 +11992,7 @@ function selectionMemoriseeExport(id){
 async function ouvrirExport(id){
   const cfg = definitionsExport()[id]; if(!cfg) return;
   if(typeof XLSX==='undefined'){ showToast("La bibliothèque Excel n'est pas chargée — vérifiez la connexion internet et rechargez la page", 'error'); return; }
-  _exp = {id, cfg, lignes:null, ctx:null};
+  _exp = {id, cfg, lignes:null, ctx:null, cochees:idsSelectionExport(id), mode:'tout', lignesCochees:[]};
   showModal(`<div class="modal-overlay"><div class="modal" style="max-width:700px">
     <div class="modal-header"><h3><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i> Exporter vers Excel — ${escHtml(cfg.titre)}</h3>
       <button class="modal-close" onclick="closeModal()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
@@ -11617,6 +12003,9 @@ async function ouvrirExport(id){
     const res = await cfg.charger();
     if(_exp!==mon || !el('exp-corps')) return;                                           // fenêtre fermée entre-temps
     mon.lignes = res.lignes; mon.ctx = res.ctx;
+    const coch = new Set(mon.cochees.map(String));
+    mon.lignesCochees = coch.size ? mon.lignes.filter(r=>coch.has(String(r.id))) : [];
+    if(mon.lignesCochees.length) mon.mode = 'sel';                                          // des lignes sont cochées : on n'exporte qu'elles (choix modifiable dans la fenêtre)
     try{ mon.supp = colonnesSupplementaires(cfg, mon.lignes, mon.ctx); }catch(e){ mon.supp = []; }
     remplirFenetreExport();
   }catch(e){
@@ -11629,10 +12018,17 @@ function remplirFenetreExport(){
   const coche = c => memo && memo.connues.includes(c.id) ? memo.sel.includes(c.id) : (c.defaut && !c.sensible);
   const groupes = []; cols.forEach(c=>{ let g = groupes.find(x=>x.nom===c.groupe); if(!g){ g = {nom:c.groupe, cols:[]}; groupes.push(g); } g.cols.push(c); });
   const aSynth = ((cfg.syntheses||[]).length + (cfg.croisements||[]).length) > 0;
-  const n = lignes.length;
+  const n = lignes.length, nCoch = _exp.lignesCochees.length;
+  const portee = nCoch
+    ? `<div class="exp-portee" style="margin:0 0 8px;padding:8px 10px;background:var(--blue-light);border-radius:var(--radius-sm);font-size:13px">
+         <label class="exp-col"><input type="radio" name="exp-portee" value="sel" ${_exp.mode==='sel'?'checked':''} onchange="choisirPorteeExport('sel')"/><span><strong>${nCoch}</strong> ligne${nCoch>1?'s':''} sélectionnée${nCoch>1?'s':''} (cochées dans la liste)</span></label>
+         <label class="exp-col"><input type="radio" name="exp-portee" value="tout" ${_exp.mode==='tout'?'checked':''} onchange="choisirPorteeExport('tout')"/><span>Toutes les <strong>${n}</strong> lignes</span></label>
+         <div style="font-size:12px;color:var(--gray-6);margin:2px 0 0 24px">La feuille « Analyses » et le tableau croisé portent sur les lignes exportées.</div></div>
+       <p style="margin:0 0 6px;font-size:13px;color:var(--gray-6)">Cochez les colonnes à exporter :</p>`
+    : `<p style="margin:0 0 6px;font-size:13px;color:var(--gray-6)"><strong>${n}</strong> ligne${n>1?'s':''} (toutes, sans filtre — filtrez ensuite dans Excel). Cochez les colonnes à exporter :</p>`;
   el('exp-corps').innerHTML = `
     ${cfg.avertissement ? `<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-shield-lock"></i><span>${escHtml(cfg.avertissement)}</span></div>` : ''}
-    <p style="margin:0 0 6px;font-size:13px;color:var(--gray-6)"><strong>${n}</strong> ligne${n>1?'s':''} (toutes, sans filtre — filtrez ensuite dans Excel). Cochez les colonnes à exporter :</p>
+    ${portee}
     <div style="font-size:12.5px;margin-bottom:4px">
       <a href="#" onclick="exportCocher('tout');return false">Tout cocher</a> · <a href="#" onclick="exportCocher('rien');return false">Tout décocher</a> · <a href="#" onclick="exportCocher('defaut');return false">Sélection par défaut</a>
     </div>
@@ -11658,8 +12054,8 @@ function htmlTableauCroiseExport(cols){
   const optC = c => `<option value="${escHtml(c.id)}"${pd.colonne===c.id?' selected':''}>${escHtml(c.titre)}</option>`;
   const optsV = `<option value="n">Nombre de lignes</option>` + mesures.map(c=>`<option value="sum:${escHtml(c.id)}"${pd.valeur==='sum:'+c.id?' selected':''}>Somme de ${escHtml(c.titre)}</option>`).join('') + mesures.map(c=>`<option value="moy:${escHtml(c.id)}">Moyenne de ${escHtml(c.titre)}</option>`).join('');
   return `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--gray-2)">
-    <label class="exp-col"><input type="checkbox" id="exp-piv-on" onchange="el('exp-piv-champs').style.display=this.checked?'':'none'"/><span><strong>Ajouter un tableau croisé à ma façon</strong> <span style="color:var(--gray-5)">(comme « Regrouper par » dans Odoo)</span></span></label>
-    <div id="exp-piv-champs" style="display:none;margin-top:8px">
+    <label class="exp-col"><input type="checkbox" id="exp-piv-on"${(_exp && _exp.cfg.pivotCoche)?' checked':''} onchange="el('exp-piv-champs').style.display=this.checked?'':'none'"/><span><strong>Ajouter un tableau croisé à ma façon</strong> <span style="color:var(--gray-5)">(comme « Regrouper par » dans Odoo)</span></span></label>
+    <div id="exp-piv-champs" style="display:${(_exp && _exp.cfg.pivotCoche)?'':'none'};margin-top:8px">
       <div class="form-grid" style="gap:10px">
         <div class="form-group"><label class="field-label" for="exp-piv-l">Lignes (regrouper par)</label><select id="exp-piv-l">${dims.map(optL).join('')}</select></div>
         <div class="form-group"><label class="field-label" for="exp-piv-c">Colonnes (facultatif)</label><select id="exp-piv-c"><option value="">— Aucune —</option>${dims.map(optC).join('')}</select></div>
@@ -11685,14 +12081,15 @@ async function lancerExport(){
     if(pivot.colonne && pivot.colonne===pivot.ligne){ showToast('Tableau croisé : les lignes et les colonnes doivent être différentes', 'error'); return; }
   }
   try{
-    const wb = construireClasseurExport(cfg, cols, _exp.lignes, _exp.ctx, avecAn, pivot, colsExportDispo());
-    await ecrireClasseur(wb, `${cfg.fichier}_${today()}.xlsx`);
-    const n = _exp.lignes.length;
-    showToast(`${n} ligne${n>1?'s':''} exportée${n>1?'s':''} vers Excel`);
+    const aExporter = lignesAExporter(), cochees = aExporter === _exp.lignesCochees;
+    const wb = construireClasseurExport(cfg, cols, aExporter, _exp.ctx, avecAn, pivot, colsExportDispo());
+    await ecrireClasseur(wb, `${cfg.fichier}${cochees ? '_selection' : ''}_${today()}.xlsx`);
+    const n = aExporter.length;
+    showToast(`${n} ligne${n>1?'s':''} ${cochees ? `sélectionnée${n>1?'s':''} ` : ''}exportée${n>1?'s':''} vers Excel`);
     closeModal();
   }catch(e){ showToast('Erreur lors de la création du fichier : '+(e.message||e), 'error'); }
 }
-const btnExport = id => `<button class="btn btn-secondary" onclick="ouvrirExport('${id}')" title="Exporter vers Excel (choix des colonnes, feuille d'analyses)"><i class="ti ti-file-spreadsheet"></i> Exporter Excel</button>`;
+const btnExport = id => `<button class="btn btn-secondary" data-exp-btn="${id}" onclick="ouvrirExport('${id}')" title="Exporter vers Excel (choix des colonnes, feuille d'analyses)"><i class="ti ti-file-spreadsheet"></i> <span class="exp-lib">Exporter Excel</span><span class="exp-n"></span></button><button class="btn btn-ghost btn-sm exp-clear" data-exp-clear="${id}" hidden onclick="selExpVider('${id}')" title="Décocher toutes les lignes"><i class="ti ti-x"></i> Désélectionner</button>`;
 
 const fmtTauxImpot = n => (n===null||n===undefined||n==='') ? '' : String(+n).replace('.',',')+' %';
 const dateExpiree = d => !!(d && String(d).slice(0,10) < new Date().toISOString().slice(0,10));
@@ -11736,13 +12133,13 @@ async function renderEmployesRH(search=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui"${peutVoirSalaires() ? ' data-export="employes_rh"' : ''}>
           <thead><tr><th>Nom</th><th>Poste</th><th>Statut</th><th>Email</th><th>Téléphone</th><th>Type contrat</th><th>Entrée</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé enregistré</p><button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button></div></td></tr>' :
             items.map(e=>{
               const badge = '<span class="badge badge-'+(e.actif!==false?'oui':'non')+'">'+(e.actif!==false?'Oui':'Non')+'</span>';
-              return `<tr style="cursor:pointer" onclick="openEmployeDetail('${e.id}')">
+              return `<tr data-sel-id="${e.id}" style="cursor:pointer" onclick="openEmployeDetail('${e.id}')">
                 <td><strong>${escHtml(nomPers(e))}</strong></td>
                 <td>${escHtml(e.poste)||'—'}</td>
                 <td>${STATUTS_PRO[e.statut_professionnel]||'—'}</td>
@@ -12665,11 +13062,11 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui" data-export="interventions_sav">
           <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
-            items.map(i=>`<tr style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
+            items.map(i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
               <td><strong class="text-blue">${i.ref}</strong></td>
               <td>${i.clients?.nom||'—'}</td>
               <td>${i.nom_site?'<strong>'+i.nom_site+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ (i.adresse_site||'') +'</span>':(i.adresse_site||'—')}</td>
@@ -13299,10 +13696,10 @@ async function renderUtilisateurs(){
     <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i><span>Chaque personne se connecte avec <strong>son propre mot de passe</strong>. Créer une fiche ici ne crée pas le compte de connexion : ajoutez aussi la personne dans <strong>Supabase → Authentication → Users</strong> (« Add user », avec le <strong>même e-mail</strong>, « Auto Confirm User » coché). Une fiche <strong>inactive</strong> coupe immédiatement l'accès aux données.</span></div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui">
+        <table data-tri="oui" data-export="utilisateurs">
           <thead><tr><th>Nom</th><th>Prénom</th><th>Email</th><th>Rôle</th><th>Salaires</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
-            ${users.map(r=>`<tr>
+            ${users.map(r=>`<tr data-sel-id="${r.id}">
               <td><strong>${escHtml(String(r.nom||'').toLocaleUpperCase('fr'))}</strong></td><td>${escHtml(r.prenom)}</td><td>${escHtml(r.email)}</td>
               <td><span class="badge badge-envoyee">${ROLES[r.role]||r.role}</span></td>
               <td>${r.role==='admin' ? '<span class="text-muted text-sm">toujours</span>' : (r.acces_salaires===true ? '<span class="badge badge-oui">Autorisé</span>' : '<span class="text-muted text-sm">—</span>')}</td>
@@ -13665,6 +14062,7 @@ async function openFacFromPO(poId){
     _foursActive = data||[];
   }
   const four = _foursActive.find(f=>f.id===po.fournisseur_id);
+  await chargerCodesRessource();
 
   const renderFacLines = () => {
     const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
@@ -13678,6 +14076,7 @@ async function openFacFromPO(poId){
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">'
       +  '<input value="'+l.description+'" onchange="_facFromPoLignes['+i+'].description=this.value" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>'
       +'</td>'
+      +crTd(l.code_ressource_id,'_facFromPoLignes['+i+'].code_ressource_id=this.value','padding:6px 8px;border-bottom:1px solid var(--gray-2)')
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5);white-space:nowrap">'+l.quantite_commandee+' '+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:80px">'
@@ -13727,12 +14126,13 @@ async function openFacFromPO(poId){
     +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
     +  '</div>'
     +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-    +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em">Lignes facturées — modifiez les quantités et les prix</div>'
+    +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em">Lignes facturées — modifiez les quantités et les prix'+crLienGerer('renderFacPOLines')+'</div>'
     +    '<button class="btn btn-secondary btn-sm" onclick="addFacPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
     +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:600px">'
     +    '<thead><tr style="background:var(--navy)">'
     +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
+    +      crTh('padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;min-width:140px')
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">Cmd.</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;width:70px">Reçu</th>'
     +      '<th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;width:80px">Qté fact.</th>'
@@ -13817,7 +14217,8 @@ async function saveFacFromPOCore(poId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: tvaNum(l.taux_tva)
+      taux_tva: tvaNum(l.taux_tva),
+      ...crPayload(l)
     })));
     if(lignesErr){ showToast("Facture créée, mais erreur en enregistrant les lignes: "+lignesErr.message, 'error'); }
   }
@@ -13875,7 +14276,8 @@ async function openEditFacLignes(facId){
       quantite: 1,
       unite: 'forfait',
       prix_unitaire_ht: ht,
-      taux_tva: [17,14,8,3,0].includes(tauxApprox) ? tauxApprox : 17
+      taux_tva: [17,14,8,3,0].includes(tauxApprox) ? tauxApprox : 17,
+      code_ressource_id: null
     }];
   } else {
     _efacLignes = (lignesData||[]).map(l=>({
@@ -13885,19 +14287,22 @@ async function openEditFacLignes(facId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite||'u',
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: tvaNum(l.taux_tva)
+      taux_tva: tvaNum(l.taux_tva),
+      code_ressource_id: l.code_ressource_id || null
     }));
   }
+  await chargerCodesRessource();
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
     +  '<div><h3>Modifier — '+fac.numero_facture_fournisseur+'</h3>'
     +  '<div class="modal-header-sub">'+(fac.numero_interne?'N° interne <strong>'+escHtml(fac.numero_interne)+'</strong> · ':'')+'Modifiez les lignes, les montants et les informations</div></div>'
-    +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
+    +  '<div class="flex gap-8 items-center"><button class="btn btn-secondary btn-sm" id="efac-apercu" onclick="apercuFactureListe(\''+facId+'\')" title="Voir le PDF de la facture à côté du formulaire"><i class="ti ti-eye"></i> Aperçu du document</button>'
+    +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>'
     +'</div>'
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
-    +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+fac.numero_facture_fournisseur+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+escHtml(fac.numero_facture_fournisseur)+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Chantier *</label>'
     +      '<select id="efac-chantier" onchange="majInterventionAchat(\'efac\',\'factures\')">'
     +        '<option value="">— Sélectionner —</option>'
@@ -13905,7 +14310,7 @@ async function openEditFacLignes(facId){
     +      '</select>'
     +    '</div>'
     +    htmlChampIntervention('efac')
-    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value=""'+fac.date_facture+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+escHtml(String(fac.date_facture||'').slice(0,10))+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
     +      '<select id="efac-statut">'
@@ -13914,13 +14319,14 @@ async function openEditFacLignes(facId){
     +    '</div>'
     +  '</div>'
     +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-    +    '<strong style="font-size:13px">Lignes de la facture</strong>'
+    +    '<span><strong style="font-size:13px">Lignes de la facture</strong>'+crLienGerer('renderEfacLignes')+'</span>'
     +    '<button class="btn btn-secondary btn-sm" onclick="addEfacLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
     +  '<div style="overflow-x:auto;max-width:100%">'
     +    '<table class="lignes-table" id="efac-lignes-table" style="min-width:580px">'
     +      '<thead><tr>'
     +        '<th style="min-width:180px">Description *</th>'
+    +        crTh('min-width:140px')
     +        '<th style="width:100px">Référence</th>'
     +        '<th style="width:70px">Qté</th>'
     +        '<th style="width:75px">Unité</th>'
@@ -13949,6 +14355,7 @@ function renderEfacLignes(){
   if(!body) return;
   body.innerHTML = _efacLignes.map((l,i)=>`<tr>
     <td><input value="${l.description}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
+    ${crTd(l.code_ressource_id, "updEfacLigne("+i+",'code_ressource_id',this.value)", '')}
     <td><input value="${l.reference_article}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updEfacLigne(${i},'unite',this.value)">
@@ -14013,7 +14420,8 @@ async function saveEditFacCore(facId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: tvaNum(l.taux_tva)
+      taux_tva: tvaNum(l.taux_tva),
+      ...crPayload(l)
     }).eq('id', l._db_id);
     if(updErr){ showToast('Erreur: '+updErr.message, 'error'); return; }
   }
@@ -14027,7 +14435,8 @@ async function saveEditFacCore(facId){
       quantite: parseFloat(l.quantite)||0,
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
-      taux_tva: tvaNum(l.taux_tva)
+      taux_tva: tvaNum(l.taux_tva),
+      ...crPayload(l)
     })));
     if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
   }
@@ -14100,7 +14509,8 @@ async function creerNoteCredit(facId){
       quantite: -(parseFloat(l.quantite)||0),
       unite: l.unite,
       prix_unitaire_ht: l.prix_unitaire_ht,
-      taux_tva: l.taux_tva
+      taux_tva: l.taux_tva,
+      ...crCopie(l)
     })));
     if(lignesErr){ showToast("Note créée, mais erreur en copiant les lignes: "+lignesErr.message, 'error'); }
   }
@@ -14149,7 +14559,8 @@ async function duplicateFacture(facId){
       quantite: l.quantite,
       unite: l.unite,
       prix_unitaire_ht: l.prix_unitaire_ht,
-      taux_tva: l.taux_tva
+      taux_tva: l.taux_tva,
+      ...crCopie(l)
     })));
     if(lignesErr){ showToast("Copie créée, mais erreur en dupliquant les lignes: "+lignesErr.message, 'error'); }
   }
