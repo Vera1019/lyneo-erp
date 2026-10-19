@@ -305,6 +305,24 @@ tbody tr:hover td{background:var(--blue-light)}
 .form-group.full{grid-column:1/-1}
 label.field-label{font-size:11px;font-weight:700;color:var(--gray-6);text-transform:uppercase;letter-spacing:.06em}
 input,select,textarea{padding:9px 13px;border:1.5px solid var(--gray-3);border-radius:var(--radius-sm);font-size:13px;color:var(--gray-8);background:#fff;transition:all .15s;font-family:inherit;width:100%}
+input[data-calc]{text-align:right;font-variant-numeric:tabular-nums}
+th.tri-th{cursor:pointer;user-select:none;white-space:nowrap}th.tri-th:hover{color:var(--blue)}th.tri-th:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+th.tri-th::after{content:'↕';display:inline-block;margin-left:5px;font-size:10px;font-weight:400;opacity:.35}th.tri-th[aria-sort="ascending"]::after{content:'▲';opacity:1;color:var(--blue)}th.tri-th[aria-sort="descending"]::after{content:'▼';opacity:1;color:var(--blue)}
+.dvh{display:flex;align-items:center;gap:4px}.dvh-r{justify-content:flex-end}.dvh-lib{cursor:pointer;user-select:none}.dvh-fl{font-size:9px;color:var(--blue)}#dv-colpop .dvp-fl{display:inline-block;width:14px;text-align:center;font-weight:700}
+.dvh-btn{background:none;border:none;padding:3px 4px;border-radius:4px;color:var(--gray-5);cursor:pointer;font-size:13px;line-height:1}.dvh-btn:hover{background:var(--gray-2);color:var(--gray-7)}.dvh-btn.actif{background:var(--blue-light);color:var(--blue)}
+.dvh-chip{display:inline-flex;align-items:center;gap:6px;background:var(--blue-light);color:var(--blue-dark);border:1px solid var(--blue);border-radius:99px;padding:3px 6px 3px 10px;font-size:12px}.dvh-chip button{background:none;border:none;cursor:pointer;color:var(--blue-dark);font-size:15px;line-height:1;padding:0 3px}
+#dv-colpop{position:fixed;z-index:3000;background:#fff;border:1px solid var(--gray-3);border-radius:var(--radius);box-shadow:0 10px 30px rgba(15,23,42,.2);padding:10px 12px;font-size:13px;overflow:auto;box-sizing:border-box}
+#dv-colpop .dvp-titre{font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+#dv-colpop .dvp-tris{display:flex;flex-direction:column;gap:2px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--gray-2)}
+#dv-colpop .dvp-tri{display:flex;align-items:center;gap:6px;text-align:left;background:none;border:none;padding:5px 6px;border-radius:4px;cursor:pointer;color:var(--gray-7);font-size:13px}#dv-colpop .dvp-tri:hover{background:var(--gray-1)}#dv-colpop .dvp-tri.on{background:var(--blue-light);color:var(--blue);font-weight:600}
+#dv-colpop .dvp-champ{width:100%;padding:7px 9px;font-size:13px;box-sizing:border-box}
+#dv-colpop .dvp-liste{max-height:240px;overflow:auto;margin:4px 0 2px;border:1px solid var(--gray-2);border-radius:4px}
+#dv-colpop .dvp-it{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;font-size:13px;color:var(--gray-8);margin:0}#dv-colpop .dvp-it:hover{background:var(--gray-1)}
+#dv-colpop .dvp-it input{width:auto;margin:0;padding:0;flex:none}#dv-colpop .dvp-it span{flex:1;min-width:0;word-break:break-word}#dv-colpop .dvp-it em{font-style:normal;font-size:11.5px;color:var(--gray-5);font-variant-numeric:tabular-nums}#dv-colpop .dvp-it.zero span,#dv-colpop .dvp-it.zero em{color:var(--gray-5)}
+#dv-colpop .dvp-tout{margin-top:6px;border-bottom:1px solid var(--gray-2)}
+#dv-colpop .dvp-vide{padding:10px;text-align:center;color:var(--gray-5)}
+#dv-colpop .dvp-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}#dv-colpop .dvp-2 label{font-size:11.5px;color:var(--gray-6);font-weight:600;display:flex;flex-direction:column;gap:3px;text-transform:none;letter-spacing:0}
+#dv-colpop .dvp-pied{display:flex;justify-content:space-between;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--gray-2)}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
 input:hover,select:hover{border-color:var(--gray-4)}
 textarea{resize:vertical;min-height:80px}
@@ -1752,12 +1770,13 @@ function showToast(msg, type='success') {
 }
 
 function showModal(html) {
+  razTri('M');
   el('modal-container').innerHTML = html;
   el('modal-container').querySelector('.modal-overlay').addEventListener('click', function(e){
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ el('modal-container').innerHTML = ''; }
+function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; }
 
 // ── AUTH ─────────────────────────────────────────────────────
 // Connexion par compte individuel (Supabase Auth). L'accès aux données est ensuite contrôlé par la base
@@ -1881,6 +1900,91 @@ async function saveMotDePasse(){
   closeModal();
 }
 
+// ── CHAMPS DE MONTANT « COMME EXCEL / ODOO » ────────────────────────────────────────────────────────
+// Les champs marqués data-calc="N" (quantités, prix unitaires, montants HT / TVA / TTC, paiements) sont des champs texte, sans flèches :
+// on y tape un nombre (virgule ou point) ou un calcul qui commence par « = », par exemple  =105/10  ·  =251,60/100  ·  =2*(14,27+3)  ·  =200*(1-10%).
+// À la sortie du champ (Tab, clic ailleurs, Entrée) le résultat remplace la saisie, arrondi à N décimales ; les calculs de l'écran (onchange /
+// oninput existants) ne voient donc jamais qu'un nombre propre. Pendant la frappe d'une formule rien n'est recalculé. Une saisie invalide est
+// refusée : ancienne valeur restaurée + message. Aucun eval() : petit analyseur maison (+ − × ÷ ( ) % et nombres).
+function nombreSimpleCalc(txt){
+  let s = String(txt==null?'':txt).replace(/[\s  ]+/g,'').replace(/[−–]/g,'-');
+  if(!/^[+-]?[\d.,]+$/.test(s)) return null;
+  const signe = s[0]==='-' ? -1 : 1; s = s.replace(/^[+-]/,'');
+  const pt = s.lastIndexOf('.'), vi = s.lastIndexOf(',');
+  const dec = Math.max(pt, vi);
+  let ent = s, frac = '';
+  if(pt>=0 && vi>=0){ ent = s.slice(0,dec).replace(/[.,]/g,''); frac = s.slice(dec+1); }        // 1.234,50 ou 1,234.50 : le dernier signe est la décimale
+  else if(dec>=0){
+    const sep = s[dec], n = s.split(sep).length-1;
+    if(n>1){ ent = s.replace(/[.,]/g,''); }                                                        // 1.234.567 : séparateurs de milliers
+    else { ent = s.slice(0,dec); frac = s.slice(dec+1); }
+  }
+  if(!/^\d*$/.test(ent) || !/^\d*$/.test(frac) || (ent==='' && frac==='')) return null;
+  return signe*parseFloat((ent||'0')+(frac?'.'+frac:''));
+}
+function calculerExpressionCalc(s){
+  let i = 0;
+  const pct = v=>{ while(s[i]==='%'){ i++; v = v/100; } return v; };
+  const primaire = ()=>{
+    if(s[i]==='('){ i++; const v = somme(); if(v===null || s[i]!==')') return null; i++; return pct(v); }
+    const m = /^(\d+(?:[.,]\d+)?|[.,]\d+)/.exec(s.slice(i)); if(!m) return null;
+    i += m[0].length; return pct(parseFloat(m[0].replace(',','.')));
+  };
+  const unaire = ()=>{ if(s[i]==='-'){ i++; const v = unaire(); return v===null ? null : -v; } if(s[i]==='+'){ i++; return unaire(); } return primaire(); };
+  const produit = ()=>{
+    let v = unaire();
+    while(v!==null && (s[i]==='*' || s[i]==='/')){ const op = s[i++]; const w = unaire(); if(w===null || (op==='/' && w===0)) return null; v = op==='*' ? v*w : v/w; }
+    return v;
+  };
+  const somme = ()=>{
+    let v = produit();
+    while(v!==null && (s[i]==='+' || s[i]==='-')){ const op = s[i++]; const w = produit(); if(w===null) return null; v = op==='+' ? v+w : v-w; }
+    return v;
+  };
+  const r = somme();
+  return (r!==null && i===s.length && isFinite(r)) ? r : null;
+}
+function evaluerSaisieCalc(txt){
+  const t = String(txt==null?'':txt).trim();
+  if(t.length>200) return null;
+  let r;
+  if(t[0]==='='){
+    r = calculerExpressionCalc(t.slice(1).replace(/[\s  ]+/g,'').replace(/[×xX]/g,'*').replace(/÷/g,'/').replace(/[−–]/g,'-'));
+  } else r = nombreSimpleCalc(t);
+  return (r!==null && isFinite(r) && Math.abs(r)<1e12) ? r : null;
+}
+function arrondirCalc(n, dec){ const f = Math.pow(10, dec); const r = Math.sign(n)*Math.round(Math.abs(n)*f + 1e-9)/f; return r===0 ? 0 : r; }
+const estChampCalc = n => !!(n && n.tagName==='INPUT' && n.dataset && n.dataset.calc!==undefined);
+(function(){
+  const AIDE = 'Vous pouvez saisir un calcul, par ex. : =105/10';
+  const marquer = e=>{ const n = e.target; if(!estChampCalc(n)) return; if(e.type==='focusin') n.dataset.prev = n.value; if(!n.title) n.title = AIDE; };
+  document.addEventListener('focusin', marquer, true);
+  document.addEventListener('mouseover', marquer, true);
+  document.addEventListener('input', e=>{
+    const n = e.target; if(!estChampCalc(n)) return;
+    const v = n.value;
+    if(/^\s*=/.test(v)){ e.stopPropagation(); return; }                                            // formule en cours de frappe : pas de recalcul intermédiaire
+    if(/^[+-]?\d*,\d*$/.test(v)){ const p = n.selectionStart; n.value = v.replace(',','.'); try{ n.setSelectionRange(p,p); }catch(_){} return; }   // 3,5 → 3.5 en direct
+    if(!/^[+-]?\d*\.?\d*$/.test(v)) e.stopPropagation();                                          // saisie incomplète / invalide : pas de recalcul
+  }, true);
+  document.addEventListener('change', e=>{
+    const n = e.target; if(!estChampCalc(n)) return;
+    const brut = n.value;
+    if(brut.trim()==='') return;
+    const dec = parseInt(n.dataset.calc,10), d = isNaN(dec) ? 4 : dec;
+    const r = evaluerSaisieCalc(brut);
+    if(r===null){
+      e.stopPropagation();                                                                         // les onchange de l'écran ne voient pas la saisie invalide
+      n.value = n.dataset.prev!==undefined ? n.dataset.prev : '';
+      showToast('Calcul invalide : « '+escHtml(brut.trim().slice(0,40))+' » — saisissez un nombre ou une formule, par ex. =105/10', 'error');
+      return;
+    }
+    const txt = String(arrondirCalc(r, d));
+    n.dataset.prev = txt;
+    if(txt!==brut){ n.value = txt; n.dispatchEvent(new Event('input', {bubbles:true})); }          // l'écran recalcule ses totaux (oninput)
+  }, true);
+})();
+
 // Fichiers joints : le bucket « Documents » est privé. Les anciens liens enregistrés (…/object/public/Documents/…)
 // sont convertis à la volée en liens signés temporaires, pour les clics et pour les images.
 const CHEMIN_FICHIERS = '/storage/v1/object/public/Documents/';
@@ -1934,9 +2038,10 @@ const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisse
 
 function navigate(page){
   currentPage = page;
+  razTri('P');
   if(page==='interventions_sav') _savCentreFiltre = '';   // on arrive toujours sur la vue complète
   if(page==='factures_vente') _fvFiltres = {search:'', mois:'', statut:'', centre:''};
-  if(page==='devis') _dvFiltres = {search:'', statut:'', fact:''};
+  if(page==='devis') _dvFiltres = dvFiltresVides();
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
@@ -2445,6 +2550,169 @@ function sortableTh(label, tableId, key, rerenderCall){
   return `<th style="cursor:pointer;user-select:none" onclick="toggleSort('${tableId}','${key}',()=>${rerenderCall})">${label}${sortArrow(tableId,key)}</th>`;
 }
 
+// ── Ordre des listes déroulantes + tri des tableaux au clic sur l'en-tête ────────────────────────────
+// 1) Listes déroulantes « de données » (clients, chantiers, fournisseurs, techniciens, centres SAV…) : les options
+//    sont triées par texte affiché (ordre alphabétique, numéros dans l'ordre naturel : P2 avant P10, accents ignorés).
+//    Les premières lignes sans identifiant (« — Sélectionner — », « Tous », « Sans chantier »…) restent en tête.
+//    Une liste est reconnue d'elle-même quand toutes ses options (hors tête) ont un identifiant uuid. Réglages :
+//    data-ordre="fixe" = ne jamais toucher (listes de documents : plus récent d'abord) ; data-trier = trier quand même
+//    (identifiants non uuid) ; data-fixe sur une option de tête = reste en tête.
+// 2) Tableaux marqués data-tri="oui" : clic sur un titre → croissant, décroissant, puis ordre d'origine. Le type est
+//    détecté par colonne (date jj/mm/aaaa, nombre/montant/%, sinon texte) ; les cellules vides (« — ») restent en fin
+//    de liste dans les deux sens. Le tri survit au rechargement de la liste (recherche, action…) ; il est remis à zéro
+//    quand on change de page ou qu'on ouvre une autre fenêtre.
+const _collTri = new Intl.Collator('fr',{sensitivity:'base',numeric:true});
+const _UUID_TRI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const texteTri = s => String(s==null?'':s).replace(/\s+/g,' ').trim();
+const videTri = s => /^[—–-]?$/.test(texteTri(s));
+const cleTexteTri = s => texteTri(s).replace(/^[^\p{L}\p{N}]+/u,'');
+
+function trierOptionsSelect(s){
+  if(s.dataset.ordre==='fixe' || s.querySelector('optgroup')) return;
+  const opts = Array.from(s.options), explicite = s.hasAttribute('data-trier');
+  let n = 0;
+  if(explicite) while(n<opts.length && (opts[n].value==='' || opts[n].value.startsWith('__') || opts[n].hasAttribute('data-fixe'))) n++;
+  else while(n<opts.length && !_UUID_TRI.test(opts[n].value)) n++;
+  const reste = opts.slice(n);
+  if(reste.length<2) return;
+  if(!explicite && !reste.every(o=>_UUID_TRI.test(o.value))) return;
+  const tries = reste.map((o,i)=>({o,i,k:cleTexteTri(o.text)})).sort((a,b)=>_collTri.compare(a.k,b.k)||a.i-b.i).map(x=>x.o);
+  if(tries.every((o,i)=>o===reste[i])) return;
+  const choisies = new Set(opts.filter(o=>o.selected));
+  const frag = document.createDocumentFragment();
+  tries.forEach(o=>frag.appendChild(o));
+  s.appendChild(frag);
+  opts.forEach(o=>{ o.selected = choisies.has(o); });
+}
+
+// ── Tableaux ──
+let _triEtat = {};      // 'P:…' (page) ou 'M:…' (fenêtre) + titres → {col, dir} (dir 1 = croissant, -1 = décroissant)
+function razTri(prefixe){ Object.keys(_triEtat).forEach(k=>{ if(k[0]===prefixe) delete _triEtat[k]; }); }
+// Cycle : croissant → décroissant → ordre d'origine (null)
+function prochainEtatTri(etat, col){
+  if(!etat || etat.col!==col) return {col, dir:1};
+  return etat.dir===1 ? {col, dir:-1} : null;
+}
+function nombreTri(t){
+  // « 1.234,56 € » (format luxembourgeois : point = milliers), « 1 234,56 », « 12,5 % », « −7 h », « 3.5 »
+  const m = /^([−\-+])?\s*(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d[\d\s]*(?:[.,]\d+)?|[.,]\d+)\s*(?:€|%|h)?$/i.exec(texteTri(t));
+  if(!m) return null;
+  const brut = m[2].replace(/\s/g,'');
+  const v = parseFloat(/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(brut) ? brut.replace(/\./g,'').replace(',','.') : brut.replace(',','.'));
+  return isNaN(v) ? null : (m[1] && m[1]!=='+' ? -v : v);
+}
+function dateTri(t){
+  const s = texteTri(t);
+  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?!\d)/.exec(s);
+  if(m) return Date.UTC(+m[3], +m[2]-1, +m[1]);
+  m = /^(\d{4})-(\d{2})-(\d{2})(?!\d)/.exec(s);
+  return m ? Date.UTC(+m[1], +m[2]-1, +m[3]) : null;
+}
+function typeColonneTri(textes){
+  const pleins = textes.filter(t=>!videTri(t));
+  if(pleins.length && pleins.every(t=>dateTri(t)!==null)) return 'date';
+  if(pleins.length && pleins.every(t=>nombreTri(t)!==null)) return 'nombre';
+  return 'texte';
+}
+// Tri stable ; les valeurs absentes (texte vide, null, NaN) sont toujours en fin de liste, quel que soit le sens
+function trierAvecCle(items, valeur, type, dir){
+  const L = items.map((x,i)=>{ const v = valeur(x); return {x, i, v, vide: type==='texte' ? videTri(v) : (v==null || isNaN(v))}; });
+  L.sort((a,b)=>{
+    if(a.vide!==b.vide) return a.vide ? 1 : -1;
+    const c = a.vide ? 0 : dir*(type==='texte' ? _collTri.compare(a.v,b.v) : Math.sign(a.v-b.v));
+    return c || a.i-b.i;
+  });
+  return L.map(o=>o.x);
+}
+// Texte d'une cellule : sans les boutons, liste → option choisie, espace entre blocs
+function texteCelluleTri(n){
+  if(n.nodeType===3) return n.nodeValue;
+  if(n.nodeType!==1) return '';
+  const t = n.tagName;
+  if(t==='BUTTON' || t==='SCRIPT' || t==='STYLE') return '';
+  if(t==='SELECT') return n.selectedOptions[0] ? n.selectedOptions[0].text : '';
+  if(t==='INPUT') return (n.type==='checkbox' || n.type==='radio' || n.type==='hidden') ? '' : n.value;
+  let s = '';
+  n.childNodes.forEach(c=>{ s += texteCelluleTri(c); });
+  return /^(DIV|P|BR|LI)$/.test(t) ? ' '+s+' ' : s;
+}
+const libelleThTri = th => th.dataset.triLib!==undefined ? th.dataset.triLib : texteTri(th.textContent);
+function cleTriTable(table, ths){
+  const modal = table.closest('#modal-container'), racine = modal || document.getElementById('page-content');
+  const rang = racine ? Array.from(racine.querySelectorAll('table[data-tri="oui"]')).indexOf(table) : 0;
+  return (modal ? 'M:' : 'P:') + rang + ':' + ths.map(libelleThTri).join('|');
+}
+function appliquerTriTable(table){
+  const hr = table.tHead && table.tHead.rows[table.tHead.rows.length-1], tb = table.tBodies[0];
+  if(!hr || !tb) return;
+  const ths = Array.from(hr.cells);
+  if(!ths.length || ths.some(t=>t.colSpan>1)) return;
+  const rows = Array.from(tb.rows);
+  const donnees = rows.filter(r=>r.cells.length===ths.length && !Array.from(r.cells).some(c=>c.colSpan>1));
+  if(donnees.length<2) return;
+  const fixes = rows.filter(r=>!donnees.includes(r));             // lignes de total, message… : restent en fin de tableau
+  // ordre d'origine (pour le 3e clic) : numéroté une fois ; une ligne nouvelle passe à la fin
+  let max = -1;
+  donnees.forEach(r=>{ if(r.dataset.ordre0!==undefined) max = Math.max(max, +r.dataset.ordre0); });
+  donnees.forEach(r=>{ if(r.dataset.ordre0===undefined) r.dataset.ordre0 = String(++max); });
+  // colonnes triables : un titre et au moins une valeur
+  ths.forEach((th,ci)=>{
+    if(th.dataset.triCol!==undefined) return;
+    const lib = texteTri(th.textContent);
+    if(!lib || donnees.every(r=>videTri(texteCelluleTri(r.cells[ci])))) return;
+    th.dataset.triLib = lib; th.dataset.triCol = String(ci);
+    th.classList.add('tri-th'); th.tabIndex = 0; th.title = 'Cliquer pour trier';     // la flèche ↕ ▲ ▼ est dessinée par le CSS (aria-sort) : le texte du titre reste intact
+  });
+  const etat = _triEtat[cleTriTable(table, ths)];
+  const origine = donnees.slice().sort((a,b)=>a.dataset.ordre0-b.dataset.ordre0);     // les ex æquo gardent TOUJOURS leur ordre d'origine
+  let voulu;
+  if(etat && ths[etat.col] && ths[etat.col].dataset.triCol!==undefined){
+    const textes = origine.map(r=>texteTri(texteCelluleTri(r.cells[etat.col])));
+    const type = typeColonneTri(textes);
+    const val = type==='texte' ? cleTexteTri : type==='date' ? dateTri : nombreTri;
+    voulu = trierAvecCle(origine.map((r,i)=>({r, t:textes[i]})), x=>videTri(x.t) ? (type==='texte' ? '' : null) : val(x.t), type, etat.dir).map(x=>x.r);
+  } else voulu = origine;
+  const final = voulu.concat(fixes);
+  if(final.some((r,i)=>r!==rows[i])){
+    const frag = document.createDocumentFragment();
+    final.forEach(r=>frag.appendChild(r));
+    tb.appendChild(frag);
+  }
+  ths.forEach((th,ci)=>{
+    if(th.dataset.triCol===undefined) return;
+    const actif = !!etat && etat.col===ci;
+    const sens = actif ? (etat.dir===1 ? 'ascending' : 'descending') : 'none';
+    if(th.getAttribute('aria-sort')!==sens) th.setAttribute('aria-sort', sens);
+  });
+}
+function clicEnteteTri(th){
+  const table = th.closest('table[data-tri="oui"]');
+  if(!table || th.dataset.triCol===undefined) return;
+  const ths = Array.from(th.parentElement.cells), cle = cleTriTable(table, ths), prochain = prochainEtatTri(_triEtat[cle], +th.dataset.triCol);
+  if(prochain) _triEtat[cle] = prochain; else delete _triEtat[cle];
+  appliquerTriTable(table);
+  _obsTri.takeRecords();
+}
+// Après chaque changement de l'écran : trie les listes déroulantes et remet en ordre les tableaux
+let _triEnCours = false;
+const _obsTri = new MutationObserver(()=>{
+  if(_triEnCours) return;
+  _triEnCours = true;
+  try{
+    document.querySelectorAll('select').forEach(trierOptionsSelect);
+    document.querySelectorAll('table[data-tri="oui"]').forEach(appliquerTriTable);
+  }catch(e){ console.warn('tri', e); }
+  finally{ _obsTri.takeRecords(); _triEnCours = false; }
+});
+_obsTri.observe(document.body, {childList:true, subtree:true});
+document.addEventListener('click', e=>{
+  const th = e.target.closest && e.target.closest('th[data-tri-col]');
+  if(th && !e.target.closest('input,select,textarea,a,button')) clicEnteteTri(th);
+});
+document.addEventListener('keydown', e=>{
+  if((e.key==='Enter' || e.key===' ') && e.target.matches && e.target.matches('th.tri-th')){ e.preventDefault(); e.target.click(); }
+});
+
 let _chantiers = [];   // cache de la liste des chantiers (déclaré ici : openChantierDetail peut être appelé avant d'avoir ouvert la page Chantiers)
 let _chantiersSearchAtual = '';
 async function renderChantiers(search=''){
@@ -2868,7 +3136,7 @@ async function openChantierDetail(chantierId, tab){
   // Tab: Factures fournisseurs
   const tabFacFourn = facsFourn.length===0
     ? '<div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>Aucune facture fournisseur pour ce chantier</p></div>'
-    : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:580px">'
+    : '<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:580px">'
       + '<thead><tr style="background:var(--gray-1)">'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
       + (montreInterventions ? '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Intervention</th>' : '')
@@ -2900,7 +3168,7 @@ async function openChantierDetail(chantierId, tab){
   const tabFacVenteHeader = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();openGenerateFactureVente('${chantierId}')"><i class="ti ti-plus"></i> Générer facture</button></div>`;
   const tabFacVente = tabFacVenteHeader + (facsVente.length===0
     ? '<div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client pour ce chantier</p></div>'
-    : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+    : '<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:500px">'
       + '<thead><tr style="background:var(--gray-1)">'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>'
       + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Client</th>'
@@ -2922,7 +3190,7 @@ async function openChantierDetail(chantierId, tab){
   const tabDevis = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();openDevisModal({chantier_id:'${chantierId}',client_id:'${chantier.client_id||''}'})"><i class="ti ti-plus"></i> Nouveau devis</button></div>`
     + (devisChantier.length===0
       ? '<div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>Aucun devis pour ce chantier</p></div>'
-      : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:500px">'
+      : '<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:500px">'
         + '<thead><tr style="background:var(--gray-1)">'
         + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N°</th>'
         + '<th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Objet</th>'
@@ -3046,7 +3314,7 @@ async function openChantierDetail(chantierId, tab){
         : (nonImputes.length && intervCentre.length ? `<div class="alert alert-info" id="int-non-imputes" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span><strong>${nonImputes.length} facture${nonImputes.length>1?'s':''} fournisseur de ce centre (${fmt(totNonImpute)} HT)</strong> ${nonImputes.length>1?'ne sont imputées':"n'est imputée"} à aucune intervention : ${nonImputes.length>1?'elles restent':'elle reste'} dans le coût du centre mais pas dans la marge d'une intervention. <a href="#" onclick="openChantierDetail('${chantierId}','fac_fourn');return false" style="color:var(--blue);font-weight:600">Voir les factures</a> (modifier la facture pour choisir l'intervention).</span></div>` : ''))
     + (intervCentre.length===0
       ? `<div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention dans ce centre de coûts</p><p style="font-size:12px;color:var(--gray-5)">Dans une intervention, choisissez ce centre dans « Centre de coûts SAV ».</p></div>`
-      : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
+      : `<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:640px">
           <thead><tr style="background:var(--gray-1)">${thI('N°')}${thI('Site')}${thI('Date')}${thI('Devis')}${thI('Statut')}${thI('Heures','right')}${thI('Facturé HT','right')}${thI('Achats HT','right')}${thI('Marge brute','right')}</tr></thead><tbody>`
         + intervCentre.map(i=>{
             const dv = intervDevis[i.devis_id];
@@ -3719,7 +3987,7 @@ async function renderFournisseurs(search=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
@@ -3805,7 +4073,7 @@ async function openFourDetail(fourId){
       </div>
       <strong style="font-size:13px">Factures liées (${facs.length})</strong>
       <div style="overflow-x:auto;margin-top:8px">
-        <table style="width:100%;border-collapse:collapse;min-width:640px">
+        <table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:640px">
           <thead><tr style="background:var(--gray-1)">
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">N° Facture</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Chantier</th>
@@ -3933,7 +4201,7 @@ async function renderPOS(search='', filterStatut=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
@@ -4010,11 +4278,11 @@ function renderPoLignes(){
   body.innerHTML = poLignes.map((l,i)=>`<tr>
     <td><input value="${l.description}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
     <td><input value="${l.reference_article}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
-    <td><input type="number" min="0" step="1" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
+    <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
     </select></td>
-    <td><input type="number" min="0" step="0.01" value="${l.prix_unitaire_ht}" onchange="updLigne(${i},'prix_unitaire_ht',this.value)"/></td>
+    <td><input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="${l.prix_unitaire_ht}" onchange="updLigne(${i},'prix_unitaire_ht',this.value)"/></td>
     <td><select onchange="updLigne(${i},'taux_tva',this.value)">
       ${[17,14,8,3,0].map(t=>`<option ${l.taux_tva==t?'selected':''}>${t}</option>`).join('')}
     </select></td>
@@ -5013,7 +5281,7 @@ async function renderReceptions(){
     <div class="card">
       <div class="card-header"><h2>Historique des réceptions</h2>${btnExport('receptions')}</div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
           <tbody>
             ${bls.length===0?'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
@@ -5095,7 +5363,7 @@ function openBLModal(){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Commande *</label>
-          <select id="bl-po" onchange="loadLignesBL(this.value)">
+          <select id="bl-po" data-ordre="fixe" onchange="loadLignesBL(this.value)">
             <option value="">— Sélectionner une commande —</option>${posOpts}
           </select>
         </div>
@@ -5287,7 +5555,7 @@ async function renderFactures(){
               <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
               <th></th>
             </tr>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th><th>N° interne</th><th>N° Facture four.</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Échéance</th><th>Montant HT</th><th>Montant TTC</th><th>Documents</th><th>Statut</th><th>Actions</th></tr>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('cmd','Commande')}${thTriFac('four','Fournisseur')}${thTriFac('chantier','Chantier')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('ttc','Montant TTC')}<th>Documents</th>${thTriFac('statut','Statut')}<th>Actions</th></tr>
           </thead>
           <tbody id="fac-tbody"></tbody>
         </table>
@@ -5297,11 +5565,42 @@ async function renderFactures(){
   afficherFactures();
 }
 
+// Tri des factures fournisseurs : appliqué à TOUTE la liste filtrée (avant la pagination), pas seulement à la page affichée.
+// Même cycle que les autres tableaux : croissant → décroissant → ordre d'origine ; les valeurs absentes restent en fin de liste.
+let _facTri = null;      // {col, dir}
+const jourMsFac = v => { const j = jourFac(v); return j ? Date.parse(j) : null; };
+const COLS_TRI_FAC = {
+  interne:['texte', r=>cleTexteTri(r.numero_interne)],
+  num:['texte', r=>cleTexteTri(r.numero_facture_fournisseur)],
+  cmd:['texte', r=>cleTexteTri(r.purchase_orders_lyneo?.numero)],
+  four:['texte', r=>cleTexteTri(nomFournisseurFac(r))],
+  chantier:['texte', r=>cleTexteTri(r.chantiers_lyneo?.nom)],
+  date:['date', r=>jourMsFac(r.date_facture)],
+  ech:['date', r=>jourMsFac(r.date_echeance)],
+  ht:['nombre', r=>montantHtFacture(r)],
+  ttc:['nombre', r=>parseFloat(r.montant_ttc)||0],
+  statut:['texte', r=>cleTexteTri(STATUT_FA[r.statut]||r.statut)]
+};
+function trierFactures(liste){
+  const c = _facTri && COLS_TRI_FAC[_facTri.col];
+  return c ? trierAvecCle(liste, c[1], c[0], _facTri.dir) : liste;
+}
+function trierFacturesPar(col){
+  _facTri = prochainEtatTri(_facTri, col); _facPage = 1; afficherFactures();
+}
+const thTriFac = (col, lib) => `<th class="tri-th" tabindex="0" title="Cliquer pour trier" data-tri-fac="${col}" aria-sort="none" onclick="trierFacturesPar('${col}')">${lib}</th>`;
+function majEnteteTriFac(){
+  document.querySelectorAll('#fac-liste th[data-tri-fac]').forEach(th=>{
+    const actif = !!_facTri && _facTri.col===th.dataset.triFac;
+    th.setAttribute('aria-sort', actif ? (_facTri.dir===1 ? 'ascending' : 'descending') : 'none');
+  });
+}
+
 function facturesFiltrees(){
   const F = _facFiltres, q = (F.search||'').trim().toLowerCase();
   const num = (F.num||'').trim().toLowerCase(), cmd = (F.cmd||'').trim().toLowerCase(), interne = (F.interne||'').trim().toLowerCase();
   const mMin = F.montMin===''||F.montMin==null ? null : parseFloat(F.montMin), mMax = F.montMax===''||F.montMax==null ? null : parseFloat(F.montMax);
-  return _facsListe.filter(r=>{
+  const res = _facsListe.filter(r=>{
     const nomF = nomFournisseurFac(r);
     if(F.four && nomF!==F.four) return false;
     if(F.statut && r.statut!==F.statut) return false;
@@ -5323,6 +5622,7 @@ function facturesFiltrees(){
     }
     return true;
   });
+  return trierFactures(res);
 }
 
 function afficherFactures(){
@@ -5373,6 +5673,7 @@ function afficherFactures(){
   majBarreFactures();
   majPagerFactures(tous.length);
   syncDefilementFac();
+  majEnteteTriFac();
 }
 
 // ── Pagination et barre de défilement du haut ──
@@ -5509,7 +5810,7 @@ function viderSelectionFactures(){ _facSel.clear(); afficherFactures(); }
 // Changer un filtre vide la sélection : l'action en masse ne touche jamais que ce qui est affiché
 function majFiltreFactures(k, v){ _facFiltres[k] = v; _facSel.clear(); _facPage = 1; afficherFactures(); }
 function reinitialiserFiltresFactures(){
-  _facFiltres = filtresFacVides(); _facSel.clear(); _facPage = 1;
+  _facFiltres = filtresFacVides(); _facSel.clear(); _facPage = 1; _facTri = null;
   ['fac-recherche','facc-num','facc-cmd','facc-four','facc-chantier','facc-statut','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
   afficherFactures();
 }
@@ -5891,8 +6192,8 @@ function renderFacLignesLibre(){
   body.innerHTML = _facLignesLibre.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.reference_article||''}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="number" step="1" value="${l.quantite}" onchange="updFacLigneLibre(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updFacLigneLibre(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updFacLigneLibre(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updFacLigneLibre(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updFacLigneLibre(${i},'taux_tva',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">${[17,14,8,3,0].map(t=>`<option value="${t}" ${l.taux_tva==t?'selected':''}>${t}%</option>`).join('')}</select></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_facLignesLibre.length>1?`<button onclick="delFacLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
@@ -5963,7 +6264,7 @@ function openFacModal(){
     // ── SECTION 1: Infos de base (header) ──
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">'
     +  '<div class="form-group"><label class="field-label">Commande associée *</label>'
-    +    '<select id="fac-po" onchange="loadLignesPourFac(this.value)">'
+    +    '<select id="fac-po" data-ordre="fixe" onchange="loadLignesPourFac(this.value)">'
     +    '<option value="">— Sélectionner une commande —</option>'+opts
     +    '</select></div>'
     +  '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label>'
@@ -5986,11 +6287,11 @@ function openFacModal(){
     +'<div id="fac-totaux-section" style="display:none;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:16px;margin-bottom:16px">'
     +  '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;align-items:end">'
     +    '<div class="form-group"><label class="field-label">Total HT calculé</label>'
-    +      '<input type="number" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()" style="font-weight:600"/></div>'
+    +      '<input type="text" data-calc="2" autocomplete="off" step="0.01" id="fac-ht" value="0" oninput="calcFacTTC()" style="font-weight:600"/></div>'
     +    '<div class="form-group"><label class="field-label">Total TVA calculé</label>'
-    +      '<input type="number" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/></div>'
+    +      '<input type="text" data-calc="2" autocomplete="off" step="0.01" id="fac-tva" value="0" oninput="calcFacTTC()"/></div>'
     +    '<div class="form-group"><label class="field-label">TOTAL TTC</label>'
-    +      '<input type="number" step="0.01" id="fac-ttc" value="0" style="font-weight:800;color:var(--blue);font-size:16px"/></div>'
+    +      '<input type="text" data-calc="2" autocomplete="off" step="0.01" id="fac-ttc" value="0" style="font-weight:800;color:var(--blue);font-size:16px"/></div>'
     +    '<div class="form-group"><button class="btn btn-secondary" onclick="autoCalcFromLignes()" style="width:100%;margin-top:4px"><i class="ti ti-calculator"></i> Recalculer</button></div>'
     +  '</div>'
     +'</div>'
@@ -6108,11 +6409,11 @@ function renderFacLignesEdit(){
       +  '<input value="'+l.description.replace(/"/g,'&quot;')+'" data-field="description" data-idx="'+i+'" class="fac-ligne-input" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;background:var(--blue-light)"/>'
       +'</td>'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
-      +  '<input type="number" min="0" step="1" value="'+l.quantite+'" data-field="quantite" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
+      +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" data-field="quantite" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
       +'</td>'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
-      +  '<input type="number" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" data-field="prix_unitaire_ht" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
+      +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" data-field="prix_unitaire_ht" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
       +'</td>'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
       +  '<select data-field="taux_tva" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'
@@ -6291,7 +6592,7 @@ function openPayModal(facId, poId, montant){
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Date de paiement</label><input type="date" id="pay-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Montant payé (€)</label><input type="number" step="0.01" id="pay-montant" value="${montant}"/></div>
+        <div class="form-group"><label class="field-label">Montant payé (€)</label><input type="text" data-calc="2" autocomplete="off" step="0.01" id="pay-montant" value="${montant}"/></div>
         <div class="form-group"><label class="field-label">Mode de paiement</label>
           <select id="pay-mode">
             <option value="virement">Virement bancaire</option>
@@ -6905,7 +7206,7 @@ async function renderClients(search=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Aucun client trouvé</p><button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button></div></td></tr>' :
@@ -7161,7 +7462,7 @@ async function openClientDetail(clientId){
       <strong style="font-size:13px">Devis (${devisClient.length})</strong>${devisAFacturer.length?` <span style="font-size:12px;color:var(--orange);font-weight:600;margin-left:6px">${devisAFacturer.length} à facturer · reste ${fmt(resteDevis)} HT</span>`:''}
       <div style="margin-top:8px;margin-bottom:20px">
         ${devisClient.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun devis pour ce client</p>' :
-          `<table style="width:100%;border-collapse:collapse">
+          `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Objet</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Montant HT</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Facturation</th></tr></thead>
             <tbody>${devisClient.map(d=>`<tr style="cursor:pointer" onclick="closeModal();openDevisDetail('${d.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);white-space:nowrap"><strong class="text-blue">${escHtml(d.numero)}</strong></td>
@@ -7177,7 +7478,7 @@ async function openClientDetail(clientId){
       <strong style="font-size:13px">Interventions SAV (${interventionsClient.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
         ${interventionsClient.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune intervention SAV pour ce client</p>' :
-          `<table style="width:100%;border-collapse:collapse">
+          `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Réf.</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Site</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Facturée</th></tr></thead>
             <tbody>${interventionsClient.map(i=>`<tr style="cursor:pointer" onclick="closeModal();openInterventionDetail('${i.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${i.ref}</strong>${i.astreinte?' <span class="badge badge-litige" style="font-size:10px">⚡</span>':''}</td>
@@ -7192,7 +7493,7 @@ async function openClientDetail(clientId){
       <strong style="font-size:13px">Heures encodées</strong>
       <div style="margin-top:8px;margin-bottom:20px">
         ${heuresParChantier.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune heure encodée pour ce client</p>' :
-          `<table style="width:100%;border-collapse:collapse">
+          `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Total heures</th></tr></thead>
             <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${h.chantier.numero||''} — ${h.chantier.nom}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
           </table>`}
@@ -7201,7 +7502,7 @@ async function openClientDetail(clientId){
       <strong style="font-size:13px">Factures clients (${facsVente.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
         ${facsVente.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune facture émise pour ce client</p>' :
-          `<table style="width:100%;border-collapse:collapse">
+          `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
             <tbody>${facsVente.map(f=>`<tr style="cursor:pointer" onclick="closeModal();openFactureVenteDetail('${f.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${f.numero}</strong></td>
@@ -7216,7 +7517,7 @@ async function openClientDetail(clientId){
       <strong style="font-size:13px">Bons de commande fournisseurs liés (${pos.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
         ${pos.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune commande pour les chantiers de ce client</p>' :
-          `<table style="width:100%;border-collapse:collapse">
+          `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Fournisseur</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
             <tbody>${pos.map(p=>`<tr style="cursor:pointer" onclick="closeModal();openPODetail('${p.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${p.numero}</strong></td>
@@ -7231,7 +7532,7 @@ async function openClientDetail(clientId){
       <strong style="font-size:13px">Factures fournisseurs liées (${facsFourn.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
         ${facsFourn.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune facture fournisseur pour les chantiers de ce client</p>' :
-          `<table style="width:100%;border-collapse:collapse">
+          `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Fournisseur</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
             <tbody>${facsFourn.map(f=>`<tr style="cursor:pointer" onclick="closeModal();openFacDetail('${f.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${f.numero_facture_fournisseur}</strong></td>
@@ -7512,13 +7813,18 @@ async function importDevisExcel(file){
 let _devis = [];
 let _devisLignes = {principal:[], option:[]};
 
-let _dvFiltres = {search:'', statut:'', fact:''};
+// Filtres de la liste : search / client / statut / fact = les contrôles du haut ; cols = filtres des en-têtes de colonnes
+// ({liste:{vals:[…]}, texte:{txt}, date:{de,a}, nombre:{min,max}}) ; tri = {k, dir:'asc'|'desc'}. Les deux se combinent (ET).
+// Les contrôles du haut et les filtres d'en-tête sont indépendants et se cumulent (ET) ; « Réinitialiser » efface tout.
+function dvFiltresVides(){ return {search:'', client:'', statut:'', fact:'', cols:{}, tri:null}; }
+let _dvFiltres = dvFiltresVides();
 let _dvFactures = {};   // devis_id -> factures liées
 
 async function renderDevis(search){
   if(typeof search==='string') _dvFiltres.search = search;
   const {data} = await sb.from('devis').select('*,clients(nom),chantiers_lyneo!chantier_id(nom,numero)').order('created_at',{ascending:false});
   _devis = data||[];
+  fermerPopFiltreDevis();
   // factures liées aux devis : requête protégée (la liste des devis s'affiche même si elle échoue)
   _dvFactures = {};
   try{ const r = await sb.from('factures_vente').select('*'); (r.data||[]).forEach(f=>{ if(f.devis_id) (_dvFactures[f.devis_id] = _dvFactures[f.devis_id]||[]).push(f); }); }catch(e){}
@@ -7537,10 +7843,12 @@ async function renderDevis(search){
     </div>
     <div id="dv-resume" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-      <select id="dvf-statut" style="width:auto;min-width:150px" onchange="_dvFiltres.statut=this.value;afficherDevis()">
+      <input id="dvf-client" list="dvf-clients" placeholder="Client — tapez ou choisissez" autocomplete="off" style="width:230px" value="${escHtml(F.client)}" oninput="dvClientTop(this.value)" title="Filtrer par client"/>
+      <datalist id="dvf-clients">${nomsClientsDevis().map(n=>`<option value="${escHtml(n)}"></option>`).join('')}</datalist>
+      <select id="dvf-statut" style="width:auto;min-width:150px" onchange="dvStatutTop(this.value)">
         <option value="">Tous les statuts</option>${Object.entries(STATUT_DV).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}
       </select>
-      <select id="dvf-fact" style="width:auto;min-width:230px" onchange="_dvFiltres.fact=this.value;afficherDevis()">
+      <select id="dvf-fact" style="width:auto;min-width:230px" onchange="dvFactTop(this.value)">
         <option value="">Toute la facturation</option>
         <option value="afacturer"${sel('afacturer',F.fact)}>À facturer (acceptés non ou partiellement facturés)</option>
         <option value="non"${sel('non',F.fact)}>Non facturés</option>
@@ -7551,20 +7859,25 @@ async function renderDevis(search){
       </select>
       <button class="btn btn-ghost btn-sm" id="dvf-reset" onclick="reinitialiserFiltresDevis()" style="display:none"><i class="ti ti-x"></i> Réinitialiser</button>
     </div>
+    <div id="dv-chips" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin:-4px 0 12px"></div>
     <div class="card">
       <div class="table-wrap" id="dv-liste" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
     </div>`;
   afficherDevis();
 }
 
-function reinitialiserFiltresDevis(){ _dvFiltres = {search:'', statut:'', fact:''}; renderDevis(); }
+function reinitialiserFiltresDevis(){ _dvFiltres = dvFiltresVides(); renderDevis(); }
 
-function devisFiltres(){
+function devisFiltres(sauf){
   const F = _dvFiltres, q = (F.search||'').trim().toLowerCase();
+  const cl = normTxtDevis((F.client||'').trim());
+  const clExact = !!cl && _devis.some(x=>normTxtDevis(x.clients?.nom||'')===cl);       // nom complet choisi dans la liste → égalité ; sinon « contient »
   return _devis.filter(d=>{
     const e = etatFacturationDevis(d, _dvFactures[d.id]);
     if(F.statut && d.statut!==F.statut) return false;
     if(F.fact){ if(F.fact==='afacturer' ? !e.aFacturer : e.etat!==F.fact) return false; }
+    if(cl){ const nom = normTxtDevis(d.clients?.nom||''); if(clExact ? nom!==cl : !nom.includes(cl)) return false; }
+    for(const k of Object.keys(F.cols||{})){ if(k===sauf) continue; const c = colDevis(k); if(c && !passeColDevis(d, c, F.cols[k])) return false; }
     if(q){
       const facs = (_dvFactures[d.id]||[]).map(f=>f.numero).join(' ');
       const txt = [d.numero, d.objet, d.clients?.nom, d.chantiers_lyneo?.nom, d.chantiers_lyneo?.numero, facs].join(' ').toLowerCase();
@@ -7575,7 +7888,7 @@ function devisFiltres(){
 }
 
 function afficherDevis(){
-  const items = devisFiltres(), F = _dvFiltres;
+  const items = trierDevis(devisFiltres()), F = _dvFiltres;
   const etats = {}; items.forEach(d=>{ etats[d.id] = etatFacturationDevis(d, _dvFactures[d.id]); });
   const acceptes = items.filter(d=>d.statut==='accepte');
   const nbAFacturer = acceptes.filter(d=>etats[d.id].aFacturer).length;
@@ -7583,8 +7896,9 @@ function afficherDevis(){
   const totAcceptes = somme(acceptes,d=>parseFloat(d.montant_ht)||0);
   const totFacture = somme(acceptes,d=>Math.min(Math.max(etats[d.id].couvert,0), parseFloat(d.montant_ht)||0));
   const totReste = somme(acceptes,d=>Math.max(0, etats[d.id].reste));
-  const actif = !!(F.search||F.statut||F.fact);
+  const actif = !!(F.search||F.statut||F.fact||F.client||F.tri||Object.keys(F.cols||{}).length);
   const rb = el('dvf-reset'); if(rb) rb.style.display = actif ? '' : 'none';
+  rendreChipsDevis();
 
   const carte = (titre, valeur, sous, couleur, clic)=>`<div style="background:#fff;border:1px solid var(--gray-3);border-left:4px solid ${couleur};border-radius:var(--radius);padding:12px 14px;${clic?'cursor:pointer':''}" ${clic?`onclick="${clic}"`:''}>
       <div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.04em">${titre}</div>
@@ -7594,7 +7908,7 @@ function afficherDevis(){
   if(resume) resume.innerHTML =
     carte('Devis acceptés HT', fmt(totAcceptes), `${acceptes.length} devis`, 'var(--blue)') +
     carte('Déjà facturé HT', fmt(totFacture), totAcceptes>0 ? Math.round(totFacture/totAcceptes*100)+' % des devis acceptés' : '—', 'var(--green)') +
-    carte('Devis non validé', fmt(totReste), nbAFacturer ? `${nbAFacturer} devis à facturer — cliquer pour les voir` : 'Tout est facturé', nbAFacturer?'var(--orange)':'var(--green)', nbAFacturer?"_dvFiltres.fact='afacturer';_dvFiltres.statut='';renderDevis()":'');
+    carte('Devis non validé', fmt(totReste), nbAFacturer ? `${nbAFacturer} devis à facturer — cliquer pour les voir` : 'Tout est facturé', nbAFacturer?'var(--orange)':'var(--green)', nbAFacturer?"filtrerAFacturerDevis()":'');
 
   const sub = 'font-size:11.5px;color:var(--gray-5);line-height:1.35';
   const cellFact = d=>{
@@ -7612,7 +7926,7 @@ function afficherDevis(){
   };
   const liste = el('dv-liste'); if(!liste) return;
   liste.innerHTML = `<table>
-    <thead><tr><th>N°</th><th>Client</th><th>Chantier</th><th>Objet</th><th>Date</th><th>Statut</th><th style="text-align:right">Montant HT</th><th>Facturation</th><th>Actions</th></tr></thead>
+    <thead><tr>${COLS_DEVIS.map(enteteColDevis).join('')}<th>Actions</th></tr></thead>
     <tbody>
       ${items.length===0 ? `<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>${_devis.length===0?'Aucun devis trouvé':'Aucun devis ne correspond à ces critères'}</p>${_devis.length===0?'<button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>':'<button class="btn btn-secondary" onclick="reinitialiserFiltresDevis()">Réinitialiser les filtres</button>'}</div></td></tr>` :
       items.map(d=>`<tr style="cursor:pointer" onclick="openDevisDetail('${d.id}')">
@@ -7632,6 +7946,174 @@ function afficherDevis(){
     </tbody>
   </table>`;
 }
+
+// ── LISTE DES DEVIS : filtres dans les en-têtes de colonnes (comme Excel) ──────────────────────────
+const LIB_FACT_DEVIS = {non:'Non facturé', brouillon:'Facture en brouillon', partiel:'Partiellement facturé', total:'Facturé', sur:'Sur-facturé', na:'—'};
+const COLS_DEVIS = [
+  {k:'numero',   label:'N°',          type:'texte',  val:d=>d.numero||''},
+  {k:'client',   label:'Client',      type:'liste',  val:d=>d.clients?.nom||'', aff:v=>v||'—'},
+  {k:'chantier', label:'Chantier',    type:'liste',  val:d=>d.chantiers_lyneo?.nom||'', aff:v=>v||'—'},
+  {k:'objet',    label:'Objet',       type:'texte',  val:d=>d.objet||''},
+  {k:'date',     label:'Date',        type:'date',   val:d=>String(d.date_devis||'').slice(0,10)},
+  {k:'statut',   label:'Statut',      type:'liste',  val:d=>d.statut||'', aff:v=>STATUT_DV[v]||v||'—'},
+  {k:'montant',  label:'Montant HT',  type:'nombre', val:d=>parseFloat(d.montant_ht)||0, droite:true},
+  {k:'fact',     label:'Facturation', type:'liste',  val:d=>etatFacturationDevis(d, _dvFactures[d.id]).etat, aff:v=>LIB_FACT_DEVIS[v]||v}
+];
+const colDevis = k => COLS_DEVIS.find(c=>c.k===k);
+const normTxtDevis = t => String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const nomsClientsDevis = () => [...new Set(_devis.map(d=>d.clients?.nom).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'}));
+
+function passeColDevis(d, c, spec){
+  const v = c.val(d);
+  if(c.type==='liste') return (spec.vals||[]).includes(v);
+  if(c.type==='texte') return normTxtDevis(v).includes(normTxtDevis(spec.txt));
+  if(c.type==='date'){ if(spec.de && (!v || v<spec.de)) return false; if(spec.a && (!v || v>spec.a)) return false; return true; }
+  if(c.type==='nombre'){ if(spec.min!=null && v<spec.min) return false; if(spec.max!=null && v>spec.max) return false; return true; }
+  return true;
+}
+function trierDevis(liste){
+  const t = _dvFiltres.tri, c = t && colDevis(t.k); if(!c) return liste;
+  const dir = t.dir==='desc' ? -1 : 1;
+  const cle = d => c.type==='nombre' ? c.val(d) : String(c.aff ? c.aff(c.val(d)) : c.val(d));
+  return liste.map((d,i)=>({d,i,v:cle(d)})).sort((a,b)=>{
+    const r = c.type==='nombre' ? a.v-b.v : a.v.localeCompare(b.v,'fr',{sensitivity:'base',numeric:true});
+    return (r*dir) || (a.i-b.i);
+  }).map(x=>x.d);
+}
+const SVG_FILTRE_DEVIS = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/></svg>';
+function enteteColDevis(c){
+  const F = _dvFiltres, actif = !!(F.cols && F.cols[c.k]), tri = F.tri && F.tri.k===c.k ? F.tri.dir : '';
+  return `<th${c.droite?' style="text-align:right"':''}><div class="dvh${c.droite?' dvh-r':''}"><span class="dvh-lib" onclick="trierColDevis('${c.k}')" title="Trier">${c.label}${tri?` <span class="dvh-fl">${tri==='asc'?'▲':'▼'}</span>`:''}</span><button type="button" class="dvh-btn${actif?' actif':''}" id="dvh-${c.k}" onclick="ouvrirFiltreColDevis('${c.k}',event)" title="Filtrer cette colonne">${SVG_FILTRE_DEVIS}</button></div></th>`;
+}
+function trierColDevis(k, dir){
+  const t = _dvFiltres.tri;
+  _dvFiltres.tri = dir ? {k, dir} : (!t || t.k!==k) ? {k, dir:'asc'} : t.dir==='asc' ? {k, dir:'desc'} : null;      // clic sur le titre : A→Z, puis Z→A, puis ordre d'origine
+  afficherDevis(); if(_dvPop) rendrePopFiltreDevis();
+}
+// Contrôles du haut : les nombres affichés dans une fenêtre de filtre ouverte tiennent compte du changement
+function dvClientTop(v){ _dvFiltres.client = v; afficherDevis(); if(_dvPop) rendreListePopDevis(); }
+function dvStatutTop(v){ _dvFiltres.statut = v; afficherDevis(); if(_dvPop) rendreListePopDevis(); }
+function dvFactTop(v){ _dvFiltres.fact = v; afficherDevis(); if(_dvPop) rendreListePopDevis(); }
+function filtrerAFacturerDevis(){ const F = _dvFiltres; F.fact = 'afacturer'; F.statut = ''; delete F.cols.statut; delete F.cols.fact; renderDevis(); }
+function poserFiltreColDevis(k, spec){
+  if(spec) _dvFiltres.cols[k] = spec; else delete _dvFiltres.cols[k];
+  afficherDevis();
+}
+function resumeFiltreColDevis(c, spec){
+  if(c.type==='liste'){ const l = spec.vals.map(v=>c.aff?c.aff(v):(v||'—')); return l.length===0 ? 'aucune valeur' : l.length<=3 ? l.join(', ') : l.slice(0,3).join(', ')+' +'+(l.length-3); }
+  if(c.type==='texte') return 'contient « '+spec.txt+' »';
+  if(c.type==='date') return (spec.de?'du '+fmtDate(spec.de):'')+(spec.de&&spec.a?' ':'')+(spec.a?'au '+fmtDate(spec.a):'');
+  return (spec.min!=null?'≥ '+spec.min:'')+(spec.min!=null&&spec.max!=null?' et ':'')+(spec.max!=null?'≤ '+spec.max:'');
+}
+function rendreChipsDevis(){
+  const box = el('dv-chips'); if(!box) return;
+  const ks = Object.keys(_dvFiltres.cols||{});
+  if(!ks.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  box.innerHTML = '<span style="font-size:11.5px;color:var(--gray-5);font-weight:600">Filtres des colonnes :</span>' + ks.map(k=>{
+    const c = colDevis(k); if(!c) return '';
+    return `<span class="dvh-chip" data-col="${k}"><b>${c.label}</b> ${escHtml(resumeFiltreColDevis(c, _dvFiltres.cols[k]))} <button type="button" onclick="poserFiltreColDevis('${k}',null);if(_dvPop)rendrePopFiltreDevis()" title="Retirer ce filtre">×</button></span>`;
+  }).join('');
+}
+
+// — fenêtre de filtre d'une colonne —
+let _dvPop = null;        // {k, q} colonne ouverte et recherche dans la liste
+function fermerPopFiltreDevis(){ const p = el('dv-colpop'); if(p) p.remove(); _dvPop = null; }
+function ouvrirFiltreColDevis(k, ev){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  const dejaOuverte = _dvPop && _dvPop.k===k;
+  fermerPopFiltreDevis();
+  if(dejaOuverte) return;
+  _dvPop = {k, q:''};
+  const p = document.createElement('div'); p.id = 'dv-colpop'; document.body.appendChild(p);
+  rendrePopFiltreDevis();
+  placerPopFiltreDevis();
+}
+function placerPopFiltreDevis(){
+  const p = el('dv-colpop'), bt = _dvPop && el('dvh-'+_dvPop.k); if(!p || !bt) return;
+  const b = bt.getBoundingClientRect(), W = Math.min(300, window.innerWidth-16);
+  p.style.width = W+'px';
+  p.style.left = Math.max(8, Math.min(b.left, window.innerWidth-W-8))+'px';
+  p.style.top = (b.bottom+4)+'px';
+  p.style.maxHeight = Math.max(200, window.innerHeight-b.bottom-16)+'px';
+}
+function valeursListeDevis(c){
+  const compte = new Map(); _devis.forEach(d=>{ const v = c.val(d); if(!compte.has(v)) compte.set(v,0); });
+  devisFiltres(c.k).forEach(d=>{ const v = c.val(d); compte.set(v, (compte.get(v)||0)+1); });          // nombre de devis par valeur, avec les autres filtres actifs
+  return [...compte.entries()].map(([v,n])=>({v, n, lib:c.aff?c.aff(v):(v||'—')})).sort((a,b)=>a.lib.localeCompare(b.lib,'fr',{sensitivity:'base',numeric:true}));
+}
+function rendrePopFiltreDevis(){
+  const p = el('dv-colpop'); if(!p || !_dvPop) return;
+  const k = _dvPop.k, c = colDevis(k), spec = _dvFiltres.cols[k], t = _dvFiltres.tri;
+  const sensTri = c.type==='date' ? ['Du plus ancien au plus récent','Du plus récent au plus ancien'] : c.type==='nombre' ? ['Du plus petit au plus grand','Du plus grand au plus petit'] : ['De A à Z','De Z à A'];
+  const triBtn = (dir,lib)=>`<button type="button" class="dvp-tri${t&&t.k===k&&t.dir===dir?' on':''}" data-dir="${dir}" onclick="trierColDevis('${k}','${dir}')"><span class="dvp-fl">${dir==='asc'?'↑':'↓'}</span> ${lib}</button>`;
+  let corps = '';
+  if(c.type==='liste'){
+    corps = `<input id="dvp-q" class="dvp-champ" placeholder="Rechercher…" autocomplete="off" value="${escHtml(_dvPop.q)}" oninput="dvPopRecherche(this.value)"/>
+      <label class="dvp-it dvp-tout"><input type="checkbox" id="dvp-tout" onchange="dvPopTout(this)"/> <span>(Tout sélectionner)</span></label>
+      <div id="dvp-liste" class="dvp-liste"></div>`;
+  } else if(c.type==='texte'){
+    corps = `<input id="dvp-txt" class="dvp-champ" placeholder="Contient…" autocomplete="off" value="${escHtml(spec?spec.txt:'')}" oninput="dvPopTexte(this.value)"/>`;
+  } else if(c.type==='date'){
+    corps = `<div class="dvp-2"><label>Du<input type="date" id="dvp-de" class="dvp-champ" value="${escHtml(spec?spec.de||'':'')}" onchange="dvPopBornes()"/></label><label>Au<input type="date" id="dvp-a" class="dvp-champ" value="${escHtml(spec?spec.a||'':'')}" onchange="dvPopBornes()"/></label></div>`;
+  } else {
+    corps = `<div class="dvp-2"><label>Min (€)<input type="text" id="dvp-min" class="dvp-champ" data-calc="2" autocomplete="off" value="${spec&&spec.min!=null?spec.min:''}" onchange="dvPopBornes()"/></label><label>Max (€)<input type="text" id="dvp-max" class="dvp-champ" data-calc="2" autocomplete="off" value="${spec&&spec.max!=null?spec.max:''}" onchange="dvPopBornes()"/></label></div>`;
+  }
+  p.innerHTML = `<div class="dvp-titre">${c.label}</div>
+    <div class="dvp-tris">${triBtn('asc',sensTri[0])}${triBtn('desc',sensTri[1])}</div>
+    ${corps}
+    <div class="dvp-pied"><button type="button" class="btn btn-ghost btn-sm" id="dvp-effacer" onclick="dvPopEffacer()"${spec?'':' disabled'}>Effacer le filtre</button><button type="button" class="btn btn-secondary btn-sm" onclick="fermerPopFiltreDevis()">Fermer</button></div>`;
+  if(c.type==='liste') rendreListePopDevis();
+}
+function rendreListePopDevis(){
+  const zone = el('dvp-liste'); if(!zone || !_dvPop) return;
+  const c = colDevis(_dvPop.k), spec = _dvFiltres.cols[_dvPop.k];
+  const toutes = valeursListeDevis(c), sel = spec ? new Set(spec.vals) : new Set(toutes.map(x=>x.v));
+  const q = normTxtDevis(_dvPop.q), vis = toutes.filter(x=>!q || normTxtDevis(x.lib).includes(q));
+  zone.innerHTML = vis.length===0 ? '<div class="dvp-vide">Aucune valeur</div>' : vis.map(x=>`<label class="dvp-it${x.n===0?' zero':''}"><input type="checkbox" data-v="${escHtml(x.v)}"${sel.has(x.v)?' checked':''} onchange="dvPopCocher(this)"/> <span>${escHtml(x.lib)}</span> <em>${x.n}</em></label>`).join('');
+  const tout = el('dvp-tout');
+  if(tout){ const nb = vis.filter(x=>sel.has(x.v)).length; tout.checked = vis.length>0 && nb===vis.length; tout.indeterminate = nb>0 && nb<vis.length; }
+}
+function appliquerListeDevis(k, sel, toutes){
+  poserFiltreColDevis(k, toutes.every(x=>sel.has(x.v)) ? null : {vals:[...sel]});
+  rendreListePopDevis();
+  const b = el('dvp-effacer'); if(b) b.disabled = !_dvFiltres.cols[k];
+}
+function selectionPopDevis(k){ const toutes = valeursListeDevis(colDevis(k)), spec = _dvFiltres.cols[k]; return {toutes, sel: spec ? new Set(spec.vals) : new Set(toutes.map(x=>x.v))}; }
+function dvPopCocher(box){ const k = _dvPop.k, {toutes, sel} = selectionPopDevis(k); if(box.checked) sel.add(box.dataset.v); else sel.delete(box.dataset.v); appliquerListeDevis(k, sel, toutes); }
+function dvPopTout(box){
+  const k = _dvPop.k, {toutes, sel} = selectionPopDevis(k), q = normTxtDevis(_dvPop.q);
+  toutes.filter(x=>!q || normTxtDevis(x.lib).includes(q)).forEach(x=>{ if(box.checked) sel.add(x.v); else sel.delete(x.v); });
+  appliquerListeDevis(k, sel, toutes);
+}
+function dvPopRecherche(v){ _dvPop.q = v; rendreListePopDevis(); }
+function dvPopTexte(v){ const t = String(v).trim(); poserFiltreColDevis(_dvPop.k, t ? {txt:t} : null); const b = el('dvp-effacer'); if(b) b.disabled = !t; }
+function dvPopBornes(){
+  const k = _dvPop.k, c = colDevis(k);
+  let spec = null;
+  if(c.type==='date'){ const de = el('dvp-de').value, a = el('dvp-a').value; if(de || a) spec = {de, a}; }
+  else { const nb = id=>{ const r = evaluerSaisieCalc(el(id).value); return el(id).value.trim()==='' || r===null ? null : r; }; const min = nb('dvp-min'), max = nb('dvp-max'); if(min!==null || max!==null) spec = {min, max}; }
+  poserFiltreColDevis(k, spec);
+  const b = el('dvp-effacer'); if(b) b.disabled = !spec;
+}
+function dvPopEffacer(){ const k = _dvPop.k; poserFiltreColDevis(k, null); rendrePopFiltreDevis(); }
+document.addEventListener('mousedown', ev=>{
+  if(!_dvPop) return;
+  const p = el('dv-colpop');
+  if(p && p.contains(ev.target)) return;
+  if(ev.target.closest && ev.target.closest('.dvh-btn')) return;
+  fermerPopFiltreDevis();
+});
+document.addEventListener('keydown', ev=>{ if(ev.key==='Escape' && _dvPop) fermerPopFiltreDevis(); });
+window.addEventListener('resize', ()=>{ if(_dvPop) fermerPopFiltreDevis(); });
+window.addEventListener('scroll', ev=>{
+  if(!_dvPop) return;
+  const p = el('dv-colpop'), t = ev.target;
+  if(p && t && p.contains(t)) return;                                              // on fait défiler la liste de la fenêtre elle-même
+  const tab = el('dv-liste');
+  if(tab && t && t.nodeType===1 && (t===tab || tab.contains(t))){ placerPopFiltreDevis(); return; }   // défilement horizontal du tableau : la fenêtre suit son bouton
+  fermerPopFiltreDevis();
+}, true);
 
 function renderDevisLignesReadOnly(arr){
   if(!arr || arr.length===0) return '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--gray-4)">Aucune ligne</td></tr>';
@@ -7690,8 +8172,8 @@ function renderDevisLignesBloc(bloc){
     return `<tr>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><div style="display:flex;align-items:center">${moveBtns(i)}<input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></div></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input value="${r.unite}" onchange="updDevisRow('${bloc}',${i},'unite',this.value)" style="width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;text-align:center"/></td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="number" min="0" step="1" value="${r.quantite}" onchange="updDevisRow('${bloc}',${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:110px"><input type="number" min="0" step="0.01" value="${r.prix_unitaire_ht}" onchange="updDevisRow('${bloc}',${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${r.quantite}" onchange="updDevisRow('${bloc}',${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:110px"><input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="${r.prix_unitaire_ht}" onchange="updDevisRow('${bloc}',${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
       <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:74px">${tvaSelectHTML(r.taux_tva, `updDevisRow('${bloc}',${i},'taux_tva',this.value)`)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(total)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delDevisRow('${bloc}',${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
@@ -8345,7 +8827,7 @@ function afficherFacturesVente(){
 
   const liste = el('fv-liste');
   if(!liste) return;
-  liste.innerHTML = `<table>
+  liste.innerHTML = `<table data-tri="oui">
     <thead><tr>${th('N°')}${th('Date')}${th('Échéance')}${th('Client')}${th('Centre de coûts')}${th('Origine')}${th('Type')}${th('HT','right')}${th('TVA','right')}${th('TTC','right')}${th('Statut')}</tr></thead>
     <tbody>${items.length===0 ? `<tr><td colspan="11">${vide}</td></tr>` : items.map(ligne).join('')}</tbody>
     ${items.length ? `<tfoot><tr style="background:var(--gray-1);font-weight:700">
@@ -8616,8 +9098,8 @@ function renderVenteLignesLibre(){
   body.innerHTML = _venteLignes.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="number" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_venteLignes.length>1?`<button onclick="delVenteLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
@@ -8744,7 +9226,7 @@ async function chargerDonneesDevisPourFacture(chantierId, devisIdChoisi){
 function devisSelectFvHTML(liste, selId, onchangeJs){
   const esc = v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   return `<label class="field-label">Devis à facturer <span style="font-weight:400;text-transform:none">(ce chantier a ${liste.length} devis)</span></label>
-    <select id="fv-devis" onchange="${onchangeJs}">${liste.map(d=>`<option value="${d.id}"${d.id===selId?' selected':''}>${esc(d.numero)} — ${esc((d.objet||'').slice(0,50))} — ${fmt(d.montant_ht)} HT${d.statut && d.statut!=='accepte' ? ' ('+esc(STATUT_DV[d.statut]||d.statut)+')' : ''}</option>`).join('')}</select>`;
+    <select id="fv-devis" data-ordre="fixe" onchange="${onchangeJs}">${liste.map(d=>`<option value="${d.id}"${d.id===selId?' selected':''}>${esc(d.numero)} — ${esc((d.objet||'').slice(0,50))} — ${fmt(d.montant_ht)} HT${d.statut && d.statut!=='accepte' ? ' ('+esc(STATUT_DV[d.statut]||d.statut)+')' : ''}</option>`).join('')}</select>`;
 }
 
 // Rappel des acomptes déjà facturés sur un devis (pour ne pas facturer deux fois la même part)
@@ -9058,8 +9540,8 @@ function renderVenteLignes(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.quantite_devis!==undefined?l.quantite_devis+' '+l.unite:'—'}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.deja_facture!==undefined?l.deja_facture+' '+l.unite:'—'}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="number" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delVenteLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
@@ -9300,8 +9782,8 @@ function renderAvoirLignes(){
   body.innerHTML = _avoirLignes.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updAvoirLigne(${i},'description',this.value)" style="${inp}"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-5)">${l.libre?'—':l.max+' '+escHtml(l.unite||'')}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="number" step="any" min="0" ${l.libre?'':`max="${l.max}"`} value="${l.quantite}" onchange="updAvoirLigne(${i},'quantite',this.value)" style="${inp};text-align:right"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="number" step="0.01" min="0" value="${l.prix_unitaire_ht}" onchange="updAvoirLigne(${i},'prix_unitaire_ht',this.value)" style="${inp};text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="text" data-calc="4" autocomplete="off" step="any" min="0" ${l.libre?'':`max="${l.max}"`} value="${l.quantite}" onchange="updAvoirLigne(${i},'quantite',this.value)" style="${inp};text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="text" data-calc="4" autocomplete="off" step="0.01" min="0" value="${l.prix_unitaire_ht}" onchange="updAvoirLigne(${i},'prix_unitaire_ht',this.value)" style="${inp};text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2)">${tvaSelectHTML(l.taux_tva, `updAvoirLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--red)">${fmt(-arrondi2((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${l.libre?`<button onclick="avoirSupprimerLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
@@ -9438,6 +9920,166 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
   return config;
 }
 
+// ── DOCUMENTS JOINTS DES FACTURES CLIENTS ET NOTES DE CRÉDIT ──────────────────────────────────────
+// Table anexos_facture_vente (script « migration-anexos-factures-vente.sql »). Deux sortes de lignes :
+//  • origine « manuel »     : fichier ajouté à la main (preuve de paiement, bon signé, courrier…) ;
+//  • origine « pdf_genere » : copie du PDF produit par l'ERP quand on clique sur « PDF » (une seule par facture).
+// Règle de la copie : une nouvelle génération REMPLACE la précédente (pas de doublons), sauf si la période est clôturée et que la copie
+// conservée a été générée sur une facture déjà émise : elle est alors gardée telle quelle (c'est le document émis, inaltérable).
+// Sans le script SQL, l'ERP fonctionne comme avant : le PDF se télécharge, il n'est simplement pas archivé.
+const SQL_ANEXOS_FV = 'migration-anexos-factures-vente.sql';
+const _anexosFV = {sqlOk:null, avis:false, enCours:new Map()};
+const erreurTableAnexosFV = err => !!err && (['PGRST205','42P01'].includes(err.code)
+  || /Could not find the table|relation "?(public\.)?anexos_facture_vente"? does not exist|Could not find the '[a-z_]+' column of 'anexos_facture_vente'/i.test(err.message||''));
+const nomSurStockage = t => String(t==null?'':t).replace(/[^a-zA-Z0-9._-]/g,'_');
+const copieEmiseProtegee = (a, clos) => !!(clos && a && a.origine==='pdf_genere' && a.statut_facture && a.statut_facture!=='brouillon');
+function tailleFichier(b){ b = +b||0; if(!b) return ''; if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+
+async function chargerAnexesFV(facId){
+  try{
+    const r = await sb.from('anexos_facture_vente').select('*,utilisateurs(nom,prenom)').eq('facture_vente_id',facId).order('created_at',{ascending:false});
+    if(r.error){
+      if(erreurTableAnexosFV(r.error)){ _anexosFV.sqlOk = false; return {ok:false, manque:true, data:[]}; }
+      return {ok:false, manque:false, erreur:r.error.message, data:[]};
+    }
+    _anexosFV.sqlOk = true;
+    return {ok:true, data:r.data||[]};
+  }catch(e){ return {ok:false, manque:false, erreur:(e&&e.message)||String(e), data:[]}; }
+}
+
+function htmlAnexesFV(anexos, facId, clos){
+  if(!anexos || !anexos.length) return '<div style="text-align:center;padding:14px;color:var(--gray-4);font-size:13px" id="fv-annexes-vide"><i class="ti ti-files" style="font-size:24px;display:block;margin-bottom:4px"></i>Aucun document joint</div>';
+  return anexos.map(a=>{
+    const auto = a.origine==='pdf_genere', protege = copieEmiseProtegee(a, clos);
+    const lien = /^https?:\/\//i.test(a.url||'') ? escHtml(a.url) : '#';
+    const info = auto
+      ? `Copie du PDF générée le ${fmtDate(a.created_at)}${a.statut_facture==='brouillon'?' (version brouillon)':''}${a.tamanho?' — '+tailleFichier(a.tamanho):''}`
+      : `${a.tamanho?tailleFichier(a.tamanho)+' — ':''}Ajouté${a.utilisateurs?' par '+escHtml(nomPers(a.utilisateurs)):''} le ${fmtDate(a.created_at)}`;
+    return `<div class="fv-annexe" data-id="${escHtml(a.id)}" data-origine="${escHtml(a.origine||'manuel')}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:9px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <i class="ti ${auto?'ti-file-type-pdf':'ti-file'}" style="font-size:22px;color:var(--blue)"></i>
+        <div style="min-width:0"><div style="font-weight:600;font-size:13px;word-break:break-word">${escHtml(a.nome_ficheiro)}${auto?' <span class="badge" style="background:var(--blue-light,#E8F0FE);color:var(--blue);margin-left:4px">PDF généré</span>':''}</div>
+        <div style="font-size:11px;color:var(--gray-5)">${info}</div></div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <a href="${lien}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm"><i class="ti ti-eye"></i> Ouvrir</a>
+        ${protege
+          ? `<span class="btn btn-secondary btn-sm" style="opacity:.55;cursor:not-allowed" title="Période clôturée : la copie du PDF émis se conserve"><i class="ti ti-lock"></i></span>`
+          : `<button class="btn btn-danger btn-sm" onclick="deleteAnnexeFV('${escHtml(a.id)}','${escHtml(facId)}')"><i class="ti ti-trash"></i></button>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function rafraichirAnexesFV(facId){
+  const zone = el('fv-annexes-liste');
+  if(!zone || zone.dataset.fac!==String(facId)) return;          // la fiche n'est plus ouverte (ou c'est une autre facture)
+  const r = await chargerAnexesFV(facId);
+  if(!r.ok) return;
+  const z2 = el('fv-annexes-liste');
+  if(z2 && z2.dataset.fac===String(facId)) z2.innerHTML = htmlAnexesFV(r.data, facId, z2.dataset.clos==='1');
+}
+
+async function supprimerFichiersStockage(urls){
+  const chemins = (urls||[]).map(cheminDepuisUrl).filter(Boolean);
+  if(!chemins.length) return;
+  try{ await sb.storage.from('Documents').remove(chemins); }catch(e){ /* fichier orphelin : sans conséquence pour l'ERP */ }
+}
+
+async function uploadAnnexesFV(files, facId){
+  files = Array.from(files||[]);
+  if(!files.length) return;
+  if(_anexosFV.sqlOk===false){ showToast(`Exécutez d'abord ${SQL_ANEXOS_FV} dans Supabase`, 'error'); return; }
+  const progress = el('fv-upload-progress'), bar = el('fv-progress-bar'), txt = el('fv-progress-text');
+  if(progress) progress.style.display = 'block';
+  let reussis = 0, derniere = null;
+  for(let i=0;i<files.length;i++){
+    const file = files[i];
+    if(file.size > 10*1024*1024){ showToast(`${escHtml(file.name)} dépasse 10MB — ignoré`,'error'); continue; }
+    if(bar) bar.style.width = Math.round((i/files.length)*100)+'%';
+    if(txt) txt.textContent = `Envoi ${i+1}/${files.length} : ${file.name}`;
+    const path = `factures_vente/${facId}/${Date.now()}_${nomSurStockage(file.name)}`;
+    const up = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(up.error){ showToast('Erreur upload: '+escHtml(up.error.message),'error'); derniere = up.error.message; continue; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    const ins = await sb.from('anexos_facture_vente').insert({facture_vente_id:facId, nome_ficheiro:file.name, url:urlData.publicUrl, tamanho:file.size,
+      tipo:file.type||null, origine:'manuel', carregado_por:(currentUser&&currentUser.id)||null});
+    if(ins.error){
+      try{ await sb.storage.from('Documents').remove([path]); }catch(e){}           // pas de fichier orphelin si la ligne n'a pas pu être enregistrée
+      showToast('Erreur: '+escHtml(ins.error.message),'error'); derniere = ins.error.message; continue;
+    }
+    reussis++;
+  }
+  if(bar) bar.style.width = '100%';
+  if(progress) setTimeout(()=>{ progress.style.display='none'; if(bar) bar.style.width='0%'; }, 600);
+  if(reussis>0) showToast(reussis>1 ? `${reussis} documents ajoutés` : 'Document ajouté');
+  else if(derniere) showToast("Aucun document n'a pu être ajouté", 'error');
+  await rafraichirAnexesFV(facId);
+}
+
+async function deleteAnnexeFV(id, facId){
+  const {data:a} = await sb.from('anexos_facture_vente').select('*').eq('id',id).maybeSingle();
+  if(!a){ showToast('Document introuvable','error'); await rafraichirAnexesFV(facId); return; }
+  const zone = el('fv-annexes-liste');
+  if(copieEmiseProtegee(a, !!zone && zone.dataset.clos==='1')){ showToast("Période clôturée : la copie du PDF émis se conserve et ne se supprime pas", 'error'); return; }
+  const msg = a.origine==='pdf_genere'
+    ? 'Supprimer la copie archivée du PDF ? Elle sera recréée au prochain clic sur « PDF ».'
+    : 'Supprimer ce document ?';
+  if(!confirm(msg)) return;
+  const r = await sb.from('anexos_facture_vente').delete().eq('id',id).select();
+  if(r.error){ showToast('Erreur: '+escHtml(r.error.message),'error'); return; }
+  if(!r.data || r.data.length===0){ showToast("Suppression refusée par la base de données (droits d'accès)", 'error'); return; }
+  await supprimerFichiersStockage([a.url]);
+  showToast('Document supprimé');
+  await rafraichirAnexesFV(facId);
+}
+
+// Copie du PDF généré → « Documents joints ». Ne bloque ni n'annule jamais le téléchargement.
+// Ordre voulu : 1) envoi du nouveau fichier, 2) ligne en base, 3) seulement ensuite suppression des anciennes copies :
+// si une étape échoue, l'ancienne copie reste intacte.
+function archiverPdfFactureVente(f, bytes){
+  if(_anexosFV.enCours.has(f.id)) return _anexosFV.enCours.get(f.id);          // double clic : une seule copie
+  const p = (async()=>{
+    await chargerCloture();
+    const clos = estClotureFV(f);
+    const ex = await sb.from('anexos_facture_vente').select('*').eq('facture_vente_id',f.id).eq('origine','pdf_genere');
+    if(ex.error){
+      if(erreurTableAnexosFV(ex.error)){
+        _anexosFV.sqlOk = false;
+        if(!_anexosFV.avis){ _anexosFV.avis = true; showToast(`PDF téléchargé. Pour l'archiver aussi dans « Documents joints », exécutez ${SQL_ANEXOS_FV} dans Supabase.`); }
+        return {ok:false, manque:true};
+      }
+      showToast("PDF téléchargé, mais la copie n'a pas pu être archivée : "+escHtml(ex.error.message), 'error');
+      return {ok:false};
+    }
+    _anexosFV.sqlOk = true;
+    const anciennes = ex.data||[];
+    if(anciennes.some(a=>copieEmiseProtegee(a, clos))) return {ok:true, gardee:true};       // période clôturée : la copie du document émis est conservée
+    const path = `factures_vente/${f.id}/pdf_${nomSurStockage(f.numero)}_${Date.now()}.pdf`;
+    const up = await sb.storage.from('Documents').upload(path, new Blob([bytes],{type:'application/pdf'}), {contentType:'application/pdf', upsert:false});
+    if(up.error){ showToast("PDF téléchargé, mais la copie n'a pas pu être archivée : "+escHtml(up.error.message), 'error'); return {ok:false}; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    const ins = await sb.from('anexos_facture_vente').insert({facture_vente_id:f.id, nome_ficheiro:`${f.numero}.pdf`, url:urlData.publicUrl, tamanho:bytes.length,
+      tipo:'application/pdf', origine:'pdf_genere', statut_facture:f.statut||null, carregado_por:(currentUser&&currentUser.id)||null});
+    if(ins.error){
+      try{ await sb.storage.from('Documents').remove([path]); }catch(e){}
+      showToast("PDF téléchargé, mais la copie n'a pas pu être archivée : "+escHtml(ins.error.message), 'error');
+      return {ok:false};
+    }
+    if(anciennes.length){
+      const del = await sb.from('anexos_facture_vente').delete().in('id', anciennes.map(a=>a.id));
+      if(!del.error) await supprimerFichiersStockage(anciennes.map(a=>a.url));
+    }
+    showToast('Copie du PDF archivée dans « Documents joints »');
+    await rafraichirAnexesFV(f.id);
+    return {ok:true};
+  })();
+  _anexosFV.enCours.set(f.id, p);
+  const fin = ()=>_anexosFV.enCours.delete(f.id);
+  p.then(fin, fin);
+  return p;
+}
+
 async function downloadPDF_FactureVente(facId){
   await entrepriseChargee();
   const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,adresse_livraison,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
@@ -9466,6 +10108,9 @@ async function downloadPDF_FactureVente(facId){
   try{
     const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, config);
     await baixarPdfBytes(bytes, `${f.numero}.pdf`);
+    // Copie archivée dans « Documents joints » de la facture (n'empêche jamais le téléchargement déjà fait)
+    try{ await archiverPdfFactureVente(f, bytes); }
+    catch(e){ showToast("PDF téléchargé, mais la copie n'a pas pu être archivée : "+escHtml((e&&e.message)||String(e)), 'error'); }
   }catch(e){
     showToast('Erreur génération PDF: '+e.message, 'error');
   }
@@ -9511,6 +10156,25 @@ async function openFactureVenteDetail(facId){
   const suppr = await contexteSuppressionFV(f);
   await chargerCloture();
   const clos = estClotureFV(f);
+  const anexosR = await chargerAnexesFV(facId);
+  const blocAnexesFV = `<div id="fv-annexes" style="margin-top:18px">
+      <strong style="font-size:13px"><i class="ti ti-paperclip"></i> Documents joints</strong>
+      ${anexosR.manque
+        ? `<div class="alert alert-info" id="fv-annexes-sql" style="margin-top:8px"><i class="ti ti-info-circle"></i> <span>Pour joindre des documents à cette facture et archiver automatiquement son PDF, exécutez le script <strong>${SQL_ANEXOS_FV}</strong> dans Supabase → SQL Editor.</span></div>`
+        : anexosR.erreur
+          ? `<p id="fv-annexes-err" style="font-size:12.5px;color:var(--red);margin-top:6px">Documents joints indisponibles : ${escHtml(anexosR.erreur)}</p>`
+          : `<p style="font-size:12px;color:var(--gray-5);margin:4px 0 8px">Le PDF généré avec le bouton « PDF » est archivé ici automatiquement. Vous pouvez aussi joindre une preuve de paiement, un bon signé, un courrier…</p>
+      <div id="fv-drop-zone" style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:14px;text-align:center;cursor:pointer" onclick="document.getElementById('fv-file-input').click()">
+        <i class="ti ti-upload" style="font-size:20px;color:var(--gray-4)"></i>
+        <p style="font-size:12.5px;color:var(--gray-5);margin-top:4px">Cliquez pour choisir un fichier (PDF, image…) — 10 MB maximum</p>
+        <input type="file" id="fv-file-input" multiple style="display:none" onchange="uploadAnnexesFV(this.files,'${f.id}').then(()=>{this.value=''})"/>
+      </div>
+      <div id="fv-upload-progress" style="display:none;margin-top:8px">
+        <div style="background:var(--gray-2);border-radius:4px;overflow:hidden;height:6px"><div id="fv-progress-bar" style="background:var(--blue);height:100%;width:0%;transition:width .2s"></div></div>
+        <p id="fv-progress-text" style="font-size:11px;color:var(--gray-5);margin-top:4px"></p>
+      </div>
+      <div id="fv-annexes-liste" data-fac="${f.id}" data-clos="${clos?1:0}" style="margin-top:10px">${htmlAnexesFV(anexosR.data, f.id, clos)}</div>`}
+    </div>`;
   const voitHisto = !!currentUser && ['admin','comptabilite'].includes(currentUser.role);
   const peutCredit = !avoir && ['envoyee','payee_partiel','payee'].includes(f.statut);
   const th = (t,al)=>`<th style="padding:8px 10px;text-align:${al||'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">${t}</th>`;
@@ -9562,6 +10226,7 @@ async function openFactureVenteDetail(facId){
         <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px"><span>Net après notes de crédit émises</span><strong>${fmt(netTtc)} TTC</strong></div>
       </div>`:''}
       ${f.observations?`<div style="margin-top:16px"><strong style="font-size:13px">${avoir?'Motif / observations':'Observations'}</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(f.observations)}</p></div>`:''}
+      ${blocAnexesFV}
       ${suppr.ok?'':`<p id="fv-suppr-info" style="font-size:11.5px;color:var(--gray-5);margin-top:14px"><i class="ti ti-lock"></i> ${escHtml(clos ? "Un document émis dans une période clôturée ne se supprime pas et ne s'annule pas : émettez une note de crédit." : suppr.raison)}</p>`}
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
@@ -9611,7 +10276,7 @@ async function openEditFactureVente(facId){
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efv-echeance" value="${a((f.date_echeance||'').slice(0,10))}"${dis} data-auto="${echeanceAuto}" oninput="this.dataset.auto='0'; infoEcheance('efv')"/><div id="efv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group full"><label class="field-label">Référence</label><input id="efv-reference" value="${a(f.reference_client)}"${dis} placeholder="N° de commande client, ou autre référence..."/></div>
         ${f.type_facture!=='avoir'?`<div class="form-group full"><label class="field-label">Devis facturé <span style="font-weight:400;text-transform:none">(permet de savoir quels devis sont facturés)</span></label>
-          <select id="efv-devis"><option value="">— Aucun devis lié —</option>${devisClient.map(d=>`<option value="${d.id}"${f.devis_id===d.id?' selected':''}>${a(d.numero)} — ${a(d.objet||'')} — ${fmt(d.montant_ht)} HT (${a(STATUT_DV[d.statut]||d.statut)})</option>`).join('')}</select></div>`:''}
+          <select id="efv-devis" data-ordre="fixe"><option value="">— Aucun devis lié —</option>${devisClient.map(d=>`<option value="${d.id}"${f.devis_id===d.id?' selected':''}>${a(d.numero)} — ${a(d.objet||'')} — ${fmt(d.montant_ht)} HT (${a(STATUT_DV[d.statut]||d.statut)})</option>`).join('')}</select></div>`:''}
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="efv-obs">${a(f.observations)}</textarea></div>
       </div>
       ${clos?`<div class="alert alert-warning" id="efv-cloture" style="margin-top:12px"><i class="ti ti-lock"></i> <span>Période clôturée jusqu'au <strong>${fmtDate(_clotureVentes)}</strong> : le n°, les dates et la référence sont verrouillés. Le statut de paiement, le devis lié et les observations restent modifiables.</span></div>`:''}
@@ -9698,8 +10363,11 @@ async function deleteFactureVente(facId, numero){
   const analyse = await contexteSuppressionFV(f);
   if(!analyse.ok){ showToast(analyse.raison, 'error'); return; }
   if(!confirm(`Supprimer définitivement le brouillon ${f.numero} ? Cette action est irréversible.`)) return;
+  let fichiersJoints = [];
+  try{ const r = await sb.from('anexos_facture_vente').select('url').eq('facture_vente_id',facId); if(!r.error) fichiersJoints = (r.data||[]).map(x=>x.url); }catch(e){}
   const {error} = await sb.from('factures_vente').delete().eq('id',facId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  await supprimerFichiersStockage(fichiersJoints);        // les lignes partent avec la facture (on delete cascade) ; on retire aussi les fichiers
   showToast('Brouillon supprimé');
   closeModal();
   rafraichirPage();
@@ -10141,7 +10809,7 @@ function journalDate(t){
 }
 function journalLignes(rows, avecTable){
   if(!rows.length) return '<p style="font-size:13px;color:var(--gray-4);padding:8px 2px">Aucune modification enregistrée.</p>';
-  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:var(--gray-1)">
+  return `<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:var(--gray-1)">
       <th style="padding:6px 8px;text-align:left">Date</th><th style="padding:6px 8px;text-align:left">Utilisateur</th>${avecTable?'<th style="padding:6px 8px;text-align:left">Objet</th>':''}<th style="padding:6px 8px;text-align:left">Modification</th></tr></thead><tbody>
     ${rows.map(r=>`<tr>
       <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);white-space:nowrap">${escHtml(journalDate(r.horodatage))}</td>
@@ -10253,7 +10921,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','employes_remuneration','anexos','anexos_chantier','anexos_devis','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
@@ -11068,7 +11736,7 @@ async function renderEmployesRH(search=''){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>Nom</th><th>Poste</th><th>Statut</th><th>Email</th><th>Téléphone</th><th>Type contrat</th><th>Entrée</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé enregistré</p><button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button></div></td></tr>' :
@@ -11266,9 +11934,9 @@ async function openEmployeModal(r=null){
 
       ${empSection('Système de pointages', 'clock-hour-4', `<div class="form-grid">
         <div class="form-group full"><label class="field-label" for="emp-pointage-id">Employé pointages lié</label>
-          <select id="emp-pointage-id">
+          <select id="emp-pointage-id" data-trier>
             <option value="">— Aucun / non lié —</option>
-            ${lienPointage && !lienDansListe ? `<option value="${escHtml(lienPointage)}" data-nom="${escHtml(r.pointage_employe_nom||'')}" selected>${escHtml(r.pointage_employe_nom||('n° '+lienPointage))} — ${pointageListeOk?'introuvable dans les pointages':'liste indisponible'}</option>` : ''}
+            ${lienPointage && !lienDansListe ? `<option data-fixe value="${escHtml(lienPointage)}" data-nom="${escHtml(r.pointage_employe_nom||'')}" selected>${escHtml(r.pointage_employe_nom||('n° '+lienPointage))} — ${pointageListeOk?'introuvable dans les pointages':'liste indisponible'}</option>` : ''}
             ${pointageEmployes.map(p=>`<option value="${escHtml(p.id)}" data-nom="${escHtml(p.nom||p.prenom||p.id)}" ${String(p.id)===lienPointage?'selected':''}>${escHtml(p.nom||p.prenom||p.id)}</option>`).join('')}
           </select>
           ${!pointageListeOk?`<span style="font-size:11px;color:var(--gray-5)">Impossible de charger la liste des employés du système de pointages pour le moment.${lienPointage?' Le lien actuel est conservé.':''}</span>`:''}
@@ -11773,13 +12441,13 @@ async function openEmployeDetail(employeId){
             <span style="font-size:13px;color:var(--gray-6)">Réparti sur ${heuresParChantier.length} chantier(s)</span>
             <strong style="font-size:15px;color:var(--blue)">${totalHeures.toFixed(1)}h au total</strong>
           </div>
-          <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+          <table data-tri="oui" style="width:100%;border-collapse:collapse;margin-bottom:12px">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Heures</th></tr></thead>
             <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${h.nom}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
           </table>
           <details style="font-size:12px;color:var(--gray-6)">
             <summary style="cursor:pointer;font-weight:600">Voir les dernières entrées</summary>
-            <table style="width:100%;border-collapse:collapse;margin-top:8px">
+            <table data-tri="oui" style="width:100%;border-collapse:collapse;margin-top:8px">
               <thead><tr style="background:var(--gray-1)"><th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:6px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Heures</th></tr></thead>
               <tbody>${dernieresEntrees.map(p=>`<tr><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(p.date)}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${p.chantiers?.nom||'—'}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${(parseFloat(p.heures)||0).toFixed(1)}h</td></tr>`).join('')}</tbody>
             </table>
@@ -11997,7 +12665,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
@@ -12063,7 +12731,7 @@ async function openInterventionModal(r=null){
         <div class="form-group"><label class="field-label">Nom du site d'intervention</label><input id="int-nom-site" value="${r?.nom_site||''}" placeholder="Ex: Entrepôt, Magasin Belval..."/></div>
         <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${r?.adresse_site||''}"/></div>
         <div class="form-group full"><label class="field-label">Devis lié (la facture reprendra les lignes du devis)</label>
-          <select id="int-devis" data-had="${r&&r.devis_id!==undefined?'1':''}" onchange="prefillDepuisDevisIntervention()">
+          <select id="int-devis" data-ordre="fixe" data-had="${r&&r.devis_id!==undefined?'1':''}" onchange="prefillDepuisDevisIntervention()">
             <option value="">— Aucun devis —</option>
             ${devisOpts}
           </select>
@@ -12544,8 +13212,8 @@ function renderSavLignes(tarifs){
   body.innerHTML = _sav_venteLignes.map((l,idx)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updSavLigne(${idx},'categorie',this.value,true)">${ARTICLES_SAV.map(a=>`<option ${l.categorie===a?'selected':''}>${a}</option>`).join('')}</select></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${String(l.description||'').replace(/"/g,'&quot;')}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${l.unite||''} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="number" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="number" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="text" data-calc="4" autocomplete="off" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updSavLigne(${idx},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delSavLigne(${idx})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
@@ -12631,7 +13299,7 @@ async function renderUtilisateurs(){
     <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i><span>Chaque personne se connecte avec <strong>son propre mot de passe</strong>. Créer une fiche ici ne crée pas le compte de connexion : ajoutez aussi la personne dans <strong>Supabase → Authentication → Users</strong> (« Add user », avec le <strong>même e-mail</strong>, « Auto Confirm User » coché). Une fiche <strong>inactive</strong> coupe immédiatement l'accès aux données.</span></div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table>
+        <table data-tri="oui">
           <thead><tr><th>Nom</th><th>Prénom</th><th>Email</th><th>Rôle</th><th>Salaires</th><th>Actif</th><th>Actions</th></tr></thead>
           <tbody>
             ${users.map(r=>`<tr>
@@ -12759,7 +13427,7 @@ async function openFourHistory(fourId, fourNom){
     <div class="modal-body">
       ${items.length===0
         ? '<div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande pour ce fournisseur</p></div>'
-        : '<div class="table-wrap"><table><thead><tr><th>N° Commande</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>'
+        : '<div class="table-wrap"><table data-tri="oui"><thead><tr><th>N° Commande</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>'
           + items.map(p=>'<tr><td><strong class="td-primary">'+p.numero+'</strong></td><td>'+(p.chantiers_lyneo?.nom||'—')+'</td><td>'+fmtDate(p.date_creation)+'</td><td><strong>'+fmt(p.total_ttc)+'</strong></td><td>'+bPO(p.statut)+'</td></tr>').join('')
           + '</tbody></table></div>'}
     </div>
@@ -13013,11 +13681,11 @@ async function openFacFromPO(poId){
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5);white-space:nowrap">'+l.quantite_commandee+' '+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:80px">'
-      +  '<input type="number" min="0" step="1" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
+      +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:100px">'
-      +  '<input type="number" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" onchange="_facFromPoLignes['+i+'].prix_unitaire_ht=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
+      +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" onchange="_facFromPoLignes['+i+'].prix_unitaire_ht=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:55px">'
       +  '<select onchange="_facFromPoLignes['+i+'].taux_tva=this.value;renderFacPOLines()" style="padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'
@@ -13282,11 +13950,11 @@ function renderEfacLignes(){
   body.innerHTML = _efacLignes.map((l,i)=>`<tr>
     <td><input value="${l.description}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
     <td><input value="${l.reference_article}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
-    <td><input type="number" min="0" step="1" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
+    <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updEfacLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
     </select></td>
-    <td><input type="number" min="0" step="0.01" value="${l.prix_unitaire_ht}" onchange="updEfacLigne(${i},'prix_unitaire_ht',this.value)"/></td>
+    <td><input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="${l.prix_unitaire_ht}" onchange="updEfacLigne(${i},'prix_unitaire_ht',this.value)"/></td>
     <td><select onchange="updEfacLigne(${i},'taux_tva',this.value)">
       ${[17,14,8,3,0].map(t=>`<option ${l.taux_tva==t?'selected':''}>${t}</option>`).join('')}
     </select></td>
