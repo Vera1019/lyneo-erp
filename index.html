@@ -144,12 +144,6 @@ input:disabled,select:disabled,textarea:disabled{background:var(--gray-1);color:
 .rc-kpi.ok>b{color:var(--green)}
 .rc-ecarts{max-height:180px;overflow:auto;font-size:12px;margin-top:6px;color:var(--gray-7)}
 .rc-ecarts div{padding:2px 0}
-.rc-cl-bar{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
-.rc-cl-scroll{max-height:50vh;overflow:auto;border:1px solid var(--gray-3);border-radius:8px}
-.rc-cl-t th{position:sticky;top:0;background:#F8FAFC;z-index:1}
-.rc-cl-t select{min-width:210px;padding:5px 8px}
-.rc-cl-non{font-size:12px;color:#92400E}
-.rc-cl-t td:first-child,.rc-cl-t td:nth-child(2){white-space:nowrap}
 table.rc-table th,table.rc-table td{padding-left:10px;padding-right:10px}
 table.rc-table td.num,table.rc-table th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 table.rc-table tr.rc-g1 td{background:#F1F5F9;font-weight:700;cursor:pointer;border-top:2px solid var(--gray-3)}
@@ -14173,7 +14167,7 @@ document.querySelectorAll && setTimeout(()=>{
 const RC_SANS_CENTRE = '__sans_centre', RC_SANS_CODE = '__sans_code', RC_MAX_MOIS = 36;
 let _rcF = null, _rcD = null, _rcRes = null;
 let _rcEtat = {ferme1:new Set(), ouvert2:new Set()};     // centres repliés ; codes dépliés (clé « centre|code »)
-function rcFiltresDefaut(){ const t = today(); return {du:t.slice(0,4)+'-01-01', au:t, centre:'', type:'', code:'', four:'', statut:'', ordre:'codefac', mois:false}; }
+function rcFiltresDefaut(){ const t = today(); return {du:t.slice(0,4)+'-01-01', au:t, centre:'', type:'', code:'', four:'', statut:'', ordre:'centre', mois:false}; }
 const rcCents = r => { const h = totalHtLigne(r); return h==='' ? 0 : Math.round(h*100); };
 const rcEur = c => fmt(c/100);
 const rcLibCentre = ch => ch ? ([ch.numero, ch.nom].filter(Boolean).join(' — ') || 'Centre sans nom') : 'Sans centre';
@@ -14208,14 +14202,13 @@ function rcFacturePasse(f, D, F){
 }
 
 function rcCalculer(D, F){
-  const retenues = []; let sansDate = 0; const centsFacTous = new Map();
+  const retenues = []; let sansDate = 0;
   const memoPasse = new Map();
   const passe = f => { if(!memoPasse.has(f.id)) memoPasse.set(f.id, rcFacturePasse(f, D, F)); return memoPasse.get(f.id); };
   for(const l of D.lignes){
     const f = D.facs[l.facture_id]; if(!f || f.statut==='annulee') continue;
     if(!jourISO(f.date_facture)){ sansDate++; continue; }
     if(!passe(f)) continue;
-    centsFacTous.set(String(f.id), (centsFacTous.get(String(f.id))||0) + rcCents(l));      // toutes les lignes de la facture, quel que soit le code filtré
     const kCode = l.code_ressource_id ? String(l.code_ressource_id) : RC_SANS_CODE;
     if(F.code && F.code!==kCode) continue;
     const ch = rcChantierFacture(f, D), code = l.code_ressource_id ? D.codes[l.code_ressource_id] : null;
@@ -14229,35 +14222,15 @@ function rcCalculer(D, F){
       statut:f.statut||'', interv:(D.interv||{})[f.intervention_id]||'', ordreLigne:Number(l.ordre)||0
     });
   }
-  // Le contrôle se fait sur les VRAIES lignes ; ensuite, l'écart de chaque facture (facture sans lignes — importation — ou lignes ≠ HT de l'en-tête)
-  // est repris dans « Sans code » : le total du rapport est ainsi égal au HT des factures, et « Sans code » = la liste de ce qu'il reste à classer.
-  const controle = rcControle(D, F, retenues, passe);
-  if(!F.code || F.code===RC_SANS_CODE){
-    Object.values(D.facs).forEach(f=>{
-      if(!passe(f)) return;
-      const ht = montantHtFacture(f); if(ht===null) return;
-      const reste = Math.round(ht*100) - (centsFacTous.get(String(f.id))||0);
-      if(Math.abs(reste)<1) return;
-      const ch = rcChantierFacture(f, D), date = jourISO(f.date_facture);
-      retenues.push({
-        id:'ecart-'+f.id, facId:f.id, date, mois:date.slice(0,7), cents:reste, synthetique:true,
-        centreKey: ch ? String(ch.id) : RC_SANS_CENTRE, centreLib: rcLibCentre(ch), centreType: ch ? (ch.type_centre||'chantier') : '',
-        codeKey:RC_SANS_CODE, codeLib:'Sans code', codeDesc:'',
-        four: ((D.fours||{})[f.fournisseur_id]||{}).nom || '', numInt:f.numero_interne||'', numFour:f.numero_facture_fournisseur||'',
-        desc: centsFacTous.has(String(f.id)) ? "Écart entre le HT de la facture et ses lignes" : "Facture sans lignes : montant HT de l'en-tête (à classer)",
-        ref:'', qte:'', pu:'', statut:f.statut||'', interv:(D.interv||{})[f.intervention_id]||'', ordreLigne:99999
-      });
-    });
-  }
-  const arbre = F.ordre==='codefac' ? rcArbreFactures(retenues) : rcArbre(retenues, F.ordre);
+  const arbre = rcArbre(retenues, F.ordre);
   // Mois affichés : toute la période (sans trou) ; au-delà de 36 mois, seulement ceux qui ont des montants
   const presents = [...new Set(retenues.map(r=>r.mois))].sort();
   let moisListe = presents;
   const d0 = F.du ? F.du.slice(0,7) : presents[0], a0 = F.au ? F.au.slice(0,7) : presents[presents.length-1];
   if(d0 && a0){ const plage = rcMoisEntre(d0, a0); if(plage.length<=RC_MAX_MOIS) moisListe = plage; }
   const res = {retenues, groupes:arbre.groupes, total:arbre.total, mois:arbre.mois, nb:retenues.length, nbFac:new Set(retenues.map(r=>r.facId)).size, moisListe, sansDate,
-               sansCode:{cents:0, nb:0, nbFacSyn:0, centsSyn:0}, controle};
-  retenues.forEach(r=>{ if(r.codeKey===RC_SANS_CODE){ res.sansCode.cents += r.cents; res.sansCode.nb++; if(r.synthetique){ res.sansCode.nbFacSyn++; res.sansCode.centsSyn += r.cents; } } });
+               sansCode:{cents:0, nb:0}, controle:rcControle(D, F, retenues, passe)};
+  retenues.forEach(r=>{ if(r.codeKey===RC_SANS_CODE){ res.sansCode.cents += r.cents; res.sansCode.nb++; } });
   return res;
 }
 
@@ -14287,30 +14260,6 @@ function rcArbre(retenues, ordre){
   return {groupes, total, mois};
 }
 
-// Vue « Code › Factures » : un code, puis UNE LIGNE PAR FACTURE (les lignes d'une même facture portant le même code sont additionnées). Pas de niveau « centre ».
-function rcArbreFactures(retenues){
-  const mg = new Map(); let total = 0; const mois = {};
-  for(const r of retenues){
-    let g = mg.get(r.codeKey);
-    if(!g){ g = {cle:r.codeKey, lib:r.codeLib, desc:r.codeDesc, type:'', sans:r.codeKey===RC_SANS_CODE, cents:0, mois:{}, nb:0, facs:new Set(), fMap:new Map()}; mg.set(r.codeKey, g); }
-    let f = g.fMap.get(r.facId);
-    if(!f){ f = {cle:r.facId, facId:r.facId, lib:r.numInt||r.numFour||'—', date:r.date, moisCle:r.mois, four:r.four, numInt:r.numInt, numFour:r.numFour, statut:r.statut, interv:r.interv,
-                 centreKey:r.centreKey, centreLib:r.centreLib, centreType:r.centreType, descs:[], cents:0, mois:{}, nb:0, nbFac:1, lignes:[]}; g.fMap.set(r.facId, f); }
-    for(const o of [g, f]){ o.cents += r.cents; o.mois[r.mois] = (o.mois[r.mois]||0) + r.cents; o.nb++; }
-    g.facs.add(r.facId); f.lignes.push(r);
-    if(r.desc && !f.descs.includes(r.desc)) f.descs.push(r.desc);
-    total += r.cents; mois[r.mois] = (mois[r.mois]||0) + r.cents;
-  }
-  const trier = (a,b) => (a.sans!==b.sans) ? (a.sans ? 1 : -1) : (rcCmp(a.lib,b.lib) || String(a.cle).localeCompare(String(b.cle)));
-  const groupes = [...mg.values()].sort(trier);
-  groupes.forEach(g=>{
-    g.enf = [...g.fMap.values()].sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0) || rcCmp(a.numInt,b.numInt) || rcCmp(a.numFour,b.numFour) || String(a.facId).localeCompare(String(b.facId)));
-    g.nbFac = g.facs.size; delete g.facs; delete g.fMap;
-    g.enf.forEach(f=>{ f.lignes.sort((a,b)=>(a.ordreLigne-b.ordreLigne) || String(a.id).localeCompare(String(b.id))); f.info = f.descs.join(' / ') + (f.nb>1 ? ' ('+f.nb+' lignes)' : ''); });
-  });
-  return {groupes, total, mois};
-}
-
 // Contrôle : pour chaque facture retenue, le total des lignes doit être égal au HT de la facture (sinon : lignes manquantes, import…)
 function rcControle(D, F, retenues, passe){
   if(F.code) return {actif:false, raison:'Contrôle indisponible quand un code est filtré.'};
@@ -14327,150 +14276,6 @@ function rcControle(D, F, retenues, passe){
   });
   ecarts.sort((a,b)=>Math.abs(b.ecart)-Math.abs(a.ecart));
   return {actif:true, ok:!ecarts.length, nbFacs, sansHt, ecarts, ecartTotal: ecarts.reduce((s,e)=>s+e.ecart,0)};
-}
-
-// ── Factures sans lignes (par ex. importées) : on leur ajoute UNE ligne portant le code ressource ───────────────────
-// L'en-tête de la facture (HT, TVA, TTC) n'est JAMAIS modifié : on ajoute seulement la ligne « Facture importée — ligne unique »
-// (quantité ±1, P.U. = HT de la facture, taux de TVA déduit de l'en-tête). Réservé à l'administrateur et à la comptabilité.
-const RC_TAUX_TVA = [17, 14, 8, 3, 0], RC_LIB_LIGNE_UNIQUE = 'Facture importée — ligne unique';
-let _rcCl = null;       // {rows, four, enCours, creees}
-// Taux de TVA (17/14/8/3/0 %) qui explique le mieux la TVA de l'en-tête, à 2 centimes près ; null si aucun (TVA mixte ou inhabituelle)
-function rcTauxDeduit(htC, tvaC){
-  if(!htC) return null;
-  if(tvaC && ((htC<0) !== (tvaC<0))) return null;
-  const h = Math.abs(htC), v = Math.abs(tvaC);
-  let best = null, bestD = Infinity;
-  for(const t of RC_TAUX_TVA){ const d = Math.abs(Math.round(h*t/100) - v); if(d<bestD){ bestD = d; best = t; } }
-  return bestD<=2 ? best : null;
-}
-function rcCandidatsClasser(D, C){
-  const avecLignes = new Set(D.lignes.map(l=>String(l.facture_id)));
-  const out = [];
-  for(const e of (C.ecarts||[])){
-    if(!e.sansLignes) continue;
-    const f = D.facs[e.facId]; if(!f || f.statut==='annulee' || avecLignes.has(String(f.id))) continue;
-    const ht = montantHtFacture(f), htC = ht===null ? 0 : Math.round(ht*100);
-    const ttc = (f.montant_ttc===null || f.montant_ttc===undefined || f.montant_ttc==='') ? NaN : Number(f.montant_ttc);
-    const tva = (f.montant_tva===null || f.montant_tva===undefined || f.montant_tva==='') ? NaN : Number(f.montant_tva);
-    const tvaC = !isNaN(ttc) ? Math.round(ttc*100) - htC : (!isNaN(tva) ? Math.round(tva*100) : null);
-    let taux = null, raison = '';
-    if(!htC) raison = 'Montant HT nul';
-    else if(tvaC===null) raison = 'TVA inconnue';
-    else { taux = rcTauxDeduit(htC, tvaC); if(taux===null) raison = 'TVA inhabituelle ou mixte : à détailler avec « Modifier »'; }
-    const four = (D.fours||{})[f.fournisseur_id]||{};
-    out.push({facId:f.id, num:f.numero_interne||f.numero_facture_fournisseur||'—', date:jourISO(f.date_facture)||'', fourId:String(f.fournisseur_id||''), four:four.nom||'', numFour:f.numero_facture_fournisseur||'',
-              centre:rcLibCentre(rcChantierFacture(f, D)), htC, tvaC: tvaC===null ? 0 : tvaC, ttcC: !isNaN(ttc) ? Math.round(ttc*100) : htC + (tvaC||0), taux, raison, code:''});
-  }
-  out.sort((a,b)=>rcCmp(a.four,b.four) || (a.date<b.date?-1:a.date>b.date?1:0) || rcCmp(a.num,b.num) || String(a.facId).localeCompare(String(b.facId)));
-  return out;
-}
-function rcOuvrirClasser(){
-  if(!peutGererCodesRes()){ showToast('Réservé aux administrateurs et à la comptabilité', 'error'); return; }
-  if(!_rcD || !_rcRes || !_rcRes.controle.actif) return;
-  if(!_rcD.codesOk){ showToast('Activez d\'abord les codes ressource (migration-codes-ressource.sql)', 'error'); return; }
-  const rows = rcCandidatsClasser(_rcD, _rcRes.controle);
-  if(!rows.length){ showToast('Aucune facture sans ligne avec ces filtres'); return; }
-  _rcCl = {rows, four:'', enCours:false, creees:[]};
-  const codes = rcCodesActifs();
-  const fours = [...new Map(rows.map(r=>[r.fourId, r.four||'(sans fournisseur)'])).entries()].sort((a,b)=>rcCmp(a[1],b[1]));
-  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:1180px;width:96vw">
-    <div class="modal-header"><h3><i class="ti ti-tags"></i> Classer les factures sans lignes</h3><button class="modal-close" onclick="rcFermerClasser()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
-    <div class="modal-body" id="rc-cl-corps">
-      <p style="font-size:13px;color:var(--gray-6);margin:0 0 12px">Ces factures (par exemple importées) n'ont aucune ligne : leur montant n'apparaît dans aucun code ressource. Choisissez un code : l'application ajoute <b>une seule ligne</b> « ${escHtml(RC_LIB_LIGNE_UNIQUE)} » (quantité 1, montant HT de la facture, TVA déduite de l'en-tête). <b>L'en-tête de la facture (HT, TVA, TTC) n'est pas modifié</b>, et vous pouvez détailler la facture plus tard avec « Modifier ».</p>
-      ${codes.length ? '' : `<div class="alert alert-warning" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>Aucun code ressource actif : créez-en dans Documents → Codes ressource.</span></div>`}
-      <div class="rc-cl-bar">
-        <div class="rc-f"><label for="rc-cl-four">Fournisseur</label><select id="rc-cl-four" onchange="rcClFiltre(this.value)"><option value="">Tous (${rows.length})</option>${fours.map(([id,nom])=>`<option value="${escHtml(id)}">${escHtml(nom)} (${rows.filter(r=>r.fourId===id).length})</option>`).join('')}</select></div>
-        <div class="rc-f"><label for="rc-cl-lot">Même code pour toutes les factures affichées</label><select id="rc-cl-lot">${rcOptionsCodes(codes,'')}</select></div>
-        <button class="btn btn-secondary btn-sm" id="rc-cl-appliquer" onclick="rcClAppliquer()">Appliquer</button>
-      </div>
-      <div class="rc-cl-scroll" id="rc-cl-table"></div>
-      <div class="rc-cl-pied" id="rc-cl-pied"></div>
-    </div></div></div>`);
-  rcClTable(); rcClPied();
-}
-function rcCodesActifs(){ return Object.values(_rcD.codes||{}).filter(c=>c.actif!==false).sort((a,b)=>rcCmp(a.code,b.code)); }
-function rcOptionsCodes(codes, sel){ return `<option value="">— choisir —</option>` + codes.map(c=>`<option value="${escHtml(String(c.id))}"${String(c.id)===String(sel)?' selected':''}>${escHtml(c.code||'')}${c.description?' — '+escHtml(c.description):''}</option>`).join(''); }
-function rcClVisibles(){ const cl = _rcCl; return cl ? cl.rows.filter(r=>!cl.four || r.fourId===cl.four) : []; }
-function rcClTable(){
-  const z = el('rc-cl-table'); if(!z || !_rcCl) return;
-  const codes = rcCodesActifs(), vis = rcClVisibles();
-  z.innerHTML = `<table class="rc-table rc-cl-t"><thead><tr><th>N° interne</th><th>Date</th><th>Fournisseur</th><th>N° facture</th><th>Centre de coûts</th><th class="num">HT</th><th class="num">TVA</th><th class="num">TTC</th><th class="num">Taux</th><th>Code ressource</th></tr></thead><tbody>${vis.map(r=>`<tr>
-    <td><a href="#" onclick="closeModal();openFacDetail('${escHtml(String(r.facId))}');return false" title="Ouvrir la facture (ferme cette fenêtre)">${escHtml(r.num)}</a></td><td>${escHtml(r.date ? fmtDate(r.date) : '')}</td><td>${escHtml(r.four)}</td><td>${escHtml(r.numFour)}</td><td>${escHtml(r.centre)}</td>
-    <td class="num">${escHtml(rcEur(r.htC))}</td><td class="num">${escHtml(rcEur(r.tvaC))}</td><td class="num">${escHtml(rcEur(r.ttcC))}</td><td class="num">${r.taux===null ? '—' : r.taux+' %'}</td>
-    <td>${r.raison ? `<span class="rc-cl-non" title="${escHtml(r.raison)}">${escHtml(r.raison)}</span>` : `<select data-fac="${escHtml(String(r.facId))}" onchange="rcClCode(this.dataset.fac,this.value)">${rcOptionsCodes(codes, r.code)}</select>`}</td></tr>`).join('')}</tbody></table>`;
-}
-function rcClFiltre(v){ if(!_rcCl) return; _rcCl.four = v; rcClTable(); rcClPied(); }
-function rcClCode(facId, code){ if(!_rcCl) return; const r = _rcCl.rows.find(x=>String(x.facId)===String(facId)); if(r && !r.raison) r.code = code; rcClPied(); }
-function rcClAppliquer(){
-  if(!_rcCl) return; const code = (el('rc-cl-lot')||{}).value;
-  if(!code){ showToast('Choisissez d\'abord un code', 'error'); return; }
-  rcClVisibles().forEach(r=>{ if(!r.raison) r.code = code; });
-  rcClTable(); rcClPied();
-}
-function rcClPret(){ return _rcCl ? _rcCl.rows.filter(r=>r.code && !r.raison && r.taux!==null) : []; }
-function rcClPied(){
-  const z = el('rc-cl-pied'); if(!z || !_rcCl) return;
-  const pret = rcClPret(), tot = pret.reduce((s,r)=>s+r.htC,0), nonOk = _rcCl.rows.filter(r=>r.raison).length;
-  z.innerHTML = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px">
-    <span style="font-size:13px;color:var(--gray-7)" id="rc-cl-resume"><b>${pret.length}</b> facture${pret.length>1?'s':''} prête${pret.length>1?'s':''} · ${escHtml(rcEur(tot))} HT${nonOk ? ` · <span style="color:#92400E">${nonOk} à détailler à la main (TVA inhabituelle)</span>` : ''}</span>
-    <span style="flex:1"></span>
-    <button class="btn btn-ghost" onclick="rcFermerClasser()">Fermer</button>
-    <button class="btn btn-primary" id="rc-cl-creer" onclick="rcCreerLignes()" ${pret.length ? '' : 'disabled'}><i class="ti ti-check"></i> Créer ${pret.length} ligne${pret.length>1?'s':''}</button></div>`;
-}
-function rcFermerClasser(){ closeModal(); _rcCl = null; }
-function rcClErreur(e){ return (e && e.message) ? e.message : String(e); }
-async function rcCreerLignes(){
-  if(!peutGererCodesRes()){ showToast('Réservé aux administrateurs et à la comptabilité', 'error'); return; }
-  const cl = _rcCl; if(!cl || cl.enCours) return;
-  const pret = rcClPret(); if(!pret.length) return;
-  if(!confirm(`Créer ${pret.length} ligne${pret.length>1?'s':''} (une par facture) ?\nL'en-tête des factures (HT, TVA, TTC) ne sera pas modifié.`)) return;
-  cl.enCours = true; const b = el('rc-cl-creer'); if(b) b.disabled = true;
-  let ignorees = 0, erreur = '';
-  try{
-    // Garde contre les doublons : une facture qui a reçu des lignes entre-temps est laissée telle quelle
-    const deja = new Set();
-    for(let i=0;i<pret.length;i+=100){
-      const {data, error} = await sb.from('lignes_facture').select('facture_id').in('facture_id', pret.slice(i,i+100).map(r=>r.facId));
-      if(error) throw error; (data||[]).forEach(x=>deja.add(String(x.facture_id)));
-    }
-    const aCreer = pret.filter(r=>{ if(deja.has(String(r.facId))){ ignorees++; return false; } return true; });
-    for(let i=0;i<aCreer.length;i+=100){
-      const lot = aCreer.slice(i,i+100).map(r=>({facture_id:r.facId, ordre:1, description:RC_LIB_LIGNE_UNIQUE, reference_article:'', quantite:r.htC<0 ? -1 : 1, unite:'u',
-                                                  prix_unitaire_ht:Math.abs(r.htC)/100, taux_tva:r.taux, code_ressource_id:r.code}));
-      const {data, error} = await sb.from('lignes_facture').insert(lot).select('id');
-      if(error) throw error; (data||[]).forEach(x=>cl.creees.push(x.id));
-    }
-  }catch(e){ erreur = rcClErreur(e); }
-  cl.enCours = false;
-  try{ _rcD = await rcCharger(); rcDessinerPage(); }catch(e){ if(!erreur) erreur = 'Lignes créées mais la page n\'a pas pu être actualisée : '+rcClErreur(e); }
-  rcClResultat(ignorees, erreur);
-}
-function rcClResultat(ignorees, erreur){
-  const cl = _rcCl, z = el('rc-cl-corps'); if(!cl || !z) return;
-  const n = cl.creees.length;
-  z.innerHTML = `${erreur ? `<div class="alert alert-error" style="margin-bottom:12px"><i class="ti ti-alert-circle"></i><span>Erreur : ${escHtml(erreur)}${n ? ' — les lignes déjà créées sont conservées (vous pouvez les défaire).' : ''}</span></div>` : ''}
-    <div id="rc-cl-fin" style="padding:6px 0"><p style="font-size:15px;margin:0 0 6px"><b>${n}</b> ligne${n>1?'s':''} créée${n>1?'s':''}${n ? ' — le contrôle et les totaux par code sont à jour.' : '.'}</p>
-    ${ignorees ? `<p style="font-size:13px;color:#92400E;margin:0 0 6px">${ignorees} facture${ignorees>1?'s':''} ignorée${ignorees>1?'s':''} : elle${ignorees>1?'s ont':' a'} reçu des lignes entre-temps.</p>` : ''}
-    <p style="font-size:12px;color:var(--gray-5);margin:0">Les lignes portent la description « ${escHtml(RC_LIB_LIGNE_UNIQUE)} » ; les en-têtes des factures n'ont pas été modifiés.</p></div>
-    <div class="form-actions" style="margin-top:12px">${n ? `<button class="btn btn-secondary" id="rc-cl-defaire" onclick="rcDefaireLignes()"><i class="ti ti-arrow-back-up"></i> Défaire (supprimer ces ${n} ligne${n>1?'s':''})</button>` : ''}<button class="btn btn-primary" onclick="rcFermerClasser()">Fermer</button></div>`;
-}
-async function rcDefaireLignes(){
-  if(!peutGererCodesRes()) return;
-  const cl = _rcCl; if(!cl || cl.enCours || !cl.creees.length) return;
-  if(!confirm(`Supprimer les ${cl.creees.length} ligne${cl.creees.length>1?'s':''} qui viennent d'être créées ?\nLes factures redeviendront sans lignes.`)) return;
-  cl.enCours = true; let erreur = '';
-  try{
-    for(let i=0;i<cl.creees.length;i+=100){
-      const {error} = await sb.from('lignes_facture').delete().in('id', cl.creees.slice(i,i+100)).eq('description', RC_LIB_LIGNE_UNIQUE);
-      if(error) throw error;
-    }
-    cl.creees = [];
-  }catch(e){ erreur = rcClErreur(e); }
-  cl.enCours = false;
-  try{ _rcD = await rcCharger(); rcDessinerPage(); }catch(e){}
-  if(erreur){ showToast('Erreur : '+erreur, 'error'); rcClResultat(0, erreur); return; }
-  showToast('Lignes supprimées : les factures sont de nouveau sans lignes');
-  rcFermerClasser();
 }
 
 // ── Page ──
@@ -14491,7 +14296,7 @@ function rcDessinerPage(){
   const statuts = Object.entries(STATUT_FA).filter(([k])=>k!=='annulee');
   el('page-content').innerHTML = `
     <div class="page-header">
-      <div class="page-header-left"><h1>Détail par code ressource</h1><p>Factures fournisseurs : pour chaque code ressource, le total et les factures qui le composent (hors factures annulées)</p></div>
+      <div class="page-header-left"><h1>Détail par code ressource</h1><p>Factures fournisseurs : centre de coûts → code ressource → factures (hors factures annulées)</p></div>
       <button class="btn btn-secondary" onclick="rcActualiser()" title="Relire les factures dans la base"><i class="ti ti-refresh"></i> Actualiser</button>
       <button class="btn btn-primary" id="rc-export" onclick="rcExporterExcel()"><i class="ti ti-file-spreadsheet"></i> Exporter Excel</button>
     </div>
@@ -14513,7 +14318,7 @@ function rcDessinerPage(){
         <div class="rc-f"><label for="rc-code">Code ressource</label><select id="rc-code" onchange="rcMaj('code',this.value)"><option value="">Tous les codes</option><option value="${RC_SANS_CODE}"${F.code===RC_SANS_CODE?' selected':''}>Sans code</option>${rcOptions(codes, F.code)}</select></div>
         <div class="rc-f"><label for="rc-four">Fournisseur</label><select id="rc-four" onchange="rcMaj('four',this.value)"><option value="">Tous les fournisseurs</option>${rcOptions(fours, F.four)}</select></div>
         <div class="rc-f"><label for="rc-statut">Statut</label><select id="rc-statut" onchange="rcMaj('statut',this.value)">${rcOptions([['','Tous (hors annulées)'], ...statuts.map(([k,l])=>[k,l])], F.statut)}</select></div>
-        <div class="rc-f"><label for="rc-ordre">Regrouper</label><select id="rc-ordre" onchange="rcMaj('ordre',this.value)">${rcOptions([['codefac','Code › Factures'],['code','Code › Centre › Factures'],['centre','Centre › Code › Factures']], F.ordre)}</select></div>
+        <div class="rc-f"><label for="rc-ordre">Regrouper</label><select id="rc-ordre" onchange="rcMaj('ordre',this.value)">${rcOptions([['centre','Centre › Code › Factures'],['code','Code › Centre › Factures']], F.ordre)}</select></div>
         <label class="rc-coche"><input type="checkbox" id="rc-mois" ${F.mois?'checked':''} onchange="rcMaj('mois',this.checked)"/> Afficher les mois</label>
         <button class="btn btn-ghost btn-sm" onclick="rcReinit()"><i class="ti ti-x"></i> Réinitialiser</button>
       </div>
@@ -14541,19 +14346,17 @@ function rcAfficher(){
   const F = _rcF;
   if(F.du && F.au && F.du>F.au){ _rcRes = null; zone.innerHTML = `<div class="alert alert-warning"><i class="ti ti-alert-triangle"></i><span>La date de début est après la date de fin.</span></div>`; return; }
   _rcRes = rcCalculer(_rcD, F);
-  const R = _rcRes, C = R.controle, D0 = _rcD;
-  const nbG = R.groupes.length, libG = (F.ordre==='code' || F.ordre==='codefac') ? 'code' : 'centre';
-  const nbSL = C.actif ? C.ecarts.filter(e=>e.sansLignes).length : 0;
-  const btnClasser = (nbSL && peutGererCodesRes() && D0.codesOk) ? `<button class="btn btn-primary btn-sm" id="rc-classer" style="margin-top:10px" onclick="rcOuvrirClasser()"><i class="ti ti-tags"></i> Classer les ${nbSL} facture${nbSL>1?'s':''} sans lignes…</button>` : '';
+  const R = _rcRes, C = R.controle;
+  const nbG = R.groupes.length, libG = F.ordre==='code' ? 'code' : 'centre';
   const kpiControle = !C.actif ? `<div class="rc-kpi"><span>Contrôle</span><b style="font-size:14px;color:var(--gray-5)">—</b><span>${escHtml(C.raison)}</span></div>`
     : C.ok ? `<div class="rc-kpi ok"><span>Contrôle</span><b>✓ Concordant</b><span>Le total des lignes = le HT des ${C.nbFacs} facture${C.nbFacs>1?'s':''}${C.sansHt?` (${C.sansHt} sans montant HT)`:''}</span></div>`
-    : `<div class="rc-kpi warn" id="rc-kpi-controle"><span>Contrôle</span><b>⚠ Écart ${escHtml(rcEur(C.ecartTotal))}</b><span>${C.ecarts.length} facture${C.ecarts.length>1?'s':''} dont les lignes ne correspondent pas au HT — l'écart est repris dans « Sans code »</span>
-        <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--blue)">Voir les factures</summary><div class="rc-ecarts">${C.ecarts.slice(0,30).map(e=>`<div><a href="#" onclick="openFacDetail('${escHtml(String(e.facId))}');return false">${escHtml(e.num)}</a> · ${escHtml(e.four)} · en-tête ${escHtml(rcEur(e.entete))} · lignes ${escHtml(rcEur(e.lignes))} · écart ${escHtml(rcEur(e.ecart))}${e.sansLignes?' · <em>aucune ligne</em>':''}</div>`).join('')}${C.ecarts.length>30?`<div>… et ${C.ecarts.length-30} autres</div>`:''}</div></details>${btnClasser}</div>`;
+    : `<div class="rc-kpi warn" id="rc-kpi-controle"><span>Contrôle</span><b>⚠ Écart ${escHtml(rcEur(C.ecartTotal))}</b><span>${C.ecarts.length} facture${C.ecarts.length>1?'s':''} dont les lignes ne correspondent pas au HT</span>
+        <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--blue)">Voir les factures</summary><div class="rc-ecarts">${C.ecarts.slice(0,30).map(e=>`<div><a href="#" onclick="openFacDetail('${escHtml(String(e.facId))}');return false">${escHtml(e.num)}</a> · ${escHtml(e.four)} · en-tête ${escHtml(rcEur(e.entete))} · lignes ${escHtml(rcEur(e.lignes))} · écart ${escHtml(rcEur(e.ecart))}${e.sansLignes?' · <em>aucune ligne</em>':''}</div>`).join('')}${C.ecarts.length>30?`<div>… et ${C.ecarts.length-30} autres</div>`:''}</div></details></div>`;
   zone.innerHTML = `
     <div class="rc-kpis">
       <div class="rc-kpi"><span>Total HT</span><b>${escHtml(rcEur(R.total))}</b><span>${R.nbFac} facture${R.nbFac>1?'s':''} · ${R.nb} ligne${R.nb>1?'s':''}</span></div>
       <div class="rc-kpi"><span>${libG==='code'?'Codes':'Centres'} concernés</span><b>${nbG}</b><span>${F.du||F.au ? 'du '+(F.du?fmtDate(F.du):'…')+' au '+(F.au?fmtDate(F.au):'…') : 'toutes les dates'}</span></div>
-      <div class="rc-kpi${R.sansCode.nb?' warn':''}"><span>Lignes sans code</span><b>${escHtml(rcEur(R.sansCode.cents))}</b><span>${R.sansCode.nb} ligne${R.sansCode.nb>1?'s':''}${R.sansCode.nbFacSyn ? ` · dont ${R.sansCode.nbFacSyn} facture${R.sansCode.nbFacSyn>1?'s':''} sans lignes ou en écart (${escHtml(rcEur(R.sansCode.centsSyn))})` : ''}${R.sansCode.nb && F.code!==RC_SANS_CODE ? ` · <a href="#" onclick="rcMaj('code','${RC_SANS_CODE}');rcDessinerPage();return false">les voir</a>` : ''}</span></div>
+      <div class="rc-kpi${R.sansCode.nb?' warn':''}"><span>Lignes sans code</span><b>${escHtml(rcEur(R.sansCode.cents))}</b><span>${R.sansCode.nb} ligne${R.sansCode.nb>1?'s':''}${R.sansCode.nb && F.code!==RC_SANS_CODE ? ` · <a href="#" onclick="rcMaj('code','${RC_SANS_CODE}');rcDessinerPage();return false">les voir</a>` : ''}</span></div>
       ${kpiControle}
     </div>
     ${R.sansDate ? `<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>${R.sansDate} ligne${R.sansDate>1?'s':''} de facture sans date ne sont pas comptées.</span></div>` : ''}
@@ -14575,18 +14378,11 @@ function rcHtmlTableau(R, F){
   const pct = (c, base) => base ? (Math.round(c/base*1000)/10).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1})+' %' : '';
   const cellsMois = (o, vide) => mois.map(m=>`<td class="num">${vide ? '' : (o.mois[m] ? escHtml(rcEur(o.mois[m])) : '<span style="color:var(--gray-4)">—</span>')}</td>`).join('');
   const badgeType = t => t==='sav' ? '<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">SAV</span>' : t==='interne' ? '<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">Interne</span>' : '';
-  let h = `<table class="rc-table"><thead><tr><th>${F.ordre==='codefac'?'Code › Facture':F.ordre==='code'?'Code › Centre › Facture':'Centre › Code › Facture'}</th><th>Date</th><th>Fournisseur</th><th>N° facture</th><th>Description</th>${mois.map(m=>`<th class="num">${escHtml(rcMoisLib(m))}</th>`).join('')}<th class="num">Total HT</th><th class="num">% du total</th></tr></thead><tbody>`;
+  let h = `<table class="rc-table"><thead><tr><th>${F.ordre==='code'?'Code › Centre › Facture':'Centre › Code › Facture'}</th><th>Date</th><th>Fournisseur</th><th>N° facture</th><th>Description</th>${mois.map(m=>`<th class="num">${escHtml(rcMoisLib(m))}</th>`).join('')}<th class="num">Total HT</th><th class="num">% du total</th></tr></thead><tbody>`;
   for(const g of R.groupes){
     const ferme = _rcEtat.ferme1.has(g.cle);
     h += `<tr class="rc-g1" onclick="rcBasculer1('${escHtml(g.cle)}')"><td colspan="5"><i class="ti ti-chevron-${ferme?'right':'down'}"></i> ${escHtml(g.lib)}${badgeType(g.type)}${g.sans?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">À classer</span>':''}${g.desc?` <span class="rc-desc">${escHtml(g.desc)}</span>`:''} <span class="rc-nb">${g.nbFac} fact. · ${g.nb} ligne${g.nb>1?'s':''}</span></td>${cellsMois(g)}<td class="num">${escHtml(rcEur(g.cents))}</td><td class="num">${pct(g.cents, R.total)}</td></tr>`;
     if(ferme) continue;
-    if(F.ordre==='codefac'){
-      for(const s of g.enf){
-        const info = [s.centreLib, s.info, s.interv ? 'SAV '+s.interv : ''].filter(Boolean).join(' · ');
-        h += `<tr class="rc-l rc-fac"><td style="padding-left:34px"><a href="#" onclick="openFacDetail('${escHtml(String(s.facId))}');return false" title="Ouvrir la facture">${escHtml(s.numInt||s.numFour||'—')}</a>${s.statut==='avoir'?' <span class="badge" style="font-size:10px;background:#FEF3C7;color:#92400E">Avoir</span>':''}</td><td>${escHtml(fmtDate(s.date))}</td><td>${escHtml(s.four)}</td><td>${escHtml(s.numFour)}</td><td class="rc-info" title="${escHtml(info)}">${escHtml(info)}</td>${mois.map(m=>`<td class="num">${s.mois[m] ? escHtml(rcEur(s.mois[m])) : ''}</td>`).join('')}<td class="num">${escHtml(rcEur(s.cents))}</td><td></td></tr>`;
-      }
-      continue;
-    }
     for(const s of g.enf){
       const k2 = g.cle+'|'+s.cle, ouvert = _rcEtat.ouvert2.has(k2);
       h += `<tr class="rc-g2" onclick="rcBasculer2('${escHtml(k2)}')"><td colspan="5" style="padding-left:34px"><i class="ti ti-chevron-${ouvert?'down':'right'}"></i> ${escHtml(s.lib)}${badgeType(s.type)}${s.sans?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">À classer</span>':''}${s.desc?` <span class="rc-desc">${escHtml(s.desc)}</span>`:''} <span class="rc-nb">${s.nbFac} fact. · ${s.nb} ligne${s.nb>1?'s':''}</span></td>${cellsMois(s)}<td class="num">${escHtml(rcEur(s.cents))}</td><td class="num">${pct(s.cents, R.total)}</td></tr>`;
@@ -14614,24 +14410,23 @@ function rcFiltresTexte(R, F, D){
   return t;
 }
 function rcFeuilleSynthese(R, F, D, plan){
-  const ws = {}, EUR = XL_FORMATS.eur, parCode = F.ordre==='code', parFac = F.ordre==='codefac';
+  const ws = {}, EUR = XL_FORMATS.eur, parCode = F.ordre==='code';
   const cell = (r,c,kind)=>{ plan.cells[rcLettre(c)+(r+1)] = kind; };
   const bande = (r,c0,c1,kind)=>{ for(let c=c0;c<=c1;c++) cell(r,c,kind); };
   const put = (r,c,cell)=>{ ws[XLSX.utils.encode_cell({r,c})] = cell; };
   const txt = (r,c,v)=>put(r,c,{t:'s', v:String(v)});
   const num = (r,c,v,z,f)=>put(r,c,f ? {t:'n', v, z, f} : {t:'n', v, z});
-  const idEn = parFac ? ['Code ressource','Fournisseur','N° facture fournisseur','Date','Centre de coûts'] : [parCode?'Code ressource':'Centre de coûts', parCode?'Centre de coûts':'Code ressource', parCode?'Type de centre':'Description du code'];
-  const mois = R.moisListe, nM = mois.length, cM0 = idEn.length, cMont = cM0+nM, cCorr = cMont+1, cTot = cMont+2, cNb = cMont+3;
+  const mois = R.moisListe, nM = mois.length, cM0 = 3, cMont = cM0+nM, cCorr = cMont+1, cTot = cMont+2, cNb = cMont+3;
   const filtres = rcFiltresTexte(R, F, D);
   txt(0,0,'LYNEO — DÉTAIL DES FACTURES FOURNISSEURS PAR CODE RESSOURCE');
   txt(1,0,filtres.join(' · ')+' · Situation au '+fmtDate(today())+' · Montants HT en €, hors factures annulées');
   txt(2,0,'« Correct » : saisissez vos ajustements (régularisations, prorata…) ; « Total » = Montant comptabilisé + Correct. Le détail de chaque montant se trouve dans la feuille « Détail ».');
   const C = R.controle;
-  txt(3,0, !C.actif ? C.raison : C.ok ? 'Contrôle : le total des lignes correspond au HT des '+C.nbFacs+' facture(s).' : 'Contrôle : ÉCART de '+(C.ecartTotal/100).toFixed(2).replace('.',',')+' € entre les lignes et le HT de '+C.ecarts.length+' facture(s), repris dans « Sans code » — voir l\'application (Détail par code ressource).');
+  txt(3,0, !C.actif ? C.raison : C.ok ? 'Contrôle : le total des lignes correspond au HT des '+C.nbFacs+' facture(s).' : 'Contrôle : ÉCART de '+(C.ecartTotal/100).toFixed(2).replace('.',',')+' € entre les lignes et le HT de '+C.ecarts.length+' facture(s) — voir l\'application (Détail par code ressource).');
   cell(0,0,'titre'); for(let i=1;i<=3;i++) cell(i,0,'note');
   const H = 5;
   bande(H,0,cNb,'entete');
-  idEn.forEach((t,j)=>txt(H,j,t));
+  [parCode?'Code ressource':'Centre de coûts', parCode?'Centre de coûts':'Code ressource', parCode?'Type de centre':'Description du code'].forEach((t,j)=>txt(H,j,t));
   mois.forEach((m,j)=>txt(H,cM0+j,rcMoisLib(m)));
   txt(H,cMont,'Montant comptabilisé'); txt(H,cCorr,'Correct'); txt(H,cTot,'Total'); txt(H,cNb,'Nb lignes');
   let r = H+1; const sousTotaux = [];
@@ -14639,9 +14434,7 @@ function rcFeuilleSynthese(R, F, D, plan){
   for(const g of R.groupes){
     const debut = r;
     for(const s of g.enf){
-      txt(r,0,g.lib);
-      if(parFac){ if(s.four) txt(r,1,s.four); const nf = s.numFour||s.numInt; if(nf) txt(r,2,nf); put(r,3,{t:'n', v:serieXl(s.date), z:XL_FORMATS.date}); if(s.centreLib) txt(r,4,s.centreLib); }
-      else { txt(r,1,s.lib); const det = parCode ? libType(s.type) : s.desc; if(det) txt(r,2,det); }
+      txt(r,0,g.lib); txt(r,1,s.lib); const det = parCode ? libType(s.type) : s.desc; if(det) txt(r,2,det);
       mois.forEach((m,j)=>{ if(s.mois[m]) num(r,cM0+j,s.mois[m]/100,EUR); });          // pas de « 0,00 » dans les mois sans facture
       num(r,cMont,s.cents/100,EUR, nM ? `SUM(${rcLettre(cM0)}${r+1}:${rcLettre(cM0+nM-1)}${r+1})` : null);
       num(r,cTot,s.cents/100,EUR,`${rcLettre(cMont)}${r+1}+${rcLettre(cCorr)}${r+1}`);
@@ -14667,9 +14460,9 @@ function rcFeuilleSynthese(R, F, D, plan){
   num(r,cTot,R.total/100,EUR,`${rcLettre(cMont)}${r+1}+${rcLettre(cCorr)}${r+1}`);
   num(r,cNb,R.nb,XL_FORMATS.int,somme(cNb));
   bande(r,0,cNb,'total');
-  plan.gel = {x:parFac?3:2, y:H+1};                                         // en-têtes et 2 premières colonnes figés
+  plan.gel = {x:2, y:H+1};                                         // en-têtes et 2 premières colonnes figés
   ws['!ref'] = `A1:${rcLettre(cNb)}${r+1}`;
-  ws['!cols'] = [...(parFac ? [{wch:26},{wch:30},{wch:22},{wch:11},{wch:34}] : [{wch:34},{wch:34},{wch:30}]),...mois.map(()=>({wch:12})),{wch:20},{wch:12},{wch:14},{wch:11}];
+  ws['!cols'] = [{wch:34},{wch:34},{wch:30},...mois.map(()=>({wch:12})),{wch:20},{wch:12},{wch:14},{wch:11}];
   return ws;
 }
 function rcFeuilleDetail(R, F, plan){
