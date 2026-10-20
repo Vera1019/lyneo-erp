@@ -98,7 +98,7 @@ input:disabled,select:disabled,textarea:disabled{background:var(--gray-1);color:
 .sidebar-nav::-webkit-scrollbar-track{background:transparent}
 .sidebar-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
 .nav-section{padding:10px 10px 4px;font-size:10px;color:rgba(255,255,255,.25);letter-spacing:.12em;text-transform:uppercase;font-weight:700}
-.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;color:rgba(255,255,255,.55);cursor:pointer;transition:all .15s;font-size:13px;font-weight:500;border-radius:8px;margin-bottom:2px;position:relative}
+.nav-item{text-decoration:none;display:flex;align-items:center;gap:10px;padding:9px 12px;color:rgba(255,255,255,.55);cursor:pointer;transition:all .15s;font-size:13px;font-weight:500;border-radius:8px;margin-bottom:2px;position:relative}
 .nav-item:hover{background:rgba(255,255,255,.07);color:rgba(255,255,255,.9)}
 .nav-item.active{background:rgba(37,99,235,.25);color:#fff}
 .nav-item.active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:var(--blue);border-radius:0 3px 3px 0}
@@ -361,6 +361,8 @@ select{cursor:pointer}
 .modal-close i{font-size:18px}
 .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid var(--gray-3)}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes modalSecoue{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+.modal.modal-secoue{animation:modalSecoue .38s ease}
 @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
 
 /* ── PAGE HEADER ─────────────────────────────────────────────── */
@@ -635,34 +637,34 @@ html,body{max-width:100vw;overflow-x:hidden}
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Tableau de bord</div>
-      <div class="nav-item active" onclick="navigate('dashboard')" id="nav-dashboard"><i class="ti ti-layout-dashboard"></i> Tableau de bord</div>
+      <a class="nav-item active" href="#/dashboard" onclick="return navLien(event,'dashboard')" id="nav-dashboard"><i class="ti ti-layout-dashboard"></i> Tableau de bord</a>
 
       <div class="nav-section">Ventes</div>
-      <div class="nav-item" onclick="navigate('clients')" id="nav-clients"><i class="ti ti-building-store"></i> Clients</div>
-      <div class="nav-item" onclick="navigate('devis')" id="nav-devis"><i class="ti ti-file-description"></i> Devis</div>
-      <div class="nav-item" onclick="navigate('factures_vente')" id="nav-factures_vente"><i class="ti ti-receipt"></i> Factures clients</div>
+      <a class="nav-item" href="#/clients" onclick="return navLien(event,'clients')" id="nav-clients"><i class="ti ti-building-store"></i> Clients</a>
+      <a class="nav-item" href="#/devis" onclick="return navLien(event,'devis')" id="nav-devis"><i class="ti ti-file-description"></i> Devis</a>
+      <a class="nav-item" href="#/factures_vente" onclick="return navLien(event,'factures_vente')" id="nav-factures_vente"><i class="ti ti-receipt"></i> Factures clients</a>
 
       <div class="nav-section">Chantiers &amp; SAV</div>
-      <div class="nav-item" onclick="navigate('chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</div>
-      <div class="nav-item" onclick="navigate('interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions SAV</div>
+      <a class="nav-item" href="#/chantiers" onclick="return navLien(event,'chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</a>
+      <a class="nav-item" href="#/interventions_sav" onclick="return navLien(event,'interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions SAV</a>
 
       <div class="nav-section">Achats</div>
-      <div class="nav-item" onclick="navigate('fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</div>
-      <div class="nav-item" onclick="navigate('pos')" id="nav-pos"><i class="ti ti-shopping-cart"></i> Bons de commande</div>
-      <div class="nav-item" onclick="navigate('receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> Réceptions (BL)</div>
-      <div class="nav-item" onclick="navigate('factures')" id="nav-factures"><i class="ti ti-file-invoice"></i> Factures fournisseurs</div>
+      <a class="nav-item" href="#/fournisseurs" onclick="return navLien(event,'fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</a>
+      <a class="nav-item" href="#/pos" onclick="return navLien(event,'pos')" id="nav-pos"><i class="ti ti-shopping-cart"></i> Bons de commande</a>
+      <a class="nav-item" href="#/receptions" onclick="return navLien(event,'receptions')" id="nav-receptions"><i class="ti ti-truck-delivery"></i> Réceptions (BL)</a>
+      <a class="nav-item" href="#/factures" onclick="return navLien(event,'factures')" id="nav-factures"><i class="ti ti-file-invoice"></i> Factures fournisseurs</a>
 
       <div id="nav-rh-section" class="hidden">
         <div class="nav-section">Ressources humaines</div>
-        <div class="nav-item" onclick="navigate('employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</div>
-        <div class="nav-item" onclick="window.open('https://lyneo-pointages.netlify.app','_blank')"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></div>
+        <a class="nav-item" href="#/employes_rh" onclick="return navLien(event,'employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</a>
+        <a class="nav-item" href="https://lyneo-pointages.netlify.app" target="_blank" rel="noopener"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></a>
       </div>
 
       <div id="nav-admin-section" class="hidden">
         <div class="nav-section">Administration</div>
-        <div class="nav-item" onclick="navigate('utilisateurs')" id="nav-utilisateurs"><i class="ti ti-user-cog"></i> Utilisateurs</div>
-        <div class="nav-item" onclick="navigate('controle')" id="nav-controle"><i class="ti ti-shield-check"></i> Contrôle &amp; clôture</div>
-        <div class="nav-item" onclick="navigate('documents')" id="nav-documents"><i class="ti ti-files"></i> Documents</div>
+        <a class="nav-item" href="#/utilisateurs" onclick="return navLien(event,'utilisateurs')" id="nav-utilisateurs"><i class="ti ti-user-cog"></i> Utilisateurs</a>
+        <a class="nav-item" href="#/controle" onclick="return navLien(event,'controle')" id="nav-controle"><i class="ti ti-shield-check"></i> Contrôle &amp; clôture</a>
+        <a class="nav-item" href="#/documents" onclick="return navLien(event,'documents')" id="nav-documents"><i class="ti ti-files"></i> Documents</a>
       </div>
     </nav>
     <div class="sidebar-user">
@@ -727,8 +729,85 @@ const authStorage = {
 };
 // Connexion gardée depuis plus de 30 jours : on l'efface
 if(resterDepuis()>0 && !resterActif()){ try{ localStorage.removeItem(RESTER_CLE); }catch(e){} viderAuthLocal(); }
+// ── Plusieurs onglets (clic droit → « Ouvrir dans un nouvel onglet », comme dans Odoo) ───────────────────────────
+// La session vit dans l'onglet (sessionStorage) : un onglet neuf n'a donc pas de session. Les onglets du MÊME navigateur se la passent par
+// BroadcastChannel (même origine uniquement) : un onglet neuf la demande aux autres et arrive déjà connecté. Quand un onglet renouvelle son
+// jeton, il le diffuse aux autres (sinon leur ancien jeton serait refusé par Supabase au renouvellement suivant). « Déconnexion » ferme tous les onglets.
+// Un onglet n'adopte que la session du MÊME compte que le sien.
+const _canalSession = (()=>{ try{ return typeof BroadcastChannel!=='undefined' ? new BroadcastChannel('lyneo-erp-session') : null; }catch(e){ return null; } })();
+const _idOnglet = Math.random().toString(36).slice(2);
+// Efface la session de CET onglet (et celle gardée sur l'appareil). Refait 2 s plus tard (si on est toujours déconnecté) : un renouvellement de jeton déjà
+// en route au moment de la déconnexion pourrait sinon réécrire la session juste après.
+function viderAuthOnglet(){
+  try{ Object.keys(sessionStorage).filter(k=>k.indexOf(AUTH_CLE)===0).forEach(k=>sessionStorage.removeItem(k)); }catch(e){}
+  viderAuthLocal();
+  Object.keys(_memAuth).forEach(k=>{ delete _memAuth[k]; });
+}
+function viderAuthOngletPlusTard(){ setTimeout(()=>{ if(!currentUser) viderAuthOnglet(); }, 2000); }
+let _rtConnu = null, _uidSession = null;
+function _paquetSession(session){ return {access_token:session.access_token, refresh_token:session.refresh_token, uid:session.user && session.user.id}; }
+function diffuserSession(session){
+  if(!_canalSession || !session || !session.refresh_token) return;
+  _rtConnu = session.refresh_token;
+  try{ _canalSession.postMessage({t:'session', de:_idOnglet, ..._paquetSession(session)}); }catch(e){}
+}
+function demanderSessionAutresOnglets(delai){
+  if(!_canalSession) return Promise.resolve(null);
+  return new Promise(resolve=>{
+    const id = Math.random().toString(36).slice(2); let fini = false, tm = null;
+    const fin = v=>{ if(fini) return; fini = true; clearTimeout(tm); try{ _canalSession.removeEventListener('message', h); }catch(e){} resolve(v); };
+    const h = ev=>{ const m = ev.data || {}; if(m.t==='reponse' && m.a===id && m.refresh_token) fin(m); };
+    _canalSession.addEventListener('message', h);
+    tm = setTimeout(()=>fin(null), delai);
+    try{ _canalSession.postMessage({t:'demande', de:_idOnglet, id}); }catch(e){ fin(null); }
+  });
+}
+if(_canalSession){
+  _canalSession.addEventListener('message', async ev=>{
+    const m = ev.data || {}; if(m.de===_idOnglet) return;
+    try{
+      if(m.t==='demande'){
+        if(!currentUser) return;
+        const {data} = await sb.auth.getSession();
+        if(data && data.session) _canalSession.postMessage({t:'reponse', a:m.id, de:_idOnglet, ..._paquetSession(data.session)});
+      } else if(m.t==='session'){
+        if(!currentUser || !m.refresh_token || m.refresh_token===_rtConnu) return;
+        if(_uidSession && m.uid && m.uid!==_uidSession) return;           // un autre compte : on ne touche à rien
+        _rtConnu = m.refresh_token;
+        await sb.auth.setSession({access_token:m.access_token, refresh_token:m.refresh_token});
+      } else if(m.t==='deconnexion'){
+        if(!currentUser) return;
+        afficherEcranConnexion();
+        try{ await sb.auth.signOut({scope:'local'}); }catch(e){}
+        viderAuthOnglet(); viderAuthOngletPlusTard();
+      }
+    }catch(e){ console.warn('Session entre onglets :', e); }
+  });
+}
+
+// Renouvellement du jeton : UN SEUL onglet à la fois (verrou Web Locks entre onglets) et toujours avec le jeton de renouvellement le plus récent
+// connu de tous les onglets, diffusé aussitôt aux autres. Sans cela, deux onglets qui renouvellent en même temps (ils expirent à la même seconde)
+// se retrouvent avec des jetons que le serveur finit par refuser (session révoquée = tout le monde déconnecté).
+async function fetchSessionPartagee(input, init){
+  const url = typeof input==='string' ? input : (input && input.url) || '';
+  if(!/\/auth\/v1\/token\?grant_type=refresh_token/.test(url) || !_canalSession || !(navigator.locks && navigator.locks.request)) return fetch(input, init);
+  const travail = async ()=>{
+    let init2 = init;
+    try{ const b = JSON.parse(init.body); if(_rtConnu && b.refresh_token!==_rtConnu){ b.refresh_token = _rtConnu; init2 = {...init, body:JSON.stringify(b)}; } }catch(e){}
+    const res = await fetch(input, init2);
+    try{
+      const j = await res.clone().json();
+      if(j && j.refresh_token){ _rtConnu = j.refresh_token; _canalSession.postMessage({t:'session', de:_idOnglet, access_token:j.access_token, refresh_token:j.refresh_token, uid:j.user && j.user.id}); await new Promise(r=>setTimeout(r,150)); }
+    }catch(e){}
+    return res;
+  };
+  try{ return await navigator.locks.request('lyneo-erp-renouvellement', {signal: AbortSignal.timeout(10000)}, travail); }
+  catch(e){ if(e && e.name==='TimeoutError' || e && e.name==='AbortError') return fetch(input, init); throw e; }
+}
+
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: authStorage, storageKey: AUTH_CLE }
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: authStorage, storageKey: AUTH_CLE },
+  global: { fetch: fetchSessionPartagee }
 });
 
 // Supabase Pointages (base séparée)
@@ -1805,9 +1884,21 @@ function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap
 let _appuiFond = null, _reliFond = null;
 document.addEventListener('pointerdown', e=>{ _appuiFond = e.target; _reliFond = null; }, true);
 document.addEventListener('pointerup', e=>{ _reliFond = e.target; }, true);
+// Fenêtre de formulaire MODIFIÉE (au moins un champ saisi/changé) : un clic sur le fond sombre ne la ferme plus (la saisie serait perdue).
+// Elle « secoue » et un message rappelle de fermer avec « Annuler » ou la croix. Une fenêtre non touchée se ferme toujours d'un clic sur le fond.
+function _marquerFenetreSale(e){ const o = e.target && e.target.closest ? e.target.closest('.modal-overlay') : null; if(o) o.dataset.sale = '1'; }
+document.addEventListener('input', _marquerFenetreSale, true);
+document.addEventListener('change', _marquerFenetreSale, true);
+let _dernierAvisFond = 0;
+function avertirFenetreNonFermee(ov){
+  const m = ov.querySelector('.modal'); if(m){ m.classList.remove('modal-secoue'); void m.offsetWidth; m.classList.add('modal-secoue'); setTimeout(()=>m.classList.remove('modal-secoue'), 450); }
+  if(Date.now() - _dernierAvisFond > 2500){ _dernierAvisFond = Date.now(); showToast('Modifications non enregistrées : utilisez « Annuler » (ou la croix) pour fermer sans enregistrer.', 'error'); }
+}
 document.addEventListener('click', e=>{
   const t = e.target, bas = _appuiFond, haut = _reliFond; _appuiFond = _reliFond = null;
-  if(t && t.classList && t.classList.contains('modal-overlay') && ((bas && bas !== t) || (haut && haut !== t))) e.stopImmediatePropagation();
+  if(!(t && t.classList && t.classList.contains('modal-overlay'))) return;
+  if((bas && bas !== t) || (haut && haut !== t)){ e.stopImmediatePropagation(); return; }          // sélection de texte qui déborde : pas un vrai clic
+  if(t.dataset.sale === '1' && t.querySelector('.form-actions')){ e.stopImmediatePropagation(); avertirFenetreNonFermee(t); }   // saisie en cours : ne pas fermer
 }, true);
 
 // ── AUTH ─────────────────────────────────────────────────────
@@ -1886,6 +1977,8 @@ function afficherEcranConnexion(){
 async function doLogout(){
   afficherEcranConnexion();
   try{ await sb.auth.signOut(); }catch(e){}
+  try{ if(_canalSession) _canalSession.postMessage({t:'deconnexion', de:_idOnglet}); }catch(e){}
+  viderAuthOnglet(); viderAuthOngletPlusTard();
   try{ localStorage.removeItem(RESTER_CLE); }catch(e){} viderAuthLocal();
   try{ sessionStorage.removeItem('lyneo_user'); }catch(e){}
 }
@@ -1903,7 +1996,7 @@ function initApp(){
   if(dateEl) dateEl.innerHTML = '<i class="ti ti-calendar" style="font-size:13px"></i>'+new Date().toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
   chargerCloture();
   entrepriseChargee();     // données de l'entreprise imprimées sur les PDF / Excel (page Administration → Documents)
-  navigate('dashboard');
+  { const p = pageDepuisHash(); if(pageAutorisee(p)) navigate(p, true); else navigate('dashboard', 'remplacer'); }   // un nouvel onglet ouvert sur #/devis arrive directement sur les devis
   setTimeout(()=>{ afficherNotifAnniversaire().catch(()=>{}); }, 900);   // « Aujourd'hui, c'est l'anniversaire de … » (une fois par jour)
 }
 
@@ -2068,8 +2161,40 @@ new MutationObserver(()=>{
 // ── NAVIGATION ───────────────────────────────────────────────
 const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents'};
 
-function navigate(page){
+// ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
+const PAGES_ADMIN = ['utilisateurs','controle','documents'];
+function pageDepuisHash(){ const m = String(location.hash||'').match(/^#\/([a-z_]+)(?:[\/?].*)?$/); return m ? m[1] : null; }
+function pageAutorisee(p){
+  const R = pageRenderers();
+  if(!p || !Object.prototype.hasOwnProperty.call(R,p) || typeof R[p]!=='function') return false;   // refuse __proto__, constructor…
+  if(PAGES_ADMIN.includes(p)) return !!currentUser && currentUser.role==='admin';
+  if(p==='employes_rh') return !!currentUser && peutVoirSalaires();
+  return true;
+}
+// Clic simple : on reste dans cet onglet. Ctrl/Cmd/Maj + clic (ou clic molette, clic droit) : on laisse le navigateur ouvrir un nouvel onglet.
+function navLien(e, page){
+  if(e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button===1)) return true;
+  if(e) e.preventDefault();
+  navigate(page);
+  return false;
+}
+function fenetreOuverte(){
+  return ['modal-container','envoi-po-container','code-res-container','client-rapide-container'].some(id=>{ const c = el(id); return !!(c && c.innerHTML.trim()); });
+}
+window.addEventListener('popstate', ()=>{
+  if(!currentUser) return;
+  const p = pageDepuisHash();
+  if(!pageAutorisee(p) || p===currentPage) return;
+  if(fenetreOuverte()){      // une fenêtre est ouverte (saisie en cours ?) : on reste ici
+    try{ history.pushState(null,'','#/'+currentPage); }catch(e){}
+    showToast('Fermez la fenêtre avant de changer de page.', 'error');
+    return;
+  }
+  navigate(p, true);
+});
+function navigate(page, depuisAdresse){
   currentPage = page;
+  try{ const h = '#/'+page; if(location.hash!==h) history[depuisAdresse==='remplacer' ? 'replaceState' : 'pushState'](null,'',h); }catch(e){}
   razTri('P');
   _selExp = {};
   fermerApercu();
@@ -2080,8 +2205,9 @@ function navigate(page){
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
   el('topbar-title').textContent = PAGE_TITLES[page]||'';
-  const rendu = pageRenderers()[page];
-  if(rendu) rendu();
+  const R = pageRenderers();
+  const rendu = Object.prototype.hasOwnProperty.call(R,page) ? R[page] : null;
+  if(typeof rendu==='function') rendu();
 }
 
 function pageRenderers(){
@@ -4222,7 +4348,7 @@ function openFourModal(r=null){
         <div class="form-group"><label class="field-label">Pays</label><input id="f-pays" value="${r?.pays||'Luxembourg'}"/></div>
         <div class="form-group"><label class="field-label">Conditions paiement</label>
           <select id="f-cond">
-            ${['Immédiat','15 jours','30 jours','45 jours','60 jours'].map(c=>`<option ${(r?.conditions_paiement||'30 jours')===c?'selected':''}>${c}</option>`).join('')}
+            ${optionsConditionsPaiement(r?.conditions_paiement,'30 jours')}
           </select>
         </div>
         <div class="form-group"><label class="field-label">Actif</label>
@@ -4251,6 +4377,7 @@ async function saveFourCore(id){
   const data = {nom,email:el('f-email').value,telephone:el('f-tel').value,numero_tva:el('f-tva').value,adresse:el('f-adresse').value,code_postal:el('f-cp').value,ville:el('f-ville').value,pays:el('f-pays').value,conditions_paiement:el('f-cond').value,actif:el('f-actif').value==='1'};
   const {error} = id ? await sb.from('fournisseurs').update(data).eq('id',id) : await sb.from('fournisseurs').insert(data);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  window._condFournCache = {};
   showToast(id?'Fournisseur mis à jour':'Fournisseur créé');
   closeModal(); renderFournisseurs();
 }
@@ -6588,11 +6715,11 @@ async function openFacLibreModal(){
         </div>
         ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">Fournisseur *</label>
-          <select id="facl-fournisseur"><option value="">— Sélectionner —</option>${fours.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('')}</select>
+          <select id="facl-fournisseur" onchange="majEcheanceFourn('facl',this.value)"><option value="">— Sélectionner —</option>${fours.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('')}</select>
         </div>
         <div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="facl-num" placeholder="FA-2026-XXXX"/></div>
-        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="facl-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="facl-echeance"/></div>
+        <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="facl-date" value="${today()}" onchange="majEcheanceFourn('facl')"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du fournisseur ; modifiable)</span></label><input type="date" id="facl-echeance" oninput="this.dataset.auto='0';majEcheanceFourn('facl')"/><div id="facl-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <span><strong style="font-size:13px">Lignes</strong>${crLienGerer('renderFacLignesLibre')}</span>
@@ -6689,6 +6816,46 @@ async function saveFacLibre(){
   openFacDetail(fac.id);
 }
 
+// ── Factures fournisseur : échéance proposée = date de facture + conditions de la FICHE FOURNISSEUR ───────────
+// (ex. « 30 jours fin de mois » : facture du 17/08/2026 → 30/09/2026). Recalculée quand la date ou le fournisseur change,
+// sauf si la date d'échéance a été saisie à la main (alors un rappel orange propose « Appliquer »).
+window._condFournCache = {};
+async function condFournisseur(id){
+  if(!id) return null;
+  if(Object.prototype.hasOwnProperty.call(window._condFournCache, id)) return window._condFournCache[id];
+  let c = null;
+  try{ const r = await sb.from('fournisseurs').select('conditions_paiement').eq('id', id).maybeSingle(); c = r && r.data ? (r.data.conditions_paiement||'') : null; }catch(e){ c = null; }
+  window._condFournCache[id] = c;
+  return c;
+}
+async function majEcheanceFourn(prefix, fournisseurId){
+  let inp = el(prefix+'-echeance'); if(!inp) return;
+  if(fournisseurId!==undefined) inp.dataset.four = fournisseurId || '';
+  const four = inp.dataset.four || '';
+  const cond = await condFournisseur(four);
+  inp = el(prefix+'-echeance'); const d = el(prefix+'-date'), box = el(prefix+'-echeance-info');   // la fenêtre a pu changer pendant l'attente
+  if(!inp || !d || (inp.dataset.four||'')!==four) return;
+  const p = cond===null ? null : delaiEtFdmConditions(cond);
+  const attendu = (p && d.value) ? echeanceDepuisJours(d.value, p.jours, p.fdm) : null;
+  if(inp.dataset.auto===undefined) inp.dataset.auto = (inp.value==='' || inp.value===attendu) ? '1' : '0';
+  if(attendu && (inp.value==='' || inp.dataset.auto!=='0')){ inp.value = attendu; inp.dataset.auto = '1'; }
+  if(!box) return;
+  if(!p){ box.innerHTML = ''; return; }
+  const lib = libelleDelai(p.jours, p.fdm);
+  if(attendu && inp.value!==attendu){
+    box.style.color = '#b45309';
+    box.innerHTML = '⚠ Conditions du fournisseur : '+escHtml(lib)+' → '+fmtDate(attendu)+' · <a href="#" onclick="appliquerEcheanceFourn(\''+prefix+'\');return false">Appliquer</a>';
+  } else {
+    box.style.color = 'var(--gray-5)';
+    box.innerHTML = 'Conditions du fournisseur : '+escHtml(lib);
+  }
+}
+async function appliquerEcheanceFourn(prefix){
+  const inp = el(prefix+'-echeance'); if(!inp) return;
+  inp.dataset.auto = '1'; inp.value = '';
+  await majEcheanceFourn(prefix);
+}
+
 function openFacModal(){
   // Odoo style: PO selector first, then lines load automatically
   const opts = _posPourFac.map(p=>'<option value="'+p.id+'">'+p.numero+' — '+(p.fournisseurs?.nom||'')+'</option>').join('');
@@ -6704,15 +6871,15 @@ function openFacModal(){
     // ── SECTION 1: Infos de base (header) ──
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">'
     +  '<div class="form-group"><label class="field-label">Commande associée *</label>'
-    +    '<select id="fac-po" data-ordre="fixe" onchange="loadLignesPourFac(this.value)">'
+    +    '<select id="fac-po" data-ordre="fixe" onchange="loadLignesPourFac(this.value);majEcheanceFourn(\'fac\',((_posPourFac.find(p=>p.id===this.value)||{}).fournisseur_id)||\'\')">'
     +    '<option value="">— Sélectionner une commande —</option>'+opts
     +    '</select></div>'
     +  '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label>'
     +    '<input id="fac-num" placeholder="FA-2026-XXXX"/></div>'
     +  '<div class="form-group"><label class="field-label">Date de facture *</label>'
-    +    '<input type="date" id="fac-date" value="'+today()+'"/></div>'
-    +  '<div class="form-group"><label class="field-label">Date échéance</label>'
-    +    '<input type="date" id="fac-echeance"/></div>'
+    +    '<input type="date" id="fac-date" value="'+today()+'" onchange="majEcheanceFourn(\'fac\')"/></div>'
+    +  '<div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du fournisseur ; modifiable)</span></label>'
+    +    '<input type="date" id="fac-echeance" oninput="this.dataset.auto=\'0\';majEcheanceFourn(\'fac\')"/><div id="fac-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>'
     +'</div>'
 
     // ── SECTION 2: Lignes de la commande (editables) ──
@@ -7715,7 +7882,7 @@ function openClientModal(r=null, selectId=null){
         <div class="form-group"><label class="field-label">Pays</label><input id="cl-pays" value="${r?.pays||'Luxembourg'}"/></div>
         <div class="form-group"><label class="field-label">Conditions paiement</label>
           <select id="cl-cond">
-            ${['Immédiat','15 jours','30 jours','45 jours','60 jours'].map(c=>`<option ${(r?.conditions_paiement||'30 jours')===c?'selected':''}>${c}</option>`).join('')}
+            ${optionsConditionsPaiement(r?.conditions_paiement,'30 jours')}
           </select>
         </div>
         <div class="form-group"><label class="field-label">Actif</label>
@@ -9795,44 +9962,82 @@ function nbJoursEntre(isoDebut, isoFin){
   const a = _utcDeIso(isoDebut), b = _utcDeIso(isoFin);
   return (a===null || b===null) ? null : Math.round((b-a)/86400000);
 }
-function calculerEcheanceDepuisConditions(dateDepart, conditionsPaiement){
-  const jours = delaiJoursConditions(conditionsPaiement);
-  if(jours===null) return null;
-  return ajouterJoursISO(dateDepart, jours);
+// ── Conditions de paiement : délai en jours + option « fin de mois » ───────────────────────────────
+// « 30 jours fin de mois » = date de facture + 30 jours, puis report au dernier jour de ce mois
+// (ex. facture du 17/08/2026 → 16/09/2026 → échéance 30/09/2026 ; « 60 jours fin de mois » → 31/10/2026).
+const CONDITIONS_PAIEMENT = ['Immédiat','15 jours','30 jours','45 jours','60 jours','30 jours fin de mois','45 jours fin de mois','60 jours fin de mois'];
+function optionsConditionsPaiement(actuel, defaut){
+  const cur = (actuel==null || String(actuel).trim()==='') ? defaut : String(actuel);
+  const liste = CONDITIONS_PAIEMENT.includes(cur) ? CONDITIONS_PAIEMENT : CONDITIONS_PAIEMENT.concat([cur]);   // une valeur ancienne hors liste est conservée
+  return liste.map(c=>'<option value="'+escHtml(c)+'"'+(c===cur?' selected':'')+'>'+escHtml(c)+'</option>').join('');
 }
-// Sous le champ « Date échéance » : « N jours date de facture », en orange si ça ne correspond pas aux conditions du client.
+function conditionsFinDeMois(c){ return /fin\s*(?:de|du)\s*mois|\bfdm\b/i.test(String(c||'')); }
+// {jours, fdm} d'un libellé de conditions, ou null s'il n'y a rien d'exploitable (alors la date reste à saisir à la main)
+function delaiEtFdmConditions(c){
+  const fdm = conditionsFinDeMois(c); const j = delaiJoursConditions(c);
+  if(j===null && !fdm) return null;
+  return {jours: j===null ? 0 : j, fdm};
+}
+function finDeMoisISO(iso){
+  const t = _utcDeIso(iso); if(t===null) return null;
+  const d = new Date(t);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 0)).toISOString().slice(0,10);
+}
+function echeanceDepuisJours(dateISO, jours, fdm){
+  if(_utcDeIso(dateISO)===null) return null;
+  const e = ajouterJoursISO(dateISO, jours);
+  return fdm ? finDeMoisISO(e) : e;
+}
+function libelleDelai(jours, fdm){ return fdm ? (jours ? jours+' jours fin de mois' : 'Fin de mois') : (jours===0 ? 'à réception' : jours+' jours'); }
+function calculerEcheanceDepuisConditions(dateDepart, conditionsPaiement){
+  const p = delaiEtFdmConditions(conditionsPaiement);
+  if(!p) return null;
+  const base = _utcDeIso(dateDepart)===null ? today() : String(dateDepart).slice(0,10);   // sans date de départ valide : aujourd'hui (comme avant)
+  return echeanceDepuisJours(base, p.jours, p.fdm);
+}
+// Sous le champ « Date échéance » : « N jours date de facture » (ou « 30 jours fin de mois »), en orange si ça ne correspond pas aux conditions du client.
 // prefix = 'fv' (création) ou 'efv' (modification d'une facture)
 function delaiAttenduEcheance(prefix){
-  return prefix==='efv' ? (window._delaiClientEfv ?? null) : delaiJoursConditions(condPaiementFv());
+  if(prefix==='efv') return window._delaiClientEfv ?? null;
+  const p = delaiEtFdmConditions(condPaiementFv()); return p ? p.jours : null;
+}
+function fdmAttenduEcheance(prefix){
+  return prefix==='efv' ? !!window._fdmClientEfv : conditionsFinDeMois(condPaiementFv());
+}
+function echeanceAttendue(prefix, dateISO){
+  const j = delaiAttenduEcheance(prefix); if(j===null) return null;
+  return echeanceDepuisJours(dateISO, j, fdmAttenduEcheance(prefix));
 }
 function infoEcheance(prefix){
   prefix = prefix || 'fv';
   const box = el(prefix+'-echeance-info'); if(!box) return;
-  const j = nbJoursEntre(el(prefix+'-date')?.value, el(prefix+'-echeance')?.value);
+  const dateF = el(prefix+'-date')?.value, ech = el(prefix+'-echeance')?.value;
+  const j = nbJoursEntre(dateF, ech);
   if(j===null){ box.innerHTML=''; return; }
-  const txt = j===0 ? 'À réception de facture' : j+' jours date de facture';
-  const attendu = delaiAttenduEcheance(prefix);
-  if(attendu!==null && attendu!==j && !el(prefix+'-echeance')?.disabled){
+  const attendu = delaiAttenduEcheance(prefix), fdm = fdmAttenduEcheance(prefix);
+  const attenduDate = attendu===null ? null : echeanceDepuisJours(dateF, attendu, fdm);
+  const conforme = attenduDate!==null && attenduDate===ech;
+  const txt = (conforme && fdm) ? libelleDelai(attendu, true) : (j===0 ? 'À réception de facture' : j+' jours date de facture');
+  if(attendu!==null && !conforme && !el(prefix+'-echeance')?.disabled){
     box.style.color = '#b45309';
-    box.innerHTML = '⚠ '+txt+' — conditions du client : '+(attendu===0?'à réception':attendu+' jours')+' · <a href="#" onclick="appliquerDelaiEcheance(\''+prefix+'\');return false">Appliquer</a>';
+    box.innerHTML = '⚠ '+txt+' — conditions du client : '+libelleDelai(attendu, fdm)+' · <a href="#" onclick="appliquerDelaiEcheance(\''+prefix+'\');return false">Appliquer</a>';
   } else {
     box.style.color = 'var(--gray-5)';
     box.innerHTML = txt;
   }
 }
 function appliquerDelaiEcheance(prefix){
-  const attendu = delaiAttenduEcheance(prefix);
-  const inp = el(prefix+'-echeance'), d = el(prefix+'-date');
-  if(attendu===null || !inp || !d || !d.value) return;
-  inp.value = ajouterJoursISO(d.value, attendu);
+  const inp = el(prefix+'-echeance'), d = el(prefix+'-date'); if(!inp || !d || !d.value) return;
+  const v = echeanceAttendue(prefix, d.value); if(v===null) return;
+  inp.value = v;
   inp.dataset.auto = '1';
   infoEcheance(prefix);
 }
-// « Modifier la facture » : si on change la date de facture, l'échéance suit (même délai), sauf échéance saisie à la main
+// « Modifier la facture » : si on change la date de facture, l'échéance suit (mêmes conditions), sauf échéance saisie à la main
 function majEcheanceEdit(){
   const inp = el('efv-echeance'), d = el('efv-date'); if(!inp || !d || inp.disabled) return;
-  const attendu = window._delaiClientEfv ?? null;
-  if(inp.dataset.auto!=='0' && attendu!==null && d.value) inp.value = ajouterJoursISO(d.value, attendu);
+  const v = echeanceAttendue('efv', d.value);
+  if(inp.dataset.auto!=='0' && v!==null && d.value) inp.value = v;
   infoEcheance('efv');
 }
 
@@ -10701,9 +10906,10 @@ async function openEditFactureVente(facId){
   const dis = clos ? ' disabled' : '';
   // Délai attendu = conditions de la fiche client ; à défaut, l'écart actuel de cette facture (la date et l'échéance restent alors solidaires)
   const ecartActuel = nbJoursEntre(f.date_creation, f.date_echeance);
-  const delaiClient = delaiJoursConditions(f.clients?.conditions_paiement);
-  window._delaiClientEfv = f.type_facture==='avoir' ? null : (delaiClient!==null ? delaiClient : ecartActuel);
-  const echeanceAuto = (window._delaiClientEfv===null || ecartActuel===null || ecartActuel===window._delaiClientEfv) ? '1' : '0';
+  const attCl = f.type_facture==='avoir' ? null : delaiEtFdmConditions(f.clients?.conditions_paiement);
+  window._delaiClientEfv = f.type_facture==='avoir' ? null : (attCl ? attCl.jours : ecartActuel);
+  window._fdmClientEfv = attCl ? attCl.fdm : false;
+  const echeanceAuto = (window._delaiClientEfv===null || ecartActuel===null || echeanceDepuisJours(f.date_creation, window._delaiClientEfv, window._fdmClientEfv)===String(f.date_echeance||'').slice(0,10)) ? '1' : '0';
   // Devis du même client (pour rattacher une facture encodée à la main) — pas pour une note de crédit, qui suit sa facture
   let devisClient = [];
   if(f.type_facture!=='avoir' && f.client_id){
@@ -14237,8 +14443,8 @@ async function openFacFromPO(poId){
     +  '<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>Vous pouvez modifier les quantités et les prix avant de créer la facture.</div>'
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="fac-gen-num" placeholder="FA-2026-XXXX"/></div>'
-    +    '<div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-gen-date" value="'+today()+'"/></div>'
-    +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="fac-gen-echeance"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-gen-date" value="'+today()+'" onchange="majEcheanceFourn(\'fac-gen\')"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du fournisseur ; modifiable)</span></label><input type="date" id="fac-gen-echeance" oninput="this.dataset.auto=\'0\';majEcheanceFourn(\'fac-gen\')"/><div id="fac-gen-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>'
     +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
     +  '</div>'
     +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
@@ -14281,6 +14487,7 @@ async function openFacFromPO(poId){
 
   setTimeout(()=>{
     renderFacLines();
+    majEcheanceFourn('fac-gen', po.fournisseur_id || '');
     const btn = el('btn-save-fac-po');
     if(btn) btn.addEventListener('click', ()=>saveFacFromPO(poId));
   }, 50);
@@ -14426,8 +14633,8 @@ async function openEditFacLignes(facId){
     +      '</select>'
     +    '</div>'
     +    htmlChampIntervention('efac')
-    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+escHtml(String(fac.date_facture||'').slice(0,10))+'"/></div>'
-    +    '<div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efac-date" value="'+escHtml(String(fac.date_facture||'').slice(0,10))+'" onchange="majEcheanceFourn(\'efac\')"/></div>'
+    +    '<div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du fournisseur ; modifiable)</span></label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'" oninput="this.dataset.auto=\'0\';majEcheanceFourn(\'efac\')"/><div id="efac-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
     +      '<select id="efac-statut">'
     +        ['recue','validee','litige'].concat(['recue','validee','litige'].includes(fac.statut) ? [] : [fac.statut]).map(k=>'<option value="'+k+'"'+(fac.statut===k?' selected':'')+'>'+(STATUT_FA[k]||k)+'</option>').join('')
@@ -14463,6 +14670,9 @@ async function openEditFacLignes(facId){
     +'</div></div></div>');
   renderEfacLignes();
   majInterventionAchat('efac', 'factures', fac.intervention_id||'');
+  (async()=>{ let fid = fac.fournisseur_id || '';
+    if(!fid && fac.po_id){ try{ const r = await sb.from('purchase_orders_lyneo').select('fournisseur_id').eq('id',fac.po_id).maybeSingle(); fid = (r.data && r.data.fournisseur_id) || ''; }catch(e){} }
+    majEcheanceFourn('efac', fid); })();
   setTimeout(()=>{ const b=el('btn-save-edit-fac'); if(b) b.addEventListener('click',()=>saveEditFac(facId)); },50);
 }
 
@@ -14693,15 +14903,27 @@ window.addEventListener('load', async ()=>{
   { const cr = el('login-rester'); if(cr){ try{ cr.checked = localStorage.getItem(RESTER_PREF)==='1'; }catch(e){} } }
   el('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   try{
-    const {data} = await sb.auth.getSession();
+    let {data} = await sb.auth.getSession();
+    if(!(data && data.session)){       // onglet neuf (ex. « Ouvrir dans un nouvel onglet ») : la session est demandée aux autres onglets
+      const rep = await demanderSessionAutresOnglets(700);
+      if(rep){ try{ const r = await sb.auth.setSession({access_token:rep.access_token, refresh_token:rep.refresh_token}); if(r && r.data && r.data.session) data = {session:r.data.session}; }catch(e){ console.warn('Session reçue refusée :', e); } }
+    }
     if(data && data.session){
+      _rtConnu = data.session.refresh_token; _uidSession = data.session.user && data.session.user.id;
       const profil = await chargerProfilUtilisateur(data.session.user.email);
       if(profil){ currentUser = profil; initApp(); }
-      else { try{ await sb.auth.signOut(); }catch(e){} }
+      else { try{ await sb.auth.signOut({scope:'local'}); }catch(e){} }   // local : ne révoque pas la session des autres onglets
     }
   }catch(e){ console.warn('Session non restaurée :', e); }
   // session expirée / compte supprimé : retour à l'écran de connexion
-  sb.auth.onAuthStateChange(evt=>{ if(evt === 'SIGNED_OUT' && currentUser) afficherEcranConnexion(); });
+  sb.auth.onAuthStateChange((evt, session)=>{
+    if(evt === 'SIGNED_OUT'){      // déconnexion (ici ou, par la bibliothèque, dans un autre onglet) : on efface AUSSI la session gardée dans cet onglet
+      if(currentUser) afficherEcranConnexion();
+      viderAuthOnglet(); viderAuthOngletPlusTard();
+    }
+    if(session && session.user) _uidSession = session.user.id;
+    if(session && (evt==='SIGNED_IN' || evt==='TOKEN_REFRESHED') && session.refresh_token!==_rtConnu) diffuserSession(session);   // les autres onglets reçoivent le jeton à jour
+  });
 });
 </script>
 
