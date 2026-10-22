@@ -283,6 +283,7 @@ tbody tr:hover td{background:var(--blue-light)}
 #fv-liste tbody tr:hover td:last-child{background:var(--blue-light)}
 #fac-liste th{padding:11px 10px}#fac-liste td{padding:11px 10px}#fac-liste th:first-child,#fac-liste td:first-child{padding-left:16px}#fac-liste th:last-child,#fac-liste td:last-child{padding-right:16px}
 #fac-liste tbody tr.fac-sel td{background:#EFF6FF}
+.fac-dbl{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:#FEF3C7;color:#92400E;border:1px solid var(--orange);cursor:pointer;white-space:nowrap}
 .fac-int{font-weight:600;font-size:12.5px;color:var(--gray-7,#374151);font-variant-numeric:tabular-nums;letter-spacing:.2px}
 .scroll-top{overflow-x:auto;overflow-y:hidden;height:16px;border-bottom:1px solid var(--gray-2);scrollbar-width:auto;scrollbar-color:#94a3b8 #e8edf3}
 .scroll-top::-webkit-scrollbar{height:12px}
@@ -1985,7 +1986,7 @@ function showModal(html) {
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } }
+function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; }
 // ── Fond sombre des fenêtres : ne se ferme que sur un VRAI clic (appui ET relâchement sur le fond) ──────────────
 // Quand on sélectionne du texte dans un champ en glissant la souris puis qu'on relâche hors de la fenêtre, le navigateur
 // envoie un « clic » au fond sombre (ancêtre commun) : toutes les fenêtres se fermaient en perdant la saisie.
@@ -2289,7 +2290,7 @@ function navLien(e, page){
   return false;
 }
 function fenetreOuverte(){
-  return ['modal-container','envoi-po-container','code-res-container','client-rapide-container'].some(id=>{ const c = el(id); return !!(c && c.innerHTML.trim()); });
+  return ['modal-container','envoi-po-container','code-res-container','client-rapide-container','four-rapide-container'].some(id=>{ const c = el(id); return !!(c && c.innerHTML.trim()); });
 }
 window.addEventListener('popstate', ()=>{
   if(!currentUser) return;
@@ -4486,10 +4487,13 @@ async function openFourDetail(fourId){
     </div>
   </div></div>`);
 }
-function openFourModal(r=null){
+// selectId : liste « Fournisseur » d'un formulaire ouvert (facture, commande…) → la fiche s'ouvre PAR-DESSUS, sans fermer le formulaire,
+// et le fournisseur créé (ou modifié) est sélectionné à l'enregistrement (comme « Créer et modifier » d'Odoo).
+function openFourModal(r=null, selectId=null){
   const isEdit = !!r;
-  showModal(`<div class="modal-overlay"><div class="modal">
-    <div class="modal-header"><h3>${isEdit?'Modifier fournisseur':'Nouveau fournisseur'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+  const fermer = selectId ? 'fermerFourRapide()' : 'closeModal()';
+  const html = `<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${isEdit?'Modifier fournisseur':'Nouveau fournisseur'}</h3><button class="modal-close" onclick="${fermer}"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${r?.nom||''}" placeholder="Nom de la société"/></div>
@@ -4513,22 +4517,70 @@ function openFourModal(r=null){
         </div>
       </div>
       <div class="form-actions">
-        ${isEdit ? `<button class="btn btn-danger" id="f-suppr" onclick="supprimerFournisseur('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
-        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveFour('${r?.id||''}')"><i class="ti ti-check"></i> Enregistrer</button>
+        ${isEdit && !selectId ? `<button class="btn btn-danger" id="f-suppr" onclick="supprimerFournisseur('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
+        <button class="btn btn-secondary" onclick="${fermer}">Annuler</button>
+        <button class="btn btn-primary" onclick="saveFour('${r?.id||''}'${selectId?`,'${selectId}'`:''})"><i class="ti ti-check"></i> Enregistrer</button>
       </div>
     </div>
-  </div></div>`);
+  </div></div>`;
+  if(!selectId){ showModal(html); return; }
+  let c = el('four-rapide-container');
+  if(!c){ c = document.createElement('div'); c.id = 'four-rapide-container'; document.body.appendChild(c); }
+  c.innerHTML = html;
+  const ov = c.querySelector('.modal-overlay');
+  ov.style.zIndex = 300;
+  ov.addEventListener('click', function(e){ if(e.target===this) fermerFourRapide(); });
+  const n = el('f-nom'); if(n) n.focus();
+}
+function fermerFourRapide(){ const c = el('four-rapide-container'); if(c) c.innerHTML = ''; }
+
+// Boutons « Nouveau » et « Modifier » à mettre à côté de n'importe quelle liste de fournisseurs (même principe que pour les clients)
+function boutonsFournisseurRapide(selectId){
+  return `<button type="button" class="btn btn-secondary btn-sm" data-four-rapide="nouveau" onclick="nouveauFournisseurRapide('${selectId}')" title="Créer un nouveau fournisseur sans quitter ce formulaire" style="white-space:nowrap"><i class="ti ti-plus"></i> Nouveau</button>`
+       + `<button type="button" class="btn btn-secondary btn-sm" data-four-rapide="modifier" onclick="modifierFournisseurRapide('${selectId}')" title="Modifier le fournisseur sélectionné" style="white-space:nowrap"><i class="ti ti-pencil"></i> Modifier</button>`;
+}
+function nouveauFournisseurRapide(selectId){ openFourModal(null, selectId); }
+async function modifierFournisseurRapide(selectId){
+  const id = el(selectId)?.value;
+  if(!id){ showToast("Sélectionnez d'abord un fournisseur dans la liste", 'error'); return; }
+  const {data:f} = await sb.from('fournisseurs').select('*').eq('id',id).single();
+  if(!f){ showToast('Fournisseur introuvable', 'error'); return; }
+  openFourModal(f, selectId);
+}
+// Met à jour la liste d'origine (ajoute ou renomme l'option), sélectionne le fournisseur et relance son « onchange » (échéance selon ses conditions de paiement)
+function majSelectFournisseur(selectId, f){
+  if(f && f.actif!==false && typeof _foursActive!=='undefined' && Array.isArray(_foursActive) && _foursActive.length && !_foursActive.some(x=>String(x.id)===String(f.id))){
+    _foursActive.push(f); _foursActive.sort((x,y)=>String(x.nom||'').localeCompare(String(y.nom||''),'fr',{sensitivity:'base'}));
+  }
+  const sel = el(selectId); if(!sel) return;
+  let opt = Array.from(sel.options).find(o=>o.value===String(f.id));
+  if(!opt){ opt = document.createElement('option'); opt.value = f.id; sel.appendChild(opt); }
+  opt.textContent = f.nom;
+  sel.value = f.id;
+  sel.dispatchEvent(new Event('change'));
 }
 
-function saveFour(id){ return gardeEnvoi('fournisseur', ()=>saveFourCore(id)); }
-async function saveFourCore(id){
+function saveFour(id, selectId=null){ return gardeEnvoi('fournisseur', ()=>saveFourCore(id, selectId)); }
+async function saveFourCore(id, selectId=null){
   const nom = el('f-nom').value.trim();
   if(!nom){ showToast('Nom obligatoire','error'); return; }
-  const ctl = await controlerDoublonsTiers('fournisseurs', {nom, tva:el('f-tva').value, email:el('f-email').value}, id, 'fournisseur', 'Voir la fiche');
+  const ctl = await controlerDoublonsTiers('fournisseurs', {nom, tva:el('f-tva').value, email:el('f-email').value}, id, 'fournisseur', selectId ? 'Utiliser celui-ci' : 'Voir la fiche');
   if(ctl==='stop') return;
-  if(ctl && ctl.existant){ closeModal(); openFourDetail(ctl.existant); return; }
+  if(ctl && ctl.existant){
+    if(selectId){ fermerFourRapide(); const {data:ex} = await sb.from('fournisseurs').select('*').eq('id',ctl.existant).single(); if(ex) majSelectFournisseur(selectId, ex); showToast('Fournisseur existant sélectionné'); }
+    else { closeModal(); openFourDetail(ctl.existant); }
+    return;
+  }
   const data = {nom,email:el('f-email').value,telephone:el('f-tel').value,numero_tva:el('f-tva').value,adresse:el('f-adresse').value,code_postal:el('f-cp').value,ville:el('f-ville').value,pays:el('f-pays').value,conditions_paiement:el('f-cond').value,actif:el('f-actif').value==='1'};
+  if(selectId){
+    const r = id ? await sb.from('fournisseurs').update(data).eq('id',id).select().single() : await sb.from('fournisseurs').insert(data).select().single();
+    if(r.error){ showToast('Erreur: '+r.error.message, 'error'); return; }
+    window._condFournCache = {};
+    fermerFourRapide();
+    majSelectFournisseur(selectId, {...data, id:(r.data&&r.data.id)||id});
+    showToast(id?'Fournisseur mis à jour':'Fournisseur "'+nom+'" créé et sélectionné');
+    return;
+  }
   const {error} = id ? await sb.from('fournisseurs').update(data).eq('id',id) : await sb.from('fournisseurs').insert(data);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   window._condFournCache = {};
@@ -4611,14 +4663,14 @@ async function renderPOS(search='', filterStatut=''){
 function openNewPO(){
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
   const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${c.numero} — ${c.nom}</option>`).join('');
-  const foursOpts = _foursActive.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('');
+  const foursOpts = _foursActive.map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier" onchange="majInterventionAchat('po','purchase_orders_lyneo')"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
         ${htmlChampIntervention('po')}
-        <div class="form-group"><label class="field-label">Fournisseur *</label><select id="po-four"><option value="">— Sélectionner —</option>${foursOpts}</select></div>
+        <div class="form-group"><label class="field-label">Fournisseur *</label><div style="display:flex;gap:6px"><select id="po-four" style="flex:1"><option value="">— Sélectionner —</option>${foursOpts}</select>${boutonsFournisseurRapide('po-four')}</div></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes de commande</strong>
@@ -5970,6 +6022,15 @@ const montantHtFacture = r => {
   return null;
 };
 const fmtHtFacture = r => { const v = montantHtFacture(r); return v===null ? '—' : fmt(v); };
+// TVA d'une facture fournisseur : colonne montant_tva, sinon TTC − HT ; null si on ne peut pas le savoir (affiché « — », jamais 0 inventé)
+const montantTvaFacture = r => {
+  const plein = v => v!=null && v!=='' && !isNaN(parseFloat(v));
+  if(plein(r.montant_tva)) return parseFloat(r.montant_tva);
+  const ht = montantHtFacture(r);
+  if(ht!==null && plein(r.montant_ttc)) return Math.round((parseFloat(r.montant_ttc)-ht)*100)/100;
+  return null;
+};
+const fmtTvaFacture = r => { const v = montantTvaFacture(r); return v===null ? '—' : fmt(v); };
 
 // Ordre par défaut de la liste : dernière saisie en premier. Des factures créées dans la même requête SQL (import) ont EXACTEMENT le
 // même created_at, et la base ne garantit aucun ordre entre deux lignes ex æquo : elle les renvoie dans l'ordre physique, qui change
@@ -6070,19 +6131,20 @@ async function renderFactures(){
               <th></th>
               <th><input id="facc-int" placeholder="Filtrer…" style="min-width:104px" value="${escHtml(F.interne)}" oninput="majFiltreFactures('interne',this.value)"/></th>
               <th><input id="facc-num" placeholder="Filtrer…" style="min-width:110px" value="${escHtml(F.num)}" oninput="majFiltreFactures('num',this.value)"/></th>
-              ${_facCodesOk ? `<th><select id="facc-codes" style="min-width:150px" title="Filtrer par code ressource, ou voir ce qui reste à coder" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Toutes codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option>${optCodes ? `<optgroup label="Par code ressource">${optCodes}</optgroup>` : ''}</select></th>` : ''}
-              <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
               <th><select id="facc-four" style="min-width:140px" onchange="majFiltreFactures('four',this.value)"><option value="">Tous</option>${fours.map(n=>`<option value="${escHtml(n)}"${sel(n,F.four)}>${escHtml(n)}</option>`).join('')}</select></th>
-              <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans chantier (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
               <th><div class="fac-range"><span>Du</span><input type="date" id="facc-date-de" value="${escHtml(F.dateDe)}" onchange="majFiltreFactures('dateDe',this.value)"/><span>Au</span><input type="date" id="facc-date-a" value="${escHtml(F.dateA)}" onchange="majFiltreFactures('dateA',this.value)"/></div></th>
               <th><div class="fac-range"><span>Du</span><input type="date" id="facc-ech-de" value="${escHtml(F.echDe)}" onchange="majFiltreFactures('echDe',this.value)"/><span>Au</span><input type="date" id="facc-ech-a" value="${escHtml(F.echA)}" onchange="majFiltreFactures('echA',this.value)"/></div></th>
               <th></th>
+              <th></th>
               <th><div class="fac-range"><span>Min</span><input type="number" step="0.01" id="facc-mont-min" placeholder="€" value="${escHtml(F.montMin)}" oninput="majFiltreFactures('montMin',this.value)"/><span>Max</span><input type="number" step="0.01" id="facc-mont-max" placeholder="€" value="${escHtml(F.montMax)}" oninput="majFiltreFactures('montMax',this.value)"/></div></th>
+              <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
+              <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans chantier (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
+              ${_facCodesOk ? `<th><select id="facc-codes" style="min-width:150px" title="Filtrer par code ressource, ou voir ce qui reste à coder" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Toutes codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option>${optCodes ? `<optgroup label="Par code ressource">${optCodes}</optgroup>` : ''}</select></th>` : ''}
               <th></th>
               <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
               <th></th>
             </tr>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${_facCodesOk ? thTriFac('codes','Codes') : ''}${thTriFac('cmd','Commande')}${thTriFac('four','Fournisseur')}${thTriFac('chantier','Chantier')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('ttc','Montant TTC')}<th>Documents</th>${thTriFac('statut','Statut')}<th>Actions</th></tr>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('tva','TVA')}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${thTriFac('chantier','Chantier')}${_facCodesOk ? thTriFac('codes','Codes') : ''}<th>Documents</th>${thTriFac('statut','Statut')}<th>Actions</th></tr>
           </thead>
           <tbody id="fac-tbody"></tbody>
         </table>
@@ -6105,6 +6167,7 @@ const COLS_TRI_FAC = {
   date:['date', r=>jourMsFac(r.date_facture)],
   ech:['date', r=>jourMsFac(r.date_echeance)],
   ht:['nombre', r=>montantHtFacture(r)],
+  tva:['nombre', r=>montantTvaFacture(r)],
   ttc:['nombre', r=>parseFloat(r.montant_ttc)||0],
   statut:['texte', r=>cleTexteTri(STATUT_FA[r.statut]||r.statut)],
   codes:['texte', r=>RANG_CODES_FAC[etatCodesFacture(r).etat]+' '+cleTexteTri(codesDeFacture(r).map(c=>c.code).join(' '))]
@@ -6167,7 +6230,8 @@ function afficherFactures(){
   const selectables = items.filter(r=>r.statut!=='annulee');
   const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
-  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${_facCodesOk ? 14 : 13}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
+  const dblFac = doublonsFacturesParId(_facsListe);
+  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${_facCodesOk ? 15 : 14}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
     items.map(r=>{
       const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
       const choisie = _facSel.has(r.id);
@@ -6177,15 +6241,16 @@ function afficherFactures(){
       return `<tr id="fac-tr-${r.id}"${choisie?' class="fac-sel"':''}>
         <td><input type="checkbox" ${choisie?'checked':''} ${r.statut==='annulee'?'disabled':''} onchange="basculerSelFacture('${r.id}',this.checked)"/></td>
         <td style="white-space:nowrap">${r.numero_interne ? `<span class="fac-int" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_interne)}</span>` : '<span style="color:var(--gray-4)">—</span>'}</td>
-        <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong></td>
-        ${_facCodesOk ? `<td>${cellCodesFac(r)}</td>` : ''}
-        <td>${escHtml(r.purchase_orders_lyneo?.numero||'—')}</td>
+        <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong>${dblFac.has(String(r.id)) ? `<div><span class="fac-dbl" role="button" tabindex="0" onclick="ouvrirDoublons('factures')" title="${escHtml('Doublon : même fournisseur et même n° de facture que '+dblFac.get(String(r.id)).map(libAutreFacture).join(' ; ')+' — cliquer pour voir')}">Doublon</span></div>` : ''}</td>
         <td>${escHtml(nomFournisseurFac(r)||'—')}</td>
-        <td>${cellChantier}</td>
         <td>${fmtDate(r.date_facture)}</td>
         <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
         <td style="white-space:nowrap">${fmtHtFacture(r)}</td>
+        <td style="white-space:nowrap">${fmtTvaFacture(r)}</td>
         <td style="white-space:nowrap"><strong>${fmt(r.montant_ttc)}</strong></td>
+        <td>${escHtml(r.purchase_orders_lyneo?.numero||'—')}</td>
+        <td>${cellChantier}</td>
+        ${_facCodesOk ? `<td>${cellCodesFac(r)}</td>` : ''}
         <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button> <button class="btn btn-ghost btn-sm" data-fac-apercu="${r.id}" onclick="apercuFactureListe('${r.id}')" title="Aperçu du PDF (sans le télécharger)"><i class="ti ti-eye"></i></button></td>
         <td>${bFA(r.statut)}</td>
         <td><div class="td-actions">
@@ -6198,6 +6263,7 @@ function afficherFactures(){
           ${!['annulee','payee'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="annulerFacture('${r.id}')" title="Annuler"><i class="ti ti-ban"></i></button>`:''}
           ${['recue','litige','annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" data-fac-suppr="${r.id}" onclick="supprimerFactureFournisseur('${r.id}')" title="Supprimer" style="color:var(--red)"><i class="ti ti-trash"></i></button>`:''}
         </div></td>
+
       </tr>`;
     }).join('');
   majBarreFactures();
@@ -6929,7 +6995,7 @@ async function openFacLibreModal(){
         </div>
         ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">Fournisseur *</label>
-          <select id="facl-fournisseur" onchange="majEcheanceFourn('facl',this.value)"><option value="">— Sélectionner —</option>${fours.map(f=>`<option value="${f.id}">${f.nom}</option>`).join('')}</select>
+          <div style="display:flex;gap:6px"><select id="facl-fournisseur" style="flex:1" onchange="majEcheanceFourn('facl',this.value)"><option value="">— Sélectionner —</option>${fours.map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('')}</select>${boutonsFournisseurRapide('facl-fournisseur')}</div>
         </div>
         <div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="facl-num" placeholder="FA-2026-XXXX"/></div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="facl-date" value="${today()}" onchange="majEcheanceFourn('facl')"/></div>
@@ -7517,6 +7583,13 @@ function groupesDoublons(items, regles){
   return [...groupes.values()].filter(g=>g.items.length>1).map(g=>({items:g.items, raisons:[...g.raisons]})).sort((a,b)=>b.items.length-a.items.length);
 }
 const factureActive = f => !['annulee','avoir'].includes(f.statut);
+// Factures fournisseurs en doublon (même fournisseur + même n° de facture) : id → les AUTRES factures du groupe (sert à la pastille de la liste)
+function doublonsFacturesParId(liste){
+  const m = new Map();
+  trouverDoublons('factures', liste).forEach(g=>g.items.forEach(it=>m.set(String(it.id), g.items.filter(o=>String(o.id)!==String(it.id)))));
+  return m;
+}
+const libAutreFacture = f => [f.numero_interne, nomFournisseurFac(f), fmtDate(f.date_facture), fmt(f.montant_ttc), STATUT_FA[f.statut]||f.statut].filter(Boolean).join(' · ');
 const REGLES_DOUBLONS = {
   clients: [
     {libelle:'Même nom', cle:c=>cleNom(c.nom)},
@@ -7537,8 +7610,9 @@ const REGLES_DOUBLONS = {
     {libelle:'Même nom et même client', cle:c=>cleNom(c.nom) ? cleNom(c.nom)+'|'+(c.client_id||cleNom(c.client)) : ''}
   ],
   factures: [
-    {libelle:'Même fournisseur et même n° de facture', cle:f=>(factureActive(f) && cleNumeroFacture(f.numero_facture_fournisseur)) ? cleNom(nomFournisseurFac(f))+'|'+cleNumeroFacture(f.numero_facture_fournisseur) : ''},
-    {libelle:'Même fournisseur, même montant et même date', cle:f=>(factureActive(f) && (parseFloat(f.montant_ttc)||0)!==0 && f.date_facture) ? cleNom(nomFournisseurFac(f))+'|'+(parseFloat(f.montant_ttc)||0).toFixed(2)+'|'+String(f.date_facture).slice(0,10) : ''}
+    {libelle:'Même fournisseur et même n° de facture', cle:f=>(factureActive(f) && cleNumeroFacture(f.numero_facture_fournisseur)) ? cleNom(nomFournisseurFac(f))+'|'+cleNumeroFacture(f.numero_facture_fournisseur) : ''}
+    // Critère de la Vera (22/10/2026) : seul le MÊME FOURNISSEUR avec le MÊME N° DE FACTURE est un doublon. « Même montant et même date »
+    // n'est plus listé ici (deux factures légitimes peuvent coïncider) ; il reste un simple AVERTISSEMENT à la saisie (controlerFactureFournisseur).
   ]
 };
 function trouverDoublons(type, liste){
@@ -7548,7 +7622,10 @@ function trouverDoublons(type, liste){
 // Bouton « Doublons (N) » : N = nombre de groupes trouvés dans la liste déjà chargée
 function btnDoublons(type, liste, petit){
   const n = trouverDoublons(type, liste).length;
-  return `<button class="btn btn-secondary${petit?' btn-sm':''}" data-dbl-btn="${type}" onclick="ouvrirDoublons('${type}')" title="Rechercher les fiches en double"${n?' style="border-color:var(--orange);color:#92400E"':''}><i class="ti ti-copy"></i> Doublons${n?` <strong>(${n})</strong>`:''}</button>`;
+  const info = type==='factures'
+    ? (n ? `${n} groupe${n>1?'s':''} de doublons (même fournisseur et même n° de facture) dans l'ensemble des ${(liste||[]).length} factures, pas seulement celles affichées — cliquer pour les voir` : "Aucun doublon : même fournisseur et même n° de facture")
+    : 'Rechercher les fiches en double';
+  return `<button class="btn btn-secondary${petit?' btn-sm':''}" data-dbl-btn="${type}" onclick="ouvrirDoublons('${type}')" title="${escHtml(info)}"${n?' style="border-color:var(--orange);color:#92400E"':''}><i class="ti ti-copy"></i> Doublons${n?` <strong>(${n})</strong>`:''}</button>`;
 }
 
 // Évite un double clic / double envoi (source classique de doublons)
@@ -15102,7 +15179,7 @@ async function openEditPO(poId){
   }
 
   const chantsOpts = _chantiersActive.map(c=>'<option value="'+c.id+'"'+(po.chantier_id===c.id?' selected':'')+'>'+c.numero+' — '+c.nom+'</option>').join('');
-  const foursOpts = _foursActive.map(f=>'<option value="'+f.id+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+f.nom+'</option>').join('');
+  const foursOpts = _foursActive.map(f=>'<option value="'+escHtml(f.id)+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+escHtml(f.nom)+'</option>').join('');
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
@@ -15116,7 +15193,7 @@ async function openEditPO(poId){
     +      '<select id="po-chantier" onchange="majInterventionAchat(\'po\',\'purchase_orders_lyneo\')"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
     +    htmlChampIntervention('po')
     +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
-    +      '<select id="po-four"><option value="">— Sélectionner —</option>'+foursOpts+'</select></div>'
+    +      '<div style="display:flex;gap:6px"><select id="po-four" style="flex:1"><option value="">— Sélectionner —</option>'+foursOpts+'</select>'+boutonsFournisseurRapide('po-four')+'</div></div>'
     +  '</div>'
     +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
     +    '<strong style="font-size:13px">Lignes de commande</strong>'
