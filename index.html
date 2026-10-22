@@ -247,6 +247,8 @@ body.apercu-ouvert #sel-somme{right:var(--apercu-w)}
 @media(max-width:900px){#sel-somme{left:0;right:0;justify-content:flex-start;padding:8px 12px;font-size:12.5px}body.apercu-ouvert #sel-somme{right:0}}
 .fac-codes{text-transform:none;letter-spacing:0;font-size:11.5px}
 .fac-codes-ok{background:#D1FAE5;color:#065F46}
+.fac-codes-c{background:#DBEAFE;color:#1E3A8A;font-weight:700;letter-spacing:.2px}
+.fac-codes-cell{display:flex;flex-wrap:wrap;gap:4px;min-width:228px;max-width:260px}
 .fac-codes-a{background:#FFEDD5;color:#9A3412}
 .fac-codes-s{background:var(--gray-2);color:var(--gray-6)}
 .badge-validee{background:#D1FAE5;color:#065F46}
@@ -5994,24 +5996,33 @@ async function chargerFacturesListe(){
 }
 // Où en est le travail sur les codes : ok = toutes les lignes ont un code ; a_coder = au moins une ligne sans code ; sans = facture sans lignes
 function etatCodesFacture(r){
-  if(r.statut==='annulee') return {etat:'na', sans:0, total:0};
+  if(r.statut==='annulee') return {etat:'na', sans:0, total:0, ids:[]};
   const L = Array.isArray(r.lignes_facture) ? r.lignes_facture : [];
-  if(!L.length) return {etat:'sans', sans:0, total:0};
+  if(!L.length) return {etat:'sans', sans:0, total:0, ids:[]};
   const sans = L.filter(l=>!l.code_ressource_id).length;
-  return {etat: sans ? 'a_coder' : 'ok', sans, total:L.length};
+  const ids = [...new Set(L.filter(l=>l.code_ressource_id).map(l=>String(l.code_ressource_id)))];
+  return {etat: sans ? 'a_coder' : 'ok', sans, total:L.length, ids};
 }
+// Nom d'un code ressource (« FOURNITURE », « FLOTTE »…) à partir de son identifiant ; liste _codesRes chargée avec la liste des factures
+const nomCodeRes = id => { const c = _codesRes.find(x=>String(x.id)===String(id)); return c ? String(c.code) : '?'; };
+// Codes distincts d'une facture, par ordre alphabétique : [{id, code}]
+const codesDeFacture = r => etatCodesFacture(r).ids.map(id=>({id, code:nomCodeRes(id)})).sort(cmpCodeRes);
 const RANG_CODES_FAC = {a_coder:0, sans:1, ok:2, na:3};
 function cellCodesFac(r){
   const e = etatCodesFacture(r);
-  if(e.etat==='ok') return '<span class="badge fac-codes fac-codes-ok" title="Toutes les lignes ont un code ressource">✓ Codée</span>';
-  if(e.etat==='a_coder') return `<span class="badge fac-codes fac-codes-a" title="${e.sans} ligne${e.sans>1?'s':''} sur ${e.total} sans code ressource">À coder ${e.sans}/${e.total}</span>`;
+  if(e.etat==='na') return '<span style="color:var(--gray-4)">—</span>';
   if(e.etat==='sans') return '<span class="badge fac-codes fac-codes-s" title="Aucune ligne dans cette facture : ouvrez « Modifier », ou utilisez « Classer les factures sans lignes » dans Détail par code">Sans lignes</span>';
-  return '<span style="color:var(--gray-4)">—</span>';
+  const cs = codesDeFacture(r), tous = cs.map(c=>c.code).join(', ');
+  const chip = c => `<span class="badge fac-codes fac-codes-c" title="Code ressource : ${escHtml(c.code)}">${escHtml(c.code)}</span>`;
+  const visibles = cs.slice(0,2).map(chip).join('');
+  const reste = cs.length>2 ? `<span class="badge fac-codes fac-codes-s" title="${escHtml(tous)}">+${cs.length-2}</span>` : '';
+  const aCoder = e.etat==='a_coder' ? `<span class="badge fac-codes fac-codes-a" title="${e.sans} ligne${e.sans>1?'s':''} sur ${e.total} sans code ressource">À coder ${e.sans}/${e.total}</span>` : '';
+  return `<div class="fac-codes-cell">${aCoder}${visibles}${reste}</div>`;
 }
 
 async function renderFactures(){
   const [facsR, posR, chR] = await Promise.all([
-    chargerFacturesListe(),
+    chargerFacturesListe().then(async r=>{ if(_facCodesOk) await chargerCodesRessource(); return r; }),
     sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false}),
     sb.from('chantiers_lyneo').select('id,numero,nom').order('nom')
   ]);
@@ -6022,7 +6033,8 @@ async function renderFactures(){
   const ids = new Set(_facsListe.map(f=>f.id));
   _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
   const F = _facFiltres, sel = (a,b)=>a===b?' selected':'';
-  const nbCodes = {a_coder:0, ok:0, sans:0, na:0}; _facsListe.forEach(r=>{ nbCodes[etatCodesFacture(r).etat]++; });
+  const nbCodes = {a_coder:0, ok:0, sans:0, na:0}, nbParCode = {}; _facsListe.forEach(r=>{ const e = etatCodesFacture(r); nbCodes[e.etat]++; e.ids.forEach(id=>{ nbParCode[id] = (nbParCode[id]||0)+1; }); });
+  const optCodes = (()=>{ const ids = new Set(Object.keys(nbParCode)); if(String(F.codes||'').startsWith('c:')) ids.add(F.codes.slice(2)); return [...ids].map(id=>({id, code:nomCodeRes(id)})).sort(cmpCodeRes).map(c=>`<option value="c:${escHtml(c.id)}"${sel('c:'+c.id,F.codes)}>${escHtml(c.code)} (${nbParCode[c.id]||0})</option>`).join(''); })();
   const fours = [...new Set(_facsListe.map(nomFournisseurFac).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
   el('page-content').innerHTML = `
@@ -6058,7 +6070,7 @@ async function renderFactures(){
               <th></th>
               <th><input id="facc-int" placeholder="Filtrer…" style="min-width:104px" value="${escHtml(F.interne)}" oninput="majFiltreFactures('interne',this.value)"/></th>
               <th><input id="facc-num" placeholder="Filtrer…" style="min-width:110px" value="${escHtml(F.num)}" oninput="majFiltreFactures('num',this.value)"/></th>
-              ${_facCodesOk ? `<th><select id="facc-codes" style="min-width:118px" title="Quelles factures ont déjà leurs codes ressource" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option></select></th>` : ''}
+              ${_facCodesOk ? `<th><select id="facc-codes" style="min-width:150px" title="Filtrer par code ressource, ou voir ce qui reste à coder" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Toutes codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option>${optCodes ? `<optgroup label="Par code ressource">${optCodes}</optgroup>` : ''}</select></th>` : ''}
               <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
               <th><select id="facc-four" style="min-width:140px" onchange="majFiltreFactures('four',this.value)"><option value="">Tous</option>${fours.map(n=>`<option value="${escHtml(n)}"${sel(n,F.four)}>${escHtml(n)}</option>`).join('')}</select></th>
               <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans chantier (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
@@ -6095,7 +6107,7 @@ const COLS_TRI_FAC = {
   ht:['nombre', r=>montantHtFacture(r)],
   ttc:['nombre', r=>parseFloat(r.montant_ttc)||0],
   statut:['texte', r=>cleTexteTri(STATUT_FA[r.statut]||r.statut)],
-  codes:['nombre', r=>RANG_CODES_FAC[etatCodesFacture(r).etat]]
+  codes:['texte', r=>RANG_CODES_FAC[etatCodesFacture(r).etat]+' '+cleTexteTri(codesDeFacture(r).map(c=>c.code).join(' '))]
 };
 function trierFactures(liste){
   const c = _facTri && COLS_TRI_FAC[_facTri.col];
@@ -6120,7 +6132,7 @@ function facturesFiltrees(){
     const nomF = nomFournisseurFac(r);
     if(F.four && nomF!==F.four) return false;
     if(F.statut && r.statut!==F.statut) return false;
-    if(F.codes && etatCodesFacture(r).etat!==F.codes) return false;
+    if(F.codes){ const e = etatCodesFacture(r); if(String(F.codes).startsWith('c:')){ if(!e.ids.includes(F.codes.slice(2))) return false; } else if(e.etat!==F.codes) return false; }
     if(F.chantier==='sans' ? !!r.chantier_id : (F.chantier && r.chantier_id!==F.chantier)) return false;
     if(interne && !String(r.numero_interne||'').toLowerCase().includes(interne)) return false;
     if(num && !String(r.numero_facture_fournisseur||'').toLowerCase().includes(num)) return false;
@@ -9697,7 +9709,7 @@ async function openNewFactureVenteLibre(){
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
-        <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="fv-reference" placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
@@ -9968,7 +9980,7 @@ async function saveFactureVenteLibre(){
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisLie,
     type_facture: typeFac,
-    reference_client: el('fv-reference').value,
+    reference_client: el('fv-reference').value.trim(),
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: tot.ht, total_tva: tot.tva, total_ttc: tot.ttc,
@@ -10069,14 +10081,11 @@ function acompteInnerFv(devisInfo){
 
 // Le chantier a plusieurs devis : on change de devis dans le formulaire « Nouvelle facture client » (facture de chantier)
 async function changerDevisFv(devisId){
-  const ancien = window._devisInfoForFv;
   const {devisInfo, lignes} = await chargerLignesDevisRestantes(devisId);
   if(!devisInfo){ showToast("Devis introuvable", 'error'); return; }
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = lignes.slice();
-  // la référence suit le devis tant qu'elle n'a pas été modifiée à la main
-  const ref = el('fv-reference');
-  if(ref && (!ref.value.trim() || (ancien && ref.value===ancien.numero))) ref.value = devisInfo.numero;
+  // le n° de commande du client n'est PAS lié au devis : changer de devis ne touche pas à ce qui a été saisi
   const titre = el('fv-devis-titre'); if(titre) titre.textContent = (window._chantierNomFv||'')+' — depuis devis '+devisInfo.numero;
   const al = el('fv-acompte-alerte'); if(al) al.innerHTML = await alerteAcomptesFvHTML(devisInfo);
   const blk = el('fv-acompte-block'); if(blk) blk.innerHTML = acompteInnerFv(devisInfo);
@@ -10283,7 +10292,7 @@ async function openGenerateFactureVente(chantierId){
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
-        <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${devisInfo?devisInfo.numero:''}" placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="fv-reference" placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
@@ -10449,7 +10458,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisId||null,
     type_facture: typeFacture,
-    reference_client: el('fv-reference').value,
+    reference_client: el('fv-reference').value.trim(),
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: tot.ht, total_tva: tot.tva, total_ttc: tot.ttc,
@@ -10717,7 +10726,8 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
   // Quatre cases fixes : RÉFÉRENCE (n° de devis) · N° COMMANDE (référence du client) · CHANTIER · MODALITÉ
   // (si la référence saisie est déjà le n° du devis, elle n'est pas répétée dans N° COMMANDE)
   const refDevis = estAvoir ? (origine ? 'Facture '+origine.numero : '—') : (devisNum || '—');
-  const refCommande = (f.reference_client && f.reference_client!==devisNum) ? f.reference_client : '—';
+  const refCmdClient = String(f.reference_client||'').trim();
+  const refCommande = (refCmdClient && refCmdClient!==devisNum) ? refCmdClient : '—';
   const nature = estAvoir && origine ? (Math.abs(Math.abs(parseFloat(f.total_ht)||0) - (parseFloat(origine.total_ht)||0)) < 0.005 ? 'Totale' : 'Partielle') : '';
 
   const config = {
@@ -11041,7 +11051,7 @@ async function openFactureVenteDetail(facId){
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Type</label><span>${escHtml(TYPE_FV[f.type_facture]||f.type_facture||'—')}</span></div>
         ${avoir?`<div class="info-item"><label>Facture d'origine</label><span>${origine?`<a href="#" class="text-blue" style="font-weight:600" onclick="closeModal();openFactureVenteDetail('${origine.id}');return false">${escHtml(origine.numero)}</a> du ${fmtDate(origine.date_creation)}`:'—'}</span></div>`:''}
-        <div class="info-item"><label>Référence</label><span>${escHtml(f.reference_client||'—')}</span></div>
+        <div class="info-item"><label>N° commande client</label><span>${escHtml(f.reference_client||'—')}</span></div>
         <div class="info-item"><label>Date</label><span>${fmtDate(f.date_creation)}</span></div>
         ${avoir?'':`<div class="info-item"><label>Échéance</label><span>${fmtDate(f.date_echeance)}</span></div>`}
         <div class="info-item"><label>Statut</label><span>${bFV(f.statut, avoir)}</span></div>
@@ -11127,7 +11137,7 @@ async function openEditFactureVente(facId){
           <select id="efv-statut">${Object.entries(f.type_facture==='avoir'?STATUT_AVOIR:STATUT_FV).filter(([k])=>!clos || (k!=='brouillon' && k!=='annulee') || k===f.statut).map(([k,v])=>`<option value="${k}"${f.statut===k?' selected':''}>${v}</option>`).join('')}</select></div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efv-date" value="${a((f.date_creation||'').slice(0,10))}"${dis} onchange="majEcheanceEdit()"/></div>
         <div class="form-group"><label class="field-label">Date échéance</label><input type="date" id="efv-echeance" value="${a((f.date_echeance||'').slice(0,10))}"${dis} data-auto="${echeanceAuto}" oninput="this.dataset.auto='0'; infoEcheance('efv')"/><div id="efv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
-        <div class="form-group full"><label class="field-label">Référence</label><input id="efv-reference" value="${a(f.reference_client)}"${dis} placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group full"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="efv-reference" value="${a(f.reference_client)}"${dis} placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
         ${f.type_facture!=='avoir'?`<div class="form-group full"><label class="field-label">Devis facturé <span style="font-weight:400;text-transform:none">(permet de savoir quels devis sont facturés)</span></label>
           <select id="efv-devis" data-ordre="fixe"><option value="">— Aucun devis lié —</option>${devisClient.map(d=>`<option value="${d.id}"${f.devis_id===d.id?' selected':''}>${a(d.numero)} — ${a(d.objet||'')} — ${fmt(d.montant_ht)} HT (${a(STATUT_DV[d.statut]||d.statut)})</option>`).join('')}</select></div>`:''}
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="efv-obs">${a(f.observations)}</textarea></div>
@@ -11156,7 +11166,7 @@ async function saveEditFactureVente(facId){
     statut: el('efv-statut').value,
     date_creation: date,
     date_echeance: el('efv-echeance').value||null,
-    reference_client: el('efv-reference').value,
+    reference_client: el('efv-reference').value.trim(),
     observations: el('efv-obs').value
   };
   if(el('efv-devis')) maj.devis_id = el('efv-devis').value || null;
@@ -11634,7 +11644,7 @@ const JOURNAL_TABLES = {factures_vente:'Factures clients', lignes_facture_vente:
   lignes_facture:'Lignes fact. fournisseurs', purchase_orders_lyneo:'Bons de commande', lignes_po:'Lignes de BC', paiements:'Paiements',
   utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés'};
 const JOURNAL_CHAMPS = {valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
-  reference_client:'Référence', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
+  reference_client:'N° commande client', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
   quantite:'Qté', prix_unitaire_ht:'P.U. HT', description:'Description', valeur_date:'Date de clôture', role:'Rôle', actif:'Actif', email:'E-mail',
   nom:'Nom', prenom:'Prénom', objet:'Objet', montant_ht:'Montant HT', taux_tva:'TVA %', facture_origine_id:'Facture d\'origine'};
 function journalValeur(v){
@@ -12142,7 +12152,7 @@ function definitionsExport(){
         colX('chantier_num','N° chantier','txt',(r,c)=>(c.chantiers[r.chantier_id]||{}).numero||'',{g:'Identification'}),
         colX('chantier','Chantier','txt',(r,c)=>nomLieu(c.chantiers,r.chantier_id),{g:'Identification'}),
         colX('devis','Devis','txt',(r,c)=>(c.devis[r.devis_id]||{}).numero||'',{g:'Identification'}),
-        colX('ref_client','Référence client','txt',r=>r.reference_client,{g:'Identification',d:false}),
+        colX('ref_client','N° commande client','txt',r=>r.reference_client,{g:'Identification',d:false}),
         colX('orig','Facture d\'origine (note de crédit)','txt',(r,c)=>r.type_facture==='avoir' ? ((c.orig[r.facture_origine_id]||{}).numero||'') : '',{g:'Identification',d:false}),
         colX('statut','Statut','txt',r=>(r.type_facture==='avoir' ? STATUT_AVOIR : STATUT_FV)[r.statut]||r.statut,{g:'Suivi'}),
         colX('ht','Montant HT','eur',r=>r.total_ht,{g:'Montants',tot:true}), colX('tva','TVA','eur',tvaFv,{g:'Montants',tot:true}), colX('ttc','Montant TTC','eur',r=>r.total_ttc,{g:'Montants',tot:true}),
@@ -14092,7 +14102,7 @@ async function openFactureSAVModal(interventionId){
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
-        <div class="form-group"><label class="field-label">Référence</label><input id="fv-reference" value="${String(window._savFacCtx?.devisNumero||'').replace(/"/g,'&quot;')}" placeholder="N° de commande client, ou autre référence..."/></div>
+        <div class="form-group"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="fv-reference" placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
         <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
@@ -14187,7 +14197,7 @@ async function saveFactureSAV(interventionId, clientId){
   const {data:fac, error} = await sb.from('factures_vente').insert({
     numero: num, client_id: clientId, chantier_id: ctx.chantierId||null, devis_id: ctx.devisId||null, intervention_id: interventionId,
     type_facture: 'sav',
-    reference_client: el('fv-reference') ? el('fv-reference').value : (ctx.devisNumero||''),
+    reference_client: el('fv-reference') ? el('fv-reference').value.trim() : '',
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
     total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
