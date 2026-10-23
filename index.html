@@ -232,6 +232,10 @@ table.rc-table tr.rc-tot td{font-weight:800;background:#E2E8F0;border-top:2px so
 .badge-actif,.badge-accepte{background:#D1FAE5;color:#065F46}
 .badge-pause{background:#FEF3C7;color:#92400E}
 .badge-termine,.badge-refuse,.badge-expire{background:var(--gray-2);color:var(--gray-6)}
+.badge-archive{background:#fff;color:var(--gray-5);border:1px dashed var(--gray-4)}
+.badge-ch-encaisser{background:#FEF3C7;color:#92400E}
+.badge-ch-retenue{background:#E0E7FF;color:#3730A3}
+.badge-ch-solde{background:#D1FAE5;color:#065F46}
 .badge-recue{background:#DBEAFE;color:#1D4ED8}
 #sel-somme{position:fixed;left:240px;right:0;bottom:0;z-index:60;display:flex;flex-wrap:wrap;gap:6px 22px;align-items:center;justify-content:center;padding:10px 18px;background:var(--navy);color:#fff;box-shadow:0 -6px 20px rgba(15,23,42,.22);font-size:13px}
 #sel-somme[hidden]{display:none}
@@ -1912,7 +1916,7 @@ const STATUT_PO = {
   brouillon:'Brouillon', envoyee:'Envoyée', rec_partielle:'Réc. partielle',
   rec_totale:'Réc. totale', facturee:'Facturée', payee:'Payée', annulee:'Annulée'
 };
-const STATUT_CH = {actif:'Actif', pause:'En pause', termine:'Terminé'};
+const STATUT_CH = {actif:'En cours', pause:'En pause', termine:'Terminé', archive:'Archivé'};
 const STATUT_FA = {recue:'Reçue', validee:'Validée', payee:'Payée', litige:'Litige', annulee:'Annulée', avoir:'Avoir'};
 
 function bPO(s){ return `<span class="badge badge-${s}">${STATUT_PO[s]||s}</span>`; }
@@ -1963,7 +1967,59 @@ function bFD(e){
 }
 // Montant TTC restant dû sur une facture une fois les notes de crédit émises déduites
 function soldeFv(f, av){ return (parseFloat(f.total_ttc)||0) + ((av && av[f.id]) ? av[f.id].ttc : 0); }
-function bCH(s){ return `<span class="badge badge-${s}">${STATUT_CH[s]||s}</span>`; }
+function bCH(s){ return `<span class="badge badge-${escHtml(s)}">${escHtml(STATUT_CH[s]||s)}</span>`; }
+// ── CYCLE DE VIE D'UN CHANTIER ─────────────────────────────────────────────────────────────────────────
+// En cours (actif) → Terminé (travaux finis ; reste peut-être à encaisser / retenue de garantie) → Archivé.
+// « Archivé » = statut 'archive' (aucun SQL nécessaire) : le chantier disparaît de la liste principale et des listes de choix,
+// reste consultable dans l'onglet « Chantiers archivés » et peut être désarchivé. Seuls les chantiers (pas les centres SAV / internes) s'archivent.
+const chEstArchive = c => !!c && c.statut==='archive';
+// Chantiers proposables dans un document : les archivés disparaissent, sauf celui déjà lié au document (garderId), pour ne jamais le perdre.
+function chantiersChoix(rows, garderId){
+  const garde = (garderId===undefined || garderId===null || garderId==='') ? null : String(garderId);
+  return (rows||[]).filter(c=>!chEstArchive(c) || (garde!==null && String(c.id)===garde));
+}
+// Situation financière d'un chantier, DÉRIVÉE de ses factures clients (rien à saisir, sauf la retenue de garantie).
+//   À encaisser = factures émises (envoyée / part. payée) dont le solde TTC > 0, moins les notes de crédit émises.
+//   Le montant déjà payé d'une facture « part. payée » n'est pas enregistré dans l'ERP : elle compte pour son solde entier (nbPartiel le signale).
+function situationFinanciereChantier(c, facsVente){
+  const mine = (facsVente||[]).filter(f=>String(f.chantier_id)===String(c.id));
+  const av = avoirsParFacture(mine);
+  const r = {aEncaisser:0, nb:0, nbPartiel:0, nbBrouillon:0, retenue:0, retenueDate:null};
+  mine.forEach(f=>{
+    if(f.type_facture==='avoir' || f.statut==='annulee') return;
+    if(f.statut==='brouillon'){ r.nbBrouillon++; return; }
+    if(f.statut==='envoyee' || f.statut==='payee_partiel'){
+      const s = soldeFv(f, av);
+      if(s>0.005){ r.aEncaisser += s; r.nb++; if(f.statut==='payee_partiel') r.nbPartiel++; }
+    }
+  });
+  r.aEncaisser = Math.round(r.aEncaisser*100)/100;
+  const ret = parseFloat(c.retenue_garantie);
+  if(ret>0){ r.retenue = ret; r.retenueDate = c.retenue_garantie_date||null; }
+  return r;
+}
+// Factures clients des chantiers donnés. ok=false si la lecture échoue (droits, réseau) : on n'affiche alors RIEN plutôt qu'un faux « Soldé ».
+async function lireFacturesVenteChantiers(ids){
+  const liste = [...new Set((ids||[]).map(String).filter(Boolean))];
+  const rows = [];
+  for(let i=0;i<liste.length;i+=15){
+    try{
+      const {data,error} = await sb.from('factures_vente').select('id,chantier_id,statut,type_facture,total_ht,total_ttc,facture_origine_id').in('chantier_id', liste.slice(i,i+15));
+      if(error) return {ok:false, rows:[]};
+      rows.push(...(data||[]));
+    }catch(e){ return {ok:false, rows:[]}; }
+  }
+  return {ok:true, rows};
+}
+// Pastilles « À encaisser / Retenue / Soldé » d'un chantier terminé (s = situationFinanciereChantier)
+function pastillesSituationChantier(s){
+  if(!s) return '';
+  const p = [];
+  if(s.aEncaisser>0.005) p.push(`<span class="badge badge-ch-encaisser" title="${s.nb} facture(s) émise(s) non payée(s)${s.nbPartiel?' dont '+s.nbPartiel+' partiellement payée(s), comptée(s) pour leur solde entier':''}">À encaisser ${escHtml(fmt(s.aEncaisser))}</span>`);
+  if(s.retenue>0) p.push(`<span class="badge badge-ch-retenue" title="Retenue de garantie en attente de libération par le client${s.retenueDate?' — prévue le '+fmtDate(s.retenueDate):''}">Retenue ${escHtml(fmt(s.retenue))}</span>`);
+  if(!p.length) p.push(`<span class="badge badge-ch-solde" title="Plus rien à encaisser : le chantier peut être archivé">Soldé</span>`);
+  return p.join(' ');
+}
 const STATUT_DV = {brouillon:'Brouillon', envoye:'Envoyé', accepte:'Accepté', refuse:'Refusé', expire:'Expiré'};
 function bDV(s){ return `<span class="badge badge-${s}">${STATUT_DV[s]||s}</span>`; }
 function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
@@ -2312,6 +2368,7 @@ function navigate(page, depuisAdresse){
   if(page==='interventions_sav') _savCentreFiltre = '';   // on arrive toujours sur la vue complète
   if(page==='factures_vente') _fvFiltres = {search:'', mois:'', statut:'', centre:''};
   if(page==='devis') _dvFiltres = dvFiltresVides();
+  if(page==='chantiers') _chVue = 'actifs';   // on arrive toujours sur la liste principale (les archivés : onglet « Chantiers archivés »)
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
@@ -2590,7 +2647,7 @@ async function renderDashboard(){
     sb.from('purchase_orders_lyneo').select('id,statut,total_ht,total_ttc,date_creation'),
     sb.from('bons_livraison').select('id,statut_reception'),
     sb.from('factures').select('id,statut,montant_ttc,date_echeance'),
-    sb.from('chantiers_lyneo').select('id,nom,client,statut,chef_chantier,date_fin_prevue'),
+    sb.from('chantiers_lyneo').select('*'),
     sb.from('factures_vente').select('*'),
     sbPT.from('picages').select('id,date,heures').gte('date', new Date(Date.now()-7*86400000).toISOString().split('T')[0]),
   ]).then(results => results.map(r => r.status==='fulfilled' ? r.value : {data:[]}));
@@ -2614,7 +2671,11 @@ async function renderDashboard(){
 
   // ── CHANTIERS
   const chantiersActifs = chants.filter(c=>c.statut==='actif');
-  const chantiersRetard = chantiersActifs.filter(c=>c.date_fin_prevue && c.date_fin_prevue < today_str);
+  // Chantiers terminés : ce qu'il reste à encaisser (factures clients non payées) et retenues de garantie en attente
+  const chantiersTermines = chants.filter(c=>c.statut==='termine' && (c.type_centre||'chantier')==='chantier');
+  const sitTermines = chantiersTermines.map(c=>({c, s:situationFinanciereChantier(c, facsV)}));
+  const termAEncaisser = sitTermines.filter(x=>x.s.aEncaisser>0.005);
+  const termRetenue = sitTermines.filter(x=>x.s.retenue>0);
 
   // ── EMPLOYÉS / POINTAGES
   const heuresSemaine = pics.reduce((a,b)=>a+(parseFloat(b.heures)||0),0);
@@ -2628,7 +2689,8 @@ async function renderDashboard(){
   if(facturesEnRetard.length>0) alertes.push({type:'red',icon:'ti-alert-circle',msg:`${facturesEnRetard.length} facture(s) client en retard de paiement`,page:'factures_vente'});
   if(facsFournRetard.length>0) alertes.push({type:'orange',icon:'ti-alert-triangle',msg:`${facsFournRetard.length} facture(s) fournisseur échue(s)`,page:'factures'});
   if(blsAttente>0) alertes.push({type:'blue',icon:'ti-truck-delivery',msg:`${blsAttente} bon(s) de livraison en attente de réception complète`,page:'receptions'});
-  if(chantiersRetard.length>0) alertes.push({type:'purple',icon:'ti-clock-exclamation',msg:`${chantiersRetard.length} chantier(s) dépassent leur date de fin prévue`,page:'chantiers'});
+  if(termAEncaisser.length>0) alertes.push({type:'orange',icon:'ti-cash',msg:`${termAEncaisser.length} chantier(s) terminé(s) avec du solde à encaisser (${fmt(termAEncaisser.reduce((a,x)=>a+x.s.aEncaisser,0))})`,page:'chantiers'});
+  if(termRetenue.length>0) alertes.push({type:'blue',icon:'ti-lock',msg:`${termRetenue.length} chantier(s) terminé(s) en attente d'une retenue de garantie (${fmt(termRetenue.reduce((a,x)=>a+x.s.retenue,0))})`,page:'chantiers'});
 
   el('page-content').innerHTML = `
     <div class="dashboard-welcome">
@@ -2679,8 +2741,8 @@ async function renderDashboard(){
           <span style="font-size:10px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.08em">Chantiers</span>
         </div>
         <div class="kpi-value" style="font-size:22px">${chantiersActifs.length}</div>
-        <div class="kpi-label">Chantiers actifs</div>
-        <div class="kpi-sub">${chantiersRetard.length>0?`<span style="color:var(--red)">${chantiersRetard.length} en retard</span>`:'Tous dans les délais'}</div>
+        <div class="kpi-label">Chantiers en cours</div>
+        <div class="kpi-sub">${termAEncaisser.length>0?`<span style="color:var(--orange)">${termAEncaisser.length} terminé(s) à encaisser</span>`:`${chantiersTermines.length} terminé(s)`}</div>
       </div>
 
       <!-- EMPLOYÉS -->
@@ -2695,31 +2757,28 @@ async function renderDashboard(){
       </div>
     </div>
 
-    <!-- LIGNE 2 : Chantiers actifs + Factures à encaisser -->
+    <!-- LIGNE 2 : Chantiers en cours + Factures à encaisser -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:20px">
 
       <!-- CHANTIERS ACTIFS -->
       <div class="card" style="margin-bottom:0">
         <div class="card-header">
-          <h2><i class="ti ti-building-factory-2"></i> Chantiers actifs</h2>
+          <h2><i class="ti ti-building-factory-2"></i> Chantiers en cours</h2>
           <button class="btn btn-ghost btn-sm" onclick="navigate('chantiers')"><i class="ti ti-arrow-right"></i></button>
         </div>
         <div style="padding:0">
           ${chantiersActifs.length===0
-            ? '<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier actif</p></div>'
+            ? '<div class="empty" style="padding:32px"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier en cours</p></div>'
             : chantiersActifs.slice(0,5).map(c=>{
-                const enRetard = c.date_fin_prevue && c.date_fin_prevue < today_str;
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2);cursor:pointer" onclick="navigate('chantiers')">
                   <div>
-                    <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${c.nom}</div>
-                    <div style="font-size:12px;color:var(--gray-5)">${c.client} ${c.chef_chantier?'· '+c.chef_chantier:''}</div>
+                    <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${escHtml(c.nom)}</div>
+                    <div style="font-size:12px;color:var(--gray-5)">${escHtml(c.client)} ${c.chef_chantier?'· '+escHtml(c.chef_chantier):''}</div>
                   </div>
                   <div style="text-align:right">
-                    ${enRetard
-                      ? '<span class="badge badge-annulee">En retard</span>'
-                      : c.date_fin_prevue
-                        ? `<span style="font-size:11px;color:var(--gray-5)">Fin: ${fmtDate(c.date_fin_prevue)}</span>`
-                        : `<span class="badge badge-actif">Actif</span>`}
+                    ${c.date_debut
+                      ? `<span style="font-size:11px;color:var(--gray-5)">Début : ${fmtDate(c.date_debut)}</span>`
+                      : `<span class="badge badge-actif">En cours</span>`}
                   </div>
                 </div>`;
               }).join('')}
@@ -3083,28 +3142,54 @@ document.addEventListener('keydown', e=>{
 
 let _chantiers = [];   // cache de la liste des chantiers (déclaré ici : openChantierDetail peut être appelé avant d'avoir ouvert la page Chantiers)
 let _chantiersSearchAtual = '';
+let _chVue = 'actifs';        // 'actifs' = liste principale ; 'archives' = onglet « Chantiers archivés »
+let _chSituations = {};       // id chantier terminé → situation financière (à encaisser / retenue / soldé) ; null = lecture impossible
+function chChangerVue(v){ _chVue = (v==='archives') ? 'archives' : 'actifs'; renderChantiers(_chantiersSearchAtual); }
 async function renderChantiers(search=''){
   _chantiersSearchAtual = search;
   if(!search) {
     const {data} = await sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false});
     _chantiers = data||[];
+    // Chantiers terminés : ce qu'il reste à encaisser, dérivé des factures clients. Si la lecture échoue, on n'affiche rien (jamais un faux « Soldé »).
+    const termines = _chantiers.filter(c=>c.statut==='termine' && c.type_centre!=='sav');
+    _chSituations = {};
+    if(termines.length){
+      const fv = await lireFacturesVenteChantiers(termines.map(c=>c.id));
+      if(fv.ok) termines.forEach(c=>{ _chSituations[c.id] = situationFinanciereChantier(c, fv.rows); });
+      else _chSituations = null;
+    }
   }
   // Les centres de coûts SAV (SAV 1, SAV 2...) vivent dans le module Interventions : ils ne sont pas listés ici.
   const centresSav = _chantiers.filter(c=>c.type_centre==='sav');
-  const baseChantiers = _chantiers.filter(c=>c.type_centre!=='sav');
-  let items = search ? baseChantiers.filter(i=>(i.nom+i.client+i.numero).toLowerCase().includes(search.toLowerCase())) : baseChantiers;
+  const baseTous = _chantiers.filter(c=>c.type_centre!=='sav');
+  const archives = baseTous.filter(chEstArchive);
+  const actifs = baseTous.filter(c=>!chEstArchive(c));
+  const baseChantiers = _chVue==='archives' ? archives : actifs;
+  const q = String(search||'').toLowerCase();
+  const correspond = i => (String(i.nom||'')+String(i.client||'')+String(i.numero||'')).toLowerCase().includes(q);
+  let items = search ? baseChantiers.filter(correspond) : baseChantiers;
   items = sortItems(items, 'chantiers');
+  // Recherche dans la liste principale : on signale les chantiers archivés qui correspondent aussi (comme le filtre « Archivé » d'Odoo)
+  const trouvesArchives = (search && _chVue!=='archives') ? archives.filter(correspond).length : 0;
+  const ongletCh = (id, libelle, n) => `<div class="tab-btn" id="ch-vue-${id}" onclick="chChangerVue('${id}')" style="cursor:pointer;border-bottom:2px solid ${_chVue===id?'var(--blue)':'transparent'};color:${_chVue===id?'var(--blue)':'var(--gray-5)'};display:flex;align-items:center;gap:6px;margin-bottom:-1px">${libelle} <span class="badge badge-termine" style="font-size:10px">${n}</span></div>`;
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Chantiers</h1><p>Gestion des projets et chantiers</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${escHtml(search)}"/></div>
         ${btnExport('chantiers')}
         ${btnDoublons('chantiers', _chantiers)}
         <button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button>
       </div>
     </div>
-    ${centresSav.length?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${centresSav.length} centre${centresSav.length>1?'s':''} de coûts SAV (${centresSav.map(c=>c.numero).sort().join(', ')}) — gérés dans <a href="#" onclick="navigate('interventions_sav');return false" style="color:var(--blue);font-weight:600">Interventions</a>, avec leurs interventions.</div>`:''}
+    ${centresSav.length?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${centresSav.length} centre${centresSav.length>1?'s':''} de coûts SAV (${centresSav.map(c=>escHtml(c.numero)).sort().join(', ')}) — gérés dans <a href="#" onclick="navigate('interventions_sav');return false" style="color:var(--blue);font-weight:600">Interventions</a>, avec leurs interventions.</div>`:''}
+    <div style="display:flex;border-bottom:1px solid var(--gray-3);margin-bottom:16px">
+      ${ongletCh('actifs', '<i class="ti ti-building-factory-2"></i> Chantiers', actifs.length)}
+      ${ongletCh('archives', '<i class="ti ti-archive"></i> Chantiers archivés', archives.length)}
+    </div>
+    ${_chVue==='archives' ? `<div class="alert alert-info" id="ch-info-archives" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>Les chantiers archivés n'apparaissent plus dans la liste principale ni dans les listes de choix (devis, factures, commandes). Ouvrez-en un pour le consulter ; <strong>Désarchiver</strong> le remet en « Terminé ».</span></div>` : ''}
+    ${trouvesArchives ? `<div class="alert alert-info" id="ch-hint-archives" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>${trouvesArchives} chantier${trouvesArchives>1?'s':''} archivé${trouvesArchives>1?'s':''} correspond${trouvesArchives>1?'ent':''} aussi — <a href="#" onclick="chChangerVue('archives');return false" style="color:var(--blue);font-weight:600">voir dans les archives</a></span></div>` : ''}
+    ${(_chSituations===null && _chVue!=='archives' && actifs.some(c=>c.statut==='termine')) ? `<div class="alert alert-warning" id="ch-sit-indispo" style="margin-bottom:16px"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les factures clients : le solde à encaisser des chantiers terminés n'est pas affiché.</span></div>` : ''}
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-export="chantiers">
@@ -3114,26 +3199,30 @@ async function renderChantiers(search=''){
             ${sortableTh('Client','chantiers','client',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Chef chantier','chantiers','chef_chantier',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Début','chantiers','date_debut',"renderChantiers(_chantiersSearchAtual)")}
-            ${sortableTh('Fin prévue','chantiers','date_fin_prevue',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Statut','chantiers','statut',"renderChantiers(_chantiersSearchAtual)")}
             <th>Actions</th>
           </tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>' :
+            ${items.length===0 ? (_chVue==='archives'
+              ? '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-archive"></i></div><p>Aucun chantier archivé</p><p style="font-size:12px;color:var(--gray-5)">Un chantier terminé et soldé s\'archive depuis la liste (bouton « Archiver »).</p></div></td></tr>'
+              : '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>') :
             items.map(r=>{
-              const enRetard = r.date_fin_prevue && r.date_fin_prevue < new Date().toISOString().split('T')[0] && r.statut==='actif';
-              return `<tr data-sel-id="${r.id}" style="cursor:pointer${enRetard?';border-left:3px solid var(--red)':''}" onclick="openChantierDetail('${r.id}')">
-              <td><span class="td-primary">${r.numero}</span></td>
-              <td><strong>${r.nom}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}${enRetard?'<span class="badge badge-annulee" style="margin-left:6px;font-size:10px">En retard</span>':''}</td>
-              <td>${r.client}</td>
-              <td>${r.chef_chantier||'—'}</td>
+              const arch = chEstArchive(r);
+              const sit = (r.statut==='termine' && _chSituations) ? _chSituations[r.id] : null;
+              const estChantier = (r.type_centre||'chantier')==='chantier';
+              return `<tr data-sel-id="${r.id}" style="cursor:pointer" onclick="openChantierDetail('${r.id}')">
+              <td><span class="td-primary">${escHtml(r.numero)}</span></td>
+              <td><strong>${escHtml(r.nom)}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}</td>
+              <td>${escHtml(r.client)}</td>
+              <td>${escHtml(r.chef_chantier)||'—'}</td>
               <td>${fmtDate(r.date_debut)}</td>
-              <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_fin_prevue)}</td>
-              <td>${bCH(r.statut)}</td>
+              <td>${bCH(r.statut)}${sit ? ' '+pastillesSituationChantier(sit) : ''}</td>
               <td onclick="event.stopPropagation()"><div class="td-actions">
-                <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')"><i class="ti ti-eye"></i></button>
+                <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')" title="Consulter"><i class="ti ti-eye"></i></button>
+                ${arch ? `<button class="btn btn-primary btn-sm" data-chantier-desarchiver="${r.id}" title="Désarchiver" onclick="event.stopPropagation();desarchiverChantier('${r.id}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : `
                 <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'").replace(/"/g,'&quot;')})'><i class="ti ti-edit"></i></button>
-                <button class="btn btn-danger btn-sm" data-chantier-suppr="${r.id}" title="Supprimer" onclick="event.stopPropagation();supprimerChantier('${r.id}')"><i class="ti ti-trash"></i></button>
+                ${(r.statut==='termine' && estChantier) ? `<button class="btn btn-secondary btn-sm" data-chantier-archiver="${r.id}" title="Archiver" onclick="event.stopPropagation();archiverChantier('${r.id}')"><i class="ti ti-archive"></i></button>` : ''}
+                <button class="btn btn-danger btn-sm" data-chantier-suppr="${r.id}" title="Supprimer" onclick="event.stopPropagation();supprimerChantier('${r.id}')"><i class="ti ti-trash"></i></button>`}
               </div></td>
             </tr>`;}).join('')}
           </tbody>
@@ -3416,13 +3505,30 @@ async function openChantierDetail(chantierId, tab){
     </div>`).join('');
 
   // ── ONGLET INFO ──
+  const estChantierType = (chantier.type_centre||'chantier')==='chantier';
+  const facsOk = !facsVenteR.error;
+  const retenueMontant = parseFloat(chantier.retenue_garantie)||0;
+  const montrerSituation = ['termine','archive'].includes(chantier.statut) || retenueMontant>0;
+  const situation = facsOk ? situationFinanciereChantier(chantier, facsVente) : null;
+  const blocSituation = !montrerSituation ? '' : `
+    <div id="ch-situation" style="margin-bottom:16px;padding:12px 16px;border:1px solid var(--gray-3);border-radius:var(--radius);background:#fff">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Situation financière</div>
+      ${situation ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${pastillesSituationChantier(situation)}</div>
+        <div style="font-size:12px;color:var(--gray-5);margin-top:8px;display:flex;flex-direction:column;gap:3px">
+          ${situation.aEncaisser>0.005 ? `<span>${situation.nb} facture${situation.nb>1?'s':''} émise${situation.nb>1?'s':''} non payée${situation.nb>1?'s':''}${situation.nbPartiel?' dont '+situation.nbPartiel+' partiellement payée'+(situation.nbPartiel>1?'s (comptées':' (comptée')+' pour leur solde entier)':''} — voir l'onglet « Fact. clients ».</span>` : ''}
+          ${situation.retenue>0 ? `<span>Retenue de garantie : <strong>${escHtml(fmt(situation.retenue))}</strong>${situation.retenueDate?' — libération prévue le '+fmtDate(situation.retenueDate):''}</span>` : ''}
+          ${situation.nbBrouillon ? `<span style="color:var(--orange)">⚠ ${situation.nbBrouillon} facture${situation.nbBrouillon>1?'s':''} en brouillon, non émise${situation.nbBrouillon>1?'s':''} : ${situation.nbBrouillon>1?'elles ne sont':'elle n\'est'} pas comptée${situation.nbBrouillon>1?'s':''} ci-dessus.</span>` : ''}
+        </div>`
+      : `<span class="text-muted" style="font-size:12.5px">Impossible de lire les factures clients : le solde à encaisser n'est pas calculé.</span>${retenueMontant>0 ? ' <span class="badge badge-ch-retenue">Retenue '+escHtml(fmt(retenueMontant))+'</span>' : ''}`}
+    </div>`;
   const tabInfo = `
+    ${chEstArchive(chantier) ? `<div class="alert alert-info" id="ch-archive-info" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>Chantier <strong>archivé</strong> : il n'apparaît plus dans les listes ni dans les choix de chantier des documents. Vous le consultez ici ; <strong>Désarchiver</strong> le remet en « Terminé ».</span></div>` : ''}
+    ${blocSituation}
     <div class="info-grid" style="margin-bottom:16px;max-width:100%">
       <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
       <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
       <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
-      <div class="info-item"><label>Date fin prévue</label><span>${fmtDate(chantier.date_fin_prevue)}</span></div>
       <div class="info-item"><label>Heures prévues</label><span>${aHeuresPrevues ? fmtHeures(heuresPrevues)+' h'+(heuresCumul!==null ? ' <span style="font-weight:400;color:var(--gray-5)">· '+fmtHeures(heuresCumul)+' h pointées ('+Math.round(heuresCumul/heuresPrevues*100)+' %)</span>' : '') : '—'}</span></div>
       <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
     </div>
@@ -3711,10 +3817,13 @@ async function openChantierDetail(chantierId, tab){
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
       <div>
-        <h3>${chantier.nom}</h3>
-        <span style="font-size:12px;color:var(--gray-5)">${chantier.numero} — ${chantier.client}</span>
+        <h3>${escHtml(chantier.nom)}</h3>
+        <span style="font-size:12px;color:var(--gray-5)">${escHtml(chantier.numero)} — ${escHtml(chantier.client)}</span>
       </div>
       <div class="flex gap-8 items-center">
+        ${estChantierType && chantier.statut==='actif' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-terminer" onclick="terminerChantier('${chantierId}')"><i class="ti ti-circle-check"></i> Marquer terminé</button>` : ''}
+        ${estChantierType && chantier.statut==='termine' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-archiver" onclick="archiverChantier('${chantierId}')"><i class="ti ti-archive"></i> Archiver</button>` : ''}
+        ${chEstArchive(chantier) ? `<button class="btn btn-primary btn-sm" id="ch-btn-desarchiver" onclick="desarchiverChantier('${chantierId}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : ''}
         <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${JSON.stringify(chantier).replace(/'/g,"\'").replace(/"/g,"&quot;")})'><i class="ti ti-edit"></i> Modifier</button>
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
@@ -4165,6 +4274,65 @@ async function deleteAnnexeChantier(id, chantierId, url){
   openChantierDetail(chantierId);
 }
 
+// ── CYCLE DE VIE : terminer / archiver / désarchiver ───────────────────────────────────────────────────
+// Écrit le nouveau statut et vérifie qu'une ligne a VRAIMENT changé (si les droits RLS refusent, Supabase ne renvoie pas d'erreur mais 0 ligne).
+async function ecrireStatutChantier(id, statut){
+  const {data, error} = await sb.from('chantiers_lyneo').update({statut}).eq('id',id).select('id,statut');
+  if(error){
+    if(error.code==='23514' || /check constraint|violates check/i.test(error.message||''))
+      showToast("La base n'accepte pas encore ce statut : exécutez « migration-chantiers-archives.sql » dans Supabase.", 'error');
+    else showToast('Erreur : '+error.message, 'error');
+    return false;
+  }
+  if(!data || !data.length){ showToast("Modification refusée (droits insuffisants) : rien n'a été changé", 'error'); return false; }
+  _chantiers = _chantiers.filter(c=>String(c.id)!==String(id));   // relu à jour à la prochaine ouverture
+  return true;
+}
+// Après un changement de statut : rafraîchit la liste (si on est dessus) et la fiche si elle est ouverte
+async function apresStatutChantier(id){
+  const ficheOuverte = !!document.getElementById('chantier-tab-body');
+  if(currentPage==='chantiers') await renderChantiers();
+  if(ficheOuverte) await openChantierDetail(id);
+}
+async function terminerChantier(id){
+  const {data:ch} = await sb.from('chantiers_lyneo').select('*').eq('id',id).single();
+  if(!ch){ showToast('Chantier introuvable','error'); return; }
+  if(ch.statut==='termine'){ showToast('Ce chantier est déjà terminé'); return; }
+  if(ch.statut==='archive'){ showToast('Ce chantier est archivé : désarchivez-le d\'abord','error'); return; }
+  if(!(await ecrireStatutChantier(id,'termine'))) return;
+  showToast('Chantier terminé — suivez ce qui reste à encaisser, puis archivez-le une fois soldé');
+  await apresStatutChantier(id);
+}
+async function archiverChantier(id){
+  // Tout est relu dans la base au moment du clic : on ne se fie pas à ce que l'écran affichait
+  const {data:ch} = await sb.from('chantiers_lyneo').select('*').eq('id',id).single();
+  if(!ch){ showToast('Chantier introuvable','error'); return; }
+  if((ch.type_centre||'chantier')!=='chantier'){ showToast("Seuls les chantiers s'archivent (pas les centres SAV ni internes)",'error'); return; }
+  if(ch.statut==='archive'){ showToast('Ce chantier est déjà archivé'); return; }
+  if(ch.statut!=='termine'){ showToast("Terminez d'abord le chantier (statut « Terminé »), puis archivez-le",'error'); return; }
+  let msg = "Archiver « "+(ch.nom||'')+" » ?\n\nIl disparaîtra de la liste des chantiers et des listes de choix (devis, factures, commandes). Rien n'est supprimé : vous le retrouvez dans l'onglet « Chantiers archivés » et pouvez le désarchiver à tout moment.";
+  const fv = await lireFacturesVenteChantiers([id]);
+  if(fv.ok){
+    const s = situationFinanciereChantier(ch, fv.rows), alertes = [];
+    if(s.aEncaisser>0.005) alertes.push("• Il reste "+fmt(s.aEncaisser)+" à encaisser ("+s.nb+" facture"+(s.nb>1?'s':'')+" non payée"+(s.nb>1?'s':'')+")");
+    if(s.retenue>0) alertes.push("• Retenue de garantie en attente : "+fmt(s.retenue)+(s.retenueDate?" (libération prévue le "+fmtDate(s.retenueDate)+")":''));
+    if(s.nbBrouillon) alertes.push("• "+s.nbBrouillon+" facture"+(s.nbBrouillon>1?'s':'')+" client en brouillon (non émise"+(s.nbBrouillon>1?'s':'')+")");
+    if(alertes.length) msg = "⚠ Ce chantier n'est pas soldé :\n"+alertes.join('\n')+"\n\n"+msg+"\n\nArchiver quand même ?";
+  } else msg = "⚠ Impossible de vérifier les factures clients de ce chantier.\n\n"+msg;
+  if(!confirm(msg)) return;
+  if(!(await ecrireStatutChantier(id,'archive'))) return;
+  showToast('Chantier archivé — retrouvez-le dans « Chantiers archivés »');
+  await apresStatutChantier(id);
+}
+async function desarchiverChantier(id){
+  const {data:ch} = await sb.from('chantiers_lyneo').select('id,nom,statut').eq('id',id).single();
+  if(!ch){ showToast('Chantier introuvable','error'); return; }
+  if(ch.statut!=='archive'){ showToast("Ce chantier n'est pas archivé"); return; }
+  if(!(await ecrireStatutChantier(id,'termine'))) return;
+  showToast('Chantier désarchivé — il est de nouveau « Terminé » (Modifier pour le remettre « En cours »)');
+  await apresStatutChantier(id);
+}
+
 async function openChantierModal(r=null){
   // r peut être un chantier existant (avec id) ou seulement des valeurs de départ (nouveau chantier / nouveau centre SAV)
   const isEdit = !!(r && r.id);
@@ -4197,12 +4365,18 @@ async function openChantierModal(r=null){
           </select>
         </div>
         <div class="form-group"><label class="field-label">Statut</label><select id="ch-statut">
-          <option value="actif" ${r?.statut==='actif'?'selected':''}>Actif</option>
-          <option value="pause" ${r?.statut==='pause'?'selected':''}>En pause</option>
-          <option value="termine" ${r?.statut==='termine'?'selected':''}>Terminé</option>
-        </select></div>
+          <option value="actif" ${(!r?.statut||r.statut==='actif')?'selected':''}>En cours</option>
+          <option value="termine" ${r?.statut==='termine'?'selected':''}>Terminé (reste à encaisser / retenue de garantie)</option>
+          ${r?.statut==='pause' ? '<option value="pause" selected>En pause (ancien statut)</option>' : ''}
+          ${r?.statut==='archive' ? '<option value="archive" selected>Archivé</option>' : ''}
+        </select>
+          <span style="font-size:12px;color:var(--gray-5)">${r?.statut==='archive' ? 'Pour désarchiver, passez le statut à « Terminé » ou « En cours ».' : 'Pour archiver un chantier terminé, utilisez le bouton « Archiver » de la liste ou de la fiche.'}</span></div>
         <div class="form-group"><label class="field-label">Date début</label><input type="date" id="ch-debut" value="${r?.date_debut||today()}"/></div>
-        <div class="form-group"><label class="field-label">Date fin prévue</label><input type="date" id="ch-fin" value="${r?.date_fin_prevue||''}"/></div>
+        <div class="form-group"><label class="field-label" for="ch-retenue">Retenue de garantie (€)</label>
+          <input type="number" step="0.01" min="0" id="ch-retenue" data-had="${r && r.retenue_garantie!==undefined?'1':''}" value="${escHtml(r?.retenue_garantie??'')}" placeholder="Montant retenu par le client, à libérer plus tard"/>
+          <span style="font-size:12px;color:var(--gray-5)">Facultatif. Tant qu'un montant est indiqué, le chantier terminé affiche « Retenue ».</span></div>
+        <div class="form-group"><label class="field-label" for="ch-retenue-date">Libération de la retenue prévue le</label>
+          <input type="date" id="ch-retenue-date" data-had="${r && r.retenue_garantie_date!==undefined?'1':''}" value="${escHtml(r?.retenue_garantie_date||'')}"/></div>
         <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/>
           <span style="font-size:12px;color:var(--gray-5)">Centre SAV : plusieurs codes possibles, séparés par une virgule (ex: DPSINTER, NASSO).</span></div>
         <div class="form-group"><label class="field-label" for="ch-heures-prevues">Heures prévues (devis)</label>
@@ -4285,7 +4459,7 @@ async function saveChantierCore(id){
   const ctlCh = await controlerDoublonsChantier({nom, client_id:clientId||null, client:clientRow?.nom||'', numero:numeroManuel, type:typeChoisi}, id);
   if(ctlCh==='stop') return;
   const statutAtual = el('ch-statut').value;
-  const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,date_fin_prevue:el('ch-fin').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   // Le type n'est envoyé que s'il est différent de "chantier" ou si la colonne existe déjà
   // (data-had) : ainsi la sauvegarde ne casse pas si la migration SQL n'a pas encore été exécutée.
   const typeSel = el('ch-type');
@@ -4297,13 +4471,28 @@ async function saveChantierCore(id){
     if(brut!=='' && (isNaN(parseFloat(brut)) || parseFloat(brut)<0)){ showToast("Heures prévues : indiquez un nombre positif",'error'); return; }
     if(brut!=='' || hpEl.dataset.had==='1') data.heures_prevues = brut==='' ? null : parseFloat(brut);
   }
-  let heuresNonEnregistrees = false;
+  // Retenue de garantie (montant + libération prévue) : même principe, envoyée seulement si remplie ou si les colonnes existent déjà
+  const retEl = el('ch-retenue'), retDateEl = el('ch-retenue-date');
+  if(retEl){
+    const brut = retEl.value.trim().replace(',','.');
+    if(brut!=='' && (isNaN(parseFloat(brut)) || parseFloat(brut)<0)){ showToast("Retenue de garantie : indiquez un montant positif",'error'); return; }
+    if(brut!=='' || retEl.dataset.had==='1') data.retenue_garantie = brut==='' ? null : parseFloat(brut);
+  }
+  if(retDateEl && (retDateEl.value || retDateEl.dataset.had==='1')) data.retenue_garantie_date = retDateEl.value || null;
+  // Seuls les chantiers s'archivent (un centre SAV / interne reste toujours disponible)
+  if(statutAtual==='archive' && typeChoisi!=='chantier'){ showToast("Seuls les chantiers peuvent être archivés (pas les centres SAV ni internes)",'error'); return; }
+  let heuresNonEnregistrees = false, retenueNonEnregistree = false;
   const ecrire = async (fn)=>{
     let res = await fn(data);
     if(res.error && 'heures_prevues' in data && /heures_prevues/.test(res.error.message)){
-      const sans = {...data}; delete sans.heures_prevues;
+      delete data.heures_prevues;
       heuresNonEnregistrees = true;
-      res = await fn(sans);
+      res = await fn(data);
+    }
+    if(res.error && ('retenue_garantie' in data || 'retenue_garantie_date' in data) && /retenue_garantie/.test(res.error.message)){
+      delete data.retenue_garantie; delete data.retenue_garantie_date;
+      retenueNonEnregistree = true;
+      res = await fn(data);
     }
     return res;
   };
@@ -4330,6 +4519,7 @@ async function saveChantierCore(id){
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   }
   if(heuresNonEnregistrees) setTimeout(()=>showToast("⚠ Les heures prévues ne sont pas enregistrées : exécutez d'abord « migration-heures-couts-chantiers.sql » dans Supabase.", 'error'), 600);
+  if(retenueNonEnregistree) setTimeout(()=>showToast("⚠ La retenue de garantie n'est pas enregistrée : exécutez d'abord « migration-chantiers-archives.sql » dans Supabase.", 'error'), 900);
   closeModal();
   // Un centre SAV se crée/modifie depuis le module Interventions : on y reste
   if(currentPage==='interventions_sav') renderInterventionsSAV(); else renderChantiers();
@@ -6554,12 +6744,62 @@ function apercuFichierLocal(i){
 }
 
 // ── DETAIL FACTURE AVEC ANNEXES ───────────────────────────────
+// ── Fiche d'une facture fournisseur : LIGNES visibles sans passer par « Modifier » (comme la vue d'une facture fournisseur d'Odoo) ──
+// Ventilation de la TVA par taux, à partir des lignes : [{taux, base, tva}] du taux le plus élevé au plus bas
+function ventilationTvaLignes(lignes){
+  const m = {};
+  (lignes||[]).forEach(l=>{ const t = tvaNum(l.taux_tva, 0); m[t] = (m[t]||0) + arrondi2((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)); });
+  return Object.keys(m).map(Number).sort((a,b)=>b-a).map(t=>({taux:t, base:arrondi2(m[t]), tva:arrondi2(m[t]*t/100)}));
+}
+const fmtQteLigne = q => { const n = parseFloat(q); return isNaN(n) ? '' : String(n).replace('.',','); };
+function htmlLignesFactureDetail(fac, lignes, ok){
+  const boite = (corps)=>`<div id="fac-det-lignes" style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:8px"><i class="ti ti-list-details"></i> Lignes de la facture</div>${corps}</div>`;
+  if(!ok) return boite(`<div class="alert alert-warning" id="fac-det-lignes-indispo"><i class="ti ti-alert-triangle"></i> Les lignes n'ont pas pu être lues pour le moment. Fermez et rouvrez la facture.</div>`);
+  if(!lignes.length){
+    const lien = fac.statut==='annulee' ? '' : ` <a href="#" id="fac-det-detailler" onclick="closeModal();openEditFacLignes('${escHtml(fac.id)}');return false" style="font-weight:600">Détailler les lignes</a>`;
+    return boite(`<div id="fac-det-sans-lignes" style="padding:14px;border:1px dashed var(--gray-3);border-radius:var(--radius);color:var(--gray-5);font-size:13px"><i class="ti ti-info-circle"></i> Aucune ligne détaillée : cette facture n'a que ses totaux (facture importée ou saisie sans détail).${lien}</div>`);
+  }
+  const avecCodes = _codesResDispo;
+  const th = (t, al)=>`<th style="padding:7px 8px;text-align:${al||'left'};font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--gray-5);white-space:nowrap">${t}</th>`;
+  const lignesHtml = lignes.map(l=>{
+    const q = parseFloat(l.quantite)||0, pu = parseFloat(l.prix_unitaire_ht)||0;
+    const code = !avecCodes ? '' : `<td style="padding:7px 8px">${l.code_ressource_id
+      ? `<span class="badge fac-codes fac-codes-c" title="Code ressource : ${escHtml(nomCodeRes(l.code_ressource_id))}">${escHtml(nomCodeRes(l.code_ressource_id))}</span>`
+      : `<span class="badge fac-codes fac-codes-a" title="Cette ligne n'a pas encore de code ressource">À coder</span>`}</td>`;
+    return `<tr data-lf-id="${escHtml(l.id)}" style="border-top:1px solid var(--gray-2)">
+      <td style="padding:7px 8px;white-space:nowrap;color:var(--gray-6)">${escHtml(l.reference_article||'—')}</td>
+      <td style="padding:7px 8px;white-space:pre-line">${escHtml(l.description||'')}</td>${code}
+      <td style="padding:7px 8px;text-align:right;white-space:nowrap">${escHtml(fmtQteLigne(l.quantite))}${l.unite&&l.unite!=='u'?' '+escHtml(l.unite):''}</td>
+      <td style="padding:7px 8px;text-align:right;white-space:nowrap">${fmt(pu)}</td>
+      <td style="padding:7px 8px;text-align:right;white-space:nowrap">${escHtml(String(tvaNum(l.taux_tva,0)).replace('.',','))} %</td>
+      <td style="padding:7px 8px;text-align:right;white-space:nowrap;font-weight:600">${fmt(arrondi2(q*pu))}</td></tr>`;
+  }).join('');
+  const tot = totauxFacture(lignes), vent = ventilationTvaLignes(lignes);
+  const htFac = montantHtFacture(fac), ttcFac = parseFloat(fac.montant_ttc);
+  const ecart = (htFac!==null && Math.abs(htFac-tot.ht)>0.05) || (!isNaN(ttcFac) && Math.abs(ttcFac-tot.ttc)>0.05);
+  const avert = ecart ? `<div class="alert alert-warning" id="fac-det-ecart" style="margin-top:10px"><i class="ti ti-alert-triangle"></i> <span>Les lignes totalisent <strong>${fmt(tot.ht)} HT</strong> / <strong>${fmt(tot.ttc)} TTC</strong>, mais la facture indique <strong>${htFac===null?'—':fmt(htFac)} HT</strong> / <strong>${isNaN(ttcFac)?'—':fmt(ttcFac)} TTC</strong>. Vérifiez avec « Modifier ».</span></div>` : '';
+  return boite(`<div style="overflow-x:auto;max-width:100%"><table id="fac-det-table" style="width:100%;border-collapse:collapse;min-width:620px;font-size:13px">
+      <thead><tr style="background:var(--gray-1)">${th('Référence')}${th('Description')}${avecCodes?th('Code ressource'):''}${th('Qté','right')}${th('P.U. HT','right')}${th('TVA','right')}${th('Total HT','right')}</tr></thead>
+      <tbody>${lignesHtml}</tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px"><table id="fac-det-totaux" style="font-size:13px;border-collapse:collapse;min-width:260px">
+      <tr><td style="padding:3px 12px 3px 0;color:var(--gray-5)">Total HT</td><td style="padding:3px 0;text-align:right" id="fac-det-tot-ht">${fmt(tot.ht)}</td></tr>
+      ${vent.map(v=>`<tr data-tva-taux="${v.taux}"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">TVA ${escHtml(String(v.taux).replace('.',','))} % <span style="font-size:11px">(sur ${fmt(v.base)})</span></td><td style="padding:3px 0;text-align:right">${fmt(v.tva)}</td></tr>`).join('')}
+      <tr><td style="padding:6px 12px 3px 0;font-weight:700;border-top:1px solid var(--gray-3)">Total TTC</td><td style="padding:6px 0 3px;text-align:right;font-weight:700;color:var(--blue);border-top:1px solid var(--gray-3)" id="fac-det-tot-ttc">${fmt(tot.ttc)}</td></tr>
+    </table></div>${avert}`);
+}
+
 async function openFacDetail(facId){
   const {data:fac} = await sb.from('factures').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom),purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom))').eq('id',facId).single();
   const {data:annexes} = await sb.from('anexos').select('*,utilisateurs(nom,prenom)').eq('factura_id',facId).order('created_at',{ascending:false});
   const docs = annexes||[];
   window._facDocsDetail = docs.map(d=>({url:d.url, nom:d.nome_ficheiro, tipo:d.tipo}));
   const refInt = fac.intervention_id ? await refIntervention(fac.intervention_id) : '';
+  // lignes de la facture (+ noms des codes ressource) : on n'empêche jamais d'ouvrir la fiche si la lecture échoue
+  let lignesFac = [], lignesOk = true;
+  try{
+    const [lr] = await Promise.all([sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre'), chargerCodesRessource()]);
+    if(lr.error) lignesOk = false; else lignesFac = lr.data||[];
+  }catch(e){ lignesOk = false; }
 
   const iconeType = (tipo) => {
     if(!tipo) return 'ti-file';
@@ -6580,9 +6820,9 @@ async function openFacDetail(facId){
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
       <div>
-        <h3>${fac.numero_facture_fournisseur}</h3>
+        <h3>${escHtml(fac.numero_facture_fournisseur)} <span id="fac-det-statut" style="font-size:12px;vertical-align:middle;margin-left:6px">${bFA(fac.statut)}</span></h3>
         ${fac.numero_interne?`<div style="margin:2px 0 3px"><span class="fac-int" title="Numéro interne ERP">N° interne ${escHtml(fac.numero_interne)}</span></div>`:''}
-        <span style="font-size:12px;color:var(--gray-5)">${fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||''} — ${fac.chantiers_lyneo?.nom||''}${refInt?` · <strong id="fac-det-interv" style="color:var(--blue)">${escHtml(refInt)}</strong>`:''}</span>
+        <span style="font-size:12px;color:var(--gray-5)">${escHtml(fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||'')} — ${escHtml(fac.chantiers_lyneo?.nom||'')}${refInt?` · <strong id="fac-det-interv" style="color:var(--blue)">${escHtml(refInt)}</strong>`:''}</span>
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -6606,7 +6846,10 @@ async function openFacDetail(facId){
         <div class="info-item"><label>TVA</label><span>${fmt(fac.montant_tva)}</span></div>
         <div class="info-item"><label>Total TTC</label><span style="font-weight:700;color:var(--blue);font-size:16px">${fmt(fac.montant_ttc)}</span></div>
       </div>
-      ${fac.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${fac.observations}</div>`:''}
+      ${fac.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${escHtml(fac.observations)}</div>`:''}
+
+      <!-- LIGNES DE LA FACTURE (lecture seule) -->
+      ${htmlLignesFactureDetail(fac, lignesFac, lignesOk)}
 
       <!-- ZONE ANNEXES -->
       <div style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center;background:var(--gray-1)" id="drop-zone"
@@ -6978,10 +7221,10 @@ async function crSupprimer(id){
 
 async function openFacLibreModal(){
   const [{data:chantiersData},{data:foursData}] = await Promise.all([
-    sb.from('chantiers_lyneo').select('id,numero,nom').order('nom'),
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom'),
     sb.from('fournisseurs').select('id,nom').eq('actif',true).order('nom')
   ]);
-  const chantiers = chantiersData||[];
+  const chantiers = chantiersChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
   const fours = foursData||[];
   await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
@@ -7876,7 +8119,7 @@ const SUPPR_CFG = {
            refresh:()=>{ if(currentPage==='clients') return renderClients(); }},
   fournisseur: {table:'fournisseurs', article:'le fournisseur', desactiver:{actif:false}, desactiverLabel:'Désactiver ce fournisseur', dejaDesactive:f=>f.actif===false,
            refresh:()=>{ if(currentPage==='fournisseurs') return renderFournisseurs(); }},
-  chantier: {table:'chantiers_lyneo', article:'le chantier', desactiver:{statut:'termine'}, desactiverLabel:'Marquer comme terminé', dejaDesactive:f=>f.statut==='termine',
+  chantier: {table:'chantiers_lyneo', article:'le chantier', desactiver:{statut:'termine'}, desactiverLabel:'Marquer comme terminé', dejaDesactive:f=>f.statut==='termine' || f.statut==='archive',
            refresh:()=>{ if(currentPage==='chantiers') return renderChantiers(); if(currentPage==='interventions_sav') return renderInterventionsSAV(); }}
 };
 function fenetreSuppressionImpossible(cfg, fiche, liens, apres){
@@ -8358,7 +8601,7 @@ async function openClientDetail(clientId){
       <div style="margin-top:8px;margin-bottom:20px">
         ${chantiers.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun chantier trouvé pour ce client</p>' :
           chantiers.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff;cursor:pointer" onclick="closeModal();openChantierDetail('${c.id}')">
-            <span>${c.numero||''} — ${c.nom}</span>${bCH ? bCH(c.statut) : ''}
+            <span>${escHtml(c.numero||'')} — ${escHtml(c.nom)}</span>${bCH ? bCH(c.statut) : ''}
           </div>`).join('')}
       </div>
 
@@ -9156,10 +9399,10 @@ async function openDevisModal(d=null){
   const isEdit = !!d;
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
     sb.from('clients').select('id,nom,pays').eq('actif',true).order('nom'),
-    sb.from('chantiers_lyneo').select('id,numero,nom').order('nom')
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom')
   ]);
   const clients = clientsData||[];
-  const chantiers = chantiersData||[];
+  const chantiers = chantiersChoix(chantiersData||[], d?.chantier_id);   // archivés masqués, sauf celui déjà lié au devis
   // TVA par défaut du devis = celle du pays du client (17 % si Luxembourg ou non renseigné, 0 % sinon)
   const clientDevis = d ? clients.find(c=>c.id===d.client_id) : null;
   window._tvaDefautDoc = clientDevis ? tvaDefautPays(clientDevis.pays) : 17;
@@ -9621,7 +9864,7 @@ async function renderFacturesVente(){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input id="fv-recherche" placeholder="N°, client, devis, PO, centre, SAV..." oninput="_fvFiltres.search=this.value;afficherFacturesVente()" value="${escHtml(F.search)}"/></div>
         ${btnExport('factures_vente')}
-        <button class="btn btn-secondary" id="btn-cgv-liste" onclick="openCGV(&quot;navigate('factures_vente')&quot;)" title="Conditions générales de vente jointes aux factures"><i class="ti ti-scale"></i> CGV</button>
+        <button class="btn btn-secondary" id="btn-cgv-liste" onclick="openCGV(&quot;navigate('factures_vente')&quot;)" title="${CGV_JOINDRE_AUX_FACTURES ? 'Conditions générales de vente jointes aux factures' : 'Conditions générales de vente (en cours de validation — non jointes aux factures)'}"><i class="ti ti-scale"></i> CGV</button>
         <button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button>
       </div>
     </div>
@@ -9746,10 +9989,10 @@ function afficherFacturesVente(){
 async function openNewFactureVenteLibre(){
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
     sb.from('clients').select('id,nom,conditions_paiement,pays').eq('actif',true).order('nom'),
-    sb.from('chantiers_lyneo').select('id,numero,nom,client_id').order('nom')
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,statut').order('nom')
   ]);
   const clients = clientsData||[];
-  const chantiers = chantiersData||[];
+  const chantiers = chantiersChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
   _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
   _venteLigneMode = 'libre';
   window._devisInfoForFv = null;   // pas de devis "hérité" d'une facture précédente
@@ -10555,6 +10798,9 @@ async function saveFactureVente(chantierId, clientId, devisId){
   openChantierDetail(chantierId,'fac_vente');
 }
 
+// Interrupteur des CGV (22/10/2026) : tant que le directeur financier n'a pas validé le texte, les CGV NE SONT PAS jointes aux PDF des factures.
+// Elles restent consultables (bouton « CGV »). Quand le texte sera validé : mettre à jour CGV_ARTICLES et passer cet interrupteur à true.
+let CGV_JOINDRE_AUX_FACTURES = false;
 const CGV_ARTICLES = [
   {title:"Article 1 : Champ d'application", text:"Les présentes conditions générales de vente s'appliquent, sans restriction ni réserve, à l'ensemble des ventes de produits et des prestations de services proposées par la société Lyneo SARL. Toute commande passée auprès de Lyneo SARL emporte acceptation pleine, entière et sans réserve du client aux présentes conditions et renonciation de sa part à ses propres conditions générales d'achat ou tout autre document contradictoire. Lyneo SARL se réserve le droit de modifier ses conditions générales à tout moment ; les modifications donneront lieu à une nouvelle version qui sera applicable aux commandes passées ultérieurement à leur publication."},
   {title:"Article 2 : Offres et Devis", text:"Les offres et devis émis par Lyneo SARL sont valables pour une durée de 2 mois à compter de leur date d'émission. Le contrat est valablement conclu dès réception par Lyneo SARL du devis dûment paraphé sur chaque page et signé par le client, accompagné de la mention manuscrite « Lu et approuvé, bon pour accord », du nom du signataire en texte clair et du cachet commercial de l'entreprise. Lyneo SARL se réserve expressément le droit de réévaluer et d'ajuster son offre tarifaire si l'exécution des travaux est programmée au-delà d'un délai de 6 mois après la validation initiale de la commande."},
@@ -10576,7 +10822,7 @@ function openCGV(retour){
   const quitter = retour ? `closeModal();${retour}` : 'closeModal()';
   showModal(`<div class="modal-overlay"><div class="modal modal-lg" id="cgv-modal">
     <div class="modal-header">
-      <div><h3>Conditions générales de vente</h3><span style="font-size:12px;color:var(--gray-5)">LYNEO SARL — jointes automatiquement à chaque facture client (sauf aux notes de crédit)</span></div>
+      <div><h3>Conditions générales de vente</h3><span style="font-size:12px;color:var(--gray-5)" id="cgv-statut">${CGV_JOINDRE_AUX_FACTURES ? 'LYNEO SARL — jointes automatiquement à chaque facture client (sauf aux notes de crédit)' : 'LYNEO SARL — texte en cours de validation : <strong>NON jointes aux factures</strong> pour le moment'}</span></div>
       <button class="modal-close" onclick="${quitter}"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" style="max-height:70vh;overflow-y:auto">
@@ -10852,7 +11098,7 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
       title:'Informations de règlement',
       lines: [`Banque : ${LyneoPDF.ENTREPRISE.iban}  |  BIC : ${LyneoPDF.ENTREPRISE.bic}`, `Référence à indiquer : N° Facture ${f.numero}`]
     },
-    extraPages: estAvoir ? [] : [
+    extraPages: (estAvoir || !CGV_JOINDRE_AUX_FACTURES) ? [] : [
       {title:'CONDITIONS GÉNÉRALES DE VENTE — '+LyneoPDF.ENTREPRISE.nom, articles: CGV_ARTICLES}
     ]
   };
@@ -11170,7 +11416,7 @@ async function openFactureVenteDetail(facId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_FactureVente('${f.id}')"><i class="ti ti-file-download"></i> PDF</button>
-        ${avoir?'':`<button class="btn btn-ghost" id="btn-cgv-fv" onclick="openCGV(&quot;openFactureVenteDetail('${f.id}')&quot;)" title="Conditions générales de vente jointes à cette facture"><i class="ti ti-scale"></i> CGV</button>`}
+        ${avoir?'':`<button class="btn btn-ghost" id="btn-cgv-fv" onclick="openCGV(&quot;openFactureVenteDetail('${f.id}')&quot;)" title="${CGV_JOINDRE_AUX_FACTURES ? 'Conditions générales de vente jointes à cette facture' : 'Conditions générales de vente (en cours de validation — non jointes à cette facture)'}"><i class="ti ti-scale"></i> CGV</button>`}
         ${suppr.ok?`<button class="btn btn-danger" id="btn-suppr-fv" onclick="deleteFactureVente('${f.id}','${escHtml(f.numero)}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
         <button class="btn btn-secondary" onclick="openEditFactureVente('${f.id}')"><i class="ti ti-edit"></i> Modifier</button>
         ${peutCredit?`<button class="btn btn-secondary" id="btn-avoir-fv" onclick="openNewAvoirVente('${f.id}')"><i class="ti ti-receipt-refund"></i> Note de crédit</button>`:''}
@@ -11352,7 +11598,7 @@ function entrepriseChargee(forcer){
 
 // Où chaque donnée est imprimée (affiché sous chaque champ ; vérifié par les tests sur de vrais fichiers)
 const OU_ENTREPRISE = {
-  nom:'Pied des PDF · bandeau du devis · pied Excel · titre des CGV',
+  get nom(){ return 'Pied des PDF · bandeau du devis · pied Excel'+(CGV_JOINDRE_AUX_FACTURES ? ' · titre des CGV' : ''); },   // les CGV ne s'impriment que si elles sont jointes
   adresse:'Pied des PDF · bandeau du devis',
   cp_ville:'Pied des PDF · bandeau du devis · bloc Émetteur',
   tva:'Pied des PDF · bandeau du devis · bloc Émetteur',
@@ -12153,7 +12399,9 @@ function definitionsExport(){
     chantiers:{ titre:'Chantiers', pivotDefaut:{ligne:'statut'}, fichier:'Chantiers', feuille:'Chantiers',
       charger: async()=>{
         const [lignes, clients, emps, devis] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('clients'), lireOptionnelle('employes_rh'), lireOptionnelle('devis')]);
-        return {lignes, ctx:{clients:parIdExport(clients), emps:parIdExport(emps), devis:parIdExport(devis), auj: today()}};
+        // Factures clients (pour le reste à encaisser des chantiers terminés). Si elles sont illisibles : colonne vide, jamais un faux 0.
+        let fvs = null; try{ fvs = await lireTableComplete('factures_vente'); }catch(e){ if(reseauErreur(e)) throw e; }
+        return {lignes, ctx:{clients:parIdExport(clients), emps:parIdExport(emps), devis:parIdExport(devis), fvs, auj: today()}};
       },
       colonnes:[
         colX('numero','N° chantier','txt',r=>r.numero,{g:'Identification'}), colX('nom','Nom','txt',r=>r.nom,{g:'Identification'}),
@@ -12164,8 +12412,9 @@ function definitionsExport(){
         colX('devis','Devis lié','txt',(r,c)=>nomLieu(c.devis,r.devis_id,'')?'':((c.devis[r.devis_id]||{}).numero||''),{g:'Identification'}),
         colX('adresse','Adresse','txt',r=>r.adresse,{g:'Lieu',d:false}), colX('site','Site d\'intervention','txt',r=>r.site_intervention,{g:'Lieu',d:false}),
         colX('debut','Date de début','date',r=>r.date_debut,{g:'Planning'}), colX('annee_debut','Année de début','int',r=>anneeIso(r.date_debut),{g:'Planning',d:false}),
-        colX('fin','Fin prévue','date',r=>r.date_fin_prevue,{g:'Planning'}),
-        colX('retard','Jours de retard (chantier actif)','int',(r,c)=>{ if(r.statut!=='actif'||!jourISO(r.date_fin_prevue)) return ''; const j = joursEntreISO(r.date_fin_prevue, c.auj); return j>0 ? j : ''; },{g:'Planning'}),
+        colX('encaisser','Reste à encaisser TTC (chantier terminé)','num',(r,c)=>{ if(r.statut!=='termine' || !c.fvs) return ''; return situationFinanciereChantier(r, c.fvs).aEncaisser; },{g:'Finances'}),
+        colX('retenue','Retenue de garantie (€)','num',r=>r.retenue_garantie,{g:'Finances'}),
+        colX('retenue_date','Libération de la retenue prévue','date',r=>r.retenue_garantie_date,{g:'Finances'}),
         colX('pointages','Code pointages','txt',r=>r.code_pointages,{g:'Divers',d:false}),
         colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false}), colX('cree','Créé le','date',r=>r.created_at,{g:'Divers',d:false})
       ],
@@ -15178,7 +15427,13 @@ async function openEditPO(poId){
     _foursActive = data||[];
   }
 
-  const chantsOpts = _chantiersActive.map(c=>'<option value="'+c.id+'"'+(po.chantier_id===c.id?' selected':'')+'>'+c.numero+' — '+c.nom+'</option>').join('');
+  // Le chantier déjà lié à la commande reste proposé même s'il est terminé ou archivé (sinon la commande perdrait son chantier)
+  let chantsPo = _chantiersActive;
+  if(po.chantier_id && !chantsPo.some(c=>String(c.id)===String(po.chantier_id))){
+    const {data:chPo} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut').eq('id',po.chantier_id).single();
+    if(chPo) chantsPo = [chPo, ...chantsPo];
+  }
+  const chantsOpts = chantsPo.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(po.chantier_id)===String(c.id)?' selected':'')+'>'+escHtml(c.numero)+' — '+escHtml(c.nom)+(c.statut && c.statut!=='actif' ? ' ('+escHtml(STATUT_CH[c.statut]||c.statut)+')' : '')+'</option>').join('');
   const foursOpts = _foursActive.map(f=>'<option value="'+escHtml(f.id)+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+escHtml(f.nom)+'</option>').join('');
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
@@ -15526,8 +15781,7 @@ async function openEditFacLignes(facId){
   window._efacOrig = fac;
 
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
-  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom').order('nom');
-  const chantiers = chantiersData||[];
+  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom');
 
   // Rétro-compatibilité : si la facture n'a pas encore de chantier_id propre
   // (créée avant cette fonctionnalité), on récupère celui de la commande liée
@@ -15536,6 +15790,7 @@ async function openEditFacLignes(facId){
     const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',fac.po_id).single();
     chantierIdActuel = poRow?.chantier_id||null;
   }
+  const chantiers = chantiersChoix(chantiersData||[], chantierIdActuel);   // archivés masqués, sauf celui déjà lié à la facture
 
   if((lignesData||[]).length===0 && (parseFloat(fac.montant_ht)>0 || parseFloat(fac.montant_ttc)>0)){
     // Legacy invoice saved without detailed lines: seed one editable line from the existing totals
