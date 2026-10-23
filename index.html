@@ -637,6 +637,28 @@ html,body{max-width:100vw;overflow-x:hidden}
   .search-wrap input{min-width:unset!important;width:100%}
   .search-wrap{width:100%}
 }
+/* ── Formations du personnel ── */
+.frm-compteurs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.frm-pill{border:0;border-radius:20px;padding:6px 14px;font-size:13px;font-family:inherit;display:inline-flex;gap:6px;align-items:center}
+button.frm-pill{cursor:pointer}
+button.frm-pill:hover{filter:brightness(.96)}
+.frm-b-expiree{background:#FEE2E2;color:#991B1B}
+.frm-b-renouveler{background:#FEF3C7;color:#92400E}
+.frm-b-valide{background:#D1FAE5;color:#065F46}
+.frm-b-sans{background:var(--gray-2);color:var(--gray-6)}
+.frm-b-historique{background:var(--gray-1);color:var(--gray-5)}
+.frm-mat{border-collapse:separate;border-spacing:0;font-size:12px;width:max-content;min-width:100%}
+.frm-mat th{position:sticky;top:0;z-index:2;background:var(--gray-1);font-size:11px;font-weight:700;text-align:center;vertical-align:bottom;padding:8px 6px;min-width:104px;max-width:150px;white-space:normal;border-bottom:2px solid var(--gray-3)}
+.frm-mat td{border-bottom:1px solid var(--gray-2);padding:7px 6px}
+.frm-mat .frm-sticky{position:sticky;left:0;z-index:1;background:#fff;min-width:160px;text-align:left;border-right:1px solid var(--gray-2)}
+.frm-mat th.frm-sticky{z-index:3;background:var(--gray-1)}
+.frm-cell{text-align:center;cursor:pointer;white-space:nowrap;font-weight:600}
+.frm-cell:hover{outline:2px solid var(--blue);outline-offset:-2px}
+.frm-c-exp{background:#FEE2E2;color:#991B1B}
+.frm-c-ren{background:#FEF3C7;color:#92400E}
+.frm-c-val{background:#D1FAE5;color:#065F46}
+.frm-c-sans{background:var(--gray-1);color:var(--gray-6);font-weight:500}
+.frm-c-vide{color:var(--gray-3);font-weight:400}
 </style>
 </head>
 <body>
@@ -713,6 +735,7 @@ html,body{max-width:100vw;overflow-x:hidden}
       <div id="nav-rh-section" class="hidden">
         <div class="nav-section">Ressources humaines</div>
         <a class="nav-item" href="#/employes_rh" onclick="return navLien(event,'employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</a>
+        <a class="nav-item" href="#/formations" onclick="return navLien(event,'formations')" id="nav-formations"><i class="ti ti-certificate"></i> Formations</a>
         <a class="nav-item" href="https://lyneo-pointages.netlify.app" target="_blank" rel="noopener"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></a>
       </div>
 
@@ -2354,7 +2377,7 @@ new MutationObserver(()=>{
 }).observe(document.body, {childList:true, subtree:true});
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource'};
 
 // ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
 const PAGES_ADMIN = ['utilisateurs','controle','documents'];
@@ -2363,7 +2386,7 @@ function pageAutorisee(p){
   const R = pageRenderers();
   if(!p || !Object.prototype.hasOwnProperty.call(R,p) || typeof R[p]!=='function') return false;   // refuse __proto__, constructor…
   if(PAGES_ADMIN.includes(p)) return !!currentUser && currentUser.role==='admin';
-  if(p==='employes_rh') return !!currentUser && peutVoirSalaires();
+  if(p==='employes_rh' || p==='formations') return !!currentUser && peutVoirSalaires();
   return true;
 }
 // Clic simple : on reste dans cet onglet. Ctrl/Cmd/Maj + clic (ou clic molette, clic droit) : on laisse le navigateur ouvrir un nouvel onglet.
@@ -2407,7 +2430,7 @@ function navigate(page, depuisAdresse){
 }
 
 function pageRenderers(){
-  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes};
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes};
 }
 
 // Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
@@ -2720,6 +2743,7 @@ async function renderDashboard(){
   if(blsAttente>0) alertes.push({type:'blue',icon:'ti-truck-delivery',msg:`${blsAttente} bon(s) de livraison en attente de réception complète`,page:'receptions'});
   if(termAEncaisser.length>0) alertes.push({type:'orange',icon:'ti-cash',msg:`${termAEncaisser.length} chantier(s) terminé(s) avec du solde à encaisser (${fmt(termAEncaisser.reduce((a,x)=>a+x.s.aEncaisser,0))})`,page:'chantiers'});
   if(termRetenue.length>0) alertes.push({type:'blue',icon:'ti-lock',msg:`${termRetenue.length} chantier(s) terminé(s) en attente d'une retenue de garantie (${fmt(termRetenue.reduce((a,x)=>a+x.s.retenue,0))})`,page:'chantiers'});
+  (await frmAlertesDashboard()).forEach(a=>alertes.push(a));          // formations expirées / à renouveler (administrateurs + « Accès aux salaires » seulement)
 
   el('page-content').innerHTML = `
     <div class="dashboard-welcome">
@@ -12059,11 +12083,13 @@ function estClotureFV(f){
 const JOURNAL_TABLES = {factures_vente:'Factures clients', lignes_facture_vente:'Lignes factures clients', devis:'Devis', lignes_devis:'Lignes de devis',
   clients:'Clients', fournisseurs:'Fournisseurs', chantiers_lyneo:'Chantiers', interventions_sav:'Interventions SAV', factures:'Factures fournisseurs',
   lignes_facture:'Lignes fact. fournisseurs', purchase_orders_lyneo:'Bons de commande', lignes_po:'Lignes de BC', paiements:'Paiements',
-  utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés'};
+  utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés', formations_types:'Types de formation', formations_employes:'Formations du personnel'};
 const JOURNAL_CHAMPS = {valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
   reference_client:'N° commande client', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
   quantite:'Qté', prix_unitaire_ht:'P.U. HT', description:'Description', valeur_date:'Date de clôture', role:'Rôle', actif:'Actif', email:'E-mail',
-  nom:'Nom', prenom:'Prénom', objet:'Objet', montant_ht:'Montant HT', taux_tva:'TVA %', facture_origine_id:'Facture d\'origine'};
+  nom:'Nom', prenom:'Prénom', objet:'Objet', montant_ht:'Montant HT', taux_tva:'TVA %', facture_origine_id:'Facture d\'origine',
+  employe_id:'Employé', type_id:'Formation', date_formation:'Date de la formation', date_expiration:"Valide jusqu'au", organisme:'Organisme', numero_attestation:"N° d'attestation",
+  validite_mois:'Validité (mois)', alerte_jours:'Alerte (jours)', duree_heures:'Durée (h)', cout_ht:'Coût HT'};
 function journalValeur(v){
   if(v===null || v===undefined || v==='') return '∅';
   const t = typeof v==='object' ? JSON.stringify(v) : String(v);
@@ -12208,7 +12234,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','codes_ressource','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','employes_remuneration','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','formations_types','formations_employes','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
@@ -12241,6 +12267,639 @@ async function telechargerSauvegarde(){
     showToast('Erreur de sauvegarde: '+(e.message||e),'error');
   }
   if(b) b.disabled = false;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FORMATIONS DU PERSONNEL — suivi des attestations, de leur validité et alertes d'expiration (Ressources humaines)
+// SQL : migration-formations.sql. Sans lui la page affiche un avertissement et rien d'autre ne change.
+// Même accès que « Employés » (administrateurs + « Accès aux salaires ») ; la base applique la même règle (RLS).
+// Règles : une ligne = une attestation ; une renouvellement = une ligne NOUVELLE (l'historique reste, la plus récente compte) ;
+// « Valide jusqu'au » saisi sur l'attestation prime ; sinon date de formation + validité (mois) du type ; validité vide = n'expire pas.
+// ══════════════════════════════════════════════════════════════════════════════
+const SQL_FORMATIONS = 'migration-formations.sql';
+const FRM_ALERTE_DEFAUT = 90;                        // jours avant l'expiration quand le type n'a pas de délai d'alerte
+const FRM_STATUTS = {expiree:'Expirée', renouveler:'À renouveler', valide:'Valide', sans:'Sans expiration', historique:'Remplacée'};
+const FRM_ORDRE = {expiree:0, renouveler:1, valide:2, sans:3, historique:4};
+let _frmInfoExport = new Map();          // id d'attestation → {t,e,st,courante,code} : rempli au chargement de l'export Excel
+const frmInfo = r => (r && _frmInfoExport.get(String(r.id))) || null;
+let _frm = {etat:'', msg:'', types:[], lignes:[], emps:[], vue:'suivi', f:{q:'', statut:'', type:'', emp:'', anciens:false}, imp:null};
+
+const frmISO = v => /^\d{4}-\d{2}-\d{2}/.test(String(v||'')) ? String(v).slice(0,10) : '';
+const frmFmt = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||'')); return m ? m[3]+'/'+m[2]+'/'+m[1] : '—'; };    // sans fuseau horaire
+const frmN = s => String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\*/g,'').replace(/\s+/g,' ').trim();
+// Ajoute N mois à une date AAAA-MM-JJ (comme EDATE d'Excel : le jour est ramené à la fin du mois si besoin : 31/08 + 6 mois = 28/02)
+function frmAjouterMois(iso, n){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(frmISO(iso)); n = Math.round(Number(n));
+  if(!m || !(n>0)) return '';
+  if(+m[2]<1 || +m[2]>12 || +m[3]<1 || +m[3]>new Date(Date.UTC(+m[1], +m[2], 0)).getUTCDate()) return '';       // date de départ impossible (30/02…)
+  const tot = (+m[1])*12 + (+m[2]-1) + n, y = Math.floor(tot/12), mo = tot%12;
+  const dernier = new Date(Date.UTC(y, mo+1, 0)).getUTCDate();
+  return y+'-'+String(mo+1).padStart(2,'0')+'-'+String(Math.min(+m[3], dernier)).padStart(2,'0');
+}
+const frmJours = (a,b) => { const x = Date.parse(frmISO(a)), y = Date.parse(frmISO(b)); return (isNaN(x)||isNaN(y)) ? null : Math.round((y-x)/86400000); };
+function frmAlerteJours(t){ const a = t ? t.alerte_jours : null; return (a===null||a===undefined||a==='') ? FRM_ALERTE_DEFAUT : Math.max(0, parseInt(a,10)||0); }
+// Date d'expiration retenue : celle de l'attestation, sinon formation + validité du type, sinon aucune (n'expire pas)
+function frmExpiration(l, t){
+  const e = frmISO(l && l.date_expiration); if(e) return e;
+  return (t && Number(t.validite_mois)>0) ? frmAjouterMois(l.date_formation, t.validite_mois) : '';
+}
+// État d'une attestation : sans (n'expire pas) · expiree (date passée) · renouveler (dans le délai d'alerte, jour d'expiration inclus) · valide
+function frmStatut(l, t, auj){
+  const exp = frmExpiration(l, t);
+  if(!exp) return {code:'sans', exp:'', jours:null};
+  const j = frmJours(auj||today(), exp);
+  if(j===null) return {code:'sans', exp:'', jours:null};
+  return {code: j<0 ? 'expiree' : (j<=frmAlerteJours(t) ? 'renouveler' : 'valide'), exp, jours:j};
+}
+// Pour chaque couple (employé, formation), la attestation la plus récente : c'est elle qui compte (les autres sont l'historique)
+function frmDernieres(lignes, typesParId){
+  const m = new Map(), cle = l => String(l.employe_id)+'|'+String(l.type_id);
+  const plusRecente = (a,b)=>{
+    const da = frmISO(a.date_formation), db = frmISO(b.date_formation); if(da!==db) return da>db;
+    const ea = frmExpiration(a, typesParId[String(a.type_id)])||'9999-12-31', eb = frmExpiration(b, typesParId[String(b.type_id)])||'9999-12-31'; if(ea!==eb) return ea>eb;
+    return String(a.created_at||'')>=String(b.created_at||'');
+  };
+  (lignes||[]).forEach(l=>{ const k = cle(l), c = m.get(k); if(!c || plusRecente(l,c)) m.set(k,l); });
+  return m;
+}
+function frmCalcul(){
+  const auj = today(), T = {}, E = {};
+  _frm.types.forEach(t=>{ T[String(t.id)] = t; }); _frm.emps.forEach(e=>{ E[String(e.id)] = e; });
+  const der = frmDernieres(_frm.lignes, T);
+  const items = _frm.lignes.map(l=>{
+    const t = T[String(l.type_id)]||null, e = E[String(l.employe_id)]||null, st = frmStatut(l, t, auj);
+    const courante = der.get(String(l.employe_id)+'|'+String(l.type_id))===l;
+    return {l, t, e, st, courante, code: courante ? st.code : 'historique'};
+  });
+  return {auj, T, E, items};
+}
+// Compteurs des attestations qui comptent (les plus récentes) des employés actifs
+function frmCompteurs(items){
+  const c = {expiree:0, renouveler:0, valide:0, sans:0};
+  items.forEach(it=>{ if(it.courante && it.e && it.e.actif!==false) c[it.st.code]++; });
+  return c;
+}
+async function frmCharger(){
+  _frm.etat = ''; _frm.msg = '';
+  try{
+    const t = await sb.from('formations_types').select('*').order('nom');
+    if(t.error){ _frm.etat = migrationEmployeAbsente(t.error.message) ? 'absente' : 'erreur'; _frm.msg = t.error.message; return false; }
+    const [lignes, emps] = await Promise.all([lireTableComplete('formations_employes'), lireTableComplete('employes_rh')]);
+    _frm.types = t.data||[]; _frm.lignes = lignes;
+    _frm.emps = emps.sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr'));
+    _frm.etat = 'ok';
+    return true;
+  }catch(e){
+    _frm.etat = migrationEmployeAbsente(e.message) ? 'absente' : 'erreur'; _frm.msg = (e && e.message) || String(e);
+    return false;
+  }
+}
+
+// ── Page ──
+async function renderFormations(vue){
+  if(currentPage!=='formations') return;
+  if(vue) _frm.vue = vue;
+  el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><i class="ti ti-loader" style="font-size:30px"></i><p>Chargement des formations…</p></div>';
+  await frmCharger();
+  frmAfficher();
+}
+function frmVue(v){ _frm.vue = ['suivi','liste','types'].includes(v) ? v : 'suivi'; frmAfficher(); }
+function frmEntete(actions){
+  return `<div class="page-header">
+    <div class="page-header-left"><h1>Formations</h1><p>Suivi des attestations du personnel et de leur validité</p></div>
+    <div class="page-actions">${actions||''}</div></div>`;
+}
+function frmAfficher(){
+  if(currentPage!=='formations') return;
+  if(_frm.etat==='absente'){
+    el('page-content').innerHTML = frmEntete('') + `<div class="alert alert-warning" id="frm-sql-absent"><i class="ti ti-database-exclamation"></i><span>Pour utiliser le suivi des formations, exécutez d'abord <strong>${SQL_FORMATIONS}</strong> dans Supabase (SQL Editor), puis rechargez cette page.</span></div>`;
+    return;
+  }
+  if(_frm.etat!=='ok'){
+    el('page-content').innerHTML = frmEntete('') + `<div class="alert alert-error" id="frm-erreur"><i class="ti ti-lock"></i><span>Impossible de lire les formations : ${escHtml(_frm.msg||'erreur inconnue')}. <a href="#" onclick="renderFormations();return false" style="color:inherit;font-weight:600">Réessayer</a></span></div>`;
+    return;
+  }
+  const C = frmCalcul(), cpt = frmCompteurs(C.items);
+  const nbActifs = _frm.emps.filter(e=>e.actif!==false).length;
+  const onglet = (id, lib, n) => `<div class="tab-btn${_frm.vue===id?' active':''}" id="frm-vue-${id}" onclick="frmVue('${id}')">${lib}${n!==null?` <span class="badge badge-termine" style="font-size:10px">${n}</span>`:''}</div>`;
+  const actions = `<input type="file" id="frm-import-input" accept=".xlsx,.xls" style="display:none" onchange="frmImporterFichier(this.files[0]);this.value=''"/>
+    ${btnExport('formations')}
+    <button class="btn btn-secondary" id="btn-frm-import" onclick="el('frm-import-input').click()" title="Importer le fichier Excel « Formations » (aperçu avant l'enregistrement)"><i class="ti ti-file-import"></i> Importer Excel</button>
+    ${_frm.vue==='types'
+      ? `<button class="btn btn-primary" id="btn-frm-nouveau-type" onclick="openFormationTypeModal()"><i class="ti ti-plus"></i> Nouveau type</button>`
+      : `<button class="btn btn-primary" id="btn-frm-nouvelle" onclick="openFormationModal()"><i class="ti ti-plus"></i> Nouvelle formation</button>`}`;
+  const pill = (code, lib, cls) => `<button class="frm-pill ${cls}" id="frm-cpt-${code}" onclick="frmVoirListe('${code}')" title="Voir dans la liste"><strong>${cpt[code]}</strong> ${lib}</button>`;
+  el('page-content').innerHTML = frmEntete(actions) + `
+    <div class="frm-compteurs" id="frm-compteurs">
+      ${pill('expiree', cpt.expiree>1?'expirées':'expirée', 'frm-b-expiree')}
+      ${pill('renouveler', cpt.renouveler>1?'à renouveler':'à renouveler', 'frm-b-renouveler')}
+      ${pill('valide', cpt.valide>1?'valides':'valide', 'frm-b-valide')}
+      ${pill('sans', 'sans expiration', 'frm-b-sans')}
+      <span style="font-size:12px;color:var(--gray-5)">Employés actifs (${nbActifs}) · seule l'attestation la plus récente de chaque formation compte</span>
+    </div>
+    <div class="card"><div style="display:flex;gap:4px;border-bottom:2px solid var(--gray-2);padding:0 8px;flex-wrap:wrap">
+      ${onglet('suivi','Suivi',null)}${onglet('liste','Liste',_frm.lignes.length)}${onglet('types','Types de formation',_frm.types.length)}
+    </div>
+    <div id="frm-corps"></div></div>`;
+  frmAfficherCorps();
+}
+function frmAfficherCorps(){
+  const c = el('frm-corps'); if(!c) return;
+  const C = frmCalcul();
+  c.innerHTML = _frm.vue==='liste' ? frmHtmlListe(C) : _frm.vue==='types' ? frmHtmlTypes(C) : frmHtmlSuivi(C);
+}
+// Clic sur un compteur : la liste, filtrée sur cet état
+function frmVoirListe(code){ _frm.f = {q:'', statut:code, type:'', emp:'', anciens:false}; _frm.vue = 'liste'; frmAfficher(); }
+
+// ── Suivi : une ligne par employé, une colonne par formation ──
+function frmHtmlSuivi(C){
+  const emps = _frm.emps.filter(e=>_frm.f.anciens || e.actif!==false);
+  const cur = new Map(); C.items.forEach(it=>{ if(it.courante) cur.set(String(it.l.employe_id)+'|'+String(it.l.type_id), it); });
+  const affiches = new Set(emps.map(e=>String(e.id)));
+  const typesUtilises = new Set(C.items.filter(it=>it.courante && affiches.has(String(it.l.employe_id))).map(it=>String(it.l.type_id)));
+  const types = _frm.types.filter(t=>t.actif!==false || typesUtilises.has(String(t.id)));
+  if(!_frm.types.length) return `<div class="empty" id="frm-vide"><div class="empty-icon"><i class="ti ti-certificate"></i></div><p>Aucune formation enregistrée</p><p style="font-size:12px;color:var(--gray-5)">Commencez par « Importer Excel » (fichier LYNEO-formations) ou créez un type de formation (onglet Types).</p></div>`;
+  if(!emps.length) return `<div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé actif</p></div>`;
+  const cls = {expiree:'frm-c-exp', renouveler:'frm-c-ren', valide:'frm-c-val', sans:'frm-c-sans'};
+  const tete = types.map(t=>`<th title="${escHtml(t.nom)}${t.actif===false?' (désactivée)':''}">${escHtml(t.nom)}</th>`).join('');
+  const lignes = emps.map(e=>{
+    const cells = types.map(t=>{
+      const it = cur.get(String(e.id)+'|'+String(t.id));
+      if(!it) return `<td class="frm-cell frm-c-vide" data-emp="${escHtml(e.id)}" data-type="${escHtml(t.id)}" onclick="frmOuvrirCellule('${escHtml(e.id)}','${escHtml(t.id)}')" title="Ajouter cette formation">—</td>`;
+      const texte = it.st.code==='sans' ? 'Sans exp.' : frmFmt(it.st.exp);
+      const titre = `${nomPers(e)} — ${t.nom} : formation du ${frmFmt(it.l.date_formation)}`+(it.st.exp?`, valable jusqu'au ${frmFmt(it.st.exp)}`:' (n\'expire pas)')+(it.l.organisme?` · ${it.l.organisme}`:'');
+      return `<td class="frm-cell ${cls[it.st.code]}" data-code="${it.st.code}" data-emp="${escHtml(e.id)}" data-type="${escHtml(t.id)}" onclick="frmOuvrirCellule('${escHtml(e.id)}','${escHtml(t.id)}')" title="${escHtml(titre)}">${texte}</td>`;
+    }).join('');
+    return `<tr><td class="frm-sticky"><strong>${escHtml(nomPers(e))}</strong>${e.actif===false?' <span class="badge badge-non" style="font-size:9px">inactif</span>':''}</td>${cells}</tr>`;
+  }).join('');
+  return `<div style="padding:10px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--gray-5)">
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="frm-anciens" style="width:auto" ${_frm.f.anciens?'checked':''} onchange="_frm.f.anciens=this.checked;frmAfficherCorps()"/> Afficher aussi les anciens employés</label>
+      <span>Cliquer sur une case pour voir, modifier ou ajouter l'attestation.</span></div>
+    <div class="table-wrap" style="overflow:auto;max-height:70vh;-webkit-overflow-scrolling:touch">
+      <table class="frm-mat" id="frm-matrice"><thead><tr><th class="frm-sticky">Employé</th>${tete}</tr></thead><tbody>${lignes}</tbody></table></div>`;
+}
+function frmOuvrirCellule(empId, typeId){
+  const C = frmCalcul();
+  const it = C.items.find(x=>x.courante && String(x.l.employe_id)===String(empId) && String(x.l.type_id)===String(typeId));
+  if(it) openFormationModal(it.l.id); else openFormationModal(null, {employe_id:empId, type_id:typeId});
+}
+
+// ── Liste : toutes les attestations (avec l'historique) ──
+function frmFiltrer(C){
+  const f = _frm.f, q = frmN(f.q);
+  return C.items.filter(it=>{
+    if(f.statut && it.code!==f.statut) return false;
+    if(f.type && String(it.l.type_id)!==String(f.type)) return false;
+    if(f.emp && String(it.l.employe_id)!==String(f.emp)) return false;
+    if(!f.anciens && it.e && it.e.actif===false) return false;
+    if(q && !frmN([it.e?nomPers(it.e):'', it.t?it.t.nom:'', it.l.organisme, it.l.numero_attestation, it.l.observations].join(' ')).includes(q)) return false;
+    return true;
+  }).sort((a,b)=> (FRM_ORDRE[a.code]-FRM_ORDRE[b.code]) || ((a.st.exp||'9999-12-31')<(b.st.exp||'9999-12-31')?-1:(a.st.exp||'9999-12-31')>(b.st.exp||'9999-12-31')?1:0)
+    || nomPers(a.e).localeCompare(nomPers(b.e),'fr') || String(a.t?a.t.nom:'').localeCompare(String(b.t?b.t.nom:''),'fr'));
+}
+function frmHtmlListe(C){
+  const f = _frm.f;
+  const optsT = _frm.types.map(t=>`<option value="${escHtml(t.id)}"${String(f.type)===String(t.id)?' selected':''}>${escHtml(t.nom)}</option>`).join('');
+  const optsE = _frm.emps.map(e=>`<option value="${escHtml(e.id)}"${String(f.emp)===String(e.id)?' selected':''}>${escHtml(nomPers(e))}</option>`).join('');
+  const optsS = Object.entries(FRM_STATUTS).map(([k,l])=>`<option value="${k}"${f.statut===k?' selected':''}>${l}</option>`).join('');
+  return `<div style="padding:12px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="search-wrap"><i class="ti ti-search"></i><input id="frm-q" placeholder="Rechercher…" value="${escHtml(f.q)}" oninput="_frm.f.q=this.value;frmMajListe()"/></div>
+      <select id="frm-f-statut" onchange="_frm.f.statut=this.value;frmMajListe()" style="width:auto"><option value="">Tous les états</option>${optsS}</select>
+      <select id="frm-f-type" onchange="_frm.f.type=this.value;frmMajListe()" style="width:auto;max-width:260px"><option value="">Toutes les formations</option>${optsT}</select>
+      <select id="frm-f-emp" onchange="_frm.f.emp=this.value;frmMajListe()" style="width:auto"><option value="">Tous les employés</option>${optsE}</select>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px;color:var(--gray-5)"><input type="checkbox" id="frm-f-anciens" style="width:auto" ${f.anciens?'checked':''} onchange="_frm.f.anciens=this.checked;frmMajListe()"/> Anciens employés</label>
+      <button class="btn btn-secondary btn-sm" id="btn-frm-lier" onclick="frmLierPdf()" title="Relier chaque attestation au PDF déposé dans le dossier de l'employé (même nom de fichier que dans la colonne « Fichier PDF » de l'Excel)"><i class="ti ti-link"></i> Lier les PDF</button>
+    </div><div id="frm-liste-corps">${frmHtmlListeCorps(C)}</div>`;
+}
+function frmMajListe(){ const c = el('frm-liste-corps'); if(c) c.innerHTML = frmHtmlListeCorps(frmCalcul()); }
+function frmBadge(code){ return `<span class="badge frm-b-${code}">${FRM_STATUTS[code]||code}</span>`; }
+function frmHtmlListeCorps(C){
+  const items = frmFiltrer(C);
+  const lignes = items.map(it=>{
+    const l = it.l, pdf = l.anexo_id ? '<i class="ti ti-paperclip" title="Attestation jointe"></i>' : (l.fichier_pdf ? `<span title="PDF non relié : ${escHtml(l.fichier_pdf)}" style="color:var(--orange)"><i class="ti ti-paperclip-off"></i></span>` : '');
+    return `<tr data-sel-id="${escHtml(l.id)}" data-code="${it.code}" style="cursor:pointer${it.code==='historique'?';opacity:.65':''}" onclick="openFormationModal('${escHtml(l.id)}')">
+      <td><strong>${escHtml(it.e?nomPers(it.e):'—')}</strong>${it.e && it.e.actif===false?' <span class="badge badge-non" style="font-size:9px">inactif</span>':''}</td>
+      <td>${escHtml(it.t?it.t.nom:'—')}</td>
+      <td>${frmFmt(l.date_formation)}</td>
+      <td>${escHtml(l.organisme)||'—'}</td>
+      <td>${it.st.exp ? frmFmt(it.st.exp)+(l.date_expiration?'':' <span title="Calculée : date + validité du type" style="color:var(--gray-4)">(calc.)</span>') : '—'}</td>
+      <td>${frmBadge(it.code)}${it.code!=='historique' && it.st.jours!==null && it.st.code!=='valide' ? ` <span style="font-size:11px;color:var(--gray-5)">${it.st.jours<0?'depuis '+(-it.st.jours)+' j':'dans '+it.st.jours+' j'}</span>`:''}</td>
+      <td>${l.duree_heures!=null && l.duree_heures!=='' ? escHtml(String(l.duree_heures).replace('.',','))+' h' : '—'}</td>
+      <td style="text-align:center">${pdf}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openFormationModal('${escHtml(l.id)}')" title="Modifier"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();frmSupprimer('${escHtml(l.id)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
+      </div></td></tr>`;
+  }).join('');
+  return `<div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table data-tri="oui" data-export="formations" id="frm-table">
+    <thead><tr><th>Employé</th><th>Formation</th><th>Date</th><th>Organisme</th><th>Valide jusqu'au</th><th>État</th><th>Durée</th><th></th><th>Actions</th></tr></thead>
+    <tbody>${items.length ? lignes : `<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-certificate"></i></div><p>${_frm.lignes.length ? 'Aucune attestation ne correspond aux filtres' : 'Aucune attestation enregistrée'}</p></div></td></tr>`}</tbody></table></div>`;
+}
+
+// ── Types de formation ──
+function frmHtmlTypes(C){
+  const emplois = {}; C.items.forEach(it=>{ const k = String(it.l.type_id); emplois[k] = (emplois[k]||0)+1; });
+  const lignes = _frm.types.map(t=>`<tr data-sel-id="${escHtml(t.id)}" style="cursor:pointer${t.actif===false?';opacity:.6':''}" onclick="openFormationTypeModal('${escHtml(t.id)}')">
+      <td><strong>${escHtml(t.nom)}</strong></td>
+      <td>${Number(t.validite_mois)>0 ? escHtml(String(t.validite_mois))+' mois'+(Number(t.validite_mois)%12===0?' ('+(t.validite_mois/12)+' an'+(t.validite_mois/12>1?'s':'')+')':'') : "N'expire pas"}</td>
+      <td>${t.alerte_jours!=null && t.alerte_jours!=='' ? escHtml(String(t.alerte_jours))+' j' : FRM_ALERTE_DEFAUT+' j <span style="color:var(--gray-4)">(défaut)</span>'}</td>
+      <td>${emplois[String(t.id)]||0}</td>
+      <td><span class="badge badge-${t.actif===false?'non':'oui'}">${t.actif===false?'Non':'Oui'}</span></td>
+      <td>${escHtml(t.observations)||'—'}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openFormationTypeModal('${escHtml(t.id)}')" title="Modifier"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();frmSupprimerType('${escHtml(t.id)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
+      </div></td></tr>`).join('');
+  return `<div class="table-wrap" style="overflow-x:auto"><table data-tri="oui" id="frm-types-table">
+    <thead><tr><th>Formation</th><th>Validité</th><th>Alerte avant expiration</th><th>Attestations</th><th>Active</th><th>Observations</th><th>Actions</th></tr></thead>
+    <tbody>${_frm.types.length ? lignes : `<tr><td colspan="7"><div class="empty"><p>Aucun type de formation</p><button class="btn btn-primary" onclick="openFormationTypeModal()"><i class="ti ti-plus"></i> Nouveau type</button></div></td></tr>`}</tbody></table></div>
+    <div style="padding:10px 14px;font-size:12px;color:var(--gray-5)">La validité d'un type sert à calculer l'expiration quand l'attestation n'indique pas de date. Une date saisie sur l'attestation prime toujours. Validité vide = la formation n'expire pas. Les durées légales sont à confirmer avec le responsable sécurité / l'organisme de formation.</div>`;
+}
+const frmNombreOuNul = v => { const s = String(v==null?'':v).trim().replace(',','.'); if(s==='') return null; const n = Number(s); return isFinite(n) ? n : NaN; };
+function openFormationTypeModal(id){
+  const t = id ? _frm.types.find(x=>String(x.id)===String(id)) : null;
+  if(id && !t){ showToast('Type introuvable — rechargez la page','error'); return; }
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${t?'Modifier le type de formation':'Nouveau type de formation'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="field-label" for="frt-nom">Nom de la formation *</label><input id="frt-nom" value="${escHtml(t?t.nom:'')}" placeholder="Ex: Habilitation électrique basse tension BT-H/V"/></div>
+        <div class="form-group"><label class="field-label" for="frt-validite">Validité (mois)</label><input id="frt-validite" type="number" min="1" max="600" step="1" value="${escHtml(t&&t.validite_mois!=null?t.validite_mois:'')}" placeholder="60 = 5 ans"/>
+          <span style="font-size:12px;color:var(--gray-5)">Vide = la formation n'expire pas.</span></div>
+        <div class="form-group"><label class="field-label" for="frt-alerte">Alerte (jours avant expiration)</label><input id="frt-alerte" type="number" min="0" max="1095" step="1" value="${escHtml(t&&t.alerte_jours!=null?t.alerte_jours:'')}" placeholder="${FRM_ALERTE_DEFAUT}"/>
+          <span style="font-size:12px;color:var(--gray-5)">Vide = ${FRM_ALERTE_DEFAUT} jours. 0 = pas d'alerte avant l'expiration.</span></div>
+        <div class="form-group full"><label class="field-label" for="frt-obs">Observations</label><input id="frt-obs" value="${escHtml(t?t.observations:'')}"/></div>
+        <div class="form-group full"><label style="display:flex;gap:10px;align-items:center;font-weight:400;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="frt-actif" style="width:auto;margin:0" ${(!t||t.actif!==false)?'checked':''}/> Formation active (proposée dans les listes)</label></div>
+      </div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-primary" id="btn-frt-save" onclick="frmEnregistrerType(${id?`'${escHtml(id)}'`:'null'})"><i class="ti ti-check"></i> Enregistrer</button></div>
+    </div></div></div>`);
+}
+async function frmEnregistrerType(id){
+  const nom = (el('frt-nom').value||'').trim(), val = frmNombreOuNul(el('frt-validite').value), al = frmNombreOuNul(el('frt-alerte').value);
+  if(!nom){ showToast('Le nom de la formation est obligatoire','error'); return; }
+  if(val!==null && (!Number.isInteger(val) || val<1 || val>600)){ showToast('La validité doit être un nombre entier de mois (1 à 600) ou rester vide','error'); return; }
+  if(al!==null && (!Number.isInteger(al) || al<0 || al>1095)){ showToast("L'alerte doit être un nombre entier de jours (0 à 1095) ou rester vide",'error'); return; }
+  if(_frm.types.some(x=>String(x.id)!==String(id||'') && frmN(x.nom)===frmN(nom))){ showToast('Ce type de formation existe déjà','error'); return; }
+  const data = {nom, validite_mois:val, alerte_jours:al, observations:(el('frt-obs').value||'').trim()||null, actif:el('frt-actif').checked};
+  const b = el('btn-frt-save'); if(b) b.disabled = true;
+  const {error} = id ? await sb.from('formations_types').update(data).eq('id',id) : await sb.from('formations_types').insert(data);
+  if(error){ if(b) b.disabled = false; showToast(/duplicate|unique/i.test(error.message) ? 'Ce type de formation existe déjà' : 'Erreur: '+error.message, 'error'); return; }
+  closeModal(); showToast(id?'Type mis à jour':'Type créé'); renderFormations();
+}
+async function frmSupprimerType(id){
+  const t = _frm.types.find(x=>String(x.id)===String(id)); if(!t) return;
+  const n = _frm.lignes.filter(l=>String(l.type_id)===String(id)).length;
+  if(n){ showToast(`« ${t.nom} » est utilisée par ${n} attestation${n>1?'s':''} : désactivez-la plutôt que de la supprimer`,'error'); return; }
+  if(!confirm(`Supprimer le type « ${t.nom} » ?`)) return;
+  const {error} = await sb.from('formations_types').delete().eq('id',id);
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  showToast('Type supprimé'); renderFormations();
+}
+
+// ── Fenêtre d'une attestation ──
+function frmMajIndice(){
+  const h = el('frm-exp-hint'); if(!h) return;
+  const date = (el('frm-date')||{}).value||'', exp = (el('frm-exp')||{}).value||'', tid = (el('frm-type')||{}).value||'';
+  const t = _frm.types.find(x=>String(x.id)===String(tid));
+  let txt = '', cls = 'var(--gray-5)';
+  if(exp && date && exp<date){ txt = 'La date de validité ne peut pas précéder la date de la formation.'; cls = 'var(--red)'; }
+  else if(exp) txt = 'Date de validité indiquée sur l\'attestation.';
+  else if(t && Number(t.validite_mois)>0 && date) txt = `Si vide : date de la formation + ${t.validite_mois} mois = ${frmFmt(frmAjouterMois(date, t.validite_mois))}.`;
+  else if(t && !(Number(t.validite_mois)>0)) txt = "Ce type de formation n'expire pas (aucune validité définie).";
+  h.textContent = txt; h.style.color = cls;
+}
+function openFormationModal(id, preset){
+  const l = id ? _frm.lignes.find(x=>String(x.id)===String(id)) : null;
+  if(id && !l){ showToast('Attestation introuvable — rechargez la page','error'); return; }
+  const p = l || preset || {};
+  const emps = _frm.emps.filter(e=>e.actif!==false || String(e.id)===String(p.employe_id));
+  const types = _frm.types.filter(t=>t.actif!==false || String(t.id)===String(p.type_id));
+  if(!emps.length){ showToast("Aucun employé : créez d'abord les employés (Ressources humaines → Employés)",'error'); return; }
+  if(!types.length){ showToast("Aucun type de formation : créez-en un d'abord (onglet Types) ou importez l'Excel",'error'); return; }
+  const optE = emps.map(e=>`<option value="${escHtml(e.id)}"${String(p.employe_id)===String(e.id)?' selected':''}>${escHtml(nomPers(e))}${e.actif===false?' (inactif)':''}</option>`).join('');
+  const optT = types.map(t=>`<option value="${escHtml(t.id)}"${String(p.type_id)===String(t.id)?' selected':''}>${escHtml(t.nom)}${t.actif===false?' (désactivée)':''}</option>`).join('');
+  const nb = v => (v==null||v==='') ? '' : escHtml(String(v));
+  const anexo = l && l.anexo_id ? l.anexo_id : null;
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>${l?'Modifier l\'attestation':'Nouvelle formation'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label" for="frm-emp">Employé *</label><select id="frm-emp"><option value="">— Sélectionner —</option>${optE}</select></div>
+        <div class="form-group"><label class="field-label" for="frm-type">Formation *</label><select id="frm-type" onchange="frmMajIndice()"><option value="">— Sélectionner —</option>${optT}</select></div>
+        <div class="form-group"><label class="field-label" for="frm-date">Date de la formation *</label><input type="date" id="frm-date" value="${escHtml(frmISO(p.date_formation))}" onchange="frmMajIndice()"/>
+          <span style="font-size:12px;color:var(--gray-5)">Pour une formation de plusieurs jours : le dernier jour.</span></div>
+        <div class="form-group"><label class="field-label" for="frm-exp">Valide jusqu'au (si indiqué sur l'attestation)</label><input type="date" id="frm-exp" value="${escHtml(frmISO(p.date_expiration))}" onchange="frmMajIndice()"/>
+          <span id="frm-exp-hint" style="font-size:12px;color:var(--gray-5)"></span></div>
+        <div class="form-group"><label class="field-label" for="frm-org">Organisme de formation</label><input id="frm-org" value="${escHtml(p.organisme||'')}"/></div>
+        <div class="form-group"><label class="field-label" for="frm-num">N° d'attestation / certificat</label><input id="frm-num" value="${escHtml(p.numero_attestation||'')}"/></div>
+        <div class="form-group"><label class="field-label" for="frm-duree">Durée (heures)</label><input id="frm-duree" type="number" min="0" step="0.5" value="${nb(p.duree_heures)}"/></div>
+        <div class="form-group"><label class="field-label" for="frm-cout">Coût HT (€)</label><input id="frm-cout" type="number" min="0" step="0.01" value="${nb(p.cout_ht)}"/></div>
+        <div class="form-group full"><label class="field-label" for="frm-obs">Observations</label><textarea id="frm-obs" rows="2">${escHtml(p.observations||'')}</textarea></div>
+        <div class="form-group full"><label class="field-label" for="frm-file">Attestation (PDF ou image)</label>
+          <div id="frm-pdf-actuel" style="margin-bottom:6px;font-size:13px">${anexo ? '<span class="badge badge-oui">Attestation jointe</span> <span style="color:var(--gray-5)">(dans le dossier de l\'employé)</span>' : (l && l.fichier_pdf ? `<span style="color:var(--orange)"><i class="ti ti-paperclip-off"></i> PDF non relié : « ${escHtml(l.fichier_pdf)} » — déposez-le dans le dossier de l'employé puis « Lier les PDF »</span>` : '<span style="color:var(--gray-5)">Aucune attestation jointe</span>')}</div>
+          <input type="file" id="frm-file" accept=".pdf,.jpg,.jpeg,.png"/>
+          <span style="font-size:12px;color:var(--gray-5)">Le fichier est ajouté au dossier de l'employé (type « Certificat / formation »). 10 Mo maximum.</span></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        ${l?`<button class="btn btn-danger" onclick="closeModal();frmSupprimer('${escHtml(l.id)}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
+        <button class="btn btn-primary" id="btn-frm-save" onclick="frmEnregistrer(${l?`'${escHtml(l.id)}'`:'null'})"><i class="ti ti-check"></i> Enregistrer</button>
+      </div>
+    </div></div></div>`);
+  frmMajIndice();
+}
+async function frmJoindreAttestation(formationId, empId, file){
+  if(file.size > 10*1024*1024) return {ok:false, msg:'fichier de plus de 10 Mo'};
+  const path = `employes/${empId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+  const up = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+  if(up.error) return {ok:false, msg:up.error.message};
+  const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+  const ligne = {employe_id:empId, nome_ficheiro:file.name, url:urlData.publicUrl, tamanho:file.size, tipo:file.type, carregado_por:currentUser.id};
+  let ins = await sb.from('anexos_employe').insert({...ligne, categorie:'certificat'}).select('id').single();
+  if(ins.error && /categorie/i.test(ins.error.message||'')) ins = await sb.from('anexos_employe').insert(ligne).select('id').single();   // colonne « categorie » pas encore créée
+  if(ins.error) return {ok:false, msg:ins.error.message};
+  const up2 = await sb.from('formations_employes').update({anexo_id:ins.data.id, fichier_pdf:file.name}).eq('id',formationId);
+  if(up2.error) return {ok:false, msg:up2.error.message};
+  return {ok:true};
+}
+async function frmEnregistrer(id){
+  const v = i => (el(i)||{}).value||'';
+  const emp = v('frm-emp'), type = v('frm-type'), date = v('frm-date'), exp = v('frm-exp');
+  if(!emp){ showToast("Choisissez l'employé",'error'); return; }
+  if(!type){ showToast('Choisissez la formation','error'); return; }
+  if(!date){ showToast('Indiquez la date de la formation','error'); return; }
+  if(exp && exp<date){ showToast('La date de validité ne peut pas précéder la date de la formation','error'); return; }
+  const duree = frmNombreOuNul(v('frm-duree')), cout = frmNombreOuNul(v('frm-cout'));
+  if(Number.isNaN(duree) || (duree!==null && duree<0)){ showToast('La durée doit être un nombre positif','error'); return; }
+  if(Number.isNaN(cout) || (cout!==null && cout<0)){ showToast('Le coût doit être un nombre positif','error'); return; }
+  if(_frm.lignes.some(x=>String(x.id)!==String(id||'') && String(x.employe_id)===String(emp) && String(x.type_id)===String(type) && frmISO(x.date_formation)===date)){
+    showToast('Cette attestation est déjà enregistrée (même employé, même formation, même date).','error'); return; }
+  const data = {employe_id:emp, type_id:type, date_formation:date, date_expiration:exp||null, organisme:v('frm-org').trim()||null,
+    numero_attestation:v('frm-num').trim()||null, duree_heures:duree, cout_ht:cout, observations:v('frm-obs').trim()||null};
+  const b = el('btn-frm-save'); if(b) b.disabled = true;
+  const res = id ? await sb.from('formations_employes').update(data).eq('id',id).select('id').single()
+                 : await sb.from('formations_employes').insert(data).select('id').single();
+  if(res.error){ if(b) b.disabled = false; showToast(/duplicate|unique/i.test(res.error.message) ? 'Cette attestation est déjà enregistrée (même employé, même formation, même date).' : 'Erreur: '+res.error.message, 'error'); return; }
+  const f = el('frm-file') && el('frm-file').files && el('frm-file').files[0];
+  let pdfMsg = '';
+  if(f){ const r = await frmJoindreAttestation(res.data.id, emp, f); if(!r.ok) pdfMsg = " — mais le fichier n'a pas pu être joint : "+r.msg; }
+  closeModal();
+  showToast((id?'Attestation mise à jour':'Attestation enregistrée')+pdfMsg, pdfMsg?'error':'success');
+  await renderFormations();
+}
+async function frmSupprimer(id){
+  const l = _frm.lignes.find(x=>String(x.id)===String(id)); if(!l) return;
+  const e = _frm.emps.find(x=>String(x.id)===String(l.employe_id)), t = _frm.types.find(x=>String(x.id)===String(l.type_id));
+  if(!confirm(`Supprimer cette attestation ?\n\n${e?nomPers(e):'?'} — ${t?t.nom:'?'} (${frmFmt(l.date_formation)})\n\nLe PDF éventuel reste dans le dossier de l'employé.`)) return;
+  const {error} = await sb.from('formations_employes').delete().eq('id',id);
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  showToast('Attestation supprimée'); renderFormations();
+}
+// Relier les attestations aux PDF déjà déposés dans les dossiers des employés (même nom de fichier que la colonne « Fichier PDF » de l'Excel)
+async function frmLierPdf(){
+  const aLier = _frm.lignes.filter(l=>!l.anexo_id && l.fichier_pdf);
+  if(!aLier.length){ showToast('Aucune attestation en attente de PDF'); return; }
+  const emps = [...new Set(aLier.map(l=>String(l.employe_id)))];
+  const docs = await frmDocsEmployes(emps);
+  if(docs===null){ showToast('Impossible de lire les documents des employés','error'); return; }
+  let nb = 0;
+  for(const l of aLier){
+    const d = docs.find(x=>String(x.employe_id)===String(l.employe_id) && frmN(x.nome_ficheiro)===frmN(l.fichier_pdf));
+    if(!d) continue;
+    const {error} = await sb.from('formations_employes').update({anexo_id:d.id}).eq('id',l.id);
+    if(!error) nb++;
+  }
+  showToast(nb ? `${nb} attestation${nb>1?'s':''} reliée${nb>1?'s':''} à son PDF`+(nb<aLier.length?` · ${aLier.length-nb} sans PDF correspondant`:'') : `Aucun PDF correspondant trouvé pour ${aLier.length} attestation${aLier.length>1?'s':''} (déposez-les dans le dossier de chaque employé, avec le même nom de fichier)`, nb?'success':'error');
+  if(nb) renderFormations();
+}
+async function frmDocsEmployes(empIds){
+  const out = [];
+  for(let i=0;i<empIds.length;i+=15){
+    const {data, error} = await sb.from('anexos_employe').select('id,employe_id,nome_ficheiro').in('employe_id', empIds.slice(i,i+15));
+    if(error) return null;
+    out.push(...(data||[]));
+  }
+  return out;
+}
+
+// ── Importer le fichier Excel « Formations » ──
+// Dates Excel : numéro de série (jj/mm/aaaa affiché) · texte jj/mm/aaaa · AAAA-MM-JJ. Renvoie 'AAAA-MM-JJ' ou '' (vide) ou null (illisible).
+function frmLireDate(v){
+  if(v===null || v===undefined || (typeof v==='string' && !v.trim())) return '';
+  if(typeof v==='number'){
+    if(!(v>=32874 && v<=73415)) return null;      // 1990 → 2100
+    return new Date(Math.round((v-25569)*86400000)).toISOString().slice(0,10);
+  }
+  if(v instanceof Date && !isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+  const s = String(v).trim();
+  let m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/.exec(s), j, mo, a;
+  if(m){ j = +m[1]; mo = +m[2]; a = +m[3]; if(m[3].length===2) a += 2000; }
+  else if((m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s))){ a = +m[1]; mo = +m[2]; j = +m[3]; }
+  else return null;
+  const d = new Date(Date.UTC(a, mo-1, j));
+  if(a<1990 || a>2100 || d.getUTCFullYear()!==a || d.getUTCMonth()!==mo-1 || d.getUTCDate()!==j) return null;
+  return d.toISOString().slice(0,10);
+}
+function frmLireNombre(v){ if(v===null||v===undefined) return ''; if(typeof v==='number') return v; const s = String(v).trim().replace(/\s/g,'').replace(',','.'); if(s==='') return ''; const n = Number(s); return isFinite(n) ? n : null; }
+const frmTexte = v => (v===null||v===undefined) ? '' : String(v).trim();
+function frmColonnes(entete){
+  const col = {};
+  (entete||[]).forEach((h,i)=>{
+    const n = frmN(h);
+    if(/^salarie/.test(n) && col.salarie===undefined) col.salarie = i;
+    else if(n==='formation' && col.formation===undefined) col.formation = i;
+    else if(/^date de la formation/.test(n)) col.date = i;
+    else if(/^valide jusqu/.test(n)) col.valide = i;
+    else if(/^organisme/.test(n)) col.organisme = i;
+    else if(/attestation|certificat/.test(n) && /^n/.test(n)) col.numero = i;
+    else if(/^duree/.test(n)) col.duree = i;
+    else if(/^cout/.test(n)) col.cout = i;
+    else if(/^fichier pdf/.test(n)) col.pdf = i;
+    else if(/^observations/.test(n)) col.obs = i;
+  });
+  return col;
+}
+// Reconnaît l'employé d'un nom écrit « NOM Prénom » ou « Prénom Nom » (accents, ordre et casse ignorés) : jamais au hasard entre deux homonymes
+function frmEmployePourNom(texte, emps){
+  const actifs = emps.filter(e=>e.actif!==false);
+  let m = employesPourTexteChef(texte, actifs);
+  if(m.length===1) return {e:m[0]};
+  if(m.length>1) return {erreur:'Plusieurs employés portent ce nom'};
+  m = employesPourTexteChef(texte, emps);
+  if(m.length===1) return {e:m[0], avert:'Employé inactif'};
+  if(m.length>1) return {erreur:'Plusieurs employés portent ce nom'};
+  return {erreur:'Salarié non reconnu (nom différent de celui de la fiche Employés)'};
+}
+// Analyse (sans rien écrire) : matrices = {formations:[[…],…], types:[[…],…]|null}
+function frmAnalyserImport(matrices, ctx){
+  const res = {lignes:[], typesACreer:[], erreur:'', nbTypesSheet:0};
+  const M = matrices.formations;
+  if(!M || !M.length){ res.erreur = "Feuille « Formations » introuvable ou vide."; return res; }
+  const col = frmColonnes(M[0]);
+  const manque = ['salarie','formation','date'].filter(k=>col[k]===undefined);
+  if(manque.length){ res.erreur = "Colonnes introuvables dans la feuille « Formations » : "+manque.map(k=>({salarie:'Salarié',formation:'Formation',date:'Date de la formation'})[k]).join(', ')+'.'; return res; }
+  // Types définis dans l'Excel (feuille « Types de formation »)
+  const defTypes = new Map();
+  if(matrices.types && matrices.types.length){
+    const h = (matrices.types[0]||[]).map(frmN);
+    const iN = h.findIndex(x=>x==='formation' || /^formation \(nom/.test(x)), iV = h.findIndex(x=>/^validite/.test(x)), iA = h.findIndex(x=>/^alerte/.test(x)), iO = h.findIndex(x=>/^observations/.test(x));
+    if(iN>=0) matrices.types.slice(1).forEach(r=>{
+      const nom = frmTexte(r[iN]); if(!nom) return;
+      const val = iV>=0 ? frmLireNombre(r[iV]) : '', al = iA>=0 ? frmLireNombre(r[iA]) : '';
+      const avert = [];
+      let validite = null, alerte = null;
+      if(val!=='' ){ if(val!==null && Number.isInteger(val) && val>=1 && val<=600) validite = val; else avert.push('validité illisible, ignorée'); }
+      if(al!==''){ if(al!==null && Number.isInteger(al) && al>=0 && al<=1095) alerte = al; else avert.push('alerte illisible, ignorée'); }
+      defTypes.set(frmN(nom), {nom, validite_mois:validite, alerte_jours:alerte, observations: iO>=0 ? (frmTexte(r[iO])||null) : null, avert});
+    });
+    res.nbTypesSheet = defTypes.size;
+  }
+  const typesExistants = new Map(ctx.types.map(t=>[frmN(t.nom), t]));
+  const dejaLa = new Set(ctx.lignes.map(l=>String(l.employe_id)+'|'+String(l.type_id)+'|'+frmISO(l.date_formation)));
+  const dansFichier = new Map(), nouveaux = new Map();
+  for(let i=1;i<M.length;i++){
+    const r = M[i]||[], get = k => col[k]===undefined ? undefined : r[col[k]];
+    const salarie = frmTexte(get('salarie')), formation = frmTexte(get('formation')), dateBrute = get('date');
+    if(!salarie && !formation && (dateBrute===undefined || dateBrute===null || frmTexte(dateBrute)==='')) continue;     // ligne vide (les colonnes calculées ne comptent pas)
+    const L = {ligne:i+1, salarie, formation, date:'', exp:'', organisme:frmTexte(get('organisme')), numero:frmTexte(get('numero')), duree:null, cout:null,
+      pdf:frmTexte(get('pdf')), obs:frmTexte(get('obs')), statut:'ok', motif:'', avert:[], emp:null, type:null, nouveauType:null};
+    const err = m => { if(L.statut==='ok'){ L.statut = 'erreur'; L.motif = m; } };
+    if(!salarie) err('Salarié manquant');
+    if(!formation) err('Formation manquante');
+    const d = frmLireDate(dateBrute);
+    if(d==='') err('Date de la formation manquante'); else if(d===null) err('Date de la formation illisible : « '+frmTexte(dateBrute)+' »'); else L.date = d;
+    const e = col.valide!==undefined ? frmLireDate(get('valide')) : '';
+    if(e===null) err("Date « Valide jusqu'au » illisible : « "+frmTexte(get('valide'))+' »');
+    else { L.exp = e; if(e && L.date && e<L.date) err('La date de validité précède la date de la formation'); }
+    const du = col.duree!==undefined ? frmLireNombre(get('duree')) : '', co = col.cout!==undefined ? frmLireNombre(get('cout')) : '';
+    if(du===null || (du!=='' && du<0)) err('Durée illisible'); else L.duree = du==='' ? null : du;
+    if(co===null || (co!=='' && co<0)) err('Coût illisible'); else L.cout = co==='' ? null : co;
+    if(salarie){
+      const q = frmEmployePourNom(salarie, ctx.emps);
+      if(q.erreur) err(q.erreur+' : « '+salarie+' »'); else { L.emp = q.e; if(q.avert) L.avert.push(q.avert); }
+    }
+    if(formation){
+      const k = frmN(formation);
+      if(typesExistants.has(k)) L.type = typesExistants.get(k);
+      else if(defTypes.has(k)) L.nouveauType = defTypes.get(k);
+      else err('Formation inconnue : « '+formation+' » (à ajouter à la feuille « Types de formation »)');
+    }
+    if(L.statut==='ok'){
+      const kt = L.type ? String(L.type.id) : 'new:'+frmN(formation);
+      const cle = String(L.emp.id)+'|'+kt+'|'+L.date;
+      if(L.type && dejaLa.has(cle)){ L.statut = 'doublon'; L.motif = "Déjà dans l'ERP"; }
+      else if(dansFichier.has(cle)){ L.statut = 'doublon'; L.motif = 'Doublon dans le fichier (ligne '+dansFichier.get(cle)+')'; }
+      else { dansFichier.set(cle, L.ligne); if(L.nouveauType) nouveaux.set(frmN(formation), L.nouveauType); }
+    }
+    res.lignes.push(L);
+  }
+  res.typesACreer = [...nouveaux.values()];
+  return res;
+}
+function frmImporterFichier(file){
+  if(!file) return;
+  if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
+  if(_frm.etat!=='ok'){ showToast("Exécutez d'abord "+SQL_FORMATIONS+' dans Supabase','error'); return; }
+  const reader = new FileReader();
+  reader.onload = e=>{
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const trouve = fn => wb.SheetNames.find(n=>fn(frmN(n)));
+      const nF = trouve(n=>n==='formations') || trouve(n=>/^formations/.test(n) && !/types/.test(n)), nT = trouve(n=>/^types/.test(n));
+      const mat = n => n ? XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, raw:true, defval:''}) : null;
+      const res = frmAnalyserImport({formations:mat(nF), types:mat(nT)}, {types:_frm.types, emps:_frm.emps, lignes:_frm.lignes});
+      _frm.imp = {res, nom:file.name};
+      frmApercuImport();
+    }catch(err){ showToast('Erreur de lecture du fichier : '+err.message, 'error'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function frmApercuImport(){
+  const {res, nom} = _frm.imp;
+  if(res.erreur){ showModal(`<div class="modal-overlay"><div class="modal"><div class="modal-header"><h3>Importer des formations</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div class="alert alert-error" id="frm-imp-erreur"><i class="ti ti-alert-circle"></i><span>${escHtml(res.erreur)}</span></div><div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div></div></div></div>`); return; }
+  const ok = res.lignes.filter(l=>l.statut==='ok'), dbl = res.lignes.filter(l=>l.statut==='doublon'), err = res.lignes.filter(l=>l.statut==='erreur');
+  const lib = {ok:'À importer', doublon:'Déjà présente', erreur:'À corriger'}, cls = {ok:'valide', doublon:'sans', erreur:'expiree'};
+  const ordre = [...err, ...ok, ...dbl];
+  const MAX = 300;
+  const lignes = ordre.slice(0,MAX).map(l=>`<tr data-statut="${l.statut}"><td>${l.ligne}</td><td><span class="badge frm-b-${cls[l.statut]}">${lib[l.statut]}</span></td>
+    <td>${escHtml(l.emp?nomPers(l.emp):l.salarie)||'—'}</td><td>${escHtml(l.formation)||'—'}${l.nouveauType?' <span class="badge badge-brouillon" style="font-size:9px">nouveau type</span>':''}</td>
+    <td>${l.date?frmFmt(l.date):'—'}</td><td>${l.exp?frmFmt(l.exp):'—'}</td><td style="font-size:12px;color:${l.statut==='erreur'?'var(--red)':'var(--gray-5)'}">${escHtml([l.motif,...l.avert].filter(Boolean).join(' · '))}</td></tr>`).join('');
+  showModal(`<div class="modal-overlay"><div class="modal modal-xl" style="max-width:1000px;width:96vw">
+    <div class="modal-header"><h3>Importer des formations — aperçu</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--gray-5);margin-bottom:10px">Fichier : <strong>${escHtml(nom)}</strong>. Rien n'est enregistré avant de cliquer sur « Importer ».</p>
+      <div class="frm-compteurs" id="frm-imp-resume">
+        <span class="frm-pill frm-b-valide" id="frm-imp-n-ok"><strong>${ok.length}</strong> à importer</span>
+        <span class="frm-pill frm-b-sans" id="frm-imp-n-dbl"><strong>${dbl.length}</strong> déjà présente${dbl.length>1?'s':''}</span>
+        <span class="frm-pill frm-b-expiree" id="frm-imp-n-err"><strong>${err.length}</strong> à corriger</span>
+        <span class="frm-pill frm-b-renouveler" id="frm-imp-n-types"><strong>${res.typesACreer.length}</strong> type${res.typesACreer.length>1?'s':''} à créer</span>
+      </div>
+      ${res.typesACreer.length ? `<div class="alert alert-info" style="margin:8px 0"><i class="ti ti-info-circle"></i><span>Types qui seront créés : ${res.typesACreer.map(t=>escHtml(t.nom)+(t.validite_mois?' ('+t.validite_mois+' mois)':' (n\'expire pas)')).join(' · ')}</span></div>` : ''}
+      ${err.length ? `<div class="alert alert-warning" style="margin:8px 0"><i class="ti ti-alert-triangle"></i><span>Les lignes « à corriger » ne seront PAS importées. Corrigez-les dans l'Excel puis réimportez : les lignes déjà importées sont ignorées (aucun doublon).</span></div>` : ''}
+      <div class="table-wrap" style="max-height:48vh;overflow:auto"><table id="frm-imp-table"><thead><tr><th>Ligne</th><th>État</th><th>Employé</th><th>Formation</th><th>Date</th><th>Valide jusqu'au</th><th>Remarque</th></tr></thead><tbody>${lignes||'<tr><td colspan="7">Aucune ligne trouvée dans le fichier.</td></tr>'}</tbody></table></div>
+      ${ordre.length>MAX ? `<p style="font-size:12px;color:var(--gray-5)">${ordre.length-MAX} ligne(s) de plus non affichée(s).</p>` : ''}
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="btn-frm-confirmer" onclick="frmConfirmerImport()" ${ok.length?'':'disabled'}><i class="ti ti-file-import"></i> Importer ${ok.length} formation${ok.length>1?'s':''}</button></div>
+    </div></div></div>`);
+}
+async function frmConfirmerImport(){
+  if(!_frm.imp) return;
+  const {res} = _frm.imp, ok = res.lignes.filter(l=>l.statut==='ok');
+  if(!ok.length) return;
+  const b = el('btn-frm-confirmer'); if(b){ b.disabled = true; b.innerHTML = '<i class="ti ti-loader"></i> Import en cours…'; }
+  let nbTypes = 0, nbOk = 0, nbDej = 0, nbEchec = 0, premiereErreur = '';
+  try{
+    // 1) types manquants
+    const idType = new Map(_frm.types.map(t=>[frmN(t.nom), t.id]));
+    for(const t of res.typesACreer){
+      const r = await sb.from('formations_types').insert({nom:t.nom, validite_mois:t.validite_mois, alerte_jours:t.alerte_jours, observations:t.observations}).select('id').single();
+      if(r.error){
+        if(/duplicate|unique/i.test(r.error.message)){ const x = await sb.from('formations_types').select('id,nom'); (x.data||[]).forEach(y=>{ if(frmN(y.nom)===frmN(t.nom)) idType.set(frmN(t.nom), y.id); }); }
+        else { premiereErreur = r.error.message; break; }
+      } else { idType.set(frmN(t.nom), r.data.id); nbTypes++; }
+    }
+    // 2) PDF déjà déposés dans les dossiers (même nom de fichier)
+    const docs = (await frmDocsEmployes([...new Set(ok.filter(l=>l.pdf).map(l=>String(l.emp.id)))])) || [];
+    const lignesBase = ok.map(l=>{
+      const tid = l.type ? l.type.id : idType.get(frmN(l.formation));
+      const doc = l.pdf ? docs.find(d=>String(d.employe_id)===String(l.emp.id) && frmN(d.nome_ficheiro)===frmN(l.pdf)) : null;
+      return {employe_id:l.emp.id, type_id:tid, date_formation:l.date, date_expiration:l.exp||null, organisme:l.organisme||null, numero_attestation:l.numero||null,
+        duree_heures:l.duree, cout_ht:l.cout, fichier_pdf:l.pdf||null, anexo_id:doc?doc.id:null, observations:l.obs||null};
+    }).filter(x=>x.type_id);
+    if(!premiereErreur) for(let i=0;i<lignesBase.length;i+=100){
+      const lot = lignesBase.slice(i,i+100);
+      const r = await sb.from('formations_employes').insert(lot);
+      if(!r.error){ nbOk += lot.length; continue; }
+      if(!/duplicate|unique/i.test(r.error.message)){ nbEchec += lot.length; premiereErreur = premiereErreur || r.error.message; continue; }
+      for(const x of lot){          // un doublon dans le lot : une par une, pour ne sauter que celle-là
+        const r1 = await sb.from('formations_employes').insert(x);
+        if(!r1.error) nbOk++; else if(/duplicate|unique/i.test(r1.error.message)) nbDej++; else { nbEchec++; premiereErreur = premiereErreur || r1.error.message; }
+      }
+    }
+  }catch(e){ premiereErreur = premiereErreur || (e && e.message) || String(e); }
+  _frm.imp = null; closeModal();
+  const parts = [`${nbOk} attestation${nbOk>1?'s':''} importée${nbOk>1?'s':''}`];
+  if(nbTypes) parts.push(`${nbTypes} type${nbTypes>1?'s':''} créé${nbTypes>1?'s':''}`);
+  if(nbDej) parts.push(`${nbDej} déjà présente${nbDej>1?'s':''}`);
+  if(nbEchec || premiereErreur){ showToast(parts.join(' · ')+' — erreur : '+premiereErreur+(nbEchec?` (${nbEchec} non importée${nbEchec>1?'s':''})`:''), 'error'); }
+  else showToast(parts.join(' · '));
+  await renderFormations();
+}
+
+// ── Alertes du tableau de bord : formations expirées / à renouveler (employés actifs) ──
+async function frmAlertesDashboard(){
+  if(!peutVoirSalaires()) return [];
+  try{
+    if(!(await frmCharger())) return [];
+    const C = frmCalcul(), a = [];
+    const actifs = C.items.filter(it=>it.courante && it.e && it.e.actif!==false);
+    const liste = code => { const x = actifs.filter(it=>it.st.code===code).sort((p,q)=>(p.st.exp<q.st.exp?-1:p.st.exp>q.st.exp?1:nomPers(p.e).localeCompare(nomPers(q.e),'fr'))); const noms = x.slice(0,3).map(it=>escHtml(nomPers(it.e))+' — '+escHtml(it.t?it.t.nom:'?')+' ('+frmFmt(it.st.exp)+')').join(' · '); return {n:x.length, txt:noms+(x.length>3?' …':'')}; };
+    const ex = liste('expiree'), re = liste('renouveler');
+    if(ex.n) a.push({type:'red', icon:'ti-alert-circle', msg:`${ex.n} formation${ex.n>1?'s':''} expirée${ex.n>1?'s':''} : ${ex.txt}`, page:'formations'});
+    if(re.n) a.push({type:'orange', icon:'ti-alert-triangle', msg:`${re.n} formation${re.n>1?'s':''} à renouveler : ${re.txt}`, page:'formations'});
+    return a;
+  }catch(e){ return []; }
 }
 
 // ── EMPLOYÉS (RH) ─────────────────────────────────────────────
@@ -12449,6 +13108,58 @@ function definitionsExport(){
          ordreLignes:[...Object.values(STATUTS_PRO),'Non renseigné'], ordreColonnes:[...PAYS_RESIDENCE,'Non renseigné']},
         {titre:'Type de contrat × statut (effectif)', ligne:r=>r.type_contrat||'Non renseigné', colonne:r=>STATUTS_PRO[r.statut_professionnel]||'Non renseigné',
          ordreLignes:['CDI','CDD','Intérim','Apprentissage','Stage','Indépendant','Non renseigné'], ordreColonnes:[...Object.values(STATUTS_PRO),'Non renseigné']}
+      ]
+    },
+
+    // ─────────────── FORMATIONS DU PERSONNEL ───────────────
+    formations:{ titre:'Formations', pivotDefaut:{ligne:'type', colonne:'etat'}, fichier:'Formations', feuille:'Formations', nbLibelle:'Attestations', donneesPersonnelles:true,
+      avertissement:"Ce fichier contient des données personnelles (formations des salariés) : ne le partagez qu'avec des personnes autorisées.",
+      filtreSynthese: r=>{ const i = frmInfo(r); return !!(i && i.courante && i.e && i.e.actif!==false); },
+      charger: async()=>{
+        try{
+          const types = await lireTableComplete('formations_types');
+          const [lignes, emps] = await Promise.all([lireTableComplete('formations_employes'), lireTableComplete('employes_rh')]);
+          const T = {}, E = {}; types.forEach(t=>{ T[String(t.id)] = t; }); emps.forEach(e=>{ E[String(e.id)] = e; });
+          const auj = today(), der = frmDernieres(lignes, T), info = new Map();
+          lignes.forEach(l=>{
+            const t = T[String(l.type_id)]||null, st = frmStatut(l, t, auj), courante = der.get(String(l.employe_id)+'|'+String(l.type_id))===l;
+            info.set(String(l.id), {t, e:E[String(l.employe_id)]||null, st, courante, code: courante ? st.code : 'historique'});
+          });
+          _frmInfoExport = info;
+          lignes.sort((a,b)=>{ const ia = info.get(String(a.id)), ib = info.get(String(b.id));
+            return (ia.e?nomPers(ia.e):'').localeCompare(ib.e?nomPers(ib.e):'','fr') || (ia.t?ia.t.nom:'').localeCompare(ib.t?ib.t.nom:'','fr') || (frmISO(a.date_formation)<frmISO(b.date_formation)?1:frmISO(a.date_formation)>frmISO(b.date_formation)?-1:0); });
+          return {lignes, ctx:{auj}};
+        }catch(e){ if(migrationEmployeAbsente(e.message)) throw new Error("Exécutez d'abord "+SQL_FORMATIONS+" dans Supabase (SQL Editor), puis réessayez."); throw e; }
+      },
+      colonnes:[
+        colX('emp','Employé','txt',r=>{ const i = frmInfo(r); return i && i.e ? nomPers(i.e) : ''; },{g:'Formation'}),
+        colX('type','Formation','txt',r=>{ const i = frmInfo(r); return i && i.t ? i.t.nom : ''; },{g:'Formation'}),
+        colX('date','Date de la formation','date',r=>r.date_formation,{g:'Formation'}),
+        colX('organisme','Organisme de formation','txt',r=>r.organisme,{g:'Formation'}),
+        colX('numero',"N° d'attestation",'txt',r=>r.numero_attestation,{g:'Formation',d:false}),
+        colX('duree','Durée (heures)','num',r=>r.duree_heures,{g:'Formation',d:false}),
+        colX('cout','Coût HT (€)','eur',r=>r.cout_ht,{g:'Formation',d:false,tot:true}),
+        colX('exp',"Valide jusqu'au",'date',r=>{ const i = frmInfo(r); return i ? i.st.exp : ''; },{g:'Validité'}),
+        colX('exp_origine','Origine de la date de validité','txt',r=>{ const saisie = r.date_expiration, i = frmInfo(r); return !i || !i.st.exp ? '' : (saisie ? "Indiquée sur l'attestation" : 'Calculée (date + validité du type)'); },{g:'Validité',d:false}),
+        colX('etat','État','txt',r=>{ const i = frmInfo(r); return i ? FRM_STATUTS[i.code] : ''; },{g:'Validité'}),
+        colX('jours','Jours restants (négatif = expirée)','int',r=>{ const i = frmInfo(r); return i && i.code!=='historique' && i.st.jours!==null ? i.st.jours : ''; },{g:'Validité'}),
+        colX('actif','Employé actif','txt',r=>{ const i = frmInfo(r); return i && i.e ? ouiNon(i.e.actif!==false) : ''; },{g:'Divers',d:false}),
+        colX('pdf','Attestation jointe','txt',r=>ouiNon(!!r.anexo_id),{g:'Divers',d:false}),
+        colX('fichier','Fichier PDF','txt',r=>r.fichier_pdf,{g:'Divers',d:false}),
+        colX('obs','Observations','txt',r=>r.observations,{g:'Divers',d:false})
+      ],
+      noteAnalyse: (lignes)=>{
+        const n = lignes.filter(r=>{ const i = frmInfo(r); return i && i.courante && i.e && i.e.actif!==false; }).length;
+        return [`Analyses : attestation la plus récente de chaque formation, employés actifs uniquement (${n} sur ${lignes.length} ligne${lignes.length>1?'s':''}) — l'historique des renouvellements n'est pas compté.`];
+      },
+      syntheses:[
+        {titre:'Répartition par état', colonne:'État', cle:r=>{ const i = frmInfo(r); return i ? FRM_STATUTS[i.code] : 'Non renseigné'; }, ordre:[FRM_STATUTS.expiree, FRM_STATUTS.renouveler, FRM_STATUTS.valide, FRM_STATUTS.sans]},
+        {titre:'Répartition par formation', colonne:'Formation', cle:r=>{ const i = frmInfo(r); return i && i.t ? i.t.nom : 'Non renseigné'; }},
+        {titre:'Répartition par employé', colonne:'Employé', cle:r=>{ const i = frmInfo(r); return i && i.e ? nomPers(i.e) : 'Non renseigné'; }}
+      ],
+      croisements:[
+        {titre:'Formation × état (attestations les plus récentes)', ligne:r=>{ const i = frmInfo(r); return i && i.t ? i.t.nom : 'Non renseigné'; }, colonne:r=>{ const i = frmInfo(r); return i ? FRM_STATUTS[i.code] : 'Non renseigné'; },
+         ordreColonnes:[FRM_STATUTS.expiree, FRM_STATUTS.renouveler, FRM_STATUTS.valide, FRM_STATUTS.sans], triLignes:'label'}
       ]
     },
 
