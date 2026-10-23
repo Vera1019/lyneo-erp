@@ -4879,7 +4879,7 @@ async function renderPOS(search='', filterStatut=''){
   _poRefs = await chargerRefsInterventions(_pos.map(p=>p.intervention_id));
   const q = search.toLowerCase();
   const items = _pos.filter(i=>{
-    const match = !q || (i.numero+i.chantiers?.nom+i.fournisseurs?.nom).toLowerCase().includes(q);
+    const match = !q || [i.numero, i.chantiers_lyneo?.numero, i.chantiers_lyneo?.nom, i.fournisseurs?.nom].join(' ').toLowerCase().includes(q);
     const st = !filterStatut || i.statut===filterStatut;
     return match && st;
   });
@@ -4899,13 +4899,11 @@ async function renderPOS(search='', filterStatut=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="pos">
-          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
             items.map(r=>{
-              const chantierNom = r.chantiers_lyneo?.nom 
-                || _chantiersActive.find(c=>c.id===r.chantier_id)?.nom 
-                || '—';
+              const centreHtml = htmlCentreCout(r.chantiers_lyneo) || htmlCentreCout(_chantiersActive.find(c=>c.id===r.chantier_id)) || '—';
               const pct = ['rec_totale','facturee','payee'].includes(r.statut) ? 100
                 : r.statut==='rec_partielle' ? 50
                 : r.statut==='envoyee' ? 10 : 0;
@@ -4913,7 +4911,7 @@ async function renderPOS(search='', filterStatut=''){
               return `<tr data-sel-id="${r.id}"${r.statut==='annulee'?' data-som-off="1"':''} style="cursor:pointer" onclick="openPODetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
               <td>${r.fournisseurs?.nom||'—'}</td>
-              <td><strong>${chantierNom}</strong>${_poRefs[r.intervention_id] ? `<div style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_poRefs[r.intervention_id])}</div>` : ''}</td>
+              <td>${centreHtml}${_poRefs[r.intervention_id] ? `<div style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_poRefs[r.intervention_id])}</div>` : ''}</td>
               <td>${fmtDate(r.date_creation)}</td>
               <td>
                 <div style="display:flex;align-items:center;gap:8px">
@@ -6063,7 +6061,7 @@ let _posAttente = [], _lignesRec = [];
 async function renderReceptions(){
   const [posR, blsR] = await Promise.all([
     sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom),fournisseurs!fournisseur_id(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
-    sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
+    sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(numero,nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
   ]);
   _posAttente = posR.data||[];
   const bls = blsR.data||[];
@@ -6083,7 +6081,7 @@ async function renderReceptions(){
       <div class="card-header"><h2>Historique des réceptions</h2>${btnExport('receptions')}</div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="receptions">
-          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Chantier</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
+          <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
           <tbody>
             ${bls.length===0?'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
             bls.map(b=>{
@@ -6093,7 +6091,7 @@ async function renderReceptions(){
                 +'<td><strong class="text-blue">'+b.numero_bl+'</strong></td>'
                 +'<td>'+(b.purchase_orders_lyneo?.numero||'—')+'</td>'
                 +'<td>'+(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
-                +'<td>'+(b.purchase_orders_lyneo?.chantiers_lyneo?.nom||'—')+'</td>'
+                +'<td>'+(htmlCentreCout(b.purchase_orders_lyneo?.chantiers_lyneo)||'—')+'</td>'
                 +'<td>'+fmtDate(b.date_reception)+'</td>'
                 +'<td>'+escHtml(nomPers(b.utilisateurs))+'</td>'
                 +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
@@ -6290,6 +6288,15 @@ let _facPage = 1;
 let _facParPage = (()=>{ try{ const v = parseInt(localStorage.getItem('lyneo-fac-par-page'),10); if(PAR_PAGE_FAC.includes(v)) return v; }catch(e){} return 20; })();
 const nomFournisseurFac = r => r.fournisseurs?.nom || r.purchase_orders_lyneo?.fournisseurs?.nom || '';
 const libelleChantierFac = c => (c.numero ? c.numero+' — ' : '') + (c.nom||'');
+// Centre de coûts dans une liste d'achats : le code (n°) en gras et le nom en gris dessous, comme dans les Factures clients.
+// Sans code : le nom seul en gras. Même texte pour le code et le nom : une seule ligne. '' si le centre est inconnu.
+function htmlCentreCout(c){
+  if(!c) return '';
+  const num = String(c.numero||'').trim(), nom = String(c.nom||'').trim();
+  if(!num && !nom) return '';
+  if(num && nom && num!==nom) return `<strong>${escHtml(num)}</strong><div style="font-size:11.5px;color:var(--gray-5);line-height:1.3">${escHtml(nom)}</div>`;
+  return `<strong>${escHtml(num||nom)}</strong>`;
+}
 const jourFac = v => String(v||'').slice(0,10);
 // Montant hors taxe d'une facture fournisseur : colonne montant_ht, sinon TTC − TVA ; null si on ne peut pas le savoir
 const montantHtFacture = r => {
@@ -6415,13 +6422,13 @@ async function renderFactures(){
               <th></th>
               <th><div class="fac-range"><span>Min</span><input type="number" step="0.01" id="facc-mont-min" placeholder="€" value="${escHtml(F.montMin)}" oninput="majFiltreFactures('montMin',this.value)"/><span>Max</span><input type="number" step="0.01" id="facc-mont-max" placeholder="€" value="${escHtml(F.montMax)}" oninput="majFiltreFactures('montMax',this.value)"/></div></th>
               <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
-              <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans chantier (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
+              <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans centre de coûts (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
               ${_facCodesOk ? `<th><select id="facc-codes" style="min-width:150px" title="Filtrer par code ressource, ou voir ce qui reste à coder" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Toutes codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option>${optCodes ? `<optgroup label="Par code ressource">${optCodes}</optgroup>` : ''}</select></th>` : ''}
               <th></th>
               <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
               <th></th>
             </tr>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('tva','TVA')}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${thTriFac('chantier','Chantier')}${_facCodesOk ? thTriFac('codes','Codes') : ''}<th>Documents</th>${thTriFac('statut','Statut')}<th>Actions</th></tr>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('tva','TVA')}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${thTriFac('chantier','Centre de coûts')}${_facCodesOk ? thTriFac('codes','Codes') : ''}<th>Documents</th>${thTriFac('statut','Statut')}<th>Actions</th></tr>
           </thead>
           <tbody id="fac-tbody"></tbody>
         </table>
@@ -6440,7 +6447,7 @@ const COLS_TRI_FAC = {
   num:['texte', r=>cleTexteTri(r.numero_facture_fournisseur)],
   cmd:['texte', r=>cleTexteTri(r.purchase_orders_lyneo?.numero)],
   four:['texte', r=>cleTexteTri(nomFournisseurFac(r))],
-  chantier:['texte', r=>cleTexteTri(r.chantiers_lyneo?.nom)],
+  chantier:['texte', r=>cleTexteTri((r.chantiers_lyneo?.numero||'')+' '+(r.chantiers_lyneo?.nom||''))],
   date:['date', r=>jourMsFac(r.date_facture)],
   ech:['date', r=>jourMsFac(r.date_echeance)],
   ht:['nombre', r=>montantHtFacture(r)],
@@ -6512,7 +6519,7 @@ function afficherFactures(){
     items.map(r=>{
       const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
       const choisie = _facSel.has(r.id);
-      const cellChantier = r.chantiers_lyneo?.nom ? escHtml(r.chantiers_lyneo.nom) + (_facIntervRefs[r.intervention_id] ? `<div class="fac-int-ref" style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_facIntervRefs[r.intervention_id])}</div>` : '')
+      const cellChantier = htmlCentreCout(r.chantiers_lyneo) ? htmlCentreCout(r.chantiers_lyneo) + (_facIntervRefs[r.intervention_id] ? `<div class="fac-int-ref" style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_facIntervRefs[r.intervention_id])}</div>` : '')
         : (r.statut==='annulee' ? '—'
           : `<select style="width:140px;max-width:140px;font-size:12px;border-color:var(--orange)" title="Affecter ce chantier à la facture" onchange="affecterChantierFacture('${r.id}',this.value)"><option value="">À affecter…</option>${optChantiers}</select>`);
       return `<tr id="fac-tr-${r.id}"${choisie?' class="fac-sel"':''}>
