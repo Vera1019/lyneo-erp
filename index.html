@@ -2011,6 +2011,31 @@ async function lireFacturesVenteChantiers(ids){
   }
   return {ok:true, rows};
 }
+// ── CHEF DE CHANTIER = un employé de l'ERP (champ relié, comme un Many2one d'Odoo : on choisit dans la liste, le nom vient de la fiche) ──
+// Clé de comparaison tolérante pour reconnaître d'anciens textes libres : « Jonathan Girault », « GIRAULT Jonathan » et « Girault Jonathan3 » → même clé.
+const cleNomChef = t => cleNomEmploye(String(t||'').replace(/[0-9]/g,' ').replace(/[-_.,'’]/g,' '));
+// L'employé correspondant à un ancien texte libre, seulement s'il est UNIQUE (jamais de choix au hasard entre deux homonymes)
+function employePourTexteChef(texte, employes){
+  const k = cleNomChef(texte); if(!k) return null;
+  const m = (employes||[]).filter(e=>cleNomChef((e.prenom||'')+' '+(e.nom||''))===k);
+  return m.length===1 ? m[0] : null;
+}
+// id d'employé → « NOM Prénom », lu dans la fiche (un employé renommé se met à jour partout). {} si la liste est illisible (droits, réseau).
+let _empNomsCache = {t:0, m:null};
+async function chargerNomsEmployes(){
+  if(_empNomsCache.m && Date.now()-_empNomsCache.t<60000) return _empNomsCache.m;
+  try{
+    const {data,error} = await sb.from('employes_rh').select('id,nom,prenom');
+    if(error) return {};
+    const m = {}; (data||[]).forEach(e=>{ m[String(e.id)] = nomPers(e); });
+    _empNomsCache = {t:Date.now(), m};
+    return m;
+  }catch(e){ return {}; }
+}
+// Nom à afficher pour le chef d'un chantier : celui de la fiche de l'employé lié, sinon l'ancien texte libre
+const nomChef = (c, noms) => (c && c.chef_chantier_id && noms && noms[String(c.chef_chantier_id)]) || (c && c.chef_chantier) || '';
+// Texte libre jamais relié à un employé (colonne chef_chantier_id présente mais vide) — seulement si on sait lire la liste des employés
+const chefNonLie = (c, noms) => !!(c && c.chef_chantier && ('chef_chantier_id' in c) && !c.chef_chantier_id && noms && Object.keys(noms).length);
 // Pastilles « À encaisser / Retenue / Soldé » d'un chantier terminé (s = situationFinanciereChantier)
 function pastillesSituationChantier(s){
   if(!s) return '';
@@ -2652,6 +2677,7 @@ async function renderDashboard(){
     sbPT.from('picages').select('id,date,heures').gte('date', new Date(Date.now()-7*86400000).toISOString().split('T')[0]),
   ]).then(results => results.map(r => r.status==='fulfilled' ? r.value : {data:[]}));
 
+  const nomsEmpDash = await chargerNomsEmployes();
   const pos = posR.data||[], bls = blsR.data||[], facs = facsR.data||[];
   const chants = chantsR.data||[], facsV = facsVenteR.data||[], pics = pointagesR.data||[];
   const today_str = new Date().toISOString().split('T')[0];
@@ -2773,7 +2799,7 @@ async function renderDashboard(){
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2);cursor:pointer" onclick="navigate('chantiers')">
                   <div>
                     <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${escHtml(c.nom)}</div>
-                    <div style="font-size:12px;color:var(--gray-5)">${escHtml(c.client)} ${c.chef_chantier?'· '+escHtml(c.chef_chantier):''}</div>
+                    <div style="font-size:12px;color:var(--gray-5)">${escHtml(c.client)} ${nomChef(c,nomsEmpDash)?'· '+escHtml(nomChef(c,nomsEmpDash)):''}</div>
                   </div>
                   <div style="text-align:right">
                     ${c.date_debut
@@ -3143,6 +3169,7 @@ document.addEventListener('keydown', e=>{
 let _chantiers = [];   // cache de la liste des chantiers (déclaré ici : openChantierDetail peut être appelé avant d'avoir ouvert la page Chantiers)
 let _chantiersSearchAtual = '';
 let _chVue = 'actifs';        // 'actifs' = liste principale ; 'archives' = onglet « Chantiers archivés »
+let _chEmpNoms = {};          // id employé → nom (chef de chantier affiché depuis la fiche de l'employé)
 let _chSituations = {};       // id chantier terminé → situation financière (à encaisser / retenue / soldé) ; null = lecture impossible
 function chChangerVue(v){ _chVue = (v==='archives') ? 'archives' : 'actifs'; renderChantiers(_chantiersSearchAtual); }
 async function renderChantiers(search=''){
@@ -3150,6 +3177,7 @@ async function renderChantiers(search=''){
   if(!search) {
     const {data} = await sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false});
     _chantiers = data||[];
+    _chEmpNoms = await chargerNomsEmployes();
     // Chantiers terminés : ce qu'il reste à encaisser, dérivé des factures clients. Si la lecture échoue, on n'affiche rien (jamais un faux « Soldé »).
     const termines = _chantiers.filter(c=>c.statut==='termine' && c.type_centre!=='sav');
     _chSituations = {};
@@ -3214,7 +3242,7 @@ async function renderChantiers(search=''){
               <td><span class="td-primary">${escHtml(r.numero)}</span></td>
               <td><strong>${escHtml(r.nom)}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}</td>
               <td>${escHtml(r.client)}</td>
-              <td>${escHtml(r.chef_chantier)||'—'}</td>
+              <td>${escHtml(nomChef(r,_chEmpNoms))||'—'}${chefNonLie(r,_chEmpNoms) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</td>
               <td>${fmtDate(r.date_debut)}</td>
               <td>${bCH(r.statut)}${sit ? ' '+pastillesSituationChantier(sit) : ''}</td>
               <td onclick="event.stopPropagation()"><div class="td-actions">
@@ -3506,6 +3534,7 @@ async function openChantierDetail(chantierId, tab){
 
   // ── ONGLET INFO ──
   const estChantierType = (chantier.type_centre||'chantier')==='chantier';
+  const nomsEmp = await chargerNomsEmployes();
   const facsOk = !facsVenteR.error;
   const retenueMontant = parseFloat(chantier.retenue_garantie)||0;
   const montrerSituation = ['termine','archive'].includes(chantier.statut) || retenueMontant>0;
@@ -3525,7 +3554,7 @@ async function openChantierDetail(chantierId, tab){
     ${chEstArchive(chantier) ? `<div class="alert alert-info" id="ch-archive-info" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>Chantier <strong>archivé</strong> : il n'apparaît plus dans les listes ni dans les choix de chantier des documents. Vous le consultez ici ; <strong>Désarchiver</strong> le remet en « Terminé ».</span></div>` : ''}
     ${blocSituation}
     <div class="info-grid" style="margin-bottom:16px;max-width:100%">
-      <div class="info-item"><label>Chef de chantier</label><span>${chantier.chef_chantier||'—'}</span></div>
+      <div class="info-item"><label>Chef de chantier</label><span>${escHtml(nomChef(chantier, nomsEmp))||'—'}${chefNonLie(chantier, nomsEmp) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</span></div>
       <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
       <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
@@ -4336,9 +4365,37 @@ async function desarchiverChantier(id){
 async function openChantierModal(r=null){
   // r peut être un chantier existant (avec id) ou seulement des valeurs de départ (nouveau chantier / nouveau centre SAV)
   const isEdit = !!(r && r.id);
-  const {data:clientsData} = await sb.from('clients').select('id,nom').eq('actif',true).order('nom');
+  const [{data:clientsData}, empR] = await Promise.all([
+    sb.from('clients').select('id,nom').eq('actif',true).order('nom'),
+    sb.from('employes_rh').select('id,nom,prenom,actif').order('nom')
+  ]);
   const clients = clientsData||[];
   const clientOpts = clients.map(c=>`<option value="${c.id}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('');
+  // Chef de chantier : liste des employés actifs (+ celui déjà lié, même s'il est parti). Si la liste est illisible, on garde le champ texte en secours.
+  const empOk = !empR.error;
+  const empsTous = empOk ? (empR.data||[]) : [];
+  const empsActifs = empsTous.filter(e=>e.actif!==false);
+  let chefSel = r?.chef_chantier_id ? String(r.chef_chantier_id) : '', chefHint = '';
+  if(empOk && !chefSel && r?.chef_chantier){
+    // d'abord parmi les actifs ; sinon (ancien chantier d'un employé parti) parmi tous — toujours seulement si UNIQUE
+    const trouve = employePourTexteChef(r.chef_chantier, empsActifs) || employePourTexteChef(r.chef_chantier, empsTous);
+    if(trouve){ chefSel = String(trouve.id); chefHint = '« '+r.chef_chantier+' » reconnu comme '+nomPers(trouve)+' : enregistrez pour confirmer le lien.'; }
+    else chefHint = 'Ancien texte libre : « '+r.chef_chantier+' » (non reconnu). Choisissez l\'employé dans la liste.';
+  }
+  const chefOpts = (()=>{
+    const ids = new Set(empsActifs.map(e=>String(e.id)));
+    const l = empsActifs.map(e=>({id:String(e.id), nom:nomPers(e), suffixe:''}));
+    if(chefSel && !ids.has(chefSel)){
+      const e = empsTous.find(x=>String(x.id)===chefSel);
+      l.push({id:chefSel, nom: e ? nomPers(e) : (r?.chef_chantier||'Employé'), suffixe: e ? ' (inactif)' : ' (fiche introuvable)'});
+    }
+    return l.map(o=>`<option value="${escHtml(o.id)}" data-nom="${escHtml(o.nom)}"${o.id===chefSel?' selected':''}>${escHtml(o.nom+o.suffixe)}</option>`).join('');
+  })();
+  const champChef = empOk
+    ? `<select id="ch-chef-id" data-had="${r && ('chef_chantier_id' in r) ? '1' : ''}" data-legacy="${(!r?.chef_chantier_id && r?.chef_chantier) ? escHtml(r.chef_chantier) : ''}"><option value="">— Aucun —</option>${chefOpts}</select>
+       <span id="ch-chef-hint" style="font-size:12px;color:var(--gray-5)">${chefHint ? escHtml(chefHint) : 'Choisi parmi les employés (Ressources humaines) : le nom vient de leur fiche.'}</span>`
+    : `<input id="ch-chef" value="${escHtml(r?.chef_chantier||'')}" placeholder="Responsable"/>
+       <span id="ch-chef-hint" style="font-size:12px;color:var(--orange)">Liste des employés indisponible : saisie libre provisoire.</span>`;
   showModal(`<div class="modal-overlay"><div class="modal">
     <div class="modal-header"><h3>${isEdit?(r.type_centre==='sav'?'Modifier le centre SAV':'Modifier chantier'):(r&&r.type_centre==='sav'?'Nouveau centre SAV':'Nouveau chantier')}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
@@ -4355,7 +4412,7 @@ async function openChantierModal(r=null){
         </div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
-        <div class="form-group"><label class="field-label">Chef de chantier</label><input id="ch-chef" value="${r?.chef_chantier||''}" placeholder="Responsable"/></div>
+        <div class="form-group"><label class="field-label">Chef de chantier</label>${champChef}</div>
         <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FG"/></div>
         <div class="form-group"><label class="field-label">Type de centre de coûts</label>
           <select id="ch-type" data-had="${r&&r.type_centre!==undefined?'1':''}">
@@ -4459,7 +4516,17 @@ async function saveChantierCore(id){
   const ctlCh = await controlerDoublonsChantier({nom, client_id:clientId||null, client:clientRow?.nom||'', numero:numeroManuel, type:typeChoisi}, id);
   if(ctlCh==='stop') return;
   const statutAtual = el('ch-statut').value;
-  const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:el('ch-chef').value,statut:statutAtual,date_debut:el('ch-debut').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  // Chef de chantier : l'employé choisi (id + nom copié depuis sa fiche) ; champ texte seulement si la liste des employés était illisible
+  const chefSelEl = el('ch-chef-id');
+  let chefTexte = '', chefId;
+  if(chefSelEl){
+    chefId = chefSelEl.value || null;
+    const opt = chefSelEl.options[chefSelEl.selectedIndex];
+    chefTexte = chefId ? ((opt && opt.dataset.nom) || (opt && opt.textContent.trim()) || '') : (chefSelEl.dataset.legacy || '');   // sans choix : l'ancien texte libre n'est pas effacé en silence
+  } else if(el('ch-chef')) chefTexte = el('ch-chef').value.trim();
+  const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:chefTexte,statut:statutAtual,date_debut:el('ch-debut').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
+  // Le lien vers l'employé n'est envoyé que s'il est rempli ou si la colonne existe déjà (sinon la sauvegarde casserait avant la migration SQL)
+  if(chefSelEl && (chefId || chefSelEl.dataset.had==='1')) data.chef_chantier_id = chefId;
   // Le type n'est envoyé que s'il est différent de "chantier" ou si la colonne existe déjà
   // (data-had) : ainsi la sauvegarde ne casse pas si la migration SQL n'a pas encore été exécutée.
   const typeSel = el('ch-type');
@@ -4481,12 +4548,17 @@ async function saveChantierCore(id){
   if(retDateEl && (retDateEl.value || retDateEl.dataset.had==='1')) data.retenue_garantie_date = retDateEl.value || null;
   // Seuls les chantiers s'archivent (un centre SAV / interne reste toujours disponible)
   if(statutAtual==='archive' && typeChoisi!=='chantier'){ showToast("Seuls les chantiers peuvent être archivés (pas les centres SAV ni internes)",'error'); return; }
-  let heuresNonEnregistrees = false, retenueNonEnregistree = false;
+  let heuresNonEnregistrees = false, retenueNonEnregistree = false, chefNonEnregistre = false;
   const ecrire = async (fn)=>{
     let res = await fn(data);
     if(res.error && 'heures_prevues' in data && /heures_prevues/.test(res.error.message)){
       delete data.heures_prevues;
       heuresNonEnregistrees = true;
+      res = await fn(data);
+    }
+    if(res.error && 'chef_chantier_id' in data && /chef_chantier_id/.test(res.error.message)){
+      delete data.chef_chantier_id;
+      chefNonEnregistre = true;
       res = await fn(data);
     }
     if(res.error && ('retenue_garantie' in data || 'retenue_garantie_date' in data) && /retenue_garantie/.test(res.error.message)){
@@ -4519,6 +4591,8 @@ async function saveChantierCore(id){
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   }
   if(heuresNonEnregistrees) setTimeout(()=>showToast("⚠ Les heures prévues ne sont pas enregistrées : exécutez d'abord « migration-heures-couts-chantiers.sql » dans Supabase.", 'error'), 600);
+  _empNomsCache = {t:0, m:null};
+  if(chefNonEnregistre) setTimeout(()=>showToast("⚠ Le nom du chef de chantier est enregistré, mais pas son lien avec la fiche de l'employé : exécutez d'abord « migration-responsaveis-employes.sql » dans Supabase.", 'error'), 1200);
   if(retenueNonEnregistree) setTimeout(()=>showToast("⚠ La retenue de garantie n'est pas enregistrée : exécutez d'abord « migration-chantiers-archives.sql » dans Supabase.", 'error'), 900);
   closeModal();
   // Un centre SAV se crée/modifie depuis le module Interventions : on y reste
