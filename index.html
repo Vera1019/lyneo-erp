@@ -653,6 +653,7 @@ button.frm-pill:hover{filter:brightness(.96)}
 .frm-mat .frm-sticky{position:sticky;left:0;z-index:1;background:#fff;min-width:160px;text-align:left;border-right:1px solid var(--gray-2)}
 .frm-mat th.frm-sticky{z-index:3;background:var(--gray-1)}
 .frm-cell{text-align:center;cursor:pointer;white-space:nowrap;font-weight:600}
+.frm-pos{white-space:nowrap;font-variant-numeric:tabular-nums}
 .frm-cell:hover{outline:2px solid var(--blue);outline-offset:-2px}
 .frm-c-exp{background:#FEE2E2;color:#991B1B}
 .frm-c-ren{background:#FEF3C7;color:#92400E}
@@ -12282,7 +12283,7 @@ const FRM_STATUTS = {expiree:'Expirée', renouveler:'À renouveler', valide:'Val
 const FRM_ORDRE = {expiree:0, renouveler:1, valide:2, sans:3, historique:4};
 let _frmInfoExport = new Map();          // id d'attestation → {t,e,st,courante,code} : rempli au chargement de l'export Excel
 const frmInfo = r => (r && _frmInfoExport.get(String(r.id))) || null;
-let _frm = {etat:'', msg:'', types:[], lignes:[], emps:[], vue:'suivi', f:{q:'', statut:'', type:'', emp:'', anciens:false}, imp:null};
+let _frm = {etat:'', msg:'', types:[], lignes:[], emps:[], vue:'suivi', f:{q:'', statut:'', type:'', emp:'', anciens:false, sans:false}, imp:null};
 
 const frmISO = v => /^\d{4}-\d{2}-\d{2}/.test(String(v||'')) ? String(v).slice(0,10) : '';
 const frmFmt = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||'')); return m ? m[3]+'/'+m[2]+'/'+m[1] : '—'; };    // sans fuseau horaire
@@ -12295,6 +12296,26 @@ function frmAjouterMois(iso, n){
   const tot = (+m[1])*12 + (+m[2]-1) + n, y = Math.floor(tot/12), mo = tot%12;
   const dernier = new Date(Date.UTC(y, mo+1, 0)).getUTCDate();
   return y+'-'+String(mo+1).padStart(2,'0')+'-'+String(Math.min(+m[3], dernier)).padStart(2,'0');
+}
+// Ordre d'affichage des formations (colonnes du suivi, onglet Types, listes de choix) :
+//  1. le numéro « Ordre d'affichage » saisi sur le type (1 = en premier) ;
+//  2. sinon le rang automatique du métier d'électricien : 1 habilitation électrique · 2 PEMP · 3 R19 · 4 échafaudage ;
+//  3. puis toutes les autres formations, par ordre alphabétique. À rang égal, le numéro saisi passe avant l'automatique.
+const FRM_PRIORITES_METIER = [
+  n => n.includes('habilitation') && n.includes('electri'),
+  n => /\bpemp\b/.test(n) || /plates? ?-? ?formes? elevatrices?/.test(n),
+  n => /\br ?19\b/.test(n),
+  n => n.includes('echafaudage')
+];
+function frmRangType(t){
+  const o = t ? t.ordre : null;
+  if(o!==null && o!==undefined && String(o).trim()!=='' && isFinite(Number(o))) return {k:Number(o), explicite:true};
+  const n = frmN(t && t.nom), i = FRM_PRIORITES_METIER.findIndex(f=>f(n));
+  return {k: i>=0 ? i+1 : 1000, explicite:false};
+}
+function frmTypesTries(types){
+  return (types||[]).map(t=>({t, r:frmRangType(t), n:frmN(t&&t.nom)})).sort((a,b)=>
+    (a.r.k-b.r.k) || (a.r.explicite===b.r.explicite ? 0 : (a.r.explicite ? -1 : 1)) || a.n.localeCompare(b.n,'fr') || String(a.t.id).localeCompare(String(b.t.id))).map(x=>x.t);
 }
 const frmJours = (a,b) => { const x = Date.parse(frmISO(a)), y = Date.parse(frmISO(b)); return (isNaN(x)||isNaN(y)) ? null : Math.round((y-x)/86400000); };
 function frmAlerteJours(t){ const a = t ? t.alerte_jours : null; return (a===null||a===undefined||a==='') ? FRM_ALERTE_DEFAUT : Math.max(0, parseInt(a,10)||0); }
@@ -12345,7 +12366,7 @@ async function frmCharger(){
     const t = await sb.from('formations_types').select('*').order('nom');
     if(t.error){ _frm.etat = migrationEmployeAbsente(t.error.message) ? 'absente' : 'erreur'; _frm.msg = t.error.message; return false; }
     const [lignes, emps] = await Promise.all([lireTableComplete('formations_employes'), lireTableComplete('employes_rh')]);
-    _frm.types = t.data||[]; _frm.lignes = lignes;
+    _frm.types = frmTypesTries(t.data||[]); _frm.lignes = lignes;
     _frm.emps = emps.sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr'));
     _frm.etat = 'ok';
     return true;
@@ -12409,17 +12430,26 @@ function frmAfficherCorps(){
   c.innerHTML = _frm.vue==='liste' ? frmHtmlListe(C) : _frm.vue==='types' ? frmHtmlTypes(C) : frmHtmlSuivi(C);
 }
 // Clic sur un compteur : la liste, filtrée sur cet état
-function frmVoirListe(code){ _frm.f = {q:'', statut:code, type:'', emp:'', anciens:false}; _frm.vue = 'liste'; frmAfficher(); }
+function frmVoirListe(code){ _frm.f = {q:'', statut:code, type:'', emp:'', anciens:false, sans:false}; _frm.vue = 'liste'; frmAfficher(); }
 
 // ── Suivi : une ligne par employé, une colonne par formation ──
 function frmHtmlSuivi(C){
-  const emps = _frm.emps.filter(e=>_frm.f.anciens || e.actif!==false);
+  const tous = _frm.emps.filter(e=>_frm.f.anciens || e.actif!==false);
+  const avecFormation = new Set(C.items.map(it=>String(it.l.employe_id)));       // au moins une attestation (historique compris)
+  const emps = _frm.f.sans ? tous : tous.filter(e=>avecFormation.has(String(e.id)));
+  const nbMasques = tous.length - emps.length;                                    // employés sans aucune formation, cachés par défaut
   const cur = new Map(); C.items.forEach(it=>{ if(it.courante) cur.set(String(it.l.employe_id)+'|'+String(it.l.type_id), it); });
   const affiches = new Set(emps.map(e=>String(e.id)));
   const typesUtilises = new Set(C.items.filter(it=>it.courante && affiches.has(String(it.l.employe_id))).map(it=>String(it.l.type_id)));
   const types = _frm.types.filter(t=>t.actif!==false || typesUtilises.has(String(t.id)));
   if(!_frm.types.length) return `<div class="empty" id="frm-vide"><div class="empty-icon"><i class="ti ti-certificate"></i></div><p>Aucune formation enregistrée</p><p style="font-size:12px;color:var(--gray-5)">Commencez par « Importer Excel » (fichier LYNEO-formations) ou créez un type de formation (onglet Types).</p></div>`;
-  if(!emps.length) return `<div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé actif</p></div>`;
+  if(!tous.length) return `<div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé actif</p></div>`;
+  const barre = `<div style="padding:10px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--gray-5)">
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="frm-sans" style="width:auto" ${_frm.f.sans?'checked':''} onchange="_frm.f.sans=this.checked;frmAfficherCorps()"/> Afficher aussi les employés sans formation</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="frm-anciens" style="width:auto" ${_frm.f.anciens?'checked':''} onchange="_frm.f.anciens=this.checked;frmAfficherCorps()"/> Afficher aussi les anciens employés</label>
+      ${nbMasques>0 ? `<span id="frm-masques">${nbMasques} employé${nbMasques>1?'s':''} sans formation masqué${nbMasques>1?'s':''}</span>` : ''}
+      <span>Cliquer sur une case pour voir, modifier ou ajouter l'attestation.</span></div>`;
+  if(!emps.length) return barre + `<div class="empty" id="frm-aucun-suivi"><div class="empty-icon"><i class="ti ti-certificate"></i></div><p>Aucun employé n'a encore de formation enregistrée</p><p style="font-size:12px;color:var(--gray-5)">Utilisez « Nouvelle formation », « Importer Excel » ou cochez « Afficher aussi les employés sans formation ».</p></div>`;
   const cls = {expiree:'frm-c-exp', renouveler:'frm-c-ren', valide:'frm-c-val', sans:'frm-c-sans'};
   const tete = types.map(t=>`<th title="${escHtml(t.nom)}${t.actif===false?' (désactivée)':''}">${escHtml(t.nom)}</th>`).join('');
   const lignes = emps.map(e=>{
@@ -12432,10 +12462,7 @@ function frmHtmlSuivi(C){
     }).join('');
     return `<tr><td class="frm-sticky"><strong>${escHtml(nomPers(e))}</strong>${e.actif===false?' <span class="badge badge-non" style="font-size:9px">inactif</span>':''}</td>${cells}</tr>`;
   }).join('');
-  return `<div style="padding:10px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--gray-5)">
-      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="frm-anciens" style="width:auto" ${_frm.f.anciens?'checked':''} onchange="_frm.f.anciens=this.checked;frmAfficherCorps()"/> Afficher aussi les anciens employés</label>
-      <span>Cliquer sur une case pour voir, modifier ou ajouter l'attestation.</span></div>
-    <div class="table-wrap" style="overflow:auto;max-height:70vh;-webkit-overflow-scrolling:touch">
+  return barre + `<div class="table-wrap" style="overflow:auto;max-height:70vh;-webkit-overflow-scrolling:touch">
       <table class="frm-mat" id="frm-matrice"><thead><tr><th class="frm-sticky">Employé</th>${tete}</tr></thead><tbody>${lignes}</tbody></table></div>`;
 }
 function frmOuvrirCellule(empId, typeId){
@@ -12499,7 +12526,8 @@ function frmHtmlListeCorps(C){
 // ── Types de formation ──
 function frmHtmlTypes(C){
   const emplois = {}; C.items.forEach(it=>{ const k = String(it.l.type_id); emplois[k] = (emplois[k]||0)+1; });
-  const lignes = _frm.types.map(t=>`<tr data-sel-id="${escHtml(t.id)}" style="cursor:pointer${t.actif===false?';opacity:.6':''}" onclick="openFormationTypeModal('${escHtml(t.id)}')">
+  const lignes = _frm.types.map((t,i)=>`<tr data-sel-id="${escHtml(t.id)}" style="cursor:pointer${t.actif===false?';opacity:.6':''}" onclick="openFormationTypeModal('${escHtml(t.id)}')">
+      <td class="frm-pos">${i+1}${frmRangType(t).explicite ? '' : ' <span style="font-size:10px;color:var(--gray-4)" title="Ordre automatique (habilitation électrique, PEMP, R19, échafaudage, puis alphabétique)">auto</span>'}</td>
       <td><strong>${escHtml(t.nom)}</strong></td>
       <td>${Number(t.validite_mois)>0 ? escHtml(String(t.validite_mois))+' mois'+(Number(t.validite_mois)%12===0?' ('+(t.validite_mois/12)+' an'+(t.validite_mois/12>1?'s':'')+')':'') : "N'expire pas"}</td>
       <td>${t.alerte_jours!=null && t.alerte_jours!=='' ? escHtml(String(t.alerte_jours))+' j' : FRM_ALERTE_DEFAUT+' j <span style="color:var(--gray-4)">(défaut)</span>'}</td>
@@ -12511,9 +12539,9 @@ function frmHtmlTypes(C){
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();frmSupprimerType('${escHtml(t.id)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
       </div></td></tr>`).join('');
   return `<div class="table-wrap" style="overflow-x:auto"><table data-tri="oui" id="frm-types-table">
-    <thead><tr><th>Formation</th><th>Validité</th><th>Alerte avant expiration</th><th>Attestations</th><th>Active</th><th>Observations</th><th>Actions</th></tr></thead>
-    <tbody>${_frm.types.length ? lignes : `<tr><td colspan="7"><div class="empty"><p>Aucun type de formation</p><button class="btn btn-primary" onclick="openFormationTypeModal()"><i class="ti ti-plus"></i> Nouveau type</button></div></td></tr>`}</tbody></table></div>
-    <div style="padding:10px 14px;font-size:12px;color:var(--gray-5)">La validité d'un type sert à calculer l'expiration quand l'attestation n'indique pas de date. Une date saisie sur l'attestation prime toujours. Validité vide = la formation n'expire pas. Les durées légales sont à confirmer avec le responsable sécurité / l'organisme de formation.</div>`;
+    <thead><tr><th title="Ordre d'affichage dans le suivi et les listes">N°</th><th>Formation</th><th>Validité</th><th>Alerte avant expiration</th><th>Attestations</th><th>Active</th><th>Observations</th><th>Actions</th></tr></thead>
+    <tbody>${_frm.types.length ? lignes : `<tr><td colspan="8"><div class="empty"><p>Aucun type de formation</p><button class="btn btn-primary" onclick="openFormationTypeModal()"><i class="ti ti-plus"></i> Nouveau type</button></div></td></tr>`}</tbody></table></div>
+    <div style="padding:10px 14px;font-size:12px;color:var(--gray-5)">La validité d'un type sert à calculer l'expiration quand l'attestation n'indique pas de date. Une date saisie sur l'attestation prime toujours. Validité vide = la formation n'expire pas. Les durées légales sont à confirmer avec le responsable sécurité / l'organisme de formation.<br/>Ordre d'affichage : les formations clés du métier passent en premier (habilitation électrique, PEMP, R19, échafaudage), puis les autres par ordre alphabétique ; un numéro saisi dans la fiche d'un type remplace cet ordre automatique.</div>`;
 }
 const frmNombreOuNul = v => { const s = String(v==null?'':v).trim().replace(',','.'); if(s==='') return null; const n = Number(s); return isFinite(n) ? n : NaN; };
 function openFormationTypeModal(id){
@@ -12528,6 +12556,9 @@ function openFormationTypeModal(id){
           <span style="font-size:12px;color:var(--gray-5)">Vide = la formation n'expire pas.</span></div>
         <div class="form-group"><label class="field-label" for="frt-alerte">Alerte (jours avant expiration)</label><input id="frt-alerte" type="number" min="0" max="1095" step="1" value="${escHtml(t&&t.alerte_jours!=null?t.alerte_jours:'')}" placeholder="${FRM_ALERTE_DEFAUT}"/>
           <span style="font-size:12px;color:var(--gray-5)">Vide = ${FRM_ALERTE_DEFAUT} jours. 0 = pas d'alerte avant l'expiration.</span></div>
+        <div class="form-group"><label class="field-label" for="frt-ordre">Ordre d'affichage</label><input id="frt-ordre" type="number" min="1" max="9999" step="1" value="${escHtml(t&&t.ordre!=null?t.ordre:'')}" placeholder="auto"/>
+          <span style="font-size:12px;color:var(--gray-5)">1 = en premier. Vide = automatique (habilitation électrique, PEMP, R19, échafaudage, puis ordre alphabétique).</span>
+          ${(_frm.types.length && !_frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'ordre'))) ? `<span id="frt-ordre-sql" style="display:block;font-size:12px;color:var(--orange)">Pour enregistrer un numéro, exécutez d'abord la dernière version de <strong>${SQL_FORMATIONS}</strong>.</span>` : ''}</div>
         <div class="form-group full"><label class="field-label" for="frt-obs">Observations</label><input id="frt-obs" value="${escHtml(t?t.observations:'')}"/></div>
         <div class="form-group full"><label style="display:flex;gap:10px;align-items:center;font-weight:400;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="frt-actif" style="width:auto;margin:0" ${(!t||t.actif!==false)?'checked':''}/> Formation active (proposée dans les listes)</label></div>
       </div>
@@ -12535,16 +12566,27 @@ function openFormationTypeModal(id){
     </div></div></div>`);
 }
 async function frmEnregistrerType(id){
-  const nom = (el('frt-nom').value||'').trim(), val = frmNombreOuNul(el('frt-validite').value), al = frmNombreOuNul(el('frt-alerte').value);
+  const nom = (el('frt-nom').value||'').trim(), val = frmNombreOuNul(el('frt-validite').value), al = frmNombreOuNul(el('frt-alerte').value), ordre = frmNombreOuNul(el('frt-ordre').value);
   if(!nom){ showToast('Le nom de la formation est obligatoire','error'); return; }
+  if(ordre!==null && (!Number.isInteger(ordre) || ordre<1 || ordre>9999)){ showToast("L'ordre d'affichage doit être un nombre entier (1 à 9999) ou rester vide",'error'); return; }
   if(val!==null && (!Number.isInteger(val) || val<1 || val>600)){ showToast('La validité doit être un nombre entier de mois (1 à 600) ou rester vide','error'); return; }
   if(al!==null && (!Number.isInteger(al) || al<0 || al>1095)){ showToast("L'alerte doit être un nombre entier de jours (0 à 1095) ou rester vide",'error'); return; }
   if(_frm.types.some(x=>String(x.id)!==String(id||'') && frmN(x.nom)===frmN(nom))){ showToast('Ce type de formation existe déjà','error'); return; }
   const data = {nom, validite_mois:val, alerte_jours:al, observations:(el('frt-obs').value||'').trim()||null, actif:el('frt-actif').checked};
+  // La colonne « ordre » vient de la dernière version de migration-formations.sql : sans elle on enregistre le reste et on le dit
+  const colonneOrdre = _frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'ordre'));
+  if(colonneOrdre || ordre!==null) data.ordre = ordre;
   const b = el('btn-frt-save'); if(b) b.disabled = true;
-  const {error} = id ? await sb.from('formations_types').update(data).eq('id',id) : await sb.from('formations_types').insert(data);
+  const enregistrer = d => id ? sb.from('formations_types').update(d).eq('id',id) : sb.from('formations_types').insert(d);
+  let {error} = await enregistrer(data), ordrePerdu = false;
+  if(error && 'ordre' in data && /ordre/i.test(error.message) && /column|colonne|schema cache/i.test(error.message)){
+    delete data.ordre; ordrePerdu = true; ({error} = await enregistrer(data));
+  }
   if(error){ if(b) b.disabled = false; showToast(/duplicate|unique/i.test(error.message) ? 'Ce type de formation existe déjà' : 'Erreur: '+error.message, 'error'); return; }
-  closeModal(); showToast(id?'Type mis à jour':'Type créé'); renderFormations();
+  closeModal();
+  if(ordrePerdu) showToast(`${id?'Type mis à jour':'Type créé'}, mais l'ordre d'affichage n'a pas pu être enregistré : exécutez la dernière version de ${SQL_FORMATIONS}`,'error');
+  else showToast(id?'Type mis à jour':'Type créé');
+  renderFormations();
 }
 async function frmSupprimerType(id){
   const t = _frm.types.find(x=>String(x.id)===String(id)); if(!t) return;
