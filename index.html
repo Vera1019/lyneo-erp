@@ -2015,9 +2015,12 @@ async function lireFacturesVenteChantiers(ids){
 // Clé de comparaison tolérante pour reconnaître d'anciens textes libres : « Jonathan Girault », « GIRAULT Jonathan » et « Girault Jonathan3 » → même clé.
 const cleNomChef = t => cleNomEmploye(String(t||'').replace(/[0-9]/g,' ').replace(/[-_.,'’]/g,' '));
 // L'employé correspondant à un ancien texte libre, seulement s'il est UNIQUE (jamais de choix au hasard entre deux homonymes)
+function employesPourTexteChef(texte, employes){
+  const k = cleNomChef(texte); if(!k) return [];
+  return (employes||[]).filter(e=>cleNomChef((e.prenom||'')+' '+(e.nom||''))===k);
+}
 function employePourTexteChef(texte, employes){
-  const k = cleNomChef(texte); if(!k) return null;
-  const m = (employes||[]).filter(e=>cleNomChef((e.prenom||'')+' '+(e.nom||''))===k);
+  const m = employesPourTexteChef(texte, employes);
   return m.length===1 ? m[0] : null;
 }
 // id d'employé → « NOM Prénom », lu dans la fiche (un employé renommé se met à jour partout). {} si la liste est illisible (droits, réseau).
@@ -4380,8 +4383,16 @@ async function openChantierModal(r=null){
     // d'abord parmi les actifs ; sinon (ancien chantier d'un employé parti) parmi tous — toujours seulement si UNIQUE
     const trouve = employePourTexteChef(r.chef_chantier, empsActifs) || employePourTexteChef(r.chef_chantier, empsTous);
     if(trouve){ chefSel = String(trouve.id); chefHint = '« '+r.chef_chantier+' » reconnu comme '+nomPers(trouve)+' : enregistrez pour confirmer le lien.'; }
-    else chefHint = 'Ancien texte libre : « '+r.chef_chantier+' » (non reconnu). Choisissez l\'employé dans la liste.';
+    else {
+      const nb = employesPourTexteChef(r.chef_chantier, empsActifs).length || employesPourTexteChef(r.chef_chantier, empsTous).length;
+      chefHint = nb>1
+        ? 'Ancien texte libre : « '+r.chef_chantier+' » — '+nb+' employés portent ce nom : choisissez le bon dans la liste.'
+        : 'Ancien texte libre : « '+r.chef_chantier+' » (non reconnu). Choisissez l\'employé dans la liste.';
+    }
   }
+  // Texte libre non relié : il reste VISIBLE et sélectionné dans la liste (le chantier n'a pas l'air d'avoir perdu son responsable) tant qu'on n'a pas choisi un employé
+  const ancienOpt = (empOk && !chefSel && r?.chef_chantier)
+    ? `<option value="__ancien__" data-nom="${escHtml(r.chef_chantier)}" selected>${escHtml('⚠ '+r.chef_chantier+' — texte libre, à remplacer par un employé')}</option>` : '';
   const chefOpts = (()=>{
     const ids = new Set(empsActifs.map(e=>String(e.id)));
     const l = empsActifs.map(e=>({id:String(e.id), nom:nomPers(e), suffixe:''}));
@@ -4392,7 +4403,7 @@ async function openChantierModal(r=null){
     return l.map(o=>`<option value="${escHtml(o.id)}" data-nom="${escHtml(o.nom)}"${o.id===chefSel?' selected':''}>${escHtml(o.nom+o.suffixe)}</option>`).join('');
   })();
   const champChef = empOk
-    ? `<select id="ch-chef-id" data-had="${r && ('chef_chantier_id' in r) ? '1' : ''}" data-legacy="${(!r?.chef_chantier_id && r?.chef_chantier) ? escHtml(r.chef_chantier) : ''}"><option value="">— Aucun —</option>${chefOpts}</select>
+    ? `<select id="ch-chef-id" data-had="${r && ('chef_chantier_id' in r) ? '1' : ''}" data-legacy="${(!r?.chef_chantier_id && r?.chef_chantier) ? escHtml(r.chef_chantier) : ''}"><option value="">— Aucun —</option>${ancienOpt}${chefOpts}</select>
        <span id="ch-chef-hint" style="font-size:12px;color:var(--gray-5)">${chefHint ? escHtml(chefHint) : 'Choisi parmi les employés (Ressources humaines) : le nom vient de leur fiche.'}</span>`
     : `<input id="ch-chef" value="${escHtml(r?.chef_chantier||'')}" placeholder="Responsable"/>
        <span id="ch-chef-hint" style="font-size:12px;color:var(--orange)">Liste des employés indisponible : saisie libre provisoire.</span>`;
@@ -4520,9 +4531,11 @@ async function saveChantierCore(id){
   const chefSelEl = el('ch-chef-id');
   let chefTexte = '', chefId;
   if(chefSelEl){
-    chefId = chefSelEl.value || null;
+    const choix = chefSelEl.value;
+    chefId = (choix && choix!=='__ancien__') ? choix : null;
     const opt = chefSelEl.options[chefSelEl.selectedIndex];
-    chefTexte = chefId ? ((opt && opt.dataset.nom) || (opt && opt.textContent.trim()) || '') : (chefSelEl.dataset.legacy || '');   // sans choix : l'ancien texte libre n'est pas effacé en silence
+    // « texte libre » laissé sélectionné : l'ancien texte n'est pas effacé en silence ; « — Aucun — » choisi exprès : on efface
+    chefTexte = chefId ? ((opt && opt.dataset.nom) || (opt && opt.textContent.trim()) || '') : (choix==='__ancien__' ? (chefSelEl.dataset.legacy || '') : '');
   } else if(el('ch-chef')) chefTexte = el('ch-chef').value.trim();
   const data = {nom,client_id:clientId||null,client:clientRow?.nom||(clientFacultatif?(typeChoisi==='sav'?'Clients divers':'INTERNE - LYNEO'):''),adresse:el('ch-adresse').value,site_intervention:el('ch-site-intervention').value,chef_chantier:chefTexte,statut:statutAtual,date_debut:el('ch-debut').value||null,observations:el('ch-obs').value,code_pointages:cpModal?cpModal.value:undefined};
   // Le lien vers l'employé n'est envoyé que s'il est rempli ou si la colonne existe déjà (sinon la sauvegarde casserait avant la migration SQL)
