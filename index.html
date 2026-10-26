@@ -410,6 +410,11 @@ select{cursor:pointer}
 .modal-header{padding:20px 24px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:10;border-radius:var(--radius-lg) var(--radius-lg) 0 0}
 .modal-header h3{font-size:17px;font-weight:700;color:var(--gray-8)}
 .modal-header-sub{font-size:12px;color:var(--gray-5);margin-top:1px}
+.trac-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:2px 18px;padding:8px 24px;background:var(--gray-1);border-bottom:1px solid var(--gray-3);font-size:12px;color:var(--gray-6)}
+.trac-ligne strong{color:var(--gray-8);font-weight:600}.trac-ligne i.ti{font-size:14px;vertical-align:-2px;color:var(--gray-5)}.trac-ligne em{color:var(--gray-5)}
+.trac-alerte,.trac-alerte i.ti{color:var(--orange)}.trac-lien{margin-left:auto;color:var(--blue);font-weight:600;text-decoration:none;white-space:nowrap}.trac-lien:hover{text-decoration:underline}
+.trac-histo{padding:8px 24px 12px;border-bottom:1px solid var(--gray-3);max-height:260px;overflow:auto;background:#fff}
+@media(max-width:600px){.trac-ligne{padding:8px 16px}.trac-histo{padding:8px 16px 12px}.trac-lien{margin-left:0}}
 .modal-body{padding:24px}
 .modal-close{background:var(--gray-1);border:1px solid var(--gray-3);cursor:pointer;color:var(--gray-5);padding:6px;border-radius:8px;display:flex;line-height:1;transition:all .15s}
 .modal-close:hover{background:var(--gray-2);color:var(--gray-8)}
@@ -4902,6 +4907,7 @@ async function renderPOS(search='', filterStatut=''){
   ]);
   _pos = posR.data||[]; _chantiersActive = chantsR.data||[]; _foursActive = foursR.data||[];
   _poRefs = await chargerRefsInterventions(_pos.map(p=>p.intervention_id));
+  await tracChargerUtilisateurs();
   const q = search.toLowerCase();
   const items = _pos.filter(i=>{
     const match = !q || [i.numero, i.chantiers_lyneo?.numero, i.chantiers_lyneo?.nom, i.fournisseurs?.nom].join(' ').toLowerCase().includes(q);
@@ -4924,9 +4930,9 @@ async function renderPOS(search='', filterStatut=''){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="pos">
-          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Créé par</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
             items.map(r=>{
               const centreHtml = htmlCentreCout(r.chantiers_lyneo) || htmlCentreCout(_chantiersActive.find(c=>c.id===r.chantier_id)) || '—';
               const pct = ['rec_totale','facturee','payee'].includes(r.statut) ? 100
@@ -4949,6 +4955,7 @@ async function renderPOS(search='', filterStatut=''){
               <td data-som="ht" data-v="${parseFloat(r.total_ht)||0}">${fmt(r.total_ht)}</td>
               <td data-som="ttc" data-v="${parseFloat(r.total_ttc)||0}"><strong>${fmt(r.total_ttc)}</strong></td>
               <td>${bPO(r.statut)}</td>
+              <td>${tracCell(r.cree_par)}</td>
               <td onclick="event.stopPropagation()"><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="openPODetail('${r.id}')"><i class="ti ti-eye"></i></button>
                 ${r.statut==='brouillon' ? '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();annulerPO(\'' + r.id + '\')" title="Annuler"><i class="ti ti-x"></i></button>' : ''}
@@ -6399,6 +6406,7 @@ async function renderFactures(){
   _facsListe = ordreDefautFactures(facsR.data||[]);
   _posPourFac = posR.data||[];
   _facChantiers = chR.data||[];
+  await tracChargerUtilisateurs();
   _facIntervRefs = await chargerRefsInterventions(_facsListe.map(f=>f.intervention_id));
   const ids = new Set(_facsListe.map(f=>f.id));
   _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
@@ -6452,8 +6460,9 @@ async function renderFactures(){
               <th></th>
               <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
               <th></th>
+              <th></th>
             </tr>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('tva','TVA')}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${thTriFac('chantier','Centre de coûts')}${_facCodesOk ? thTriFac('codes','Codes') : ''}<th>Documents</th>${thTriFac('statut','Statut')}<th>Actions</th></tr>
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('tva','TVA')}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${thTriFac('chantier','Centre de coûts')}${_facCodesOk ? thTriFac('codes','Codes') : ''}<th>Documents</th>${thTriFac('statut','Statut')}${thTriFac('par','Saisie par')}<th>Actions</th></tr>
           </thead>
           <tbody id="fac-tbody"></tbody>
         </table>
@@ -6479,6 +6488,7 @@ const COLS_TRI_FAC = {
   tva:['nombre', r=>montantTvaFacture(r)],
   ttc:['nombre', r=>parseFloat(r.montant_ttc)||0],
   statut:['texte', r=>cleTexteTri(STATUT_FA[r.statut]||r.statut)],
+  par:['texte', r=>cleTexteTri(tracNomAuteur(r.saisie_par))],
   codes:['texte', r=>RANG_CODES_FAC[etatCodesFacture(r).etat]+' '+cleTexteTri(codesDeFacture(r).map(c=>c.code).join(' '))]
 };
 function trierFactures(liste){
@@ -6540,7 +6550,7 @@ function afficherFactures(){
   const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
   const dblFac = doublonsFacturesParId(_facsListe);
-  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${_facCodesOk ? 15 : 14}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
+  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${_facCodesOk ? 16 : 15}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
     items.map(r=>{
       const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
       const choisie = _facSel.has(r.id);
@@ -6562,6 +6572,7 @@ function afficherFactures(){
         ${_facCodesOk ? `<td>${cellCodesFac(r)}</td>` : ''}
         <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button> <button class="btn btn-ghost btn-sm" data-fac-apercu="${r.id}" onclick="apercuFactureListe('${r.id}')" title="Aperçu du PDF (sans le télécharger)"><i class="ti ti-eye"></i></button></td>
         <td>${bFA(r.statut)}</td>
+        <td>${tracCell(r.saisie_par)}</td>
         <td><div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
           <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${r.id}')" title="Dupliquer"><i class="ti ti-copy"></i></button>
@@ -6787,13 +6798,14 @@ let _ap = null;
 const apEstPdf = d => /pdf/i.test(d.tipo||'') || /\.pdf$/i.test(String(d.nom||'').trim());
 const apEstImage = d => /^image\//i.test(d.tipo||'') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(d.nom||'').trim());
 const apPrevisualisable = d => apEstPdf(d) || apEstImage(d);
+const apUrlSure = u => /^(https?:\/\/|blob:)/i.test(String(u==null?'':u).trim());
 function apLibererBlobs(){
   if(!_ap) return;
   Object.values(_ap.blobs).forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(e){} });
   if(_ap.local) _ap.docs.forEach(d=>{ try{ URL.revokeObjectURL(d.url); }catch(e){} });
 }
 function ouvrirApercu(docs, i, local){
-  docs = (docs||[]).filter(d=>d && d.url);
+  docs = (docs||[]).filter(d=>d && apUrlSure(d.url));
   if(!docs.length) return;
   apLibererBlobs();
   _ap = {docs, i:Math.min(Math.max(0, i||0), docs.length-1), jeton:0, blobs:{}, local:!!local};
@@ -9089,6 +9101,7 @@ async function renderDevis(search){
   if(typeof search==='string') _dvFiltres.search = search;
   const {data} = await sb.from('devis').select('*,clients(nom),chantiers_lyneo!chantier_id(nom,numero)').order('created_at',{ascending:false});
   _devis = data||[];
+  await tracChargerUtilisateurs();
   fermerPopFiltreDevis();
   // factures liées aux devis : requête protégée (la liste des devis s'affiche même si elle échoue)
   _dvFactures = {};
@@ -9193,16 +9206,18 @@ function afficherDevis(){
   liste.innerHTML = `<table data-export="devis">
     <thead><tr>${COLS_DEVIS.map(enteteColDevis).join('')}<th>Actions</th></tr></thead>
     <tbody>
-      ${items.length===0 ? `<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>${_devis.length===0?'Aucun devis trouvé':'Aucun devis ne correspond à ces critères'}</p>${_devis.length===0?'<button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>':'<button class="btn btn-secondary" onclick="reinitialiserFiltresDevis()">Réinitialiser les filtres</button>'}</div></td></tr>` :
+      ${items.length===0 ? `<tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>${_devis.length===0?'Aucun devis trouvé':'Aucun devis ne correspond à ces critères'}</p>${_devis.length===0?'<button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>':'<button class="btn btn-secondary" onclick="reinitialiserFiltresDevis()">Réinitialiser les filtres</button>'}</div></td></tr>` :
       items.map(d=>`<tr data-sel-id="${d.id}" style="cursor:pointer" onclick="openDevisDetail('${d.id}')">
         <td style="white-space:nowrap"><strong class="text-blue">${escHtml(d.numero)}</strong></td>
         <td>${escHtml(d.clients?.nom||'—')}</td>
         <td>${d.chantiers_lyneo?escHtml(d.chantiers_lyneo.nom):'—'}</td>
         <td>${escHtml(d.objet||'—')}</td>
+        <td>${escHtml(String(d.correspondant||'').trim()||'—')}</td>
         <td>${fmtDate(d.date_devis)}</td>
         <td>${bDV(d.statut)}</td>
         <td data-som="ht" data-v="${parseFloat(d.montant_ht)||0}" style="text-align:right;font-weight:700;white-space:nowrap">${fmt(d.montant_ht)}</td>
         <td>${cellFact(d)}</td>
+        <td>${tracCell(d.cree_par)}</td>
         <td><div class="td-actions">
           <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openDevisDetail('${d.id}')" title="Voir"><i class="ti ti-eye"></i></button>
           <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteDevis('${d.id}','${escHtml(d.numero)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
@@ -9219,10 +9234,12 @@ const COLS_DEVIS = [
   {k:'client',   label:'Client',      type:'liste',  val:d=>d.clients?.nom||'', aff:v=>v||'—'},
   {k:'chantier', label:'Chantier',    type:'liste',  val:d=>d.chantiers_lyneo?.nom||'', aff:v=>v||'—'},
   {k:'objet',    label:'Objet',       type:'texte',  val:d=>d.objet||''},
+  {k:'corresp',  label:'Correspondant', type:'liste', val:d=>String(d.correspondant||'').trim(), aff:v=>v||'—'},     // responsable du devis (chargé d'affaire), saisi dans le devis
   {k:'date',     label:'Date',        type:'date',   val:d=>String(d.date_devis||'').slice(0,10)},
   {k:'statut',   label:'Statut',      type:'liste',  val:d=>d.statut||'', aff:v=>STATUT_DV[v]||v||'—'},
   {k:'montant',  label:'Montant HT',  type:'nombre', val:d=>parseFloat(d.montant_ht)||0, droite:true},
-  {k:'fact',     label:'Facturation', type:'liste',  val:d=>etatFacturationDevis(d, _dvFactures[d.id]).etat, aff:v=>LIB_FACT_DEVIS[v]||v}
+  {k:'fact',     label:'Facturation', type:'liste',  val:d=>etatFacturationDevis(d, _dvFactures[d.id]).etat, aff:v=>LIB_FACT_DEVIS[v]||v},
+  {k:'cree',     label:'Créé par',    type:'liste',  val:d=>tracNomAuteur(d.cree_par), aff:v=>v||'—'}
 ];
 const colDevis = k => COLS_DEVIS.find(c=>c.k===k);
 const normTxtDevis = t => String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
@@ -9555,7 +9572,7 @@ async function openDevisModal(d=null){
         <div class="form-group full"><label class="field-label">Objet <span style="font-weight:400;color:var(--gray-5)">(description complète du devis)</span></label><input id="dv-objet" value="${escHtml(d?.objet||'')}" placeholder="Ex: Assistance à la coupure et au raccordement d'un groupe électrogène"/></div>
         <div class="form-group"><label class="field-label">Affaire <span style="font-weight:400;color:var(--gray-5)">(page de garde et en-tête du PDF)</span></label><input id="dv-affaire" value="${escHtml(d?.affaire||'')}" placeholder="Ex: DELNIEDERKORN"/></div>
         <div class="form-group"><label class="field-label">Objet court <span style="font-weight:400;color:var(--gray-5)">(page de garde du PDF)</span></label><input id="dv-objet-court" value="${escHtml(d?.objet_court||'')}" placeholder="Ex: Projet Delhaize"/></div>
-        <div class="form-group"><label class="field-label">Correspondant</label><input id="dv-correspondant" value="${d?.correspondant||''}" placeholder="Nom du chargé d'affaire"/></div>
+        <div class="form-group"><label class="field-label">Correspondant</label><input id="dv-correspondant" value="${escHtml(d?.correspondant||'')}" placeholder="Nom du chargé d'affaire"/></div>
         <div class="form-group"><label class="field-label">Date du devis</label><input type="date" id="dv-date" value="${d?.date_devis||today()}"/></div>
         <div class="form-group"><label class="field-label">Validité (jours)</label><input type="number" id="dv-validite" value="${d?.validite_jours||30}"/></div>
         <div class="form-group"><label class="field-label">Statut</label>
@@ -9775,7 +9792,7 @@ async function openDevisDetail(devisId){
         <div class="info-item"><label>Intervention SAV</label><span>${interventionLiee?`<a href="#" onclick="closeModal();openInterventionDetail('${interventionLiee.id}');return false" style="color:var(--blue);font-weight:600">${interventionLiee.ref}</a> ${bSAV(interventionLiee.statut)}`:'—'}</span></div>
         <div class="info-item"><label>Affaire</label><span>${escHtml(d.affaire)||'—'}</span></div>
         <div class="info-item"><label>Objet court (PDF)</label><span>${escHtml(d.objet_court)||'—'}</span></div>
-        <div class="info-item"><label>Correspondant</label><span>${d.correspondant||'—'}</span></div>
+        <div class="info-item"><label>Correspondant</label><span>${escHtml(d.correspondant||'')||'—'}</span></div>
         <div class="info-item"><label>Date</label><span>${fmtDate(d.date_devis)}</span></div>
         <div class="info-item"><label>Validité</label><span>${d.validite_jours} jours</span></div>
         <div class="info-item"><label>Statut</label><span>${bDV(d.statut)}</span></div>
@@ -9957,6 +9974,7 @@ function joursRetardFv(f){
 }
 
 async function renderFacturesVente(){
+  await tracChargerUtilisateurs();
   const {data} = await sb.from('factures_vente').select('*,clients(nom),chantiers_lyneo!chantier_id(nom,numero)');
   // du plus récent au plus ancien (date de facture, puis n°)
   _facturesVente = (data||[]).slice().sort((a,b)=> String(b.date_creation||'').slice(0,10).localeCompare(String(a.date_creation||'').slice(0,10))
@@ -10079,6 +10097,7 @@ function afficherFacturesVente(){
       ${montant(f.total_ht,'ht')}${montant(tvaDe(f),'tva')}
       <td data-som="ttc" data-v="${num(f.total_ttc)}" style="text-align:right;white-space:nowrap;font-weight:700;font-variant-numeric:tabular-nums;${annulee?'text-decoration:line-through;color:var(--gray-5)':(avoir?'color:var(--red)':'')}">${fmt(f.total_ttc)}</td>
       <td style="white-space:nowrap">${jr?`<span class="badge badge-litige">En retard</span>${f.statut==='payee_partiel'?`<div style="${sub}">Part. payée</div>`:''}`:bFV(f.statut, avoir)}${av?`<div style="${sub}">${soldeFv(f,_fvAvoirs)<=0.005?'Crédité en totalité':'Avoir '+fmt(av.ttc)}</div>`:''}</td>
+      <td>${tracCell(f.cree_par)}</td>
     </tr>`;
   };
 
@@ -10093,15 +10112,15 @@ function afficherFacturesVente(){
   const liste = el('fv-liste');
   if(!liste) return;
   liste.innerHTML = `<table data-tri="oui" data-export="factures_vente">
-    <thead><tr>${th('N°')}${th('Date')}${th('Échéance')}${th('Client')}${th('Centre de coûts')}${th('Origine')}${th('Type')}${th('HT','right')}${th('TVA','right')}${th('TTC','right')}${th('Statut')}</tr></thead>
-    <tbody>${items.length===0 ? `<tr><td colspan="11">${vide}</td></tr>` : items.map(ligne).join('')}</tbody>
+    <thead><tr>${th('N°')}${th('Date')}${th('Échéance')}${th('Client')}${th('Centre de coûts')}${th('Origine')}${th('Type')}${th('HT','right')}${th('TVA','right')}${th('TTC','right')}${th('Statut')}${th('Créé par')}</tr></thead>
+    <tbody>${items.length===0 ? `<tr><td colspan="12">${vide}</td></tr>` : items.map(ligne).join('')}</tbody>
     ${items.length ? `<tfoot><tr style="background:var(--gray-1);font-weight:700">
       <td colspan="7" style="text-align:right">Total net — factures et avoirs émis <span style="font-weight:400;color:var(--gray-5)">(hors brouillons et annulées)</span></td>
       <td style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${fmt(totHT)}</td>
       <td style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${fmt(totTVA)}</td>
       <td style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${fmt(totTTC)}</td>
-      <td></td></tr>
-      ${nonComptees.length?`<tr><td colspan="11" style="${sub};text-align:right;padding:6px 12px">Non comptées dans les totaux : ${nonComptees.join(' · ')}</td></tr>`:''}</tfoot>` : ''}
+      <td></td><td></td></tr>
+      ${nonComptees.length?`<tr><td colspan="12" style="${sub};text-align:right;padding:6px 12px">Non comptées dans les totaux : ${nonComptees.join(' · ')}</td></tr>`:''}</tfoot>` : ''}
   </table>`;
 }
 
@@ -12148,6 +12167,147 @@ async function afficherHistorique(id, cibleId){
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// TRAÇABILITÉ — qui a créé / modifié quoi
+//  • Fiches (facture client, devis, commande, facture fournisseur, réception, intervention SAV, chantier, client, fournisseur, employé) :
+//    bandeau « Créé par … le … · Modifié par … le … » pour TOUS les utilisateurs actifs ; « Historique » complet pour administrateur / comptabilité.
+//  • Listes : colonne « Créé par » (devis, commandes, factures clients, interventions SAV) / « Saisie par » (factures fournisseurs).
+//  Sources : (1) le journal d'audit, via la fonction tracabilite_auteurs (migration-tracabilite.sql) : elle ne renvoie que QUI et QUAND, jamais le contenu ;
+//  (2) à défaut, la colonne de la fiche (cree_par / saisie_par / recu_par = utilisateur) et sa date de création.
+//  Sans le SQL : le créateur s'affiche quand la fiche le connaît ; « Modifié par » demande le script (l'administrateur en est averti dans le bandeau).
+//  Les noms viennent de la table utilisateurs (lisible par tous les utilisateurs actifs), lue une fois puis gardée 10 minutes.
+// ══════════════════════════════════════════════════════════════════════════════
+const SQL_TRAC = 'migration-tracabilite.sql';
+const TRAC_TABLES = {                 // table → colonne qui désigne l'utilisateur créateur (s'il y en a une)
+  factures_vente:{cree:'cree_par'}, devis:{cree:'cree_par'}, purchase_orders_lyneo:{cree:'cree_par'}, factures:{cree:'saisie_par'},
+  interventions_sav:{cree:'cree_par'}, bons_livraison:{cree:'recu_par'}, chantiers_lyneo:{}, clients:{}, fournisseurs:{}, employes_rh:{}
+};
+const TRAC_RH = ['employes_rh','formations_employes','habilitations_designations','anexos_employe'];     // historique réservé à ceux qui voient les données RH
+const TRAC_FICHES = {                 // fenêtre « fiche » → table
+  openFactureVenteDetail:'factures_vente', openDevisDetail:'devis', openPODetail:'purchase_orders_lyneo', openFacDetail:'factures',
+  openInterventionDetail:'interventions_sav', openChantierDetail:'chantiers_lyneo', openClientDetail:'clients', openFourDetail:'fournisseurs',
+  openBLDetail:'bons_livraison', openEmployeDetail:'employes_rh'
+};
+Object.assign(JOURNAL_TABLES, {bons_livraison:'Réceptions (BL)', lignes_bl:'Lignes de réception', remarques_intervention:'Remarques SAV', codes_ressource:'Codes ressource',
+  anexos:'Documents (factures fournisseurs)', anexos_chantier:'Documents (chantiers)', anexos_devis:'Documents (devis)', anexos_facture_vente:'Documents (factures clients)',
+  anexos_intervention:'Documents (SAV)', anexos_employe:'Documents (employés)'});
+const TRAC_SYSTEME = /^(postgres|service_role|supabase_admin|authenticator|anon)$/i;      // opérations faites depuis le SQL Editor / un script (imports…)
+const TRAC_CACHE_MS = 10*60*1000;
+
+// ── Noms des utilisateurs (lecture unique, valable 10 minutes) ──
+let _tracU = {id:new Map(), email:new Map(), ok:false}, _tracUP = null, _tracUT = 0;
+const tracLibelleUtil = u => nomPers(u) || String((u && u.email) || '').trim();
+async function tracLireUtilisateurs(){
+  try{
+    const r = await sb.from('utilisateurs').select('id,prenom,nom,email');
+    if(r.error) throw r.error;
+    const id = new Map(), email = new Map();
+    (r.data||[]).forEach(u=>{ const lib = tracLibelleUtil(u); if(!lib) return; id.set(String(u.id).toLowerCase(), lib); if(u.email) email.set(String(u.email).trim().toLowerCase(), lib); });
+    return {id, email, ok:true};
+  }catch(e){ return {id:new Map(), email:new Map(), ok:false}; }
+}
+function tracChargerUtilisateurs(){
+  if(_tracUP && Date.now()-_tracUT < TRAC_CACHE_MS) return _tracUP;
+  _tracUT = Date.now();
+  const p = tracLireUtilisateurs().then(u=>{ if(u.ok) _tracU = u; else if(_tracUP===p) _tracUP = null; return _tracU; });
+  _tracUP = p;
+  return p;
+}
+// Nom affichable : uuid (colonne cree_par…) ou e-mail (journal) ; '' si on ne sait pas
+function tracNomAuteur(v){
+  const s = String(v==null?'':v).trim(); if(!s) return '';
+  const connu = _tracU.id.get(s.toLowerCase()); if(connu) return connu;
+  if(_UUID_TRI.test(s)) return _tracU.ok ? 'Utilisateur inconnu' : '';
+  if(s.includes('@')) return _tracU.email.get(s.toLowerCase()) || s;
+  return TRAC_SYSTEME.test(s) ? 'Système (SQL)' : s;
+}
+const tracCell = v => { const n = tracNomAuteur(v); return n ? `<span style="white-space:nowrap">${escHtml(n)}</span>` : '<span style="color:var(--gray-4)">—</span>'; };
+
+// ── Données d'une fiche ──
+async function tracNatif(table, id){
+  const cfg = TRAC_TABLES[table] || {};
+  const essais = cfg.cree ? [cfg.cree+',created_at', 'created_at'] : ['created_at'];
+  for(const cols of essais){
+    try{ const r = await sb.from(table).select(cols).eq('id', id).maybeSingle(); if(!r.error) return r.data || {}; }catch(e){}
+  }
+  return {};
+}
+async function tracJournal(table, ids){
+  const out = {ok:false, manque:false, map:new Map()};
+  try{
+    const r = await sb.rpc('tracabilite_auteurs', {p_table:table, p_ids:ids.map(String)});
+    if(r.error) throw r.error;
+    (r.data||[]).forEach(x=>{ out.map.set(String(x.row_id), x); });
+    out.ok = true;
+  }catch(e){
+    out.manque = /PGRST202|could not find the function|schema cache|function [\w.()\s,\[\]]*does not exist/i.test(String((e && e.message) || e || ''));
+  }
+  return out;
+}
+async function tracInfo(table, id){
+  id = String(id);
+  const cfg = TRAC_TABLES[table] || {};
+  const [, nat, j] = await Promise.all([tracChargerUtilisateurs(), tracNatif(table, id), tracJournal(table, [id])]);
+  const e = j.map.get(id) || {};
+  const jc = e.cree_par ? String(e.cree_par).trim() : '', natif = cfg.cree && nat ? nat[cfg.cree] : '';
+  // Le journal fait foi ; s'il ne connaît que le SQL (import…), la colonne de la fiche, quand elle existe, est plus parlante.
+  let creePar = '';
+  if(jc && !TRAC_SYSTEME.test(jc)) creePar = tracNomAuteur(jc);
+  if(!creePar && natif) creePar = tracNomAuteur(natif);
+  if(!creePar && jc) creePar = tracNomAuteur(jc);
+  return {creePar, creeLe:e.cree_le || (nat && nat.created_at) || '', modPar:e.modifie_par ? tracNomAuteur(e.modifie_par) : '', modLe:e.modifie_le || '',
+          nb:Number(e.nb_modifs)||0, journalOk:j.ok, manque:j.manque};
+}
+function tracPeutHistorique(table){
+  if(!currentUser) return false;
+  return TRAC_RH.includes(table) ? peutVoirSalaires() : ['admin','comptabilite'].includes(currentUser.role);
+}
+function tracBandeauHtml(info, table, id){
+  const quand = v => v ? ' le '+escHtml(journalDate(v)) : '';
+  const cree = info.creePar
+    ? `<span class="trac-bloc"><i class="ti ti-user-plus"></i> Créé par <strong>${escHtml(info.creePar)}</strong>${quand(info.creeLe)}</span>`
+    : `<span class="trac-bloc"><i class="ti ti-user-plus"></i> ${info.creeLe ? 'Créé'+quand(info.creeLe)+' ' : 'Création : '}<em>(auteur non enregistré)</em></span>`;
+  let modif = '';
+  if(info.modPar) modif = `<span class="trac-bloc"><i class="ti ti-user-edit"></i> Modifié par <strong>${escHtml(info.modPar)}</strong>${quand(info.modLe)}${info.nb>1?' · '+info.nb+' modifications':''}</span>`;
+  else if(info.journalOk) modif = '<span class="trac-bloc"><i class="ti ti-user-edit"></i> <em>Aucune modification enregistrée</em></span>';
+  else if(info.manque && currentUser && currentUser.role==='admin') modif = `<span class="trac-bloc trac-alerte"><i class="ti ti-info-circle"></i> Modifications : exécutez « ${SQL_TRAC} » dans Supabase</span>`;
+  const lien = tracPeutHistorique(table) ? `<a href="#" class="trac-lien" onclick="tracHistorique(this);return false"><i class="ti ti-history"></i> Historique</a>` : '';
+  return `<div class="trac-ligne" data-trac-table="${escHtml(table)}" data-trac-id="${escHtml(id)}">${cree}${modif}${lien}</div>`;
+}
+// 1er clic : ouvre l'historique complet sous le bandeau ; 2e clic : le referme
+function tracHistorique(a){
+  const bar = a && a.closest ? a.closest('.trac-ligne') : null; if(!bar) return;
+  const suite = bar.nextElementSibling;
+  if(suite && suite.classList.contains('trac-histo')){ suite.remove(); return; }
+  bar.insertAdjacentHTML('afterend', '<div class="trac-histo" id="trac-histo"></div>');
+  afficherHistorique(bar.dataset.tracId, 'trac-histo');
+}
+// Pose le bandeau sous l'en-tête de la fiche qui vient de s'ouvrir (jamais sur une autre fenêtre, jamais deux fois)
+async function tracPoserBandeau(table, id, avant){
+  const m = document.querySelector('#modal-container .modal');
+  if(!m || m===avant || !m.querySelector('.modal-header')) return;
+  if(table==='employes_rh' && !peutVoirSalaires()) return;
+  const info = await tracInfo(table, id);
+  if(!m.isConnected || document.querySelector('#modal-container .modal')!==m || m.querySelector('.trac-ligne')) return;
+  m.querySelector('.modal-header').insertAdjacentHTML('afterend', tracBandeauHtml(info, table, id));
+}
+let _tracSeq = 0;       // ouvertures de fiches en cours : seule la dernière reçoit son bandeau (deux fiches ouvertes coup sur coup)
+function tracEnvelopperFiche(nom, table){
+  const orig = window[nom];
+  if(typeof orig!=='function' || orig._tracFiche) return false;
+  const f = async function(id){
+    const seq = ++_tracSeq, avant = document.querySelector('#modal-container .modal');
+    const r = await orig.apply(this, arguments);
+    if(seq===_tracSeq) tracPoserBandeau(table, id, avant).catch(()=>{});
+    return r;
+  };
+  f._tracFiche = true;
+  window[nom] = f;
+  return true;
+}
+function tracInstaller(){ Object.entries(TRAC_FICHES).forEach(([nom,table])=>tracEnvelopperFiche(nom, table)); }
+tracInstaller();
+
 let _journalRows = [];
 async function renderControle(){
   if(!currentUser || currentUser.role!=='admin'){
@@ -12508,7 +12668,7 @@ function frmBadge(code){ return `<span class="badge frm-b-${code}">${FRM_STATUTS
 function frmHtmlListeCorps(C){
   const items = frmFiltrer(C);
   const lignes = items.map(it=>{
-    const l = it.l, pdf = l.anexo_id ? '<i class="ti ti-paperclip" title="Attestation jointe"></i>' : (l.fichier_pdf ? `<span title="PDF non relié : ${escHtml(l.fichier_pdf)}" style="color:var(--orange)"><i class="ti ti-paperclip-off"></i></span>` : '');
+    const l = it.l, pdf = l.anexo_id ? `<button type="button" class="btn btn-ghost btn-sm" data-frm-apercu="${escHtml(l.id)}" onclick="event.stopPropagation();frmApercuAttestation('${escHtml(l.id)}')" title="Attestation jointe — aperçu (sans la télécharger)" aria-label="Aperçu de l'attestation"><i class="ti ti-eye"></i></button>` : (l.fichier_pdf ? `<span title="PDF non relié : ${escHtml(l.fichier_pdf)}" style="color:var(--orange)"><i class="ti ti-paperclip-off"></i></span>` : '');
     return `<tr data-sel-id="${escHtml(l.id)}" data-code="${it.code}" style="cursor:pointer${it.code==='historique'?';opacity:.65':''}" onclick="openFormationModal('${escHtml(l.id)}')">
       <td><strong>${escHtml(it.e?nomPers(it.e):'—')}</strong>${it.e && it.e.actif===false?' <span class="badge badge-non" style="font-size:9px">inactif</span>':''}</td>
       <td>${escHtml(it.t?it.t.nom:'—')}</td>
@@ -12651,8 +12811,9 @@ function openFormationModal(id, preset){
         <div class="form-group"><label class="field-label" for="frm-cout">Coût HT (€)</label><input id="frm-cout" type="number" min="0" step="0.01" value="${nb(p.cout_ht)}"/></div>
         <div class="form-group full"><label class="field-label" for="frm-obs">Observations</label><textarea id="frm-obs" rows="2">${escHtml(p.observations||'')}</textarea></div>
         <div class="form-group full"><label class="field-label" for="frm-file">Attestation (PDF ou image)</label>
-          <div id="frm-pdf-actuel" style="margin-bottom:6px;font-size:13px">${anexo ? '<span class="badge badge-oui">Attestation jointe</span> <span style="color:var(--gray-5)">(dans le dossier de l\'employé)</span>' : (l && l.fichier_pdf ? `<span style="color:var(--orange)"><i class="ti ti-paperclip-off"></i> PDF non relié : « ${escHtml(l.fichier_pdf)} » — déposez-le dans le dossier de l'employé puis « Lier les PDF »</span>` : '<span style="color:var(--gray-5)">Aucune attestation jointe</span>')}</div>
-          <input type="file" id="frm-file" accept=".pdf,.jpg,.jpeg,.png"/>
+          <div id="frm-pdf-actuel" style="margin-bottom:6px;font-size:13px">${anexo ? `<span class="badge badge-oui">Attestation jointe</span> <span style="color:var(--gray-5)">(dans le dossier de l'employé)</span> <button type="button" class="btn btn-primary btn-sm" id="btn-frm-apercu" onclick="frmApercuAttestation('${escHtml(l.id)}')" title="Voir l'attestation à côté du formulaire, sans la télécharger"><i class="ti ti-eye"></i> Aperçu</button>` : (l && l.fichier_pdf ? `<span style="color:var(--orange)"><i class="ti ti-paperclip-off"></i> PDF non relié : « ${escHtml(l.fichier_pdf)} » — déposez-le dans le dossier de l'employé puis « Lier les PDF »</span>` : '<span style="color:var(--gray-5)">Aucune attestation jointe</span>')}</div>
+          <input type="file" id="frm-file" accept=".pdf,.jpg,.jpeg,.png" onchange="frmFichierChoisi()"/>
+          <div id="frm-fichier-choisi" style="margin:6px 0;font-size:13px"></div>
           <span style="font-size:12px;color:var(--gray-5)">Le fichier est ajouté au dossier de l'employé (type « Certificat / formation »). 10 Mo maximum.</span></div>
       </div>
       <div class="form-actions">
@@ -12662,6 +12823,31 @@ function openFormationModal(id, preset){
       </div>
     </div></div></div>`);
   frmMajIndice();
+}
+// Aperçu de l'attestation déjà jointe : le panneau de droite (comme les factures fournisseurs), sans téléchargement
+async function frmApercuAttestation(id){
+  const l = _frm.lignes.find(x=>String(x.id)===String(id));
+  if(!l){ showToast('Attestation introuvable — rechargez la page','error'); return; }
+  if(!l.anexo_id){ showToast('Aucune attestation jointe à cette formation','error'); return; }
+  const {data, error} = await sb.from('anexos_employe').select('id,nome_ficheiro,url,tipo').eq('id', l.anexo_id).maybeSingle();
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  if(!data){ showToast("Le document n'est plus dans le dossier de l'employé (supprimé ?) ou vous n'y avez pas accès",'error'); return; }
+  if(!apUrlSure(data.url)){ showToast("Adresse du document invalide — rouvrez-le depuis le dossier de l'employé",'error'); return; }
+  ouvrirApercu([{url:data.url, nom:data.nome_ficheiro||l.fichier_pdf||'Attestation', tipo:data.tipo}], 0, false);
+}
+// Fichier qu'on vient de choisir dans la fenêtre (pas encore enregistré) : nom, taille, avertissement > 10 Mo et bouton « Aperçu »
+function frmFichierChoisi(){
+  const z = el('frm-fichier-choisi'); if(!z) return;
+  const f = el('frm-file') && el('frm-file').files && el('frm-file').files[0];
+  if(!f){ z.innerHTML = ''; return; }
+  const gros = f.size > 10*1024*1024;
+  z.innerHTML = `<span>Nouveau fichier : <strong>${escHtml(f.name)}</strong>${f.size?' ('+escHtml(tailleFichier(f.size))+')':''}</span> `
+    + `<button type="button" class="btn btn-secondary btn-sm" id="btn-frm-apercu-local" onclick="frmApercuFichierChoisi()" title="Voir le fichier à côté du formulaire avant d'enregistrer"><i class="ti ti-eye"></i> Aperçu</button>`
+    + (gros ? ` <span id="frm-fichier-gros" style="color:var(--red)"><i class="ti ti-alert-triangle"></i> Plus de 10 Mo : il ne pourra pas être joint</span>` : '');
+}
+function frmApercuFichierChoisi(){
+  const f = el('frm-file') && el('frm-file').files && el('frm-file').files[0]; if(!f) return;
+  ouvrirApercu([{url:URL.createObjectURL(f), nom:f.name, tipo:f.type}], 0, true);       // local : l'aperçu se ferme avec la fenêtre
 }
 async function frmJoindreAttestation(formationId, empId, file){
   if(file.size > 10*1024*1024) return {ok:false, msg:'fichier de plus de 10 Mo'};
@@ -12699,6 +12885,7 @@ async function frmEnregistrer(id){
   let pdfMsg = '';
   if(f){ const r = await frmJoindreAttestation(res.data.id, emp, f); if(!r.ok) pdfMsg = " — mais le fichier n'a pas pu être joint : "+r.msg; }
   closeModal();
+  if(f && _ap && !pdfMsg) fermerApercu();        // nouvelle pièce enregistrée : l'ancien aperçu n'est plus à jour (si l'envoi a échoué, l'ancienne attestation reste la bonne)
   showToast((id?'Attestation mise à jour':'Attestation enregistrée')+pdfMsg, pdfMsg?'error':'success');
   await renderFormations();
 }
@@ -15416,7 +15603,18 @@ function filtrerCentreSAV(id){
   renderInterventionsSAV('', _savCentreFiltre ? 'toutes' : 'encours');
 }
 
+// Date de la liste SAV : date prévue/réalisée de l'intervention (+ heure si elle est renseignée) ; à défaut la date de création, en gris
+function savCelluleDate(i){
+  const d = i.date_intervention, dt = d ? new Date(d) : null;
+  if(dt && !isNaN(dt)){
+    const h = dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    return `<td style="white-space:nowrap">${fmtDate(d)}${h!=='00:00'?`<div style="font-size:11.5px;color:var(--gray-5)">${h}</div>`:''}</td>`;
+  }
+  if(i.created_at && !isNaN(new Date(i.created_at))) return `<td style="white-space:nowrap;color:var(--gray-5)" title="Aucune date d'intervention : date de création">${fmtDate(i.created_at)}<div style="font-size:11.5px">création</div></td>`;
+  return '<td>—</td>';
+}
 async function renderInterventionsSAV(search='', filterStatut='encours'){
+  await tracChargerUtilisateurs();
   const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
   _interventionsSAV = data||[];
 
@@ -15516,18 +15714,20 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="interventions_sav">
-          <thead><tr><th>N°</th><th>Client</th><th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Créé par</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
             items.map(i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
-              <td><strong class="text-blue">${i.ref}</strong></td>
-              <td>${i.clients?.nom||'—'}</td>
-              <td>${i.nom_site?'<strong>'+i.nom_site+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ (i.adresse_site||'') +'</span>':(i.adresse_site||'—')}</td>
+              <td><strong class="text-blue">${escHtml(i.ref)}</strong></td>
+              ${savCelluleDate(i)}
+              <td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>
+              <td>${i.nom_site?'<strong>'+escHtml(i.nom_site)+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ escHtml(i.adresse_site||'') +'</span>':(i.adresse_site?escHtml(i.adresse_site):'—')}</td>
               <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${String(devisMap[i.devis_id].objet||'').replace(/"/g,'&quot;')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
               <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6)">'+centresMap[i.chantier_id]+'</span>':'—'}</td>
               <td>${i.employes_rh?escHtml(nomPers(i.employes_rh)):escHtml(i.technicien_nom||'—')}</td>
               <td>${bSAV(i.statut)}</td>
               <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
+              <td>${tracCell(i.cree_par)}</td>
               <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button></div></td>
             </tr>`).join('')}
           </tbody>
@@ -15856,6 +16056,7 @@ async function deleteIntervention(id){
 async function openInterventionDetail(interventionId){
   const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,email,telephone),employes_rh(nom,prenom,email)').eq('id',interventionId).single();
   if(!i){ showToast("Intervention introuvable", 'error'); return; }
+  await tracChargerUtilisateurs();
   const [{data:remarques},{data:anexos},{data:facturesLiees}] = await Promise.all([
     sb.from('remarques_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
     sb.from('anexos_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
@@ -15956,7 +16157,7 @@ async function openInterventionDetail(interventionId){
 
       <strong style="font-size:13px">Remarques</strong>
       <div style="margin-top:8px;margin-bottom:8px">
-        ${(remarques||[]).map(r=>`<div style="background:var(--gray-1);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px;font-size:12.5px">${r.texte}<div style="color:var(--gray-5);font-size:10.5px;margin-top:3px">${new Date(r.created_at).toLocaleString('fr-FR')}</div></div>`).join('')||'<p style="font-size:13px;color:var(--gray-4)">Aucune remarque</p>'}
+        ${(remarques||[]).map(r=>`<div style="background:var(--gray-1);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px;font-size:12.5px">${escHtml(r.texte)}<div style="color:var(--gray-5);font-size:10.5px;margin-top:3px">${tracNomAuteur(r.cree_par)?escHtml(tracNomAuteur(r.cree_par))+' — ':''}${new Date(r.created_at).toLocaleString('fr-FR')}</div></div>`).join('')||'<p style="font-size:13px;color:var(--gray-4)">Aucune remarque</p>'}
       </div>
       <div style="display:flex;gap:8px;margin-bottom:20px">
         <input id="int-remarque-input" placeholder="Ajouter une remarque..." style="flex:1;padding:8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px" onkeydown="if(event.key==='Enter')addRemarqueIntervention('${interventionId}')"/>
@@ -16138,6 +16339,7 @@ async function saveFactureSAV(interventionId, clientId){
 }
 
 async function renderUtilisateurs(){
+  _tracUP = null;      // les noms affichés dans les fiches/listes seront relus
   const {data} = await sb.from('utilisateurs').select('*').order('nom');
   const users = data||[];
   const ROLES = {admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'};
