@@ -287,6 +287,7 @@ tbody tr:hover td{background:var(--blue-light)}
 #fv-liste tbody tr:hover td:last-child{background:var(--blue-light)}
 #fac-liste th{padding:11px 10px}#fac-liste td{padding:11px 10px}#fac-liste th:first-child,#fac-liste td:first-child{padding-left:16px}#fac-liste th:last-child,#fac-liste td:last-child{padding-right:16px}
 #fac-liste tbody tr.fac-sel td{background:#EFF6FF}
+.fac-ndf{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:#E0F2FE;color:#075985;border:1px solid #7DD3FC;white-space:nowrap}
 .fac-dbl{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:#FEF3C7;color:#92400E;border:1px solid var(--orange);cursor:pointer;white-space:nowrap}
 .fac-int{font-weight:600;font-size:12.5px;color:var(--gray-7,#374151);font-variant-numeric:tabular-nums;letter-spacing:.2px}
 .scroll-top{overflow-x:auto;overflow-y:hidden;height:16px;border-bottom:1px solid var(--gray-2);scrollbar-width:auto;scrollbar-color:#94a3b8 #e8edf3}
@@ -4670,7 +4671,7 @@ async function renderFournisseurs(search=''){
               const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif?'oui':'non')+'">'+(r.actif?'Oui':'Non')+'</span>';
               return '<tr data-sel-id="'+r.id+'">'
-                +'<td><strong>'+r.nom+'</strong></td>'
+                +'<td><strong>'+escHtml(r.nom)+'</strong>'+(r.employe_id ? ' <span class="fac-ndf" title="Fournisseur salarié : relié à une fiche employé, sert aux notes de frais">Salarié</span>' : '')+'</td>'
                 +'<td>'+email+'</td>'
                 +'<td>'+(r.telephone||'—')+'</td>'
                 +'<td>'+(r.ville||'—')+'</td>'
@@ -4802,6 +4803,7 @@ function openFourModal(r=null, selectId=null){
   const html = `<div class="modal-overlay"><div class="modal">
     <div class="modal-header"><h3>${isEdit?'Modifier fournisseur':'Nouveau fournisseur'}</h3><button class="modal-close" onclick="${fermer}"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
+      ${r?.employe_id ? '<div class="alert alert-info" id="f-salarie-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>Fournisseur <strong>salarié</strong> : relié à une fiche employé, il sert aux notes de frais. Ne copiez ici ni IBAN ni adresse personnelle.</span></div>' : ''}
       <div class="form-grid">
         <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${r?.nom||''}" placeholder="Nom de la société"/></div>
         <div class="form-group"><label class="field-label">Email</label><input type="email" id="f-email" value="${r?.email||''}" placeholder="contact@fournisseur.com"/></div>
@@ -4970,7 +4972,7 @@ async function renderPOS(search='', filterStatut=''){
 function openNewPO(){
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
   const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${c.numero} — ${c.nom}</option>`).join('');
-  const foursOpts = _foursActive.map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');
+  const foursOpts = _foursActive.filter(f=>!f.employe_id).map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');   // pas de salariés (notes de frais)
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
@@ -5120,9 +5122,9 @@ async function openPODetail(poId){
     <div class="modal-body">
       <div class="info-grid">
         <div class="info-item"><label>Fournisseur</label><span><strong>${four?.nom||'—'}</strong></span></div>
-        <div class="info-item"><label>Chantier</label><span>${chant?.nom||'—'}</span></div>
+        <div class="info-item"><label>Chantier</label><span id="po-det-chantier">${escHtml(libChantierAchat(chant))||'—'}</span></div>
         ${refIntPO ? `<div class="info-item"><label>Intervention SAV</label><span style="font-weight:600;color:var(--blue)">${escHtml(refIntPO)}</span></div>` : ''}
-        <div class="info-item"><label>Client</label><span>${chant?.client||po.chantiers?.client||'—'}</span></div>
+        <div class="info-item"><label>Client</label><span>${escHtml(chant?.client||po.chantiers?.client||'—')}</span></div>
         <div class="info-item"><label>Date commande</label><span>${fmtDate(po.date_creation)}</span></div>
         <div class="info-item"><label>Livraison souhaitée</label><span>${fmtDate(po.date_livraison_souhaitee)}</span></div>
         <div class="info-item"><label>Envoyée le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyée'}</span></div>
@@ -6043,7 +6045,7 @@ function configPdfPO(po, lignes, fournisseur, chantier){
       {label:'Fournisseur', lines:[fournisseur?.nom||'—', fournisseur?.adresse||'', ((fournisseur?.code_postal||'')+' '+(fournisseur?.ville||'')).trim(), fournisseur?.numero_tva?('TVA : '+fournisseur.numero_tva):'']}
     ],
     refRow: [
-      {label:'Chantier', value: chantier?.nom||'—'},
+      {label:'Chantier', value: libChantierAchat(chantier)||'—'},
       {label:'Conditions de paiement', value: fournisseur?.conditions_paiement||'30 jours'}
     ],
     sectionTitle: 'Détail de la commande',
@@ -6092,7 +6094,7 @@ async function downloadPDF_PO(poId){
 let _posAttente = [], _lignesRec = [];
 async function renderReceptions(){
   const [posR, blsR] = await Promise.all([
-    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom),fournisseurs!fournisseur_id(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
+    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
     sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(numero,nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
   ]);
   _posAttente = posR.data||[];
@@ -6137,7 +6139,7 @@ async function renderReceptions(){
 }
 
 async function openBLDetail(blId){
-  const {data:bl} = await sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)),utilisateurs(nom,prenom)').eq('id',blId).single();
+  const {data:bl} = await sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(numero,nom)),utilisateurs(nom,prenom)').eq('id',blId).single();
   if(!bl){ showToast("Réception introuvable", 'error'); return; }
 
   const {data:lignesBL} = await sb.from('lignes_bl').select('*,lignes_po(description,reference_article,unite,quantite,prix_unitaire_ht)').eq('bl_id',blId);
@@ -6153,7 +6155,7 @@ async function openBLDetail(blId){
     </div>
     <div class="modal-body">
       <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>Chantier</label><span>${bl.purchase_orders_lyneo?.chantiers_lyneo?.nom||'—'}</span></div>
+        <div class="info-item"><label>Chantier</label><span id="bl-det-chantier">${escHtml(libChantierAchat(bl.purchase_orders_lyneo?.chantiers_lyneo))||'—'}</span></div>
         <div class="info-item"><label>Date de réception</label><span>${fmtDate(bl.date_reception)}</span></div>
         <div class="info-item"><label>Reçu par</label><span>${escHtml(nomPers(bl.utilisateurs))}</span></div>
         <div class="info-item"><label>Statut</label><span><span class="badge badge-${statutClass}">${statutLabel}</span></span></div>
@@ -6188,7 +6190,7 @@ async function openBLDetail(blId){
 }
 
 function openBLModal(){
-  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${p.chantiers_lyneo?.nom||'—'})</option>`).join('');
+  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${escHtml(libChantierAchat(p.chantiers_lyneo))||'—'})</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle réception</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
@@ -6312,7 +6314,7 @@ let _posPourFac = [];
 // État de la page : les filtres et la sélection survivent aux rechargements de la liste
 let _facsListe = [], _facChantiers = [], _facSel = new Set(), _facIntervRefs = {};
 const nIntTxt = f => f && f.numero_interne ? ' · n° interne '+f.numero_interne : '';
-const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', statut:'', codes:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:''});
+const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', statut:'', codes:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:'', type:''});
 let _facFiltres = filtresFacVides();
 // Pagination : 10 / 20 / 30 / 50 factures par page ; le choix est mémorisé dans ce navigateur
 const PAR_PAGE_FAC = [10,20,30,50];
@@ -6328,6 +6330,13 @@ function htmlCentreCout(c){
   if(!num && !nom) return '';
   if(num && nom && num!==nom) return `<strong>${escHtml(num)}</strong><div style="font-size:11.5px;color:var(--gray-5);line-height:1.3">${escHtml(nom)}</div>`;
   return `<strong>${escHtml(num||nom)}</strong>`;
+}
+// Chantier d'une commande / d'un bon de commande : « P00001 - DELBELVAL » (n° du centre de coûts + nom). Sans n° : le nom seul ; n° = nom : une seule fois ; inconnu : ''.
+function libChantierAchat(c){
+  if(!c) return '';
+  const num = String(c.numero||'').trim(), nom = String(c.nom||'').trim();
+  if(num && nom && num!==nom) return num+' - '+nom;
+  return num||nom;
 }
 const jourFac = v => String(v||'').slice(0,10);
 // Montant hors taxe d'une facture fournisseur : colonne montant_ht, sinon TTC − TVA ; null si on ne peut pas le savoir
@@ -6398,11 +6407,13 @@ function cellCodesFac(r){
 }
 
 async function renderFactures(){
-  const [facsR, posR, chR] = await Promise.all([
+  const [facsR, posR, chR, ndfR] = await Promise.all([
     chargerFacturesListe().then(async r=>{ if(_facCodesOk) await chargerCodesRessource(); return r; }),
     sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false}),
-    sb.from('chantiers_lyneo').select('id,numero,nom').order('nom')
+    sb.from('chantiers_lyneo').select('id,numero,nom').order('nom'),
+    ndfFournisseursSalaries()
   ]);
+  _ndfSet = new Set((ndfR||[]).map(f=>String(f.id)));   // fournisseurs « salarié » : leurs factures sont des notes de frais
   _facsListe = ordreDefautFactures(facsR.data||[]);
   _posPourFac = posR.data||[];
   _facChantiers = chR.data||[];
@@ -6420,9 +6431,11 @@ async function renderFactures(){
       <div class="page-header-left"><h1>Factures fournisseurs</h1><p>Validation et suivi des paiements</p></div>
       <button class="btn btn-primary" onclick="openFacModal()"><i class="ti ti-plus"></i> Saisir une facture</button>
       <button class="btn btn-secondary" onclick="openFacLibreModal()"><i class="ti ti-plus"></i> Facture sans commande</button>
+      <button class="btn btn-secondary" id="btn-note-frais" onclick="openNoteFraisModal()" title="Dépense avancée par un salarié (ticket, facture…) : s'encode comme une facture fournisseur dont le fournisseur est le salarié"><i class="ti ti-receipt-2"></i> Note de frais</button>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <div class="search-wrap"><i class="ti ti-search"></i><input id="fac-recherche" placeholder="Rechercher partout (n°, fournisseur, chantier...)" oninput="majFiltreFactures('search',this.value)" value="${escHtml(F.search)}"/></div>
+      ${_ndfSet.size ? `<select id="fac-type" style="width:auto" title="Notes de frais = factures dont le fournisseur est un salarié" onchange="majFiltreFactures('type',this.value)"><option value="">Factures et notes de frais</option><option value="fac"${sel('fac',F.type)}>Factures fournisseurs (${_facsListe.filter(r=>!estNoteDeFrais(r)).length})</option><option value="ndf"${sel('ndf',F.type)}>Notes de frais (${_facsListe.filter(estNoteDeFrais).length})</option></select>` : ''}
       <button class="btn btn-ghost btn-sm" id="facf-reset" onclick="reinitialiserFiltresFactures()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
       <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
       <div id="fac-pager-top" class="pager" style="margin-left:auto"></div>
@@ -6514,6 +6527,8 @@ function facturesFiltrees(){
     const nomF = nomFournisseurFac(r);
     if(F.four && nomF!==F.four) return false;
     if(F.statut && r.statut!==F.statut) return false;
+    if(F.type==='ndf' && !estNoteDeFrais(r)) return false;
+    if(F.type==='fac' && estNoteDeFrais(r)) return false;
     if(F.codes){ const e = etatCodesFacture(r); if(String(F.codes).startsWith('c:')){ if(!e.ids.includes(F.codes.slice(2))) return false; } else if(e.etat!==F.codes) return false; }
     if(F.chantier==='sans' ? !!r.chantier_id : (F.chantier && r.chantier_id!==F.chantier)) return false;
     if(interne && !String(r.numero_interne||'').toLowerCase().includes(interne)) return false;
@@ -6528,7 +6543,7 @@ function facturesFiltrees(){
     if(mMin!==null && !isNaN(mMin) && ttc<mMin) return false;
     if(mMax!==null && !isNaN(mMax) && ttc>mMax) return false;
     if(q){
-      const txt = [r.numero_interne, r.numero_facture_fournisseur, nomF, r.chantiers_lyneo?.nom, r.chantiers_lyneo?.numero, r.purchase_orders_lyneo?.numero, r.observations].join(' ').toLowerCase();
+      const txt = [r.numero_interne, r.numero_facture_fournisseur, nomF, r.chantiers_lyneo?.nom, r.chantiers_lyneo?.numero, r.purchase_orders_lyneo?.numero, r.observations, estNoteDeFrais(r) ? 'note de frais' : ''].join(' ').toLowerCase();
       if(!txt.includes(q)) return false;
     }
     return true;
@@ -6561,7 +6576,7 @@ function afficherFactures(){
         <td><input type="checkbox" ${choisie?'checked':''} ${r.statut==='annulee'?'disabled':''} onchange="basculerSelFacture('${r.id}',this.checked)"/></td>
         <td style="white-space:nowrap">${r.numero_interne ? `<span class="fac-int" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_interne)}</span>` : '<span style="color:var(--gray-4)">—</span>'}</td>
         <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong>${dblFac.has(String(r.id)) ? `<div><span class="fac-dbl" role="button" tabindex="0" onclick="ouvrirDoublons('factures')" title="${escHtml('Doublon : même fournisseur et même n° de facture que '+dblFac.get(String(r.id)).map(libAutreFacture).join(' ; ')+' — cliquer pour voir')}">Doublon</span></div>` : ''}</td>
-        <td>${escHtml(nomFournisseurFac(r)||'—')}</td>
+        <td>${escHtml(nomFournisseurFac(r)||'—')}${estNoteDeFrais(r) ? '<div><span class="fac-ndf" title="Note de frais : dépense avancée par ce salarié">Note de frais</span></div>' : ''}</td>
         <td>${fmtDate(r.date_facture)}</td>
         <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
         <td style="white-space:nowrap">${fmtHtFacture(r)}</td>
@@ -6742,7 +6757,7 @@ function viderSelectionFactures(){ _facSel.clear(); afficherFactures(); }
 function majFiltreFactures(k, v){ _facFiltres[k] = v; _facSel.clear(); _facPage = 1; afficherFactures(); }
 function reinitialiserFiltresFactures(){
   _facFiltres = filtresFacVides(); _facSel.clear(); _facPage = 1; _facTri = null;
-  ['fac-recherche','facc-num','facc-cmd','facc-four','facc-chantier','facc-statut','facc-codes','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
+  ['fac-recherche','facc-num','facc-cmd','facc-four','facc-chantier','facc-statut','fac-type','facc-codes','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
   afficherFactures();
 }
 
@@ -6925,6 +6940,7 @@ async function openFacDetail(facId){
   const docs = annexes||[];
   window._facDocsDetail = docs.map(d=>({url:d.url, nom:d.nome_ficheiro, tipo:d.tipo}));
   const refInt = fac.intervention_id ? await refIntervention(fac.intervention_id) : '';
+  const ndfFac = await ndfEstFournisseurSalarie(fac.fournisseur_id);
   // lignes de la facture (+ noms des codes ressource) : on n'empêche jamais d'ouvrir la fiche si la lecture échoue
   let lignesFac = [], lignesOk = true;
   try{
@@ -6953,7 +6969,8 @@ async function openFacDetail(facId){
       <div>
         <h3>${escHtml(fac.numero_facture_fournisseur)} <span id="fac-det-statut" style="font-size:12px;vertical-align:middle;margin-left:6px">${bFA(fac.statut)}</span></h3>
         ${fac.numero_interne?`<div style="margin:2px 0 3px"><span class="fac-int" title="Numéro interne ERP">N° interne ${escHtml(fac.numero_interne)}</span></div>`:''}
-        <span style="font-size:12px;color:var(--gray-5)">${escHtml(fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||'')} — ${escHtml(fac.chantiers_lyneo?.nom||'')}${refInt?` · <strong id="fac-det-interv" style="color:var(--blue)">${escHtml(refInt)}</strong>`:''}</span>
+        <span style="font-size:12px;color:var(--gray-5)">${escHtml(fac.fournisseurs?.nom||fac.purchase_orders_lyneo?.fournisseurs?.nom||'')} — ${escHtml(libChantierAchat(fac.chantiers_lyneo))}${refInt?` · <strong id="fac-det-interv" style="color:var(--blue)">${escHtml(refInt)}</strong>`:''}</span>
+        ${ndfFac ? '<div><span class="fac-ndf" id="fac-det-ndf" title="Note de frais : dépense avancée par ce salarié">Note de frais</span></div>' : ''}
       </div>
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -7350,13 +7367,273 @@ async function crSupprimer(id){
   await rendreGestionCodesRes();
 }
 
+// ══════════════════════════════════════════════════════════════
+// NOTES DE FRAIS — une dépense avancée par un salarié s'encode comme une facture fournisseur normale
+// ══════════════════════════════════════════════════════════════
+// Décision de la direction financière (26/10/2026) : la note de frais est traitée comme une facture fournisseur ; le « fournisseur » est le SALARIÉ.
+// Chaque salarié a donc une fiche fournisseur RELIÉE à sa fiche employé (colonne fournisseurs.employe_id, migration-notes-de-frais.sql), créée
+// automatiquement au premier enregistrement. On n'y copie QUE le nom : ni IBAN, ni adresse, ni e-mail (ils restent dans la fiche employé, protégée).
+// La note est ensuite une facture comme les autres : lignes avec TVA par ligne, code ressource, chantier / intervention SAV, justificatif joint,
+// contrôle des doublons, échéance, paiement, Détail par code et rentabilité du chantier. Une facture est une « note de frais » quand son
+// fournisseur est un fournisseur salarié : aucune colonne en plus sur les factures. Sans le script SQL, le bouton explique quoi exécuter.
+let _ndfOk = false, _ndfSet = new Set(), _ndfEmployes = [], _ndfFours = [];
+async function ndfDisponible(){
+  if(_ndfOk) return true;
+  try{ const {error} = await sb.from('fournisseurs').select('employe_id').limit(1); if(!error){ _ndfOk = true; return true; } }catch(e){}
+  return false;
+}
+// Fournisseurs reliés à un employé ([] tant que la colonne n'existe pas)
+async function ndfFournisseursSalaries(){
+  try{ const {data, error} = await sb.from('fournisseurs').select('*').not('employe_id','is',null); return error ? [] : (data||[]); }catch(e){ return []; }
+}
+const estNoteDeFrais = f => !!f && f.fournisseur_id!=null && f.fournisseur_id!=='' && _ndfSet.has(String(f.fournisseur_id));
+const ndfFourDe = empId => _ndfFours.find(f=>String(f.employe_id)===String(empId)) || null;
+async function ndfEstFournisseurSalarie(fournisseurId){
+  if(!fournisseurId) return false;
+  if(_ndfSet.has(String(fournisseurId))) return true;
+  try{ const r = await sb.from('fournisseurs').select('employe_id').eq('id', fournisseurId).maybeSingle(); return !!(r && r.data && r.data.employe_id); }catch(e){ return false; }
+}
+// N° proposé pour la note : NDF-AAAAMM-NN (NN = suite des notes déjà faites ce mois-ci par ce salarié). Modifiable : on peut y mettre le n° du ticket.
+function ndfPrefixeNumero(dateISO){
+  const ym = String(dateISO||'').slice(0,7).replace('-','');
+  return 'NDF-'+(/^\d{6}$/.test(ym) ? ym : today().slice(0,7).replace('-',''))+'-';
+}
+async function ndfNumeroSuggere(fournisseurId, dateISO){
+  const pref = ndfPrefixeNumero(dateISO); let n = 0;
+  if(fournisseurId){
+    try{
+      const {data} = await sb.from('factures').select('numero_facture_fournisseur').eq('fournisseur_id', fournisseurId).ilike('numero_facture_fournisseur', pref+'%');
+      const re = new RegExp('^'+pref+'(\\d+)$');
+      (data||[]).forEach(r=>{ const m = re.exec(String(r.numero_facture_fournisseur||'').trim()); if(m) n = Math.max(n, parseInt(m[1],10)); });
+    }catch(e){}
+  }
+  return pref + String(n+1).padStart(2,'0');
+}
+
+async function openNoteFraisModal(){
+  if(!(await ndfDisponible())){
+    showModal(`<div class="modal-overlay"><div class="modal">
+      <div class="modal-header"><h3>Note de frais</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+      <div class="modal-body">
+        <div class="alert alert-warning" id="ndf-sql-manquant"><i class="ti ti-alert-triangle"></i><span>Pour encoder des notes de frais, exécutez d'abord le fichier SQL <strong>migration-notes-de-frais.sql</strong> dans Supabase (SQL Editor), puis rechargez la page. Rien d'autre n'est modifié.</span></div>
+        <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>
+      </div></div></div>`);
+    return;
+  }
+  const [empR, fours, chR] = await Promise.all([
+    sb.from('employes_rh').select('id,nom,prenom,actif').order('nom'),
+    ndfFournisseursSalaries(),
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom')
+  ]);
+  if(empR.error){ showToast("Liste des employés illisible : "+empR.error.message, 'error'); return; }
+  _ndfEmployes = (empR.data||[]).filter(e=>e.actif!==false).sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr',{sensitivity:'base'}));
+  _ndfFours = fours;
+  const chantiers = chantiersChoix(chR.data||[]);   // les chantiers archivés ne sont plus proposés
+  await chargerCodesRessource();
+  _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
+  _facFilesNew = [];
+
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><div><h3>Note de frais</h3><div class="modal-header-sub">Dépense avancée par un salarié : elle s'encode comme une facture fournisseur, le salarié étant le fournisseur</div></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label class="field-label">Salarié *</label>
+          <select id="ndf-employe" onchange="ndfSurEmploye()"><option value="">— Sélectionner —</option>${_ndfEmployes.map(e=>`<option value="${escHtml(e.id)}">${escHtml(nomPers(e))}</option>`).join('')}</select>
+          <div id="ndf-emp-note" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div>
+        </div>
+        <div class="form-group"><label class="field-label">Chantier *</label>
+          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${escHtml(c.id)}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
+        </div>
+        ${htmlChampIntervention('facl')}
+        <div class="form-group"><label class="field-label">N° de la note *</label><input id="facl-num" oninput="this.dataset.auto='0'" placeholder="NDF-202610-01"/><div style="font-size:12px;margin-top:4px;color:var(--gray-5)">Proposé automatiquement ; vous pouvez y mettre le n° du ticket.</div></div>
+        <div class="form-group"><label class="field-label">Date de la note</label><input type="date" id="facl-date" value="${today()}" onchange="ndfSurDate()"/></div>
+        <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(remboursement ; modifiable)</span></label><input type="date" id="facl-echeance" oninput="this.dataset.auto='0';ndfMajEcheance()"/><div id="facl-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span><strong style="font-size:13px">Dépenses (une ligne par ticket ou par taux de TVA)</strong>${crLienGerer('renderFacLignesLibre')}</span>
+        <button class="btn btn-secondary btn-sm" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+      </div>
+      <div style="overflow-x:auto;max-width:100%">
+        <table style="width:100%;border-collapse:collapse;min-width:600px">
+          <thead><tr style="background:var(--gray-1)">
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">N° ticket</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description (fournisseur réel, motif)</th>
+            ${crTh('padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:140px')}
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Qté</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
+            <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:65px;min-width:66px">TVA</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">Total HT</th>
+            <th style="width:34px"></th>
+          </tr></thead>
+          <tbody id="facl-lignes-body"></tbody>
+        </table>
+      </div>
+      <div class="totaux"><div class="totaux-box" id="facl-totaux"></div></div>
+      <div style="font-size:12px;color:var(--gray-5);margin:6px 0 16px">TVA du ticket : 17 / 14 / 8 / 3 %. Indemnités kilométriques et forfaits : 0 %. La TVA ne se récupère qu'avec le justificatif original (à confirmer avec le comptable).</div>
+      <div style="border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:16px">
+        <div style="background:var(--gray-1);padding:10px 16px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;gap:8px">
+          <i class="ti ti-paperclip" style="color:var(--gray-5)"></i><span style="font-size:13px;font-weight:600">Justificatifs</span>
+          <span style="font-size:11px;color:var(--gray-5);margin-left:4px">Tickets, factures, photos (PDF, JPG, PNG)</span>
+        </div>
+        <div style="padding:12px">
+          <div id="fac-drop-zone" style="border:2px dashed var(--gray-3);border-radius:4px;padding:20px;text-align:center;cursor:pointer">
+            <i class="ti ti-cloud-upload" style="font-size:24px;color:var(--gray-4);display:block;margin-bottom:4px"></i>
+            <span style="font-size:13px;color:var(--gray-5)">Glissez les justificatifs ici ou cliquez pour choisir</span>
+          </div>
+          <input type="file" id="fac-file-input-new" multiple accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="previewFacFiles(this.files)"/>
+          <div id="fac-files-preview" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="form-group full"><label class="field-label">Observations</label><textarea id="facl-obs"></textarea></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="btn-save-ndf" onclick="this.disabled=true;saveNoteFrais()"><i class="ti ti-check"></i> Enregistrer la note de frais</button>
+      </div>
+    </div>
+  </div></div>`);
+  renderFacLignesLibre();
+  setTimeout(()=>{
+    const dz = el('fac-drop-zone');
+    if(dz){
+      dz.addEventListener('click', ()=>{ const fi = el('fac-file-input-new'); if(fi) fi.click(); });
+      dz.addEventListener('dragover', e=>e.preventDefault());
+      dz.addEventListener('drop', e=>{ e.preventDefault(); previewFacFiles(e.dataTransfer.files); });
+    }
+  }, 50);
+  await ndfSurEmploye();
+}
+
+async function ndfSurEmploye(){
+  const id = el('ndf-employe')?.value || '', note = el('ndf-emp-note');
+  if(note){
+    const f = id ? ndfFourDe(id) : null;
+    if(!id) note.textContent = '';
+    else if(f) note.innerHTML = 'Fournisseur : <strong>'+escHtml(f.nom)+'</strong> (déjà relié à la fiche employé).';
+    else note.textContent = "Un fournisseur « salarié » sera créé et relié à la fiche employé à l'enregistrement (seul le nom est copié : ni IBAN, ni adresse).";
+  }
+  await ndfMajNumero();
+  await ndfMajEcheance();
+}
+async function ndfSurDate(){ await ndfMajNumero(); await ndfMajEcheance(); }
+async function ndfMajNumero(){
+  const inp = el('facl-num'); if(!inp || inp.dataset.auto==='0') return;
+  const empId = el('ndf-employe')?.value || '', date = el('facl-date')?.value;
+  const f = empId ? ndfFourDe(empId) : null;
+  const sug = await ndfNumeroSuggere(f ? f.id : null, date);
+  const i2 = el('facl-num');
+  if(!i2 || i2!==inp || i2.dataset.auto==='0' || (el('ndf-employe')?.value || '')!==empId) return;   // formulaire fermé ou modifié pendant l'attente
+  i2.value = sug; i2.dataset.auto = '1';
+}
+// Échéance = conditions du fournisseur salarié ; tant qu'il n'existe pas : à réception (le salarié est remboursé), sauf si on l'a saisie à la main
+async function ndfMajEcheance(){
+  const inp = el('facl-echeance'), d = el('facl-date'), box = el('facl-echeance-info'); if(!inp || !d) return;
+  const empId = el('ndf-employe')?.value || '', f = empId ? ndfFourDe(empId) : null;
+  if(f){ inp.dataset.four = f.id; await majEcheanceFourn('facl', f.id); return; }
+  inp.dataset.four = '';
+  if(inp.dataset.auto!=='0' && d.value){ inp.value = d.value; inp.dataset.auto = '1'; }
+  if(box){ box.style.color = 'var(--gray-5)'; box.textContent = 'Conditions : à réception (remboursement du salarié).'; }
+}
+
+// Fournisseur du salarié : celui qui est relié à sa fiche ; sinon un fournisseur du même nom créé à la main est RELIÉ (pas de second) ; sinon créé.
+// Renvoie {id, nom, neuf} ou null (message déjà affiché).
+async function ndfResoudreFournisseur(emp){
+  let f = ndfFourDe(emp.id);
+  if(!f){                                             // un collègue l'a peut-être créé entre-temps
+    try{ const r = await sb.from('fournisseurs').select('*').eq('employe_id', emp.id).maybeSingle(); if(r && r.data) f = r.data; }catch(e){}
+  }
+  if(f){
+    if(f.actif===false){ showToast("Le fournisseur « "+f.nom+" » est désactivé : réactivez-le dans Fournisseurs pour encoder une note de frais", 'error'); return null; }
+    return {id:f.id, nom:f.nom, neuf:false};
+  }
+  const nom = nomPers(emp);
+  const cle = clePersonne(emp.nom, emp.prenom);
+  let memeNom = [];
+  try{ const {data} = await sb.from('fournisseurs').select('id,nom,employe_id,actif'); memeNom = (data||[]).filter(x=>!x.employe_id && clePersonne(x.nom, '')===cle); }catch(e){}
+  if(memeNom.length>1){ showToast("Plusieurs fournisseurs portent déjà le nom « "+nom+" » : reliez le bon à la fiche du salarié (Fournisseurs) avant d'encoder la note", 'error'); return null; }
+  if(memeNom.length===1){
+    if(!confirm("Un fournisseur « "+memeNom[0].nom+" » existe déjà. Le relier à ce salarié pour ses notes de frais ?\n\n(Sinon un second fournisseur au même nom serait créé : annulez et vérifiez la liste des fournisseurs.)")){ showToast('Enregistrement annulé', 'error'); return null; }
+    const u = await sb.from('fournisseurs').update({employe_id: emp.id}).eq('id', memeNom[0].id).select().single();
+    if(u.error){ showToast("Le fournisseur n'a pas pu être relié au salarié : "+u.error.message, 'error'); return null; }
+    _ndfFours.push(u.data); _ndfSet.add(String(u.data.id));
+    return {id:u.data.id, nom:u.data.nom, neuf:false};
+  }
+  const ins = await sb.from('fournisseurs').insert({nom, employe_id: emp.id, actif:true, conditions_paiement:'Immédiat'}).select().single();
+  if(ins.error){
+    // deux personnes ont créé le même salarié en même temps : l'index unique refuse le second → on reprend le premier
+    try{ const r = await sb.from('fournisseurs').select('*').eq('employe_id', emp.id).maybeSingle(); if(r && r.data){ _ndfFours.push(r.data); _ndfSet.add(String(r.data.id)); return {id:r.data.id, nom:r.data.nom, neuf:false}; } }catch(e){}
+    showToast("Le fournisseur du salarié n'a pas pu être créé : "+ins.error.message, 'error'); return null;
+  }
+  _ndfFours.push(ins.data); _ndfSet.add(String(ins.data.id));
+  return {id:ins.data.id, nom:ins.data.nom, neuf:true};
+}
+
+function saveNoteFrais(){ return gardeEnvoi('note-de-frais', saveNoteFraisCore); }
+async function saveNoteFraisCore(){
+  const rendre = ()=>{ const b = el('btn-save-ndf'); if(b) b.disabled = false; };
+  const empId = el('ndf-employe')?.value || '', chantierId = el('facl-chantier')?.value || '';
+  const numero = (el('facl-num')?.value || '').trim(), date = el('facl-date')?.value || '';
+  const emp = _ndfEmployes.find(e=>String(e.id)===String(empId));
+  if(!emp){ showToast('Choisissez le salarié', 'error'); return rendre(); }
+  if(!chantierId){ showToast('Le chantier (centre de coûts) est obligatoire', 'error'); return rendre(); }
+  if(!numero){ showToast('N° de la note obligatoire', 'error'); return rendre(); }
+  if(!date){ showToast('Date de la note obligatoire', 'error'); return rendre(); }
+  if(_facLignesLibre.some(l=>!String(l.description||'').trim())){ showToast('Toutes les lignes doivent avoir une description', 'error'); return rendre(); }
+  const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100,0);
+  if(!(totalHT>0)){ showToast('Le montant de la note de frais est nul', 'error'); return rendre(); }
+  if(!_facFilesNew.length && !confirm("Aucun justificatif (ticket, facture) n'est joint.\n\nSans justificatif, la TVA ne pourra pas être récupérée et la dépense n'est pas prouvée.\nEnregistrer quand même ?")){ return rendre(); }
+
+  const four = await ndfResoudreFournisseur(emp);
+  if(!four){ return rendre(); }
+  // la même note du même salarié ne s'enregistre pas deux fois (un fournisseur tout juste créé n'a encore aucune facture)
+  if(!four.neuf && !(await controlerFactureFournisseur({fournisseurId:four.id, numero, ttc:totalHT+totalTVA, date}))){ return rendre(); }
+
+  const {data:fac, error} = await sb.from('factures').insert({
+    po_id: null, chantier_id: chantierId, fournisseur_id: four.id,
+    numero_facture_fournisseur: numero,
+    date_facture: date,
+    date_echeance: el('facl-echeance').value||null,
+    montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
+    statut: 'recue', saisie_par: currentUser.id,
+    ...achatIntervPayload('facl', null),
+    observations: el('facl-obs').value
+  }).select().single();
+  if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return rendre(); }
+
+  const lr = await sb.from('lignes_facture').insert(_facLignesLibre.map((l,i)=>({
+    facture_id: fac.id, ordre: i+1,
+    description: l.description, reference_article: l.reference_article||'',
+    quantite: parseFloat(l.quantite)||0, unite: l.unite,
+    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva),
+    ...crPayload(l)
+  })));
+  if(lr && lr.error) showToast("Note créée, mais erreur en enregistrant les lignes : "+lr.error.message, 'error');
+
+  let nbDocs = 0;
+  for(const file of _facFilesNew){
+    const path = 'factures/'+fac.id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(!upErr){
+      const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+      const ai = await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
+      if(!(ai && ai.error)) nbDocs++;
+    }
+  }
+  const attendus = _facFilesNew.length;
+  _facFilesNew = [];
+  showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+numero+nIntTxt(fac)+(attendus ? ' · '+nbDocs+'/'+attendus+' justificatif(s)' : ''), nbDocs<attendus ? 'error' : undefined);
+  closeModal();
+  await rafraichirPage();
+  openFacDetail(fac.id);
+}
+
 async function openFacLibreModal(){
   const [{data:chantiersData},{data:foursData}] = await Promise.all([
     sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom'),
-    sb.from('fournisseurs').select('id,nom').eq('actif',true).order('nom')
+    sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
   ]);
   const chantiers = chantiersChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
-  const fours = foursData||[];
+  const fours = (foursData||[]).filter(f=>!f.employe_id);   // les fournisseurs « salarié » ne servent qu'aux notes de frais
   await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
 
@@ -17126,7 +17403,7 @@ async function rcExporterExcel(){
 async function openFourHistory(fourId, fourNom){
   if(!fourNom) { const f = _fournisseurs.find(x=>x.id===fourId); fourNom = f?.nom||''; }
   const {data:pos} = await sb.from('purchase_orders_lyneo')
-    .select('id,numero,statut,total_ttc,date_creation,chantiers_lyneo(nom)')
+    .select('id,numero,statut,total_ttc,date_creation,chantiers_lyneo(numero,nom)')
     .eq('fournisseur_id',fourId)
     .order('created_at',{ascending:false});
   const items = pos||[];
@@ -17140,7 +17417,7 @@ async function openFourHistory(fourId, fourNom){
       ${items.length===0
         ? '<div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande pour ce fournisseur</p></div>'
         : '<div class="table-wrap"><table data-tri="oui"><thead><tr><th>N° Commande</th><th>Chantier</th><th>Date</th><th>Total TTC</th><th>Statut</th></tr></thead><tbody>'
-          + items.map(p=>'<tr><td><strong class="td-primary">'+p.numero+'</strong></td><td>'+(p.chantiers_lyneo?.nom||'—')+'</td><td>'+fmtDate(p.date_creation)+'</td><td><strong>'+fmt(p.total_ttc)+'</strong></td><td>'+bPO(p.statut)+'</td></tr>').join('')
+          + items.map(p=>'<tr><td><strong class="td-primary">'+p.numero+'</strong></td><td>'+(escHtml(libChantierAchat(p.chantiers_lyneo))||'—')+'</td><td>'+fmtDate(p.date_creation)+'</td><td><strong>'+fmt(p.total_ttc)+'</strong></td><td>'+bPO(p.statut)+'</td></tr>').join('')
           + '</tbody></table></div>'}
     </div>
   </div></div>`);
@@ -17228,7 +17505,7 @@ async function openEditPO(poId){
     if(chPo) chantsPo = [chPo, ...chantsPo];
   }
   const chantsOpts = chantsPo.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(po.chantier_id)===String(c.id)?' selected':'')+'>'+escHtml(c.numero)+' — '+escHtml(c.nom)+(c.statut && c.statut!=='actif' ? ' ('+escHtml(STATUT_CH[c.statut]||c.statut)+')' : '')+'</option>').join('');
-  const foursOpts = _foursActive.map(f=>'<option value="'+escHtml(f.id)+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+escHtml(f.nom)+'</option>').join('');
+  const foursOpts = _foursActive.filter(f=>!f.employe_id || po.fournisseur_id===f.id).map(f=>'<option value="'+escHtml(f.id)+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+escHtml(f.nom)+'</option>').join('');
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
