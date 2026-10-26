@@ -3241,6 +3241,7 @@ async function renderChantiers(search=''){
         <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${escHtml(search)}"/></div>
         ${btnExport('chantiers')}
         ${btnDoublons('chantiers', _chantiers)}
+        ${currentUser && currentUser.role==='admin' ? `<button class="btn btn-secondary" id="btn-sync-pt" onclick="ouvrirSynchroPointages()" title="Seuls les chantiers « En cours » sont proposés aux salariés dans l'application des pointages"><i class="ti ti-refresh"></i> Synchroniser les pointages</button>` : ''}
         <button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button>
       </div>
     </div>
@@ -3907,6 +3908,7 @@ async function saveCodePointages(chantierId){
   // Mettre à jour localement
   const ch = _chantiers.find(c=>c.id===chantierId);
   if(ch) ch.code_pointages = code;
+  lancerMajPointagesChantier(chantierId);
   showToast('Liaison pointages enregistrée');
   // On rouvre la fiche : l'onglet « Heures » affiche aussitôt le total des heures du chantier lié
   await openChantierDetail(chantierId, 'info');
@@ -3964,6 +3966,7 @@ async function ajouterCodePointagesSav(chantierId){
   if(doublon){ showToast("Le code « "+code+" » est déjà lié à "+doublon.numero+" — "+doublon.nom, 'error'); return; }
   codes.push(code);
   if(!await enregistrerCodesPointagesSav(chantierId, codes)) return;
+  lancerMajPointagesChantier(chantierId);
   showToast('Code « '+code+' » lié au centre');
   await openChantierDetail(chantierId, 'info');
 }
@@ -4349,6 +4352,7 @@ async function ecrireStatutChantier(id, statut){
   }
   if(!data || !data.length){ showToast("Modification refusée (droits insuffisants) : rien n'a été changé", 'error'); return false; }
   _chantiers = _chantiers.filter(c=>String(c.id)!==String(id));   // relu à jour à la prochaine ouverture
+  lancerMajPointagesChantier(id);   // le code disparaît (ou revient) dans la liste de choix des salariés
   return true;
 }
 // Après un changement de statut : rafraîchit la liste (si on est dessus) et la fiche si elle est ouverte
@@ -4544,6 +4548,264 @@ function avisarSincronizacaoPointages(resultado){
   // Pour 'inactif' / 'deja_lie' / 'sans_numero' : pas de message, ce sont des cas normaux, pas des erreurs.
 }
 
+// ══ POINTAGES : seuls les chantiers « en cours » sont proposés aux salariés + centre « Heures improductives » ══════
+// Dans la base des POINTAGES, chantiers.actif (migration-pointages-chantiers-actifs.sql) décide si un code est proposé
+// quand un salarié saisit ses heures. L'ERP est la source : chantier « En cours » = proposé ; en pause / terminé / archivé
+// = masqué. Intervention SAV : proposée jusqu'à ce qu'elle soit « Terminée » (ou facturée). Statut inconnu = proposé
+// (on ne bloque jamais un salarié par erreur). Un code SANS lien avec l'ERP n'est jamais modifié ici.
+// Le centre « Heures improductives » (code HI) est permanent : toujours proposé, jamais masqué par l'ERP.
+const HI_CODE = 'HI', HI_NOM = 'Heures improductives';
+const SQL_PT_ACTIF = 'migration-pointages-chantiers-actifs.sql';
+const estCodeHI = c => String(c==null?'':c).trim().toUpperCase()===HI_CODE;
+const chantierOuvertPointages = c => !!c && !['pause','termine','archive'].includes(c.statut);
+const intervOuvertePointages = i => !!i && !['terminee','facturee'].includes(i.statut);
+
+// Chantiers des pointages avec leur état. colonne:false = le SQL n'a pas encore été exécuté (état inconnu, rien à écrire).
+async function lireChantiersPointagesActif(){
+  const lire = async cols => {
+    const out = [];
+    for(let d0=0; ; d0+=1000){
+      const {data,error} = await sbPT.from('chantiers').select(cols).order('id',{ascending:true}).range(d0, d0+999);
+      if(error) throw error;
+      const l = data||[]; out.push(...l);
+      if(l.length<1000) break;
+    }
+    return out;
+  };
+  try{
+    const rows = await lire('id,code,nom,actif');
+    return {rows, colonne: !rows.length || rows.some(r=>r.actif!==undefined)};
+  }catch(e){
+    if(/actif/i.test((e&&e.message)||'')) return {rows: await lire('id,code,nom'), colonne:false};
+    throw e;
+  }
+}
+// Écrit l'état d'un chantier des pointages. 'ok' | 'sql' (colonne absente) | 'droits' (0 ligne modifiée, RLS) | texte d'erreur
+async function ecrireActifPointages(p, ouvert){
+  const {data,error} = await sbPT.from('chantiers').update({actif:ouvert}).eq('id',p.id).select('id,actif');
+  if(error) return /actif/i.test(error.message||'') ? 'sql' : (error.message||'erreur');
+  if(!data || !data.length) return 'droits';
+  p.actif = ouvert;
+  return 'ok';
+}
+// Met des codes des pointages « proposés » (ouvert=true) ou « masqués » (ouvert=false). Ne touche que ce qui change.
+async function majPointagesCodes(codes, ouvert){
+  const out = {ok:true, ouverts:[], fermes:[], absents:[], erreur:null};
+  const pt = await lireChantiersPointagesActif();
+  if(!pt.colonne){ out.ok = false; out.erreur = 'sql'; return out; }
+  for(const code of codes){
+    if(estCodeHI(code)) continue;
+    const p = trouverChantierPointages(pt.rows, code);
+    if(!p){ out.absents.push(code); continue; }
+    if((p.actif!==false)===ouvert) continue;
+    const r = await ecrireActifPointages(p, ouvert);
+    if(r!=='ok'){ out.ok = false; out.erreur = r; return out; }
+    (ouvert ? out.ouverts : out.fermes).push(p.code);
+  }
+  return out;
+}
+async function majPointagesChantier(chantierId){
+  try{
+    const {data:ch,error:errCh} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,code_pointages').eq('id',chantierId).single();
+    if(errCh) throw errCh;
+    const codes = ch ? codesPointagesDe(ch) : [];
+    if(!codes.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
+    return await majPointagesCodes(codes, chantierOuvertPointages(ch));
+  }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
+}
+async function majPointagesIntervention(interventionId){
+  try{
+    const {data:i,error:errIv} = await sb.from('interventions_sav').select('id,ref,statut').eq('id',interventionId).single();
+    if(errIv) throw errIv;
+    if(!i || !i.ref) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
+    return await majPointagesCodes([i.ref], intervOuvertePointages(i));
+  }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
+}
+let _ptMajDerniere = null, _ptSqlAvise = false;
+function avisarEtatPointages(r){
+  if(!r || r.vide) return;
+  if(r.ok){
+    if(r.fermes.length) showToast('✓ Pointages : '+r.fermes.join(', ')+(r.fermes.length>1?" ne sont plus proposés":" n'est plus proposé")+' aux salariés');
+    else if(r.ouverts.length) showToast('✓ Pointages : '+r.ouverts.join(', ')+(r.ouverts.length>1?' sont proposés':' est proposé')+' aux salariés');
+    return;
+  }
+  if(r.erreur==='sql'){
+    if(_ptSqlAvise) return; _ptSqlAvise = true;
+    showToast("⚠ Statut enregistré, mais les pointages ne sont pas encore à jour : exécutez « "+SQL_PT_ACTIF+" » dans le projet POINTAGES de Supabase (puis « Synchroniser les pointages » dans Chantiers).", 'error');
+  } else if(r.erreur==='droits'){
+    showToast("⚠ Statut enregistré, mais la base des pointages a refusé la modification (droits insuffisants) : le chantier reste proposé aux salariés.", 'error');
+  } else {
+    showToast("⚠ Statut enregistré, mais la mise à jour des pointages a échoué ("+(r.detail||r.erreur||'raison inconnue')+") : utilisez « Synchroniser les pointages » dans Chantiers.", 'error');
+  }
+}
+// Lancés SANS bloquer l'écran (le message arrive après le message principal). _ptMajDerniere : promesse de la dernière mise à jour.
+function lancerMajPointagesChantier(id){
+  _ptMajDerniere = majPointagesChantier(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; });
+  return _ptMajDerniere;
+}
+function lancerMajPointagesIntervention(id){
+  _ptMajDerniere = majPointagesIntervention(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; });
+  return _ptMajDerniere;
+}
+// Chantier ou intervention SUPPRIMÉ de l'ERP : ses codes ne sont plus proposés aux salariés (le chantier des pointages et ses heures
+// restent intacts). Un code encore revendiqué par un autre chantier / une autre intervention n'est jamais touché (on relit l'ERP).
+async function majPointagesCodesSupprimes(codes){
+  try{
+    const liste = (codes||[]).filter(c=>c && !estCodeHI(c));
+    if(!liste.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
+    const [chs, ivs] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav')]);
+    const pris = new Set();
+    chs.forEach(c=>codesPointagesDe(c).forEach(x=>pris.add(String(x).toLowerCase())));
+    ivs.forEach(i=>{ if(i.ref) pris.add(String(i.ref).toLowerCase()); });
+    const libres = liste.filter(c=>!pris.has(String(c).toLowerCase()));
+    if(!libres.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
+    return await majPointagesCodes(libres, false);
+  }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
+}
+function lancerMajPointagesCodesSupprimes(codes){
+  _ptMajDerniere = majPointagesCodesSupprimes(codes).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; });
+  return _ptMajDerniere;
+}
+
+// ── Synchronisation complète (bouton « Synchroniser les pointages » de la page Chantiers) ──
+// 1) calcule ce qui doit changer, SANS rien écrire ; 2) l'utilisateur voit l'aperçu et clique « Appliquer ».
+async function planSynchroPointages(){
+  const [chs, ivs, pt] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav'), lireChantiersPointagesActif()]);
+  const voulu = new Map(), absents = [];
+  const noter = (code, ouvert, source, chantier)=>{
+    if(estCodeHI(code)) return;
+    const p = trouverChantierPointages(pt.rows, code);
+    if(!p){ if(chantier || ouvert) absents.push({code, source}); return; }
+    const k = String(p.id), v = voulu.get(k);
+    if(v){ v.ouvert = v.ouvert || ouvert; v.sources.push(source); } else voulu.set(k, {p, ouvert, sources:[source]});
+  };
+  chs.forEach(c=>codesPointagesDe(c).forEach(code=>noter(code, chantierOuvertPointages(c), (c.numero||'')+' — '+(c.nom||''), true)));
+  ivs.forEach(i=>{ if(i.ref) noter(i.ref, intervOuvertePointages(i), i.ref, false); });
+  const aOuvrir = [], aFermer = [], dejaOuverts = [], dejaFermes = [];
+  voulu.forEach(v=>{
+    if(!pt.colonne) return;               // état inconnu : rien à calculer tant que le SQL n'est pas exécuté
+    const actuel = v.p.actif!==false;
+    const ligne = {p:v.p, sources:v.sources};
+    if(v.ouvert && !actuel) aOuvrir.push(ligne);
+    else if(!v.ouvert && actuel) aFermer.push(ligne);
+    else (v.ouvert ? dejaOuverts : dejaFermes).push(ligne);
+  });
+  const sansLien = pt.rows.filter(p=>!estCodeHI(p.code) && !voulu.has(String(p.id)));
+  const hiPt = pt.rows.find(p=>estCodeHI(p.code)) || null;
+  const hiErp = chs.find(c=>_txt(c.numero).trim().toUpperCase()===HI_CODE || codesPointagesDe(c).some(estCodeHI)) || null;
+  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp};
+}
+// Crée / relie le centre « Heures improductives » des deux côtés (sans doublon : relecture avant chaque création)
+async function assurerCentreHI(plan){
+  const r = {pt:'deja', erp:'deja', erreurs:[]};
+  if(!plan.hiPt){
+    try{
+      const {data:ex,error:e0} = await sbPT.from('chantiers').select('id,code').ilike('code', HI_CODE);
+      if(e0) throw e0;
+      if(!(ex||[]).some(x=>estCodeHI(x.code))){
+        const {error} = await sbPT.from('chantiers').insert({code:HI_CODE, nom:HI_NOM});
+        if(error) throw error;
+        r.pt = 'cree';
+      }
+    }catch(e){ r.pt = 'erreur'; r.erreurs.push('Pointages : '+((e&&e.message)||e)); }
+  }
+  if(!plan.hiErp){
+    try{
+      const {data:ex,error:e0} = await sb.from('chantiers_lyneo').select('id,numero,code_pointages');
+      if(e0) throw e0;
+      const dejaLa = (ex||[]).some(c=>_txt(c.numero).trim().toUpperCase()===HI_CODE || codesPointagesDe(c).some(estCodeHI));
+      if(!dejaLa){
+        const {error} = await sb.from('chantiers_lyneo').insert({numero:HI_CODE, nom:HI_NOM, client:'INTERNE - LYNEO', statut:'actif', type_centre:'interne', code_pointages:HI_CODE});
+        if(error) throw error;
+        r.erp = 'cree';
+      }
+    }catch(e){ r.erp = 'erreur'; r.erreurs.push('ERP : '+((e&&e.message)||e)); }
+  } else if(!codesPointagesDe(plan.hiErp).length && _txt(plan.hiErp.numero).trim().toUpperCase()===HI_CODE){
+    // un centre « HI » existe déjà dans l'ERP sans code de pointages : on le relie
+    try{
+      const {error} = await sb.from('chantiers_lyneo').update({code_pointages:HI_CODE}).eq('id',plan.hiErp.id);
+      if(error) throw error;
+      r.erp = 'lie';
+    }catch(e){ r.erp = 'erreur'; r.erreurs.push('ERP : '+((e&&e.message)||e)); }
+  }
+  return r;
+}
+let _syncPtEnCours = false;
+async function appliquerSynchroPointages(){
+  if(_syncPtEnCours) return;           // double clic : une seule application à la fois
+  _syncPtEnCours = true;
+  const btn = el('btn-sync-pt-appliquer'); if(btn) btn.disabled = true;
+  try{
+    const plan = await planSynchroPointages();       // tout est relu au moment du clic
+    const res = {ouverts:[], fermes:[], erreurs:[], hi:null};
+    if(plan.pt.colonne){
+      let stop = false;                    // droits refusés / colonne absente : inutile d'insister sur les autres codes
+      for(const [liste, ouvert] of [[plan.aFermer,false],[plan.aOuvrir,true]]){
+        for(const l of liste){
+          if(stop) break;
+          const r = await ecrireActifPointages(l.p, ouvert);
+          if(r==='ok') (ouvert?res.ouverts:res.fermes).push(l.p.code);
+          else { res.erreurs.push(l.p.code+' : '+(r==='droits' ? 'droits insuffisants dans la base des pointages' : r==='sql' ? 'colonne « actif » absente' : r)); if(r==='droits'||r==='sql') stop = true; }
+        }
+      }
+    }
+    res.hi = await assurerCentreHI(plan);
+    res.erreurs.push(...res.hi.erreurs);
+    const apres = await planSynchroPointages();
+    el('sync-pt-corps').innerHTML = htmlResultatSynchroPointages(res) + htmlPlanSynchroPointages(apres, true);
+    if(res.hi && res.hi.erp!=='deja' && res.hi.erp!=='erreur' && currentPage==='chantiers') renderChantiers('');
+  }catch(e){
+    el('sync-pt-corps').innerHTML = `<div class="alert alert-error" id="sync-pt-erreur"><i class="ti ti-alert-circle"></i><span>Synchronisation impossible : ${escHtml((e&&e.message)||String(e))}</span></div>`;
+  }finally{ _syncPtEnCours = false; }
+}
+function htmlResultatSynchroPointages(res){
+  const l = [];
+  if(res.fermes.length) l.push(`<strong>${res.fermes.length}</strong> code${res.fermes.length>1?'s':''} masqué${res.fermes.length>1?'s':''} : ${res.fermes.map(escHtml).join(', ')}`);
+  if(res.ouverts.length) l.push(`<strong>${res.ouverts.length}</strong> code${res.ouverts.length>1?'s':''} de nouveau proposé${res.ouverts.length>1?'s':''} : ${res.ouverts.map(escHtml).join(', ')}`);
+  if(res.hi){
+    if(res.hi.pt==='cree') l.push(`Centre « ${HI_NOM} » créé dans les pointages`);
+    if(res.hi.erp==='cree') l.push(`Centre de coûts « ${HI_NOM} » (${HI_CODE}) créé dans l'ERP`);
+    if(res.hi.erp==='lie') l.push(`Centre « ${HI_CODE} » de l'ERP relié au code ${HI_CODE} des pointages`);
+  }
+  let h = '';
+  if(l.length) h += `<div class="alert alert-success" id="sync-pt-resultat" style="margin-bottom:12px"><i class="ti ti-check"></i><span>${l.join('<br>')}</span></div>`;
+  else if(!res.erreurs.length) h += `<div class="alert alert-info" id="sync-pt-resultat" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>Rien à changer : les pointages sont déjà à jour.</span></div>`;
+  if(res.erreurs.length) h += `<div class="alert alert-error" id="sync-pt-erreurs" style="margin-bottom:12px"><i class="ti ti-alert-circle"></i><span>${res.erreurs.map(escHtml).join('<br>')}</span></div>`;
+  return h;
+}
+function htmlPlanSynchroPointages(plan, apresApplication){
+  const lib = l => `<li><strong>${escHtml(l.p.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(l.p.nom||'')}</span>${l.sources&&l.sources.length&&l.sources[0]!==l.p.code?` <span style="color:var(--gray-4);font-size:11px">(${escHtml(l.sources.join(' ; '))})</span>`:''}</li>`;
+  const bloc = (titre, liste, id) => liste.length ? `<div id="${id}" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--gray-6);margin-bottom:4px">${titre} (${liste.length})</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${liste.map(lib).join('')}</ul></div>` : '';
+  let h = '';
+  if(!plan.pt.colonne) h += `<div class="alert alert-warning" id="sync-pt-sql" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La base des pointages n'a pas encore la colonne « actif » : exécutez <strong>${SQL_PT_ACTIF}</strong> dans le projet <strong>POINTAGES</strong> de Supabase (SQL Editor), puis rouvrez cette fenêtre. En attendant, tous les chantiers restent proposés aux salariés.</span></div>`;
+  if(plan.pt.colonne){
+    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (en pause, terminés, archivés, interventions terminées).</p>`;
+    h += bloc(apresApplication ? 'Encore à masquer' : 'À masquer maintenant', plan.aFermer, 'sync-pt-fermer');
+    h += bloc(apresApplication ? 'Encore à proposer' : 'À proposer de nouveau', plan.aOuvrir, 'sync-pt-ouvrir');
+  }
+  if(plan.sansLien.length) h += `<div id="sync-pt-sanslien" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--orange);margin-bottom:4px"><i class="ti ti-unlink"></i> Codes des pointages sans lien avec l'ERP (${plan.sansLien.length}) — non modifiés</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${plan.sansLien.map(p=>`<li><strong>${escHtml(p.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(p.nom||'')}</span> ${plan.pt.colonne?(p.actif===false?'<span class="badge badge-termine" style="font-size:10px">masqué</span>':'<span class="badge badge-actif" style="font-size:10px">proposé</span>'):''}</li>`).join('')}</ul><p style="font-size:11px;color:var(--gray-4);margin-top:4px">Liez-les à un chantier (fiche → Informations → code pointages) pour que l'ERP les gère, ou masquez-les dans l'application des pointages (onglet Chantiers).</p></div>`;
+  if(plan.absents.length) h += `<div id="sync-pt-absents" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--orange);margin-bottom:4px"><i class="ti ti-alert-circle"></i> Codes de l'ERP introuvables dans les pointages (${plan.absents.length})</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${plan.absents.map(a=>`<li><strong>${escHtml(a.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(a.source)}</span></li>`).join('')}</ul></div>`;
+  const hiTxt = (plan.hiPt ? '<span style="color:var(--green)">✓ pointages</span>' : '<span style="color:var(--orange)">à créer dans les pointages</span>') + ' · ' + (plan.hiErp ? '<span style="color:var(--green)">✓ ERP</span>' : '<span style="color:var(--orange)">à créer dans l\'ERP (centre interne, code HI)</span>');
+  h += `<div id="sync-pt-hi" style="font-size:13px;margin-bottom:6px"><strong>Centre « ${HI_NOM} »</strong> (code ${HI_CODE}, toujours proposé aux salariés) : ${hiTxt}</div>`;
+  const rien = !plan.aFermer.length && !plan.aOuvrir.length && plan.hiPt && plan.hiErp;
+  if(!apresApplication){
+    h += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button>${rien||(!plan.pt.colonne&&plan.hiPt&&plan.hiErp)?'':`<button class="btn btn-primary" id="btn-sync-pt-appliquer" onclick="appliquerSynchroPointages()"><i class="ti ti-check"></i> Appliquer</button>`}</div>`;
+    if(rien) h = `<div class="alert alert-info" id="sync-pt-rien" style="margin-bottom:12px"><i class="ti ti-check"></i><span>Les pointages sont déjà à jour : rien à appliquer.</span></div>` + h;
+  } else h += `<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
+  return h;
+}
+async function ouvrirSynchroPointages(){
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><div><h3><i class="ti ti-refresh"></i> Synchroniser les pointages</h3><span style="font-size:12px;color:var(--gray-5)">Seuls les chantiers « En cours » sont proposés aux salariés dans l'application des pointages</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="sync-pt-corps"><p style="color:var(--gray-5)">Lecture des chantiers et des pointages…</p></div></div></div>`);
+  try{
+    const plan = await planSynchroPointages();
+    if(el('sync-pt-corps')) el('sync-pt-corps').innerHTML = htmlPlanSynchroPointages(plan, false);
+  }catch(e){
+    if(el('sync-pt-corps')) el('sync-pt-corps').innerHTML = `<div class="alert alert-error" id="sync-pt-erreur"><i class="ti ti-alert-circle"></i><span>Lecture impossible : ${escHtml((e&&e.message)||String(e))}</span></div><div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
+  }
+}
+
 function saveChantier(id){ return gardeEnvoi('chantier', ()=>saveChantierCore(id)); }
 async function saveChantierCore(id){
   const nom = el('ch-nom').value.trim();
@@ -4619,12 +4881,14 @@ async function saveChantierCore(id){
     const resultadoSync = await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
     showToast('Chantier mis à jour');
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
+    lancerMajPointagesChantier(id);
   } else {
     const num = numeroManuel || await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);
     const devisIdOrigine = window._chantierFromDevisId||null;
     const {data:newChantier} = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
     let resultadoSync = {ok:false, motif:'non_cree'};
     if(newChantier) resultadoSync = await sincronizarChantierPointages(newChantier.id, nom, statutAtual, cpModal?.value);
+    if(newChantier) lancerMajPointagesChantier(newChantier.id);
     if(devisIdOrigine && newChantier){
       await sb.from('devis').update({chantier_id:newChantier.id}).eq('id',devisIdOrigine);
       window._chantierFromDevisId = null;
@@ -8563,6 +8827,7 @@ async function supprimerFiche(type, id, opts){
     if(rep==='desactiver'){
       const {error} = await sb.from(cfg.table).update(cfg.desactiver).eq('id',id);
       if(error){ showToast('Erreur: '+error.message, 'error'); return false; }
+      if(type==='chantier') lancerMajPointagesChantier(id);   // terminé : le code n'est plus proposé aux salariés
       showToast(`« ${fiche.nom} » désactivé — l'historique est conservé`);
       if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
     }
@@ -8591,7 +8856,8 @@ async function supprimerFiche(type, id, opts){
       await sb.from('anexos_chantier').delete().eq('chantier_id',id);
     }catch(e){}
   }
-  showToast(`${cfg.article.charAt(0).toUpperCase()+cfg.article.slice(1)} « ${fiche.nom} » supprimé`+(type==='chantier' && fiche.code_pointages ? " (le chantier de l'application Pointages et ses heures ne sont pas touchés)" : ''));
+  showToast(`${cfg.article.charAt(0).toUpperCase()+cfg.article.slice(1)} « ${fiche.nom} » supprimé`+(type==='chantier' && fiche.code_pointages ? " (les heures pointées sont conservées ; le code n'est plus proposé aux salariés)" : ''));
+  if(type==='chantier' && fiche.code_pointages) lancerMajPointagesCodesSupprimes(codesPointagesDe(fiche));
   if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
   return true;
 }
@@ -16255,6 +16521,7 @@ async function saveIntervention(id){
 async function changerStatutIntervention(id, statut){
   const {error} = await sb.from('interventions_sav').update({statut}).eq('id',id);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  lancerMajPointagesIntervention(id);
   showToast('Statut : '+STATUT_SAV[statut]);
   openInterventionDetail(id);
 }
@@ -16279,6 +16546,7 @@ async function emailTechnicienIntervention(interventionId){
   const corps = `Bonjour ${technom},\n\nUne intervention vous a été attribuée :\n\nClient : ${i.clients?.nom||''}\nTéléphone : ${i.telephone||'non renseigné'}\nAdresse : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}\nDate prévue : ${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'à confirmer'}\n${i.astreinte?'\n⚠ Intervention en astreinte - traitement prioritaire requis.\n':''}\nDescription :\n${i.description||'non renseignée'}`;
   window.location.href = `mailto:${emailTech}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
   await sb.from('interventions_sav').update({notif_technicien:true, statut: 'attribuee'}).eq('id',i.id);
+  lancerMajPointagesIntervention(i.id);
   openInterventionDetail(i.id);
 }
 
@@ -16323,8 +16591,11 @@ async function deleteIntervention(id){
     return;
   }
   if(!confirm("Supprimer définitivement cette intervention ? Cette action est irréversible.")) return;
+  let refSupprimee = '';
+  try{ const {data:ir} = await sb.from('interventions_sav').select('ref').eq('id',id).single(); refSupprimee = (ir&&ir.ref)||''; }catch(e){}
   const {error} = await sb.from('interventions_sav').delete().eq('id',id);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(refSupprimee) lancerMajPointagesCodesSupprimes([refSupprimee]);   // le code SAV n'est plus proposé (les heures restent)
   showToast('Intervention supprimée');
   closeModal();
   rafraichirPage();
@@ -16609,6 +16880,7 @@ async function saveFactureSAV(interventionId, clientId){
   })));
 
   await sb.from('interventions_sav').update({statut:'facturee'}).eq('id',interventionId);
+  lancerMajPointagesIntervention(interventionId);
 
   showToast('Facture créée — '+num);
   closeModal();
