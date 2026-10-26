@@ -12084,13 +12084,16 @@ function estClotureFV(f){
 const JOURNAL_TABLES = {factures_vente:'Factures clients', lignes_facture_vente:'Lignes factures clients', devis:'Devis', lignes_devis:'Lignes de devis',
   clients:'Clients', fournisseurs:'Fournisseurs', chantiers_lyneo:'Chantiers', interventions_sav:'Interventions SAV', factures:'Factures fournisseurs',
   lignes_facture:'Lignes fact. fournisseurs', purchase_orders_lyneo:'Bons de commande', lignes_po:'Lignes de BC', paiements:'Paiements',
-  utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés', formations_types:'Types de formation', formations_employes:'Formations du personnel'};
+  utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés', formations_types:'Types de formation', formations_employes:'Formations du personnel',
+  habilitations_fonctions:'Habilitations (liste)', habilitations_designations:'Habilitations du personnel'};
 const JOURNAL_CHAMPS = {valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
   reference_client:'N° commande client', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
   quantite:'Qté', prix_unitaire_ht:'P.U. HT', description:'Description', valeur_date:'Date de clôture', role:'Rôle', actif:'Actif', email:'E-mail',
   nom:'Nom', prenom:'Prénom', objet:'Objet', montant_ht:'Montant HT', taux_tva:'TVA %', facture_origine_id:'Facture d\'origine',
   employe_id:'Employé', type_id:'Formation', date_formation:'Date de la formation', date_expiration:"Valide jusqu'au", organisme:'Organisme', numero_attestation:"N° d'attestation",
-  validite_mois:'Validité (mois)', alerte_jours:'Alerte (jours)', duree_heures:'Durée (h)', cout_ht:'Coût HT'};
+  validite_mois:'Validité (mois)', alerte_jours:'Alerte (jours)', duree_heures:'Durée (h)', cout_ht:'Coût HT',
+  symbole:'Symbole', qualification:'Qualification', fonction:'Fonction', travaux:'Travaux autorisés', ouvrages:'Ouvrages', indications:'Indications', date_fin:'Date limite', fonction_id:'Habilitation',
+  carte_zone:'Zone de la carte', carte_libelle:'Texte de la carte', carte_description:'Explication (carte)'};
 function journalValeur(v){
   if(v===null || v===undefined || v==='') return '∅';
   const t = typeof v==='object' ? JSON.stringify(v) : String(v);
@@ -12235,7 +12238,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','codes_ressource','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','employes_remuneration','formations_types','formations_employes','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
@@ -12369,6 +12372,7 @@ async function frmCharger(){
     _frm.types = frmTypesTries(t.data||[]); _frm.lignes = lignes;
     _frm.emps = emps.sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr'));
     _frm.etat = 'ok';
+    await carteChargerEtat();              // carte d'habilitation : ne bloque jamais la page (état « absente » sans le script SQL)
     return true;
   }catch(e){
     _frm.etat = migrationEmployeAbsente(e.message) ? 'absente' : 'erreur'; _frm.msg = (e && e.message) || String(e);
@@ -12384,7 +12388,7 @@ async function renderFormations(vue){
   await frmCharger();
   frmAfficher();
 }
-function frmVue(v){ _frm.vue = ['suivi','liste','types'].includes(v) ? v : 'suivi'; frmAfficher(); }
+function frmVue(v){ _frm.vue = ['suivi','liste','types','carte'].includes(v) ? v : 'suivi'; frmAfficher(); }
 function frmEntete(actions){
   return `<div class="page-header">
     <div class="page-header-left"><h1>Formations</h1><p>Suivi des attestations du personnel et de leur validité</p></div>
@@ -12408,6 +12412,7 @@ function frmAfficher(){
     <button class="btn btn-secondary" id="btn-frm-import" onclick="el('frm-import-input').click()" title="Importer le fichier Excel « Formations » (aperçu avant l'enregistrement)"><i class="ti ti-file-import"></i> Importer Excel</button>
     ${_frm.vue==='types'
       ? `<button class="btn btn-primary" id="btn-frm-nouveau-type" onclick="openFormationTypeModal()"><i class="ti ti-plus"></i> Nouveau type</button>`
+      : _frm.vue==='carte' ? ''
       : `<button class="btn btn-primary" id="btn-frm-nouvelle" onclick="openFormationModal()"><i class="ti ti-plus"></i> Nouvelle formation</button>`}`;
   const pill = (code, lib, cls) => `<button class="frm-pill ${cls}" id="frm-cpt-${code}" onclick="frmVoirListe('${code}')" title="Voir dans la liste"><strong>${cpt[code]}</strong> ${lib}</button>`;
   el('page-content').innerHTML = frmEntete(actions) + `
@@ -12419,7 +12424,7 @@ function frmAfficher(){
       <span style="font-size:12px;color:var(--gray-5)">Employés actifs (${nbActifs}) · seule l'attestation la plus récente de chaque formation compte</span>
     </div>
     <div class="card"><div style="display:flex;gap:4px;border-bottom:2px solid var(--gray-2);padding:0 8px;flex-wrap:wrap">
-      ${onglet('suivi','Suivi',null)}${onglet('liste','Liste',_frm.lignes.length)}${onglet('types','Types de formation',_frm.types.length)}
+      ${onglet('suivi','Suivi',null)}${onglet('liste','Liste',_frm.lignes.length)}${onglet('types','Types de formation',_frm.types.length)}${onglet('carte',"Carte d'habilitation",null)}
     </div>
     <div id="frm-corps"></div></div>`;
   frmAfficherCorps();
@@ -12427,7 +12432,7 @@ function frmAfficher(){
 function frmAfficherCorps(){
   const c = el('frm-corps'); if(!c) return;
   const C = frmCalcul();
-  c.innerHTML = _frm.vue==='liste' ? frmHtmlListe(C) : _frm.vue==='types' ? frmHtmlTypes(C) : frmHtmlSuivi(C);
+  c.innerHTML = _frm.vue==='liste' ? frmHtmlListe(C) : _frm.vue==='types' ? frmHtmlTypes(C) : _frm.vue==='carte' ? carteHtmlOnglet() : frmHtmlSuivi(C);
 }
 // Clic sur un compteur : la liste, filtrée sur cet état
 function frmVoirListe(code){ _frm.f = {q:'', statut:code, type:'', emp:'', anciens:false, sans:false}; _frm.vue = 'liste'; frmAfficher(); }
@@ -12559,6 +12564,7 @@ function openFormationTypeModal(id){
         <div class="form-group"><label class="field-label" for="frt-ordre">Ordre d'affichage</label><input id="frt-ordre" type="number" min="1" max="9999" step="1" value="${escHtml(t&&t.ordre!=null?t.ordre:'')}" placeholder="auto"/>
           <span style="font-size:12px;color:var(--gray-5)">1 = en premier. Vide = automatique (habilitation électrique, PEMP, R19, échafaudage, puis ordre alphabétique).</span>
           ${(_frm.types.length && !_frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'ordre'))) ? `<span id="frt-ordre-sql" style="display:block;font-size:12px;color:var(--orange)">Pour enregistrer un numéro, exécutez d'abord la dernière version de <strong>${SQL_FORMATIONS}</strong>.</span>` : ''}</div>
+        ${carteChampsType(t)}
         <div class="form-group full"><label class="field-label" for="frt-obs">Observations</label><input id="frt-obs" value="${escHtml(t?t.observations:'')}"/></div>
         <div class="form-group full"><label style="display:flex;gap:10px;align-items:center;font-weight:400;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="frt-actif" style="width:auto;margin:0" ${(!t||t.actif!==false)?'checked':''}/> Formation active (proposée dans les listes)</label></div>
       </div>
@@ -12572,19 +12578,26 @@ async function frmEnregistrerType(id){
   if(val!==null && (!Number.isInteger(val) || val<1 || val>600)){ showToast('La validité doit être un nombre entier de mois (1 à 600) ou rester vide','error'); return; }
   if(al!==null && (!Number.isInteger(al) || al<0 || al>1095)){ showToast("L'alerte doit être un nombre entier de jours (0 à 1095) ou rester vide",'error'); return; }
   if(_frm.types.some(x=>String(x.id)!==String(id||'') && frmN(x.nom)===frmN(nom))){ showToast('Ce type de formation existe déjà','error'); return; }
+  const carte = carteLireChampsType(); if(carte.erreur){ showToast(carte.erreur,'error'); return; }
   const data = {nom, validite_mois:val, alerte_jours:al, observations:(el('frt-obs').value||'').trim()||null, actif:el('frt-actif').checked};
   // La colonne « ordre » vient de la dernière version de migration-formations.sql : sans elle on enregistre le reste et on le dit
   const colonneOrdre = _frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'ordre'));
   if(colonneOrdre || ordre!==null) data.ordre = ordre;
+  // Réglages de la carte : colonnes de migration-carte-habilitation.sql (même principe : sans le script on enregistre le reste et on le dit)
+  const colonneCarte = _frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'carte_zone'));
+  if(colonneCarte || !carte.vide) Object.assign(data, carte.data);
   const b = el('btn-frt-save'); if(b) b.disabled = true;
   const enregistrer = d => id ? sb.from('formations_types').update(d).eq('id',id) : sb.from('formations_types').insert(d);
-  let {error} = await enregistrer(data), ordrePerdu = false;
-  if(error && 'ordre' in data && /ordre/i.test(error.message) && /column|colonne|schema cache/i.test(error.message)){
-    delete data.ordre; ordrePerdu = true; ({error} = await enregistrer(data));
+  let {error} = await enregistrer(data), ordrePerdu = false, cartePerdue = false;
+  for(let k=0; k<2 && error && /column|colonne|schema cache/i.test(error.message); k++){
+    if('ordre' in data && /ordre/i.test(error.message)){ delete data.ordre; ordrePerdu = true; ({error} = await enregistrer(data)); }
+    else if('carte_zone' in data && /carte_(zone|libelle|description)/i.test(error.message)){ ['carte_zone','carte_libelle','carte_description'].forEach(c=>{ delete data[c]; }); cartePerdue = true; ({error} = await enregistrer(data)); }
+    else break;
   }
   if(error){ if(b) b.disabled = false; showToast(/duplicate|unique/i.test(error.message) ? 'Ce type de formation existe déjà' : 'Erreur: '+error.message, 'error'); return; }
   closeModal();
-  if(ordrePerdu) showToast(`${id?'Type mis à jour':'Type créé'}, mais l'ordre d'affichage n'a pas pu être enregistré : exécutez la dernière version de ${SQL_FORMATIONS}`,'error');
+  if(cartePerdue) showToast(`${id?'Type mis à jour':'Type créé'}, mais les réglages de la carte${ordrePerdu?" et l'ordre d'affichage":''} n'ont pas pu être enregistrés : exécutez ${SQL_CARTE}${ordrePerdu?' et la dernière version de '+SQL_FORMATIONS:''}`,'error');
+  else if(ordrePerdu) showToast(`${id?'Type mis à jour':'Type créé'}, mais l'ordre d'affichage n'a pas pu être enregistré : exécutez la dernière version de ${SQL_FORMATIONS}`,'error');
   else showToast(id?'Type mis à jour':'Type créé');
   renderFormations();
 }
@@ -12946,6 +12959,736 @@ async function frmAlertesDashboard(){
 
 // ── EMPLOYÉS (RH) ─────────────────────────────────────────────
 let _employesRH = [];
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CARTE D'HABILITATION DU PERSONNEL (voir « carte-habilitation.md » dans le projet)
+// Carte A4 paysage, recto-verso, 4 panneaux de 64 × 102 mm (pliage en accordéon, carte fermée 64 × 102 mm).
+//  • Recto : Identité · Habilitation électrique · Légende · Avis      • Verso : Autorisations de conduite · Travaux spécifiques · Contacts d'urgence · Couverture
+//  • Une habilitation électrique n'est imprimée que si la personne a été DÉSIGNÉE (fiche employé) ET possède l'attestation de formation exigée en vigueur.
+//    Tout ce qui n'est pas prouvé reste vide : « rubrique vide vaut interdiction ».
+//  • Le verso reprend les attestations en cours de validité (case cochée + date) ; les cases vides restent visibles.
+//  • Les mentions de l'entreprise viennent d'Administration → Documents ; signataire et contacts d'urgence : Formations → Carte d'habilitation.
+//  • Un défaut de visite médicale AVERTIT (confirmation demandée), il ne bloque pas.
+// Script SQL : migration-carte-habilitation.sql. Sans lui, l'ERP fonctionne comme avant et affiche un message clair.
+// ══════════════════════════════════════════════════════════════════════════════
+const SQL_CARTE = 'migration-carte-habilitation.sql';
+const CARTE_ZONES = {conduite:'Autorisations de conduite', travaux:'Travaux spécifiques'};
+const CARTE_REGLAGES_DEFAUT = Object.freeze({signataire_nom:'', signataire_fonction:'', sav_tel:'', securite_nom:'', securite_tel:'', direction_nom:'', direction_tel:'', retournement:'court'});
+let _carte = {etat:'', msg:'', fonctions:[], desig:[], reglages:Object.assign({}, CARTE_REGLAGES_DEFAUT), reglagesEtat:'origine', reglagesMsg:''};
+
+const carteTxt = v => String(v==null?'':v).replace(/\s+/g,' ').trim();
+const carteDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); return m ? m[3]+'/'+m[2]+'/'+m[1] : ''; };
+// La carte est imprimée en Helvetica (WinAnsi) : un caractère hors de ce jeu ferait échouer le PDF
+const CARTE_WINANSI_EXTRA = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+function carteCaractereInterdit(t){
+  for(const ch of String(t==null?'':t)){
+    const c = ch.codePointAt(0);
+    if((c>=0x20 && c<=0x7E) || (c>=0xA1 && c<=0xFF && c!==0xAD) || CARTE_WINANSI_EXTRA.includes(ch)) continue;
+    return ch;
+  }
+  return '';
+}
+// Texte imprimable : espaces normalisés, lettres hors jeu ramenées à leur lettre de base (ł → l), sinon « ? »
+function carteSur(t, brut){
+  let out = '';
+  // brut : on garde les espaces en bout de chaîne (morceaux d'un texte mêlant gras et maigre : « Nom : » + nom)
+  for(const ch of (brut ? String(t==null?'':t).replace(/\s+/g,' ') : carteTxt(t))){
+    if(!carteCaractereInterdit(ch)){ out += ch; continue; }
+    const b = ch.normalize('NFD').replace(/[̀-ͯ]/g,'');
+    out += (b && !carteCaractereInterdit(b)) ? b : '?';
+  }
+  return out;
+}
+function carteTrierFonctions(l){
+  const ord = x => (x.ordre===null || x.ordre===undefined || x.ordre==='') ? 1e9 : Number(x.ordre);
+  return (l||[]).slice().sort((a,b)=> (ord(a)-ord(b)) || String(a.symbole||'').localeCompare(String(b.symbole||''),'fr') || String(a.fonction||'').localeCompare(String(b.fonction||''),'fr') || String(a.id).localeCompare(String(b.id)));
+}
+const carteNomFonction = f => carteTxt(f && f.symbole) + ' — ' + carteTxt(f && f.fonction);
+
+// ── Chargement ──
+// Liste des habilitations + désignations de tout le personnel + réglages (onglet Formations → Carte d'habilitation). Ne bloque jamais la page Formations.
+async function carteChargerEtat(){
+  try{
+    const r = await sb.from('habilitations_fonctions').select('*');
+    if(r.error){ _carte.etat = migrationEmployeAbsente(r.error.message) ? 'absente' : 'erreur'; _carte.msg = r.error.message||''; _carte.fonctions = []; _carte.desig = []; }
+    else {
+      _carte.fonctions = carteTrierFonctions(r.data||[]);
+      _carte.desig = await lireTableComplete('habilitations_designations');
+      _carte.etat = 'ok'; _carte.msg = '';
+    }
+  }catch(e){ _carte.etat = migrationEmployeAbsente(e && e.message) ? 'absente' : 'erreur'; _carte.msg = (e && e.message) || String(e); _carte.fonctions = []; _carte.desig = []; }
+  await carteChargerReglages();
+}
+// Signataire, contacts d'urgence et sens du retournement : parametres_app (cle='carte_habilitation'), sans script SQL supplémentaire
+async function carteChargerReglages(){
+  const R = Object.assign({}, CARTE_REGLAGES_DEFAUT); _carte.reglagesEtat = 'origine'; _carte.reglagesMsg = '';
+  try{
+    const r = await sb.from('parametres_app').select('valeur_json').eq('cle','carte_habilitation');
+    if(r.error){ _carte.reglagesEtat = 'indisponible'; _carte.reglagesMsg = r.error.message||''; }
+    else {
+      const v = r.data && r.data[0] && r.data[0].valeur_json;
+      if(v && typeof v==='object'){ Object.keys(R).forEach(k=>{ if(typeof v[k]==='string') R[k] = v[k]; }); _carte.reglagesEtat = 'base'; }
+    }
+  }catch(e){ _carte.reglagesEtat = 'indisponible'; _carte.reglagesMsg = (e && e.message) || ''; }
+  if(R.retournement!=='long') R.retournement = 'court';
+  _carte.reglages = R;
+}
+// Tout ce qu'il faut pour UNE carte, relu dans la base au moment de la générer (jamais d'un affichage ancien)
+async function carteChargerPourEmploye(empId){
+  const [fo, de, ty, fe, em] = await Promise.all([
+    sb.from('habilitations_fonctions').select('*'),
+    sb.from('habilitations_designations').select('*').eq('employe_id', empId),
+    sb.from('formations_types').select('*'),
+    sb.from('formations_employes').select('*').eq('employe_id', empId),
+    sb.from('employes_rh').select('*').eq('id', empId).single()
+  ]);
+  const err = [fo, de, ty, fe, em].find(r=>r.error);
+  if(err){
+    const m = err.error.message||'';
+    return {etat: (err===em ? 'erreur' : (migrationEmployeAbsente(m) ? 'absente' : 'erreur')), msg:m};
+  }
+  await carteChargerReglages();
+  return {etat:'ok', emp:em.data, fonctions:carteTrierFonctions(fo.data||[]), desig:de.data||[], types:ty.data||[], formations:fe.data||[], reglages:_carte.reglages};
+}
+
+// ── Règles de la carte (fonction pure : testée sans PDF) ──
+// d = {emp, types, formations, fonctions, desig, auj, reglages}
+function carteCalculer(d){
+  const auj = d.auj || today(), emp = d.emp || {}, eid = String(emp.id);
+  const T = {}; (d.types||[]).forEach(t=>{ T[String(t.id)] = t; });
+  const F = {}; (d.fonctions||[]).forEach(f=>{ F[String(f.id)] = f; });
+  const der = frmDernieres((d.formations||[]).filter(l=>String(l.employe_id)===eid), T);
+  const attestation = typeId => {
+    const l = der.get(eid+'|'+String(typeId)); if(!l) return null;
+    const t = T[String(typeId)]||null, st = frmStatut(l, t, auj);
+    return {l, t, st, valable: st.code!=='expiree'};
+  };
+  const av = [], exclues = [], elec = [];
+  const mes = (d.desig||[]).filter(x=>String(x.employe_id)===eid);
+  const desigIds = new Set(mes.map(x=>String(x.fonction_id)));
+  const rang = new Map((d.fonctions||[]).map((f,i)=>[String(f.id), i]));
+  mes.forEach(ds=>{
+    const f = F[String(ds.fonction_id)]; if(!f) return;
+    const nom = '« '+carteNomFonction(f)+' »';
+    const refuse = (raison, texte) => { exclues.push({f, ds, raison, texte}); av.push({niveau:'alerte', texte:nom+' désignée mais NON imprimée : '+texte}); };
+    if(f.actif===false) return refuse('inactive', 'cette habilitation est désactivée dans la liste');
+    if(!f.type_id) return refuse('type_non_lie', "aucune formation exigée n'est choisie (Formations → Carte d'habilitation)");
+    const a = attestation(f.type_id), tn = T[String(f.type_id)] ? T[String(f.type_id)].nom : 'formation exigée';
+    if(!a) return refuse('formation_absente', 'aucune attestation « '+tn+' » dans la fiche formations');
+    if(!a.valable) return refuse('formation_expiree', 'attestation « '+tn+' » expirée le '+carteDate(a.st.exp));
+    const dfin = frmISO(ds.date_fin);
+    if(dfin && dfin<auj) return refuse('date_fin_passee', 'désignation échue le '+carteDate(dfin));
+    const fin = [a.st.exp, dfin].filter(Boolean).sort()[0]||'';
+    if(a.st.code==='renouveler') av.push({niveau:'info', texte:nom+' : attestation « '+tn+' » à renouveler avant le '+carteDate(a.st.exp)});
+    elec.push({f, ds, ouvrages: carteTxt(ds.ouvrages)||carteTxt(f.ouvrages)||'Tous chantiers', indications: carteTxt(ds.indications), fin});
+  });
+  elec.sort((a,b)=>(rang.get(String(a.f.id))-rang.get(String(b.f.id))));
+  // Formation valide mais habilitation non désignée : simple rappel (la désignation est une décision de l'employeur)
+  (d.fonctions||[]).forEach(f=>{
+    if(f.actif===false || !f.type_id || desigIds.has(String(f.id))) return;
+    const a = attestation(f.type_id);
+    if(a && a.valable) av.push({niveau:'info', texte:'« '+carteNomFonction(f)+' » : formation en vigueur mais habilitation non désignée — elle ne figure pas sur la carte'});
+  });
+  // Verso : une ligne par formation rattachée à la carte ; case cochée = attestation en vigueur
+  const verso = {conduite:[], travaux:[]};
+  frmTypesTries((d.types||[]).filter(t=>t.carte_zone==='conduite' || t.carte_zone==='travaux')).forEach(t=>{
+    const a = attestation(t.id), ok = !!(a && a.valable);
+    if(t.actif===false && !ok) return;
+    verso[t.carte_zone].push({t, libelle: carteTxt(t.carte_libelle)||carteTxt(t.nom), description: carteTxt(t.carte_description), coche: ok, fin: ok ? (a.st.exp||'') : '', sansLimite: ok && !a.st.exp});
+    if(a && !a.valable) av.push({niveau:'info', texte:'« '+carteTxt(t.nom)+' » : attestation expirée le '+carteDate(a.st.exp)+' — case non cochée'});
+  });
+  // Aptitude médicale : avertit, ne bloque pas
+  const vm = frmISO(emp.visite_medicale_valable_jusquau);
+  const aptitude = {date: vm, etat: !vm ? 'absente' : (vm<auj ? 'expiree' : 'ok')};
+  if(aptitude.etat==='absente') av.unshift({niveau:'alerte', texte:"Visite médicale non renseignée dans la fiche de l'employé"});
+  if(aptitude.etat==='expiree') av.unshift({niveau:'alerte', texte:'Visite médicale expirée le '+carteDate(vm)});
+  if(emp.actif===false) av.unshift({niveau:'alerte', texte:"Cet employé est inactif"});
+  const R = Object.assign({}, CARTE_REGLAGES_DEFAUT, d.reglages||{});
+  if(!carteTxt(R.signataire_nom)) av.push({niveau:'info', texte:"Signataire de l'employeur non renseigné : la ligne « Nom » reste à remplir à la main"});
+  const contrat = carteTxt(emp.type_contrat);
+  return {
+    auj, emp, aptitude, elec, exclues, verso, reglages: R,
+    validite: elec.map(x=>x.fin).filter(Boolean).sort()[0]||'',
+    identite: {nom: carteTxt(emp.nom).toLocaleUpperCase('fr'), prenom: carteTxt(emp.prenom), fonction: carteTxt(emp.poste), contrat},
+    indications: Array.from(new Set(elec.map(x=>x.indications).filter(Boolean))),
+    avertissements: av
+  };
+}
+
+// ── PDF ──
+const CARTE_PW = 841.89, CARTE_PH = 595.28, CARTE_PANW = 181.417, CARTE_PANH = 289.134, CARTE_S = CARTE_PANW/242;      // A4 paysage ; panneau 64 × 102 mm ; 1 px de la maquette = CARTE_S pt
+const CARTE_C = {bleu:[16,108,157], clair:[230,243,248], fonce:[11,75,107], texte:[18,35,46], gris:[75,91,102], ligne:[111,140,160], ligne2:[185,211,222], champ:[156,199,214], rouge:[180,35,24], cyan:[118,200,213], blanc:[255,255,255]};
+function carteErreurMiseEnPage(msg){ const e = new Error(msg); e.carteMiseEnPage = true; return e; }
+
+async function carteConstruirPdf(calc, E, reglages){
+  const L = window.PDFLib, S = CARTE_S;
+  const pdf = await L.PDFDocument.create();
+  const fReg = await pdf.embedFont(L.StandardFonts.Helvetica), fBold = await pdf.embedFont(L.StandardFonts.HelveticaBold);
+  let logo = null; try{ logo = await pdf.embedPng(LYNEO_LOGO_B64); }catch(e){ logo = null; }
+  const col = k => { const a = CARTE_C[k]||CARTE_C.texte; return L.rgb(a[0]/255, a[1]/255, a[2]/255); };
+  const X0 = (CARTE_PW - 4*CARTE_PANW)/2, YTOP = CARTE_PH - (CARTE_PH - CARTE_PANH)/2, YBAS = YTOP - CARTE_PANH;
+  const cache = new Map();
+  const cw = (ch, size, b) => { const k = ch+'|'+size+'|'+(b?1:0); let v = cache.get(k); if(v===undefined){ v = (b?fBold:fReg).widthOfTextAtSize(ch, size*S)/S; cache.set(k, v); } return v; };
+  const larg = (t, size, b) => { let w = 0; for(const ch of carteSur(t, true)) w += cw(ch, size, b); return w; };
+  // mots d'un texte « riche » : segs = [[texte, gras], …] → [[ [lettre, gras], … ], …]
+  const motsDe = segs => {
+    const chars = []; segs.forEach(([t,b])=>{ for(const ch of carteSur(t, true)) chars.push([ch, !!b]); });
+    const mots = []; let cur = [];
+    chars.forEach(c=>{ if(c[0]===' '){ if(cur.length){ mots.push(cur); cur = []; } } else cur.push(c); });
+    if(cur.length) mots.push(cur);
+    return mots;
+  };
+  const largMot = (m, size) => m.reduce((s,c)=>s+cw(c[0], size, c[1]), 0);
+  // Coupe en lignes (retour à la ligne glouton) ; un mot plus large que la ligne est coupé lettre par lettre
+  const decoupe = (segs, size, maxW) => {
+    const esp = cw(' ', size, false), lignes = []; let cur = [], w = 0;
+    const pousse = () => { if(cur.length){ lignes.push(cur); cur = []; w = 0; } };
+    motsDe(segs).forEach(m0=>{
+      let m = m0;
+      while(largMot(m, size) > maxW){
+        let k = 0, acc = 0; while(k<m.length && acc+cw(m[k][0], size, m[k][1]) <= maxW){ acc += cw(m[k][0], size, m[k][1]); k++; }
+        if(k===0) k = 1;
+        pousse(); cur = [m.slice(0,k)]; w = largMot(m.slice(0,k), size); pousse(); m = m.slice(k);
+      }
+      const mw = largMot(m, size);
+      if(cur.length && w+esp+mw > maxW) pousse();
+      w += (cur.length ? esp : 0) + mw; cur.push(m);
+    });
+    pousse();
+    return lignes;
+  };
+  const haut = (segs, w, size, lh) => decoupe(segs, size, w).length*lh;           // hauteur d'un texte, sans le dessiner
+  const hautTxt = (t, w, size, bold, lh) => haut([[t, !!bold]], w, size, lh);
+
+  // Un panneau : coordonnées en « px de maquette », origine en haut à gauche du panneau ; dry = on mesure sans dessiner
+  const panneau = (page, idx, dry) => {
+    const x0 = X0 + idx*CARTE_PANW;
+    const X = px => x0 + px*S, Y = px => YTOP - px*S;
+    const P = {
+      dry,
+      rect(x, y, w, h, o){ o = o||{}; if(dry) return;
+        page.drawRectangle({x:X(x), y:Y(y+h), width:w*S, height:h*S, color:o.fill?col(o.fill):undefined, borderColor:o.stroke?col(o.stroke):undefined, borderWidth:o.stroke?(o.sw||1)*S:0, borderDashArray:o.dash?[3*S,2*S]:undefined}); },
+      line(x1, y1, x2, y2, o){ o = o||{}; if(dry) return;
+        page.drawLine({start:{x:X(x1), y:Y(y1)}, end:{x:X(x2), y:Y(y2)}, thickness:(o.sw||1)*S, color:col(o.color||'texte'), dashArray:o.dash?[3*S,2*S]:undefined}); },
+      image(img, x, y, w, h){ if(dry || !img) return; page.drawImage(img, {x:X(x), y:Y(y+h), width:w*S, height:h*S}); },
+      // une ligne de texte dont le haut est en y ; align 'c' / 'r' dans la largeur w
+      txt(t, x, y, size, o){ o = o||{}; const s = carteSur(t, true), b = !!o.bold, lh = o.lh||size*1.3, wt = larg(s, size, b);
+        let xx = x; if(o.align==='c') xx = x + ((o.w||0)-wt)/2; else if(o.align==='r') xx = x + (o.w||0) - wt;
+        if(!dry && s) page.drawText(s, {x:X(xx), y:Y(y+lh/2+0.36*size), size:size*S, font:b?fBold:fReg, color:col(o.color||'texte')});
+        return wt; },
+      // texte riche avec retour à la ligne ; renvoie la hauteur
+      rich(segs, x, y, w, size, o){ o = o||{}; const lh = o.lh||size*1.35, lignes = decoupe(segs, size, w), esp = cw(' ', size, false);
+        if(!dry) lignes.forEach((ln, i)=>{
+          let xx = x; if(o.align==='c'){ const tw = ln.reduce((s,m)=>s+largMot(m,size),0)+esp*(ln.length-1); xx = x+(w-tw)/2; }
+          ln.forEach((m, j)=>{
+            if(j) xx += esp;
+            let k = 0; while(k<m.length){ let e = k; while(e<m.length && m[e][1]===m[k][1]) e++;
+              const b = m[k][1], run = m.slice(k,e).map(c=>c[0]).join('');
+              page.drawText(run, {x:X(xx), y:Y(y+i*lh+lh/2+0.36*size), size:size*S, font:b?fBold:fReg, color:col(o.color||'texte')});
+              xx += m.slice(k,e).reduce((s,c)=>s+cw(c[0],size,b),0); k = e; }
+          });
+        });
+        return lignes.length*lh; },
+      para(t, x, y, w, size, o){ o = o||{}; return P.rich([[t, !!o.bold]], x, y, w, size, o); },
+      nbLignes(t, size, bold, w){ return decoupe([[t, !!bold]], size, w).length; },
+      case(x, y, on){ if(dry) return;
+        if(on){ P.rect(x, y, 10, 10, {fill:'bleu', stroke:'bleu', sw:1.2}); P.line(x+2.2, y+5.2, x+4.2, y+7.2, {color:'blanc', sw:1.7}); P.line(x+4.2, y+7.2, x+7.8, y+3.0, {color:'blanc', sw:1.7}); }
+        else P.rect(x, y, 10, 10, {fill:'blanc', stroke:'texte', sw:1.2}); },
+      barre(titre){ P.rect(10, 10, 222, 26, {fill:'bleu'}); P.txt(String(titre).toLocaleUpperCase('fr'), 10, 10, 10.5, {bold:true, color:'blanc', align:'c', w:222, lh:26}); },
+      // étiquette en capitales ; réduite si besoin pour tenir dans maxW
+      etiquette(t, x, y, maxW){ const u = String(t).toLocaleUpperCase('fr'); let sz = 8; while(maxW && sz>6 && larg(u, sz, true) > maxW) sz -= .5; return P.txt(u, x, y, sz, {bold:true, color:'gris', lh:10}); }
+    };
+    return P;
+  };
+
+  // plus grande taille (parmi sizes) qui tient sur une ligne ; sinon la plus petite (le texte sera alors coupé en lignes)
+  const ajuste = (t, bold, w, sizes) => sizes.find(s=>larg(t, s, bold)<=w) || sizes[sizes.length-1];
+  // champ « étiquette + valeur + filet » ; renvoie sa hauteur
+  const champ = (P, label, valeur, y, x, w, sizes) => {
+    P.etiquette(label, x, y); const sz = ajuste(valeur||' ', true, w, sizes);
+    const h = P.para(valeur||'', x, y+12, w, sz, {bold:true, lh:sz*1.2});
+    const bas = y+12+Math.max(h, sz*1.2)+3; P.line(x, bas, x+w, bas, {color:'champ', sw:1}); return bas+1-y;
+  };
+  const FERMETURE = c => c.elec.length
+    ? [['Aucune autre habilitation électrique. ', true], ["Toute opération non inscrite ci-dessus est interdite sans autorisation écrite de l'employeur.", false]]
+    : [['Aucune habilitation électrique. ', true], ["Toute opération électrique est interdite sans autorisation écrite de l'employeur.", false]];
+
+  // ───────────────────────── RECTO ─────────────────────────
+  const identite = (P, c) => {
+    P.barre('Identité'); let y = 44;
+    y += champ(P, 'Nom', c.identite.nom, y, 10, 222, [17,15,13,11,10]) + 8;
+    y += champ(P, 'Prénom', c.identite.prenom, y, 10, 222, [17,15,13,11,10]) + 8;
+    y += champ(P, 'Fonction', c.identite.fonction, y, 10, 222, [12,11,10,9]) + 8;
+    // contrat + aptitude médicale
+    P.etiquette('Contrat', 10, y, 82); P.etiquette("Aptitude médicale jusqu'au", 102, y, 130);
+    const ct = c.identite.contrat, cdi = /^cdi$/i.test(ct), cdd = /^cdd$/i.test(ct);
+    if(!ct || cdi || cdd){ P.case(10, y+13.5, cdi); P.txt('CDI', 24, y+12, 11, {bold:true, lh:13}); P.case(52, y+13.5, cdd); P.txt('CDD', 66, y+12, 11, {bold:true, lh:13}); }
+    else P.txt(ct, 10, y+12, ajuste(ct, true, 82, [11,10,9,8]), {bold:true, lh:13});
+    P.txt(carteDate(c.aptitude.date), 102, y+12, 11, {bold:true, lh:13});
+    P.line(10, y+28, 92, y+28, {color:'champ'}); P.line(102, y+28, 232, y+28, {color:'champ'}); y += 29+8;
+    const avis = "Cette carte atteste les habilitations de son titulaire. Elle ne vaut pas ordre de travail : toute intervention reste soumise à une mission écrite de l'employeur.";
+    const hAvis = hautTxt(avis, 208, 8.5, true, 8.5*1.3) + 12;
+    P.rect(10, y, 222, hAvis, {fill:'clair', stroke:'bleu', sw:1}); P.para(avis, 17, y+6, 208, 8.5, {bold:true, color:'fonce', lh:8.5*1.3}); y += hAvis;
+    // bloc « Pour l'employeur », collé en bas du panneau
+    const R = c.reglages, sig = carteTxt(R.signataire_nom), sigf = carteTxt(R.signataire_fonction);
+    const segsNom = sig ? [['Nom : ', false], [sig, true]].concat(sigf ? [[' · '+sigf, false]] : []) : [['Nom : ', false]];
+    const hNom = Math.max(haut(segsNom, 222, 9, 11.7), 11.7);
+    const hBloc = 13+hNom+3+11.7+3+30; let yb = 376-hBloc;
+    if(yb < y+8) throw carteErreurMiseEnPage("Le nom ou la fonction du signataire de l'employeur est trop long pour la carte.");
+    P.etiquette("Pour l'employeur", 10, yb); yb += 13;
+    P.rich(segsNom, 10, yb, 222, 9, {lh:11.7}); if(!sig) P.line(10+larg('Nom : ', 9, false), yb+11, 200, yb+11, {color:'texte', sw:.8}); yb += hNom+3;
+    P.rich([['Émise le ', false], [carteDate(c.auj), true], [" · valable jusqu'au ", false], [c.validite ? carteDate(c.validite) : '—', true]], 10, yb, 222, 9, {lh:11.7}); yb += 11.7+3;
+    P.txt('Signature et cachet', 10, yb+17, 8, {color:'gris', lh:10}); P.line(10, yb+30, 232, yb+30, {color:'texte', sw:1});
+  };
+
+  // Panneau « Habilitation électrique » : renvoie (en dry-run) le dépassement en px, ≤ 0 si ça tient
+  const hFermeture = c => haut(FERMETURE(c), 206, 8.5, 8.5*1.35) + 12;
+  const habilitations = (P, c, mode) => {
+    P.barre('Habilitation électrique');
+    const compact = mode==='compact', gap = compact ? 5 : 8;
+    P.etiquette('Habilitations détenues', 10, 44); let y = 62;
+    c.elec.forEach(h=>{
+      const sym = carteTxt(h.f.symbole), chipW = larg(sym, 10, true)+10, tw = 222-2-12-chipW-6;
+      const q1 = carteTxt(h.f.qualification), q2 = carteTxt(h.f.fonction);
+      const nq = P.nbLignes(q1, 9, true, tw)+P.nbLignes(q2, 9, false, tw), hh = Math.max(20, nq*10.8) + (compact?6:8);
+      const nt = P.nbLignes(h.f.travaux, 9.5, false, 208), hb = nt*12.35;
+      const ou = h.ouvrages, fin = "jusqu'au "+(h.fin ? carteDate(h.fin) : 'sans limite');
+      const cote = larg('Ouvrages : ', 8.5, false)+larg(ou, 8.5, true)+larg(fin, 8.5, true)+8 <= 208;
+      const hOu = cote ? 11 : hautTxt('Ouvrages : '+ou, 208, 8.5, false, 11) + 11;
+      const total = 1+hh+1+(compact?3:5)+hb+(compact?3:5)+(compact?0:4)+hOu+(compact?4:6);
+      if(!P.dry){
+        P.rect(10, y, 222, total, {stroke:'ligne', sw:1}); P.rect(11, y+1, 220, hh, {fill:'clair'}); P.line(10, y+1+hh, 232, y+1+hh, {color:'ligne', sw:1});
+        const cy = y+1+(hh-17)/2; P.rect(17, cy, chipW, 17, {fill:'bleu'}); P.txt(sym, 17, cy, 10, {bold:true, color:'blanc', align:'c', w:chipW, lh:17});
+        let ty = y+1+(hh-nq*10.8)/2; ty += P.para(q1, 17+chipW+6, ty, tw, 9, {bold:true, color:'fonce', lh:10.8}); P.para(q2, 17+chipW+6, ty, tw, 9, {color:'fonce', lh:10.8});
+        let by = y+1+hh+1+(compact?3:5); P.para(h.f.travaux, 17, by, 208, 9.5, {lh:12.35}); by += hb+(compact?3:5);
+        if(!compact){ P.line(17, by, 225, by, {color:'ligne2', sw:1}); by += 4; }
+        if(cote){ P.rich([['Ouvrages : ', false],[ou, true]], 17, by, 208, 8.5, {lh:11}); P.txt(fin, 17, by, 8.5, {bold:true, align:'r', w:208, lh:11}); }
+        else { const h2 = P.rich([['Ouvrages : '+ou, false]], 17, by, 208, 8.5, {lh:11}); P.txt(fin, 17, by+h2, 8.5, {bold:true, lh:11}); }
+      }
+      y += total+gap;
+    });
+    const hf = hFermeture(c), yf = c.elec.length ? 376-hf : 62;
+    if(!P.dry){ P.rect(10, yf, 222, hf, {stroke:'gris', sw:1, dash:true}); P.rich(FERMETURE(c), 18, yf+6, 206, 8.5, {lh:8.5*1.35}); }
+    return c.elec.length ? (y-gap)-(yf-8) : 0;
+  };
+
+  const legende = (P, c) => {
+    P.barre('Légende'); let y = 44;
+    const bloc = (titre, paras) => { P.etiquette(titre, 10, y); y += 10; paras.forEach(s=>{ y += 2; y += P.rich(s, 10, y, 222, 9, {lh:9*1.35}); }); y += 8; };
+    bloc('Domaine de tension', [[['BT', true], [" basse tension : jusqu'à 1000 V c.a. / 1500 V c.c.", false]], [['HT', true], [' haute tension : au-delà.', false]]]);
+    bloc('Nature des travaux', [[['H', true], [' hors tension · ', false], ['V', true], [' au voisinage de parties actives · ', false], ['T', true], [' sur parties actives · ', false], ['S', true], [' supervision de travaux non électriques', false]]]);
+    bloc('Niveau de personnel', [[['(A)', true], [' personne avertie · ', false], ['(Q)', true], [' personne qualifiée', false]]]);
+    P.etiquette('Indications supplémentaires', 10, y); y += 13;
+    const ind = c.indications.length ? c.indications.join(' · ') : 'Néant';
+    const refH = 8*1.3+2, yRef = 376-refH;
+    let sz = 9.5, hTxt = 0;
+    for(const s of [9.5, 9, 8.5, 8, 7.5, 7]){ sz = s; hTxt = hautTxt(ind, 208, s, false, s*1.3); if(y+Math.max(62, hTxt+10) <= yRef-6) break; }
+    const hBox = Math.max(62, hTxt+10);
+    if(y+hBox > yRef-6) throw carteErreurMiseEnPage('Les indications supplémentaires sont trop longues pour la carte (raccourcissez-les dans la désignation).');
+    P.rect(10, y, 222, hBox, {stroke:'ligne', sw:1}); P.para(ind, 17, y+5, 208, sz, {lh:sz*1.3});
+    P.txt('Références : EN 50110 · recommandation AAA, chapitre 14.', 10, yRef, 8, {color:'gris', lh:refH});
+  };
+
+  const avis = (P, c) => {
+    P.barre('Avis'); let y = 44; const nom = carteTxt(E.nom)||'LYNEO SARL';
+    [`Cette carte atteste que son titulaire est habilité par ${nom} aux opérations indiquées, au vu de sa formation, de son expérience et de son aptitude médicale.`,
+     "Elle est strictement personnelle : elle ne se prête pas et ne peut être utilisée par un tiers.",
+     "Elle n'autorise que les opérations, domaines de tension et ouvrages inscrits sur la carte. Toute autre intervention exige une autorisation écrite préalable de l'employeur.",
+     "Le titulaire la présente sur demande d'un responsable de chantier, d'un coordinateur ou d'un organisme de contrôle.",
+     "En cas de perte, de vol ou de changement de fonction, il en informe sans délai son responsable."
+    ].forEach(t=>{ y += P.para(t, 10, y, 222, 9.5, {lh:9.5*1.35}) + 8; });
+    if(y > 376-47-4) throw carteErreurMiseEnPage("Le texte de l'avis est trop long pour la carte (raison sociale trop longue ?).");
+    P.etiquette('Signature du titulaire · lu et pris connaissance', 10, 376-47, 222); P.line(10, 376, 232, 376, {color:'texte', sw:1});
+  };
+
+  // ───────────────────────── VERSO ─────────────────────────
+  const elements = (P, titre, items, autre, note, mode) => {
+    P.barre(titre); const compact = mode==='compact', x = 26, w = 206;
+    const hNote = hautTxt(note, 222, 8.5, false, 8.5*1.3), yNote = 376-hNote, limite = yNote-8;
+    let y = 44, bas = 44;
+    const tous = items.concat([{libelle:autre, coche:false}]);
+    tous.forEach((it, i)=>{
+      P.case(10, y+1, it.coche);
+      let h = P.para(it.libelle, x, y, w, 10.5, {bold:true, lh:13.1});
+      if(!compact && it.description) h += 2+P.para(it.description, x, y+h+2, w, 9.5, {color:'gris', lh:12.35});
+      const vy = y+h+(compact?4:6), lib = "Valable jusqu'au : ";
+      P.txt(lib, x, vy, 9.5, {lh:12});
+      const lx = x+larg(lib, 9.5, false);
+      if(it.coche && (it.fin || it.sansLimite)) P.txt(it.fin ? carteDate(it.fin) : 'sans limite', lx, vy, 9.5, {bold:true, lh:12});
+      else P.line(lx, vy+11, lx+84, vy+11, {color:'texte', sw:1});
+      bas = vy+12; y = bas+(compact?5:10);
+      if(i < tous.length-1){ P.line(10, y, 232, y, {color:'ligne2', sw:1}); y += 1+(compact?5:8); }
+    });
+    P.para(note, 10, yNote, 222, 8.5, {color:'gris', lh:8.5*1.3});
+    return bas-limite;       // > 0 : ça déborde
+  };
+  const contacts = (P, c) => {
+    const R = c.reglages; P.barre("Contacts d'urgence");
+    const w112 = larg('112', 40, true), xu = 18+w112+10;
+    P.rect(10, 44, 222, 64, {stroke:'rouge', sw:2}); P.txt('112', 18, 44, 40, {bold:true, color:'rouge', lh:64});
+    P.txt('URGENCES', xu, 61, 12, {bold:true, color:'rouge', lh:15}); P.para('Secours, ambulance, pompiers', xu, 77, 232-8-xu, 9.5, {lh:12.35});
+    let y = 118;
+    const ligne = (lib, nom, tel, o) => {
+      P.etiquette(lib, 10, y, 222); y += 12;
+      const n = carteTxt(nom), t = carteTxt(tel);
+      if(n) y += P.para(n, 10, y, 222, 10.5, {bold:true, lh:13.65});
+      else if(o.deux){ P.line(10, y+13, 170, y+13, {color:'texte', sw:.8}); y += 16; }
+      if(t) y += P.para(t, 10, y, 222, 10.5, {bold:true, lh:13.65});
+      else { P.line(10, y+13, 170, y+13, {color:'texte', sw:.8}); y += 16; }
+      y += 8;
+      if(!o.dernier){ P.line(10, y, 232, y, {color:'ligne2', sw:1}); y += 9; }
+    };
+    ligne('Bureau · '+(carteTxt(E.nom)||'LYNEO SARL'), '', E.tel, {});
+    ligne('SAV · astreinte', '', R.sav_tel, {});
+    ligne('Travailleur désigné · sécurité', R.securite_nom, R.securite_tel, {deux:true});
+    ligne('Direction', R.direction_nom, R.direction_tel, {deux:true, dernier:true});
+    const tip = "Au téléphone : où je suis · ce qui s'est passé · combien de blessés.", ht = hautTxt(tip, 208, 9, true, 9*1.3) + 10;
+    if(y > 376-ht-6) throw carteErreurMiseEnPage("Les contacts d'urgence sont trop longs pour la carte.");
+    P.rect(10, 376-ht, 222, ht, {fill:'clair', stroke:'bleu', sw:1}); P.para(tip, 17, 376-ht+5, 208, 9, {bold:true, color:'fonce', lh:9*1.3});
+  };
+  const couverture = (P, c) => {
+    const lw = 156, lhh = lw*(logo ? logo.height/logo.width : 0.53);
+    P.image(logo, 121-lw/2, 34, lw, lhh);
+    let y = 34+lhh+26; P.rect(46, y, 150, 3, {fill:'cyan'}); y += 3+20;
+    ['CARTE', "D'HABILITATION"].forEach(t=>{ P.txt(t, 10, y, 20, {bold:true, color:'bleu', align:'c', w:222, lh:23}); y += 23; });
+    y += 26;
+    const nom = [c.identite.prenom, c.identite.nom].filter(Boolean).join(' '), sz = ajuste(nom, true, 210, [15,14,13,12,11,10]);
+    y += P.para(nom, 16, y, 210, sz, {bold:true, align:'c', lh:sz*1.25}) + 3;
+    y += P.para(c.identite.fonction, 16, y, 210, 10, {color:'gris', align:'c', lh:13});
+    const lignes = [carteTxt(E.adresse)+(E.cp_ville ? ' · '+carteTxt(E.cp_ville) : ''), E.tel ? 'Tél. '+carteTxt(E.tel) : '', carteTxt(E.site)].filter(Boolean);
+    const hl = lignes.reduce((s,t)=>s+Math.max(13.5, hautTxt(t, 202, 9, false, 13.5)), 0), hb = 12+15.75+hl+13, yb = 376-hb;
+    if(y > yb-6) throw carteErreurMiseEnPage('Le nom du titulaire est trop long pour la couverture.');
+    P.rect(10, yb, 222, hb, {fill:'bleu'});
+    P.txt(carteTxt(E.nom)||'LYNEO SARL', 10, yb+12, 10.5, {bold:true, color:'blanc', align:'c', w:222, lh:15.75});
+    let yy = yb+12+15.75; lignes.forEach(t=>{ yy += P.para(t, 20, yy, 202, 9, {color:'blanc', align:'c', lh:13.5}); });
+  };
+
+  // ───────────────────────── ASSEMBLAGE ─────────────────────────
+  const decor = (page, titre, bas) => {
+    const g = 4.5, l = 7.5;
+    [[X0,YTOP,-1,1],[X0+4*CARTE_PANW,YTOP,1,1],[X0,YBAS,-1,-1],[X0+4*CARTE_PANW,YBAS,1,-1]].forEach(([x,y,sx,sy])=>{
+      page.drawLine({start:{x:x+sx*g, y}, end:{x:x+sx*(g+l), y}, thickness:.5, color:col('texte')});
+      page.drawLine({start:{x, y:y+sy*g}, end:{x, y:y+sy*(g+l)}, thickness:.5, color:col('texte')});
+    });
+    for(let k=1;k<=3;k++){ const x = X0+k*CARTE_PANW;
+      page.drawLine({start:{x, y:YTOP+g}, end:{x, y:YTOP+g+9}, thickness:.5, color:col('gris'), dashArray:[2,1.5]});
+      page.drawLine({start:{x, y:YBAS-g}, end:{x, y:YBAS-g-9}, thickness:.5, color:col('gris'), dashArray:[2,1.5]}); }
+    const cap = (t, y) => { const s = carteSur(t), wt = fReg.widthOfTextAtSize(s, 7.5); page.drawText(s, {x:(CARTE_PW-wt)/2, y, size:7.5, font:fReg, color:col('gris')}); };
+    cap(titre, YBAS-28); cap(bas, YBAS-38);
+  };
+  const long = !!(reglages && reglages.retournement==='long');
+  const flipTxt = long ? 'retournement par le bord long' : 'retournement par le bord court';
+  // Chaque panneau est une fonction (P, mode) ; les « élastiques » renvoient le dépassement en px (> 0 = ça déborde) et ont un mode compact
+  const dessinerFace = (page, panneaux) => panneaux.forEach((fn, idx)=>{
+    let mode = 'normal';
+    if(fn.elastique){
+      if(fn(panneau(page, idx, true), 'normal') > 0){ mode = 'compact'; if(fn(panneau(page, idx, true), 'compact') > 0) throw carteErreurMiseEnPage(fn.tropPlein); }
+    }
+    fn(panneau(page, idx, false), mode);
+  });
+  const elastique = (fn, tropPlein) => { fn.elastique = true; fn.tropPlein = tropPlein; return fn; };
+  const pHab = elastique((P, mode)=>habilitations(P, calc, mode), `Trop d'habilitations électriques pour la carte (${calc.elec.length}) : 3 au maximum tiennent sur le panneau.`);
+  const pConduite = elastique((P, mode)=>elements(P, CARTE_ZONES.conduite, calc.verso.conduite, 'Autre engin :', "Case cochée = autorisation en cours de validité, délivrée par l'employeur après formation et aptitude médicale.", mode),
+    `Trop d'éléments sur le panneau « ${CARTE_ZONES.conduite} » (${calc.verso.conduite.length}) : retirez-en dans Formations → Types de formation.`);
+  const pTravaux = elastique((P, mode)=>elements(P, CARTE_ZONES.travaux, calc.verso.travaux, 'Autre formation :', 'Les cases et les dates reprennent les attestations de formation en cours de validité.', mode),
+    `Trop d'éléments sur le panneau « ${CARTE_ZONES.travaux} » (${calc.verso.travaux.length}) : retirez-en dans Formations → Types de formation.`);
+  const recto = [P=>identite(P, calc), pHab, P=>legende(P, calc), P=>avis(P, calc)];
+  const pContacts = P=>contacts(P, calc), pCouv = P=>couverture(P, calc);
+  const verso = long ? [pCouv, pContacts, pTravaux, pConduite] : [pConduite, pTravaux, pContacts, pCouv];
+
+  const p1 = pdf.addPage([CARTE_PW, CARTE_PH]), p2 = pdf.addPage([CARTE_PW, CARTE_PH]);
+  dessinerFace(p1, recto);
+  decor(p1, 'RECTO · imprimer à 100 % (taille réelle), recto-verso, '+flipTxt+' · carte fermée 64 × 102 mm', "Traits pleins : coupe · traits pointillés : pli en accordéon (la couverture reste à l'extérieur)");
+  dessinerFace(p2, verso);
+  decor(p2, "VERSO · même réglage d'impression, mêmes repères que le recto · chaque panneau tombe derrière son vis-à-vis", "Les cases cochées reprennent les attestations en cours de validité à la date d'émission");
+  pdf.setTitle("Carte d'habilitation — "+carteSur([calc.identite.prenom, calc.identite.nom].filter(Boolean).join(' ')));
+  pdf.setAuthor(carteSur(E.nom||'LYNEO SARL')); pdf.setCreator('ERP LYNEO'); pdf.setProducer('ERP LYNEO');
+  return await pdf.save();
+}
+function carteNomFichier(emp, auj){
+  const s = t => carteTxt(t).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  return 'Carte_habilitation_'+([s(emp.nom), s(emp.prenom)].filter(Boolean).join('_')||'employe')+'_'+(auj||today())+'.pdf';
+}
+
+
+// ── Carte d'habilitation : écrans ──
+const carteAlerte = (cls, icone, html, id) => `<div class="alert alert-${cls}"${id?` id="${id}"`:''} style="margin:0"><i class="ti ti-${icone}"></i><span>${html}</span></div>`;
+const carteSqlManquant = () => `Pour la carte d'habilitation, exécutez d'abord <strong>${SQL_CARTE}</strong> dans Supabase (SQL Editor), puis rechargez cette page.`;
+const carteOptions = (liste, sel) => liste.map(([v,l])=>`<option value="${escHtml(v)}"${String(v)===String(sel)?' selected':''}>${escHtml(l)}</option>`).join('');
+// Texte saisi : longueur et caractères imprimables (Helvetica / WinAnsi)
+function carteControleTexte(libelle, valeur, max, obligatoire){
+  const v = carteTxt(valeur);
+  if(obligatoire && !v) return libelle+' : champ obligatoire';
+  if(v.length>max) return libelle+' : '+max+' caractères au maximum ('+v.length+' saisis)';
+  const c = carteCaractereInterdit(v);
+  if(c) return libelle+' : le caractère « '+c+' » ne peut pas être imprimé sur la carte';
+  return '';
+}
+
+// ── Onglet Formations → « Carte d'habilitation » ──
+function carteHtmlOnglet(){
+  if(_carte.etat==='absente') return `<div style="padding:14px">${carteAlerte('warning','database-exclamation', carteSqlManquant(), 'carte-sql-absent')}</div>`;
+  if(_carte.etat!=='ok') return `<div style="padding:14px">${carteAlerte('error','lock', "Impossible de lire les habilitations : "+escHtml(_carte.msg||'erreur inconnue')+' <a href="#" onclick="renderFormations(\'carte\');return false" style="color:inherit;font-weight:600">Réessayer</a>', 'carte-erreur')}</div>`;
+  const T = {}; _frm.types.forEach(t=>{ T[String(t.id)] = t; });
+  const nb = {}; _carte.desig.forEach(d=>{ const k = String(d.fonction_id); nb[k] = (nb[k]||0)+1; });
+  const lignes = _carte.fonctions.map(f=>{
+    const t = T[String(f.type_id)];
+    const formation = !f.type_id ? '<span style="color:var(--orange);font-weight:600" title="Sans formation exigée, cette habilitation n\'est jamais imprimée">À choisir — non imprimée</span>'
+      : escHtml(t ? t.nom : '(formation supprimée)') + (t && t.actif===false ? ' <span style="color:var(--gray-4)">(désactivée)</span>' : '');
+    return `<tr data-sel-id="${escHtml(f.id)}" style="cursor:pointer${f.actif===false?';opacity:.6':''}" onclick="carteOuvrirFonction('${escHtml(f.id)}')">
+      <td><span style="background:var(--blue);color:#fff;font-weight:700;font-size:12px;padding:2px 7px;border-radius:3px;white-space:nowrap">${escHtml(f.symbole)}</span></td>
+      <td>${escHtml(f.qualification)}</td><td><strong>${escHtml(f.fonction)}</strong></td><td>${escHtml(f.travaux)}</td><td>${escHtml(f.ouvrages)}</td>
+      <td>${formation}</td><td>${nb[String(f.id)]||0}</td>
+      <td><span class="badge badge-${f.actif===false?'non':'oui'}">${f.actif===false?'Non':'Oui'}</span></td>
+      <td><div class="td-actions">
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();carteOuvrirFonction('${escHtml(f.id)}')" title="Modifier"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();carteSupprimerFonction('${escHtml(f.id)}')" title="Supprimer"><i class="ti ti-trash"></i></button></div></td></tr>`;
+  }).join('');
+  const colonnes = _frm.types.length>0 && _frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'carte_zone'));
+  const versoZone = z => {
+    const l = frmTypesTries(_frm.types.filter(t=>t.carte_zone===z));
+    return `<div style="flex:1;min-width:240px"><div style="font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">${escHtml(CARTE_ZONES[z])}</div>
+      ${l.length ? '<ul style="margin:0;padding-left:18px;font-size:13px">'+l.map(t=>`<li>${escHtml(carteTxt(t.carte_libelle)||t.nom)}${t.actif===false?' <span style="color:var(--gray-4)">(désactivée)</span>':''}</li>`).join('')+'</ul>' : '<span style="font-size:13px;color:var(--gray-4)">Aucune formation rattachée</span>'}</div>`;
+  };
+  const R = _carte.reglages, admin = !!(currentUser && currentUser.role==='admin');
+  const champR = (id, lib, val, ph, max) => `<div class="form-group"><label class="field-label" for="crg-${id}">${lib}</label><input id="crg-${id}" value="${escHtml(val)}" maxlength="${max||50}" placeholder="${escHtml(ph||'')}"${admin?'':' disabled'}/></div>`;
+  return `<div style="padding:14px" id="carte-onglet">
+    <p style="font-size:13px;color:var(--gray-6);margin:0 0 14px">La carte (A4 paysage, recto-verso, pliée en accordéon 64 × 102 mm) se génère depuis la <strong>fiche de l'employé</strong>. Une habilitation électrique n'y figure que si l'employé est <strong>désigné</strong> ET possède l'<strong>attestation de formation exigée en vigueur</strong> ; tout le reste reste vide. Les textes ci-dessous doivent être <strong>validés par votre responsable sécurité</strong> (recommandation AAA, chapitre 14 · EN 50110) : la carte ne remplace ni l'analyse de risques ni l'ordre de travail écrit de l'employeur.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px"><strong style="font-size:13px">Habilitations électriques proposées sur la carte</strong>
+      <button class="btn btn-primary btn-sm" id="btn-carte-nouvelle" onclick="carteOuvrirFonction()"><i class="ti ti-plus"></i> Nouvelle habilitation</button></div>
+    <div class="table-wrap" style="overflow-x:auto"><table data-tri="oui" id="carte-table">
+      <thead><tr><th>Symbole</th><th>Qualification</th><th>Fonction</th><th>Travaux autorisés</th><th>Ouvrages</th><th>Formation exigée</th><th>Désignés</th><th>Active</th><th>Actions</th></tr></thead>
+      <tbody>${_carte.fonctions.length ? lignes : `<tr><td colspan="9"><div class="empty"><p>Aucune habilitation dans la liste</p></div></td></tr>`}</tbody></table></div>
+    <div style="margin:20px 0 6px"><strong style="font-size:13px">Verso de la carte</strong>
+      <span style="font-size:12px;color:var(--gray-5)"> — formations rattachées (réglage dans « Types de formation » → « Carte d'habilitation (verso) »)</span></div>
+    ${colonnes ? `<div style="display:flex;gap:24px;flex-wrap:wrap" id="carte-verso">${versoZone('conduite')}${versoZone('travaux')}</div>`
+      : (_frm.types.length ? carteAlerte('warning','database-exclamation', `Pour rattacher des formations au verso, exécutez la dernière version de <strong>${SQL_CARTE}</strong>.`, 'carte-verso-sql') : '')}
+    <div style="margin:20px 0 6px"><strong style="font-size:13px">Signataire, contacts d'urgence et impression</strong>
+      <span style="font-size:12px;color:var(--gray-5)"> — ${admin ? 'réservé aux administrateurs' : 'lecture seule (administrateur requis pour modifier)'}</span></div>
+    ${_carte.reglagesEtat==='indisponible' ? carteAlerte('warning','database-exclamation', "Ces réglages ne peuvent pas être lus pour l'instant : exécutez « migration-documents-entreprise.sql » dans Supabase si ce n'est pas fait. "+escHtml(_carte.reglagesMsg||''), 'carte-reglages-sql')+'<div style="height:8px"></div>' : ''}
+    <div class="form-grid" id="carte-reglages">
+      ${champR('signataire-nom', "Signataire de l'employeur — nom", R.signataire_nom, 'Prénom NOM')}
+      ${champR('signataire-fonction', 'Signataire — fonction', R.signataire_fonction, 'Ex. Gérante')}
+      ${champR('sav-tel', 'SAV · astreinte — téléphone', R.sav_tel, '+352 …', 30)}
+      ${champR('securite-nom', 'Travailleur désigné (sécurité) — nom', R.securite_nom, 'Prénom NOM')}
+      ${champR('securite-tel', 'Travailleur désigné — téléphone', R.securite_tel, '+352 …', 30)}
+      ${champR('direction-nom', 'Direction — nom', R.direction_nom, 'Prénom NOM')}
+      ${champR('direction-tel', 'Direction — téléphone', R.direction_tel, '+352 …', 30)}
+      <div class="form-group"><label class="field-label" for="crg-retournement">Impression recto-verso</label>
+        <select id="crg-retournement"${admin?'':' disabled'}>${carteOptions([['court','Retourner par le bord court (comme une page de livre)'],['long','Retourner par le bord long']], R.retournement)}</select>
+        <span style="font-size:12px;color:var(--gray-5)">À confirmer par un essai d'impression : le recto et le verso doivent tomber exactement l'un derrière l'autre.</span></div>
+    </div>
+    <p style="font-size:12px;color:var(--gray-5);margin:8px 0">Le téléphone du bureau, l'adresse et le site viennent d'Administration → Documents. Un champ vide laisse une ligne à remplir à la main sur la carte.</p>
+    ${admin ? `<div class="form-actions" style="justify-content:flex-start"><button class="btn btn-primary" id="btn-carte-reglages" onclick="carteEnregistrerReglages()"><i class="ti ti-check"></i> Enregistrer</button></div>` : ''}
+  </div>`;
+}
+async function carteEnregistrerReglages(){
+  if(!currentUser || currentUser.role!=='admin'){ showToast('Réservé aux administrateurs','error'); return; }
+  const v = {
+    signataire_nom: carteTxt(el('crg-signataire-nom').value), signataire_fonction: carteTxt(el('crg-signataire-fonction').value),
+    sav_tel: carteTxt(el('crg-sav-tel').value), securite_nom: carteTxt(el('crg-securite-nom').value), securite_tel: carteTxt(el('crg-securite-tel').value),
+    direction_nom: carteTxt(el('crg-direction-nom').value), direction_tel: carteTxt(el('crg-direction-tel').value),
+    retournement: el('crg-retournement').value==='long' ? 'long' : 'court'
+  };
+  const controles = [['Signataire — nom', v.signataire_nom, 50], ['Signataire — fonction', v.signataire_fonction, 50], ['SAV — téléphone', v.sav_tel, 30], ['Travailleur désigné — nom', v.securite_nom, 50],
+    ['Travailleur désigné — téléphone', v.securite_tel, 30], ['Direction — nom', v.direction_nom, 50], ['Direction — téléphone', v.direction_tel, 30]];
+  for(const [l, val, max] of controles){ const e = carteControleTexte(l, val, max, false); if(e){ showToast(e,'error'); return; } }
+  for(const [l, val] of [['SAV — téléphone', v.sav_tel], ['Travailleur désigné — téléphone', v.securite_tel], ['Direction — téléphone', v.direction_tel]]){
+    if(val && !/^(?:\+|\(\+?)?[0-9][0-9 ().\/-]*$/.test(val)){ showToast(l+' : numéro invalide (ex. +352 26 94 59 52)','error'); return; } }
+  const b = el('btn-carte-reglages'); if(b) b.disabled = true;
+  const r = await sb.from('parametres_app').upsert({cle:'carte_habilitation', valeur_json:v}, {onConflict:'cle'}).select('cle');
+  if(b) b.disabled = false;
+  if(r.error || !(r.data && r.data.length)){
+    const m = r.error ? (r.error.message||'') : '';
+    showToast(r.error ? (/valeur_json|column|schema cache|does not exist/i.test(m) ? SQL_DOCUMENTS : 'Erreur: '+m) : "Enregistrement refusé par la base (droits d'administrateur requis)", 'error'); return; }
+  _carte.reglages = Object.assign({}, CARTE_REGLAGES_DEFAUT, v); _carte.reglagesEtat = 'base';
+  showToast("Réglages de la carte enregistrés — ils s'appliquent aux prochaines cartes");
+}
+
+// ── Liste des habilitations ──
+function carteOuvrirFonction(id){
+  const f = id ? _carte.fonctions.find(x=>String(x.id)===String(id)) : null;
+  if(id && !f){ showToast('Habilitation introuvable — rechargez la page','error'); return; }
+  const types = frmTypesTries(_frm.types).filter(t=>t.actif!==false || (f && String(f.type_id)===String(t.id)));
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>${f?"Modifier l'habilitation":'Nouvelle habilitation'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label" for="cf-symbole">Symbole *</label><input id="cf-symbole" maxlength="20" value="${escHtml(f?f.symbole:'')}" placeholder="BT-H/V (Q)"/></div>
+        <div class="form-group"><label class="field-label" for="cf-qualification">Qualification *</label><input id="cf-qualification" maxlength="40" value="${escHtml(f?f.qualification:'Personne qualifiée')}"/></div>
+        <div class="form-group full"><label class="field-label" for="cf-fonction">Fonction *</label><input id="cf-fonction" maxlength="50" value="${escHtml(f?f.fonction:'')}" placeholder="Chargé de travaux"/></div>
+        <div class="form-group full"><label class="field-label" for="cf-travaux">Opérations autorisées *</label><textarea id="cf-travaux" rows="2" maxlength="160" placeholder="Travaux de consignation, vérification d'absence de tension">${escHtml(f?f.travaux:'')}</textarea></div>
+        <div class="form-group"><label class="field-label" for="cf-ouvrages">Ouvrages concernés *</label><input id="cf-ouvrages" maxlength="60" value="${escHtml(f?f.ouvrages:'Tous chantiers')}"/>
+          <span style="font-size:12px;color:var(--gray-5)">Peut être précisé pour chaque personne.</span></div>
+        <div class="form-group"><label class="field-label" for="cf-type">Formation exigée *</label>
+          <select id="cf-type"><option value="">— choisir —</option>${carteOptions(types.map(t=>[t.id, t.nom+(t.actif===false?' (désactivée)':'')]), f?f.type_id:'')}</select>
+          <span style="font-size:12px;color:var(--gray-5)">L'habilitation n'est imprimée que si l'employé a cette attestation en vigueur.</span></div>
+        <div class="form-group"><label class="field-label" for="cf-ordre">Ordre d'affichage</label><input id="cf-ordre" type="number" min="1" max="9999" step="1" value="${escHtml(f&&f.ordre!=null?f.ordre:'')}" placeholder="auto"/></div>
+        <div class="form-group full"><label style="display:flex;gap:10px;align-items:center;font-weight:400;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="cf-actif" style="width:auto;margin:0" ${(!f||f.actif!==false)?'checked':''}/> Habilitation active (proposée dans la fiche des employés)</label></div>
+      </div>
+      <p style="font-size:12px;color:var(--gray-5);margin:6px 0 0">Textes imprimés tels quels sur la carte : faites-les valider par le responsable sécurité.</p>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-primary" id="btn-cf-save" onclick="carteEnregistrerFonction(${id?`'${escHtml(id)}'`:'null'})"><i class="ti ti-check"></i> Enregistrer</button></div>
+    </div></div></div>`);
+}
+async function carteEnregistrerFonction(id){
+  const v = {symbole:carteTxt(el('cf-symbole').value), qualification:carteTxt(el('cf-qualification').value), fonction:carteTxt(el('cf-fonction').value), travaux:carteTxt(el('cf-travaux').value), ouvrages:carteTxt(el('cf-ouvrages').value)};
+  const e = carteControleTexte('Symbole', v.symbole, 20, true) || carteControleTexte('Qualification', v.qualification, 40, true) || carteControleTexte('Fonction', v.fonction, 50, true)
+    || carteControleTexte('Opérations autorisées', v.travaux, 160, true) || carteControleTexte('Ouvrages concernés', v.ouvrages, 60, true);
+  if(e){ showToast(e,'error'); return; }
+  const type_id = el('cf-type').value || null, ordre = frmNombreOuNul(el('cf-ordre').value);
+  if(ordre!==null && (!Number.isInteger(ordre) || ordre<1 || ordre>9999)){ showToast("L'ordre d'affichage doit être un nombre entier (1 à 9999) ou rester vide",'error'); return; }
+  const cle = x => frmN(x.symbole)+'|'+frmN(x.fonction);
+  if(_carte.fonctions.some(x=>String(x.id)!==String(id||'') && cle(x)===cle(v))){ showToast('Cette habilitation existe déjà (même symbole et même fonction)','error'); return; }
+  const data = Object.assign({}, v, {type_id, ordre, actif: el('cf-actif').checked});
+  const b = el('btn-cf-save'); if(b) b.disabled = true;
+  const {error} = id ? await sb.from('habilitations_fonctions').update(data).eq('id', id) : await sb.from('habilitations_fonctions').insert(data);
+  if(error){ if(b) b.disabled = false; showToast(/duplicate|unique/i.test(error.message) ? 'Cette habilitation existe déjà (même symbole et même fonction)' : 'Erreur: '+error.message, 'error'); return; }
+  closeModal(); showToast(id ? 'Habilitation mise à jour' : 'Habilitation créée'); renderFormations('carte');
+}
+async function carteSupprimerFonction(id){
+  const f = _carte.fonctions.find(x=>String(x.id)===String(id)); if(!f) return;
+  const n = _carte.desig.filter(d=>String(d.fonction_id)===String(id)).length;
+  if(n){ showToast(`« ${carteNomFonction(f)} » est désignée pour ${n} personne${n>1?'s':''} : désactivez-la plutôt que de la supprimer`,'error'); return; }
+  if(!confirm(`Supprimer l'habilitation « ${carteNomFonction(f)} » de la liste ?`)) return;
+  const {error} = await sb.from('habilitations_fonctions').delete().eq('id', id);
+  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  showToast('Habilitation supprimée'); renderFormations('carte');
+}
+
+// ── Fiche employé : section « Carte d'habilitation » ──
+function carteSectionFiche(emp){
+  return `<div style="margin-bottom:22px" id="emp-carte-section">
+      <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Carte d'habilitation</div>
+      <div id="emp-carte-zone" data-emp="${escHtml(emp.id)}"><span style="font-size:13px;color:var(--gray-4)"><i class="ti ti-loader"></i> Chargement…</span></div></div>`;
+}
+async function carteRemplirFiche(emp){
+  const z = el('emp-carte-zone'); if(!z) return;
+  let d; try{ d = await carteChargerPourEmploye(emp.id); }catch(e){ d = {etat:'erreur', msg:(e&&e.message)||String(e)}; }
+  const z2 = el('emp-carte-zone'); if(!z2 || z2.dataset.emp!==String(emp.id)) return;         // fenêtre fermée ou autre employé ouvert entre-temps
+  if(d.etat==='absente'){ z2.innerHTML = carteAlerte('warning','database-exclamation', carteSqlManquant(), 'emp-carte-sql'); return; }
+  if(d.etat!=='ok'){ z2.innerHTML = carteAlerte('error','lock', 'Carte d\'habilitation indisponible : '+escHtml(d.msg||'erreur inconnue'), 'emp-carte-erreur'); return; }
+  const calc = carteCalculer(Object.assign({}, d, {auj:today()}));
+  const imp = new Map(calc.elec.map(x=>[String(x.f.id), x])), exc = new Map(calc.exclues.map(x=>[String(x.f.id), x]));
+  const ids = new Set(d.desig.map(x=>String(x.fonction_id)));
+  const liste = d.fonctions.filter(f=>f.actif!==false || ids.has(String(f.id)));
+  const ligne = (lib, html) => `<div style="display:flex;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--gray-2)"><span style="width:220px;flex-shrink:0;font-size:12.5px;color:var(--gray-5)">${lib}</span><span style="font-size:13px;color:var(--gray-8);font-weight:500">${html}</span></div>`;
+  const rows = liste.map(f=>{
+    const k = String(f.id), i = imp.get(k), x = exc.get(k);
+    const etat = i ? `<span style="color:var(--green,#16794c)">✓ Imprimée sur la carte${i.fin?" — jusqu'au "+escHtml(carteDate(i.fin)):''}</span>${i.ouvrages!==f.ouvrages?' · '+escHtml(i.ouvrages):''}`
+      : x ? `<span style="color:var(--orange)">⚠ Désignée, non imprimée : ${escHtml(x.texte)}</span>`
+      : '<span style="color:var(--gray-4)">Non désignée</span>';
+    return ligne(escHtml(carteNomFonction(f))+(f.actif===false?' <span style="color:var(--gray-4)">(désactivée)</span>':''), etat);
+  }).join('');
+  const av = calc.avertissements.map(a=>`<li style="color:${a.niveau==='alerte'?'var(--orange)':'var(--gray-5)'}">${a.niveau==='alerte'?'<strong>Attention :</strong> ':''}${escHtml(a.texte)}</li>`).join('');
+  z2.innerHTML = (rows || '<p style="font-size:13px;color:var(--gray-4);margin:0 0 6px">Aucune habilitation dans la liste : ajoutez-les dans Formations → Carte d\'habilitation.</p>')
+    + (av ? `<ul id="emp-carte-avert" style="margin:8px 0 0;padding-left:18px;font-size:12.5px">${av}</ul>` : '')
+    + `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-secondary btn-sm" id="btn-carte-desig" onclick="carteOuvrirDesignations('${escHtml(emp.id)}')"><i class="ti ti-user-check"></i> Désigner les habilitations</button>
+        <button class="btn btn-primary btn-sm" id="btn-carte-pdf" onclick="carteGenerer('${escHtml(emp.id)}')"><i class="ti ti-id-badge-2"></i> Générer la carte (PDF)</button></div>`;
+}
+
+// ── Désignation des habilitations d'un employé ──
+let _carteDes = null;
+async function carteOuvrirDesignations(empId){
+  if(!peutVoirSalaires()){ showToast('Accès réservé','error'); return; }
+  const d = await carteChargerPourEmploye(empId);
+  if(d.etat!=='ok'){ showToast(d.etat==='absente' ? "Exécutez d'abord « "+SQL_CARTE+" » dans Supabase" : 'Erreur: '+(d.msg||''), 'error'); return; }
+  const calc = carteCalculer(Object.assign({}, d, {auj:today()}));
+  const par = {}; d.desig.forEach(x=>{ par[String(x.fonction_id)] = x; });
+  const liste = d.fonctions.filter(f=>f.actif!==false || par[String(f.id)]);
+  _carteDes = {empId:String(empId), liste, par};
+  const imp = new Map(calc.elec.map(x=>[String(x.f.id), x])), exc = new Map(calc.exclues.map(x=>[String(x.f.id), x]));
+  const T = {}; d.types.forEach(t=>{ T[String(t.id)] = t; });
+  const bloc = liste.map((f,i)=>{
+    const x = par[String(f.id)], k = String(f.id), t = T[String(f.type_id)];
+    const forma = !f.type_id ? '<span style="color:var(--orange)">aucune formation exigée choisie : jamais imprimée</span>' : 'formation exigée : '+escHtml(t?t.nom:'(supprimée)');
+    const etat = imp.get(k) ? `<span style="color:var(--green,#16794c)">✓ sera imprimée${imp.get(k).fin?" — jusqu'au "+escHtml(carteDate(imp.get(k).fin)):''}</span>` : (exc.get(k) ? `<span style="color:var(--orange)">⚠ non imprimée : ${escHtml(exc.get(k).texte)}</span>` : '');
+    return `<div style="border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px">
+      <label style="display:flex;gap:10px;align-items:flex-start;font-weight:600;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="cdes-chk-${i}" style="width:auto;margin:3px 0 0" ${x?'checked':''} onchange="el('cdes-det-${i}').style.display=this.checked?'block':'none'"/>
+        <span>${escHtml(carteNomFonction(f))}${f.actif===false?' <span style="font-weight:400;color:var(--gray-4)">(désactivée)</span>':''}<br><span style="font-weight:400;font-size:12px;color:var(--gray-5)">${escHtml(f.travaux)}</span><br><span style="font-weight:400;font-size:12px;color:var(--gray-5)">${forma}</span>${etat?'<br><span style="font-weight:400;font-size:12px">'+etat+'</span>':''}</span></label>
+      <div id="cdes-det-${i}" style="display:${x?'block':'none'};margin-top:8px"><div class="form-grid">
+        <div class="form-group"><label class="field-label" for="cdes-ou-${i}">Ouvrages (si différents)</label><input id="cdes-ou-${i}" maxlength="60" value="${escHtml(x?x.ouvrages:'')}" placeholder="${escHtml(f.ouvrages)}"/></div>
+        <div class="form-group"><label class="field-label" for="cdes-fin-${i}">Date limite fixée par l'employeur</label><input id="cdes-fin-${i}" type="date" value="${escHtml(x?frmISO(x.date_fin):'')}"/></div>
+        <div class="form-group full"><label class="field-label" for="cdes-ind-${i}">Indications supplémentaires (imprimées sur la carte)</label><input id="cdes-ind-${i}" maxlength="200" value="${escHtml(x?x.indications:'')}" placeholder="Ex. travaux sur installations photovoltaïques"/></div>
+      </div></div></div>`;
+  }).join('');
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3>Habilitations de ${escHtml(nomPers(d.emp))}</h3><button class="modal-close" onclick="carteFermerDesignations()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <p style="font-size:12.5px;color:var(--gray-6);margin:0 0 10px">Cochez les habilitations que <strong>l'employeur confie</strong> à cette personne. Elles ne seront imprimées que si l'attestation de formation exigée est en vigueur.</p>
+      ${bloc || '<p style="font-size:13px;color:var(--gray-4)">Aucune habilitation dans la liste : ajoutez-les dans Formations → Carte d\'habilitation.</p>'}
+      <div class="form-actions"><button class="btn btn-secondary" onclick="carteFermerDesignations()">Annuler</button>
+        ${liste.length ? `<button class="btn btn-primary" id="btn-cdes-save" onclick="carteEnregistrerDesignations()"><i class="ti ti-check"></i> Enregistrer</button>` : ''}</div>
+    </div></div></div>`);
+}
+function carteFermerDesignations(){ const id = _carteDes && _carteDes.empId; _carteDes = null; closeModal(); if(id) openEmployeDetail(id); }
+async function carteEnregistrerDesignations(){
+  const C = _carteDes; if(!C) return;
+  const ops = [];
+  for(let i=0;i<C.liste.length;i++){
+    const f = C.liste[i], x = C.par[String(f.id)], coche = el('cdes-chk-'+i).checked;
+    if(!coche){ if(x) ops.push({t:'del', id:x.id}); continue; }
+    const ou = carteTxt(el('cdes-ou-'+i).value), ind = carteTxt(el('cdes-ind-'+i).value), fin = el('cdes-fin-'+i).value||'';
+    const e = carteControleTexte(carteNomFonction(f)+' — ouvrages', ou, 60, false) || carteControleTexte(carteNomFonction(f)+' — indications', ind, 200, false);
+    if(e){ showToast(e,'error'); return; }
+    if(fin && !/^\d{4}-\d{2}-\d{2}$/.test(fin)){ showToast(carteNomFonction(f)+' : date limite invalide','error'); return; }
+    const data = {ouvrages: ou||null, indications: ind||null, date_fin: fin||null};
+    if(!x) ops.push({t:'add', row:Object.assign({employe_id:C.empId, fonction_id:f.id}, data)});
+    else if((x.ouvrages||null)!==data.ouvrages || (x.indications||null)!==data.indications || (frmISO(x.date_fin)||null)!==data.date_fin) ops.push({t:'upd', id:x.id, data});
+  }
+  const b = el('btn-cdes-save'); if(b) b.disabled = true;
+  let erreur = '';
+  for(const o of ops){
+    const r = o.t==='del' ? await sb.from('habilitations_designations').delete().eq('id', o.id)
+      : o.t==='add' ? await sb.from('habilitations_designations').insert(o.row)
+      : await sb.from('habilitations_designations').update(o.data).eq('id', o.id);
+    if(r.error){ erreur = r.error.message||'erreur'; break; }
+  }
+  if(erreur){ if(b) b.disabled = false; showToast(/duplicate|unique/i.test(erreur) ? 'Habilitation déjà désignée pour cette personne — rechargez la fiche' : 'Erreur: '+erreur, 'error'); return; }
+  const id = C.empId; _carteDes = null; closeModal();
+  showToast(ops.length ? 'Habilitations enregistrées' : 'Aucune modification');
+  openEmployeDetail(id);
+}
+
+// ── Génération du PDF ──
+async function carteGenerer(empId){
+  if(!peutVoirSalaires()){ showToast('Accès réservé aux administrateurs et aux personnes ayant l\'accès aux salaires','error'); return; }
+  if(!window.PDFLib){ showToast("Le module PDF n'est pas chargé : vérifiez la connexion Internet puis rechargez la page",'error'); return; }
+  const b = el('btn-carte-pdf'); if(b) b.disabled = true;
+  try{
+    await entrepriseChargee();
+    const d = await carteChargerPourEmploye(empId);
+    if(d.etat!=='ok'){ showToast(d.etat==='absente' ? "Exécutez d'abord « "+SQL_CARTE+" » dans Supabase (SQL Editor)" : 'Erreur: '+(d.msg||'lecture impossible'), 'error'); return; }
+    const calc = carteCalculer(Object.assign({}, d, {auj:today()}));
+    const alertes = calc.avertissements.filter(a=>a.niveau==='alerte');
+    if(alertes.length && !confirm('Attention — la carte de '+nomPers(d.emp)+' sera générée malgré :\n\n'+alertes.map(a=>'• '+a.texte).join('\n')+'\n\nGénérer la carte quand même ?')) return;
+    const bytes = await carteConstruirPdf(calc, LyneoPDF.ENTREPRISE, d.reglages);
+    await baixarPdfBytes(bytes, carteNomFichier(d.emp, calc.auj));
+    showToast('Carte générée : imprimez-la à 100 %, en recto-verso ('+(d.reglages.retournement==='long'?'bord long':'bord court')+'), puis coupez et pliez en accordéon');
+  }catch(e){
+    showToast(e && e.carteMiseEnPage ? e.message : 'Erreur lors de la génération de la carte : '+((e && e.message)||e), 'error');
+  }finally{ if(b) b.disabled = false; }
+}
+
+// ── Types de formation : zone de la carte (verso) ──
+function carteChampsType(t){
+  const sql = _frm.types.length>0 && !_frm.types.some(x=>Object.prototype.hasOwnProperty.call(x,'carte_zone'));
+  return `<div class="form-group full" style="border-top:1px solid var(--gray-2);padding-top:10px;margin-top:2px"><strong style="font-size:13px">Carte d'habilitation (verso)</strong></div>
+        <div class="form-group"><label class="field-label" for="frt-czone">Où l'imprimer sur la carte</label>
+          <select id="frt-czone"><option value="">Ne figure pas sur la carte</option>${carteOptions(Object.entries(CARTE_ZONES), t&&t.carte_zone)}</select>
+          <span style="font-size:12px;color:var(--gray-5)">Case cochée + date de validité si l'employé a l'attestation en vigueur.</span></div>
+        <div class="form-group"><label class="field-label" for="frt-clibelle">Texte sur la carte</label><input id="frt-clibelle" maxlength="60" value="${escHtml(t?t.carte_libelle:'')}" placeholder="Vide = nom de la formation"/></div>
+        <div class="form-group full"><label class="field-label" for="frt-cdesc">Explication sous le texte (facultatif)</label><input id="frt-cdesc" maxlength="90" value="${escHtml(t?t.carte_description:'')}" placeholder="Ex. Plates-formes sur ciseaux, mâts verticaux"/>
+          ${sql ? `<span id="frt-carte-sql" style="display:block;font-size:12px;color:var(--orange)">Pour enregistrer ces réglages, exécutez d'abord <strong>${SQL_CARTE}</strong>.</span>` : ''}</div>`;
+}
+function carteLireChampsType(){
+  const zone = el('frt-czone') ? el('frt-czone').value : '', lib = carteTxt(el('frt-clibelle') ? el('frt-clibelle').value : ''), desc = carteTxt(el('frt-cdesc') ? el('frt-cdesc').value : '');
+  if(zone && !CARTE_ZONES[zone]) return {erreur:'Zone de la carte inconnue'};
+  const e = carteControleTexte('Texte sur la carte', lib, 60, false) || carteControleTexte('Explication', desc, 90, false);
+  if(e) return {erreur:e};
+  return {data:{carte_zone:zone||null, carte_libelle:lib||null, carte_description:desc||null}, vide:!zone && !lib && !desc};
+}
 
 // Qui peut voir / modifier les salaires : les administrateurs + les personnes à qui un administrateur a donné
 // « Accès aux salaires » (fiche Utilisateurs). La base de données refuse elle-même la lecture aux autres
@@ -14526,6 +15269,7 @@ async function openEmployeDetail(employeId){
         profileRow("Visite médicale valable jusqu'au", fmtDate(emp.visite_medicale_valable_jusquau), 'visite_medicale', expiree(emp.visite_medicale_valable_jusquau)) +
         profileRow('Observations', emp.visite_medicale_observations)
       )}
+      ${peutVoirSalaires() ? carteSectionFiche(emp) : ''}
       ${profileSection('Véhicule',
         profileRow('Véhicule attribué', TYPES_VEHICULE[emp.vehicule_type]||'Aucun') +
         (emp.vehicule_type ? profileRow("Plaque d'immatriculation", emp.vehicule_plaque) + profileRow('Observations', emp.vehicule_observations) : '')
@@ -14598,6 +15342,7 @@ async function openEmployeDetail(employeId){
       </div>
     </div>
   </div></div>`);
+  if(peutVoirSalaires()) carteRemplirFiche(emp);        // section « Carte d'habilitation » : chargée à part, sans ralentir l'ouverture de la fiche
 }
 
 async function uploadAnnexesEmploye(files, employeId){
