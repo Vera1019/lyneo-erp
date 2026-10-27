@@ -2832,7 +2832,7 @@ async function renderDashboard(){
             : chantiersActifs.slice(0,5).map(c=>{
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-2);cursor:pointer" onclick="navigate('chantiers')">
                   <div>
-                    <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${escHtml(c.nom)}</div>
+                    <div style="font-weight:600;font-size:13px;color:var(--gray-8)">${escHtml(libChantierAchat(c))}</div>
                     <div style="font-size:12px;color:var(--gray-5)">${escHtml(c.client)} ${nomChef(c,nomsEmpDash)?'· '+escHtml(nomChef(c,nomsEmpDash)):''}</div>
                   </div>
                   <div style="text-align:right">
@@ -3881,8 +3881,8 @@ async function openChantierDetail(chantierId, tab){
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
       <div>
-        <h3>${escHtml(chantier.nom)}</h3>
-        <span style="font-size:12px;color:var(--gray-5)">${escHtml(chantier.numero)} — ${escHtml(chantier.client)}</span>
+        <h3>${escHtml(libChantierAchat(chantier))}</h3>
+        <span style="font-size:12px;color:var(--gray-5)">${escHtml(chantier.client)}</span>
       </div>
       <div class="flex gap-8 items-center">
         ${estChantierType && chantier.statut==='actif' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-terminer" onclick="terminerChantier('${chantierId}')"><i class="ti ti-circle-check"></i> Marquer terminé</button>` : ''}
@@ -4377,7 +4377,7 @@ async function archiverChantier(id){
   if((ch.type_centre||'chantier')!=='chantier'){ showToast("Seuls les chantiers s'archivent (pas les centres SAV ni internes)",'error'); return; }
   if(ch.statut==='archive'){ showToast('Ce chantier est déjà archivé'); return; }
   if(ch.statut!=='termine'){ showToast("Terminez d'abord le chantier (statut « Terminé »), puis archivez-le",'error'); return; }
-  let msg = "Archiver « "+(ch.nom||'')+" » ?\n\nIl disparaîtra de la liste des chantiers et des listes de choix (devis, factures, commandes). Rien n'est supprimé : vous le retrouvez dans l'onglet « Chantiers archivés » et pouvez le désarchiver à tout moment.";
+  let msg = "Archiver « "+(libChantierAchat(ch)||ch.nom||'')+" » ?\n\nIl disparaîtra de la liste des chantiers et des listes de choix (devis, factures, commandes). Rien n'est supprimé : vous le retrouvez dans l'onglet « Chantiers archivés » et pouvez le désarchiver à tout moment.";
   const fv = await lireFacturesVenteChantiers([id]);
   if(fv.ok){
     const s = situationFinanciereChantier(ch, fv.rows), alertes = [];
@@ -4551,33 +4551,27 @@ function avisarSincronizacaoPointages(resultado){
 // ══ POINTAGES : seuls les chantiers « en cours » sont proposés aux salariés + centre « Heures improductives » ══════
 // Dans la base des POINTAGES, chantiers.actif (migration-pointages-chantiers-actifs.sql) décide si un code est proposé
 // quand un salarié saisit ses heures. L'ERP est la source : chantier « En cours » = proposé ; en pause / terminé / archivé
-// = masqué. Intervention SAV : proposée jusqu'à ce qu'elle soit « Terminée » (ou facturée). Statut inconnu = proposé
-// (on ne bloque jamais un salarié par erreur). Un code SANS lien avec l'ERP n'est jamais modifié ici.
+// = masqué. La FACTURATION ne ferme jamais un chantier (décision du 27/10 : seul le statut de l'ERP compte ; on passe le chantier
+// en « Terminé » quand on veut qu'il ne soit plus proposé). Intervention SAV : proposée jusqu'à ce qu'elle soit « Terminée » ou facturée
+// (statut « Facturée » ou facture émise). Statut inconnu = proposé (on ne bloque jamais un salarié par erreur).
+// Un code SANS lien avec l'ERP n'est jamais modifié ici.
 // Le centre « Heures improductives » (code HI) est permanent : toujours proposé, jamais masqué par l'ERP.
 const HI_CODE = 'HI', HI_NOM = 'Heures improductives';
 const SQL_PT_ACTIF = 'migration-pointages-chantiers-actifs.sql';
 const estCodeHI = c => String(c==null?'':c).trim().toUpperCase()===HI_CODE;
-// Un code n'est plus proposé quand : le chantier est en pause / terminé / archivé, OU il est entièrement FACTURÉ ;
-// une intervention SAV est terminée / facturée, OU elle a une facture émise. Un doute (données illisibles) ne ferme jamais un code.
+// Un chantier n'est plus proposé quand il est en pause / terminé / archivé (jamais à cause de la facturation) ;
+// une intervention SAV, quand elle est terminée / facturée OU qu'elle a une facture émise. Un doute (données illisibles) ne ferme jamais un code.
 const MOTIF_STATUT = {pause:'en pause', termine:'terminé', archive:'archivé'};
 const FV_EMISES = ['envoyee','payee_partiel','payee'];
-// « Entièrement facturé » (chantiers seulement : jamais un centre SAV ni interne) = au moins un devis ACCEPTÉ lié au chantier
-// et TOUS ses devis acceptés facturés à 100 % ou plus (même règle que l'état de facturation des devis). Brouillons et annulées ne comptent pas.
-function chantierEntierementFacture(c, devisListe, facsParDevis){
-  if(!c || (c.type_centre && c.type_centre!=='chantier')) return false;
-  const acceptes = (devisListe||[]).filter(d=>d.statut==='accepte' && (String(d.chantier_id)===String(c.id) || (c.devis_id && String(d.id)===String(c.devis_id))));
-  if(!acceptes.length) return false;
-  return acceptes.every(d=>{ const e = etatFacturationDevis(d, (facsParDevis||{})[d.id]); return e.etat==='total' || e.etat==='sur'; });
-}
 // Intervention SAV facturée = au moins une facture ÉMISE (envoyée / part. payée / payée), notes de crédit « remise en quantités » déduites
 function intervEntierementFacturee(facs){
   const emises = (facs||[]).filter(f=>FV_EMISES.includes(f.statut));
   const couvert = emises.filter(f=>f.type_facture!=='avoir' || f.remet_quantites).reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
   return couvert > 0.005;
 }
-const motifFermetureChantier = (c, facture) => !c ? 'introuvable' : (MOTIF_STATUT[c.statut] || (facture ? 'facturé à 100 %' : ''));
+const motifFermetureChantier = c => !c ? 'introuvable' : (MOTIF_STATUT[c.statut] || '');
 const motifFermetureIntervention = (i, facturee) => !i ? 'introuvable' : (i.statut==='facturee' ? 'facturée' : i.statut==='terminee' ? 'terminée' : facturee ? 'facturée' : '');
-const chantierOuvertPointages = (c, facture) => motifFermetureChantier(c, facture)==='';
+const chantierOuvertPointages = c => motifFermetureChantier(c)==='';
 const intervOuvertePointages = (i, facturee) => motifFermetureIntervention(i, facturee)==='';
 
 // Chantiers des pointages avec leur état. colonne:false = le SQL n'a pas encore été exécuté (état inconnu, rien à écrire).
@@ -4613,27 +4607,19 @@ async function lirePagine(table, cols, filtre){
   }
   return out;
 }
-const COLS_FV_PT = 'id,devis_id,intervention_id,statut,type_facture,total_ht,remet_quantites';
+const COLS_FV_PT = 'id,intervention_id,statut,type_facture,total_ht,remet_quantites';
 async function lireFacturesVentePointages(filtre){
   try{ return await lirePagine('factures_vente', COLS_FV_PT, filtre); }
   catch(e){ if(/remet_quantites/i.test((e&&e.message)||'')) return await lirePagine('factures_vente', COLS_FV_PT.replace(',remet_quantites',''), filtre); throw e; }
 }
-const COLS_DEVIS_PT = 'id,statut,montant_ht,chantier_id';
 const grouperPar = (liste, cle)=>{ const m = {}; (liste||[]).forEach(f=>{ if(f[cle]) (m[f[cle]] = m[f[cle]]||[]).push(f); }); return m; };
-// Toute la facturation d'un coup (synchronisation complète). ok=false si illisible : on n'ouvre alors RIEN (on ne sait pas si c'est facturé).
+// Les factures liées à une intervention SAV, d'un coup (synchronisation complète). Seules les interventions dépendent de la facturation.
+// ok=false si illisible : on ne ROUVRE alors aucun code SAV (on ne sait pas si l'intervention est facturée).
 async function lireFinancePointages(){
   try{
-    const [devis, facs] = await Promise.all([lirePagine('devis', COLS_DEVIS_PT), lireFacturesVentePointages()]);
-    return {ok:true, devis, parDevis:grouperPar(facs,'devis_id'), parInterv:grouperPar(facs,'intervention_id')};
-  }catch(e){ return {ok:false, devis:[], parDevis:{}, parInterv:{}, erreur:(e&&e.message)||String(e)}; }
-}
-// Facturation d'UN chantier : ses devis (chantier_id, ou le devis d'origine du chantier) et les factures de ses devis acceptés
-async function lireFinanceChantier(ch){
-  const devis = await lirePagine('devis', COLS_DEVIS_PT, q=>q.eq('chantier_id', ch.id));
-  if(ch.devis_id && !devis.some(d=>String(d.id)===String(ch.devis_id))) devis.push(...await lirePagine('devis', COLS_DEVIS_PT, q=>q.eq('id', ch.devis_id)));
-  const ids = devis.filter(d=>d.statut==='accepte').map(d=>d.id);
-  const facs = ids.length ? await lireFacturesVentePointages(q=>q.in('devis_id', ids)) : [];
-  return {devis, parDevis:grouperPar(facs,'devis_id')};
+    const facs = await lireFacturesVentePointages(q=>q.not('intervention_id','is',null));
+    return {ok:true, parInterv:grouperPar(facs,'intervention_id')};
+  }catch(e){ return {ok:false, parInterv:{}, erreur:(e&&e.message)||String(e)}; }
 }
 // Écrit l'état d'un chantier des pointages. 'ok' | 'sql' (colonne absente) | 'droits' (0 ligne modifiée, RLS) | texte d'erreur
 async function ecrireActifPointages(p, ouvert){
@@ -4665,12 +4651,7 @@ async function majPointagesChantier(chantierId){
     if(errCh) throw errCh;
     const codes = ch ? codesPointagesDe(ch) : [];
     if(!codes.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
-    let facture = false;
-    if(ch && !MOTIF_STATUT[ch.statut] && (!ch.type_centre || ch.type_centre==='chantier')){      // déjà fermé par son statut : inutile de lire la facturation
-      const fin = await lireFinanceChantier(ch);
-      facture = chantierEntierementFacture(ch, fin.devis, fin.parDevis);
-    }
-    return await majPointagesCodes(codes, chantierOuvertPointages(ch, facture));
+    return await majPointagesCodes(codes, chantierOuvertPointages(ch));
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
 }
 async function majPointagesIntervention(interventionId){
@@ -4713,29 +4694,21 @@ function lancerMajPointagesChantier(id){
 function lancerMajPointagesIntervention(id){
   return suivreMajPointages(()=>majPointagesIntervention(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; }));
 }
-// Une facture client ou un devis vient de changer (créée, émise, payée, note de crédit, devis accepté…) : on réévalue les codes du chantier
-// et de l'intervention concernés (« entièrement facturé » ⇒ plus proposé ; un nouveau devis accepté à facturer ⇒ de nouveau proposé).
-// info = {factureId, devisId, chantierId, interventionId, avant:[{chantier_id, intervention_id, devis_id}]}
+// Une facture client d'une INTERVENTION SAV vient de changer (créée, émise, payée, annulée…) : on réévalue le code de l'intervention
+// (facture émise ⇒ plus proposé ; facture annulée ⇒ de nouveau proposé). Les chantiers ne dépendent PAS de la facturation.
+// info = {factureId, interventionId}
 async function majPointagesFacturation(info){
   const tot = {ok:true, ouverts:[], fermes:[], absents:[], erreur:null, vide:true};
   try{
     info = info||{};
-    const chs = new Set(), ivs = new Set(), dvs = new Set();
+    const ivs = new Set();
     const add = (set,v)=>{ if(v!==undefined && v!==null && v!=='') set.add(String(v)); };
-    add(chs, info.chantierId); add(ivs, info.interventionId); add(dvs, info.devisId);
-    (info.chantierIds||[]).forEach(x=>add(chs,x));
-    (info.avant||[]).forEach(a=>{ if(a){ add(chs,a.chantier_id); add(ivs,a.intervention_id); add(dvs,a.devis_id); } });
+    add(ivs, info.interventionId);
     if(info.factureId){
-      const {data:f} = await sb.from('factures_vente').select('chantier_id,intervention_id,devis_id').eq('id',info.factureId).maybeSingle();
-      if(f){ add(chs,f.chantier_id); add(ivs,f.intervention_id); add(dvs,f.devis_id); }
-    }
-    for(const did of dvs){
-      const {data:d} = await sb.from('devis').select('chantier_id').eq('id',did).maybeSingle();
-      if(d) add(chs,d.chantier_id);
-      try{ const {data:l} = await sb.from('chantiers_lyneo').select('id').eq('devis_id',did); (l||[]).forEach(x=>add(chs,x.id)); }catch(e){}
+      const {data:f} = await sb.from('factures_vente').select('intervention_id').eq('id',info.factureId).maybeSingle();
+      if(f) add(ivs,f.intervention_id);
     }
     const resultats = [];
-    for(const id of chs) resultats.push(await majPointagesChantier(id));
     for(const id of ivs) resultats.push(await majPointagesIntervention(id));
     resultats.forEach(r=>{
       if(!r.ok){ tot.vide = false; if(tot.ok){ tot.ok = false; tot.erreur = r.erreur; tot.detail = r.detail; } return; }
@@ -4744,17 +4717,6 @@ async function majPointagesFacturation(info){
     });
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
   return tot;
-}
-// Chantiers touchés par un devis (à lire AVANT de le supprimer) : celui auquel il est rattaché + ceux dont il est le devis d'origine
-async function chantiersDuDevis(devisId){
-  const ids = [];
-  try{
-    const {data:d} = await sb.from('devis').select('chantier_id').eq('id',devisId).maybeSingle();
-    if(d && d.chantier_id) ids.push(d.chantier_id);
-    const {data:l} = await sb.from('chantiers_lyneo').select('id').eq('devis_id',devisId);
-    (l||[]).forEach(x=>{ if(!ids.some(i=>String(i)===String(x.id))) ids.push(x.id); });
-  }catch(e){}
-  return ids;
 }
 function lancerMajPointagesFacturation(info){
   return suivreMajPointages(()=>majPointagesFacturation(info).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; }));
@@ -4783,16 +4745,16 @@ function lancerMajPointagesCodesSupprimes(codes){
 async function planSynchroPointages(){
   const [chs, ivs, pt, fin] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav'), lireChantiersPointagesActif(), lireFinancePointages()]);
   const voulu = new Map(), absents = [];
+  // sur = le code est proposé par un CHANTIER (décision qui ne dépend pas de la lecture de la facturation) ; une intervention « ouverte » en dépend
   const noter = (code, ouvert, source, chantier, motif)=>{
     if(estCodeHI(code)) return;
     const p = trouverChantierPointages(pt.rows, code);
     if(!p){ if(chantier || ouvert) absents.push({code, source}); return; }
-    const k = String(p.id), v = voulu.get(k);
-    if(v){ v.ouvert = v.ouvert || ouvert; v.sources.push(source); if(motif) v.motifs.push(motif); } else voulu.set(k, {p, ouvert, sources:[source], motifs:motif?[motif]:[]});
+    const k = String(p.id), v = voulu.get(k), sur = !!(chantier && ouvert);
+    if(v){ v.ouvert = v.ouvert || ouvert; v.sur = v.sur || sur; v.sources.push(source); if(motif) v.motifs.push(motif); } else voulu.set(k, {p, ouvert, sur, sources:[source], motifs:motif?[motif]:[]});
   };
   chs.forEach(c=>{
-    const facture = fin.ok && chantierEntierementFacture(c, fin.devis, fin.parDevis);
-    const motif = motifFermetureChantier(c, facture);
+    const motif = motifFermetureChantier(c);
     codesPointagesDe(c).forEach(code=>noter(code, motif==='', (c.numero||'')+' — '+(c.nom||''), true, motif));
   });
   ivs.forEach(i=>{
@@ -4804,13 +4766,14 @@ async function planSynchroPointages(){
   voulu.forEach(v=>{
     if(!pt.colonne) return;               // état inconnu : rien à calculer tant que le SQL n'est pas exécuté
     const actuel = v.p.actif!==false;
-    const ligne = {p:v.p, sources:v.sources, motifs:v.ouvert ? [] : [...new Set(v.motifs)]};
+    const ligne = {p:v.p, sources:v.sources, sur:v.sur, motifs:v.ouvert ? [] : [...new Set(v.motifs)]};
     if(v.ouvert && !actuel) aOuvrir.push(ligne);
     else if(!v.ouvert && actuel) aFermer.push(ligne);
     else (v.ouvert ? dejaOuverts : dejaFermes).push(ligne);
   });
-  // Facturation illisible (réseau, droits) : on ne sait pas ce qui est facturé ⇒ on ne ROUVRE rien (un code masqué le reste) ; on masque encore selon le statut
-  if(!fin.ok){ dejaFermes = dejaFermes.concat(aOuvrir); aOuvrir = []; }
+  // Facturation SAV illisible (réseau, droits) : on ne sait pas si l'intervention est facturée ⇒ un code qui ne dépend que d'interventions n'est pas ROUVERT
+  // (il reste masqué) ; un chantier « En cours » est rouvert quoi qu'il arrive (son statut suffit). On masque encore selon le statut.
+  if(!fin.ok){ dejaFermes = dejaFermes.concat(aOuvrir.filter(l=>!l.sur)); aOuvrir = aOuvrir.filter(l=>l.sur); }
   const sansLien = pt.rows.filter(p=>!estCodeHI(p.code) && !voulu.has(String(p.id)));
   const hiPt = pt.rows.find(p=>estCodeHI(p.code)) || null;
   const hiErp = chs.find(c=>_txt(c.numero).trim().toUpperCase()===HI_CODE || codesPointagesDe(c).some(estCodeHI)) || null;
@@ -4899,9 +4862,9 @@ function htmlPlanSynchroPointages(plan, apresApplication){
   const bloc = (titre, liste, id) => liste.length ? `<div id="${id}" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--gray-6);margin-bottom:4px">${titre} (${liste.length})</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${liste.map(lib).join('')}</ul></div>` : '';
   let h = '';
   if(!plan.pt.colonne) h += `<div class="alert alert-warning" id="sync-pt-sql" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La base des pointages n'a pas encore la colonne « actif » : exécutez <strong>${SQL_PT_ACTIF}</strong> dans le projet <strong>POINTAGES</strong> de Supabase (SQL Editor), puis rouvrez cette fenêtre. En attendant, tous les chantiers restent proposés aux salariés.</span></div>`;
-  if(plan.pt.colonne && plan.financeErreur) h += `<div class="alert alert-warning" id="sync-pt-finance" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La facturation n'a pas pu être lue (${escHtml(plan.financeErreur)}) : les codes déjà masqués ne sont pas rouverts et aucun code n'est masqué parce que « facturé ». Réessayez.</span></div>`;
+  if(plan.pt.colonne && plan.financeErreur) h += `<div class="alert alert-warning" id="sync-pt-finance" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La facturation SAV n'a pas pu être lue (${escHtml(plan.financeErreur)}) : les codes d'interventions déjà masqués ne sont pas rouverts et aucune intervention n'est masquée à cause d'une facture émise. Réessayez.</span></div>`;
   if(plan.pt.colonne){
-    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (en pause, terminés, archivés, entièrement facturés, interventions terminées ou facturées).</p>`;
+    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (chantiers en pause, terminés ou archivés ; interventions SAV terminées ou facturées).</p>`;
     h += bloc(apresApplication ? 'Encore à masquer' : 'À masquer maintenant', plan.aFermer, 'sync-pt-fermer');
     h += bloc(apresApplication ? 'Encore à proposer' : 'À proposer de nouveau', plan.aOuvrir, 'sync-pt-ouvrir');
   }
@@ -6724,6 +6687,17 @@ function libChantierAchat(c){
   if(num && nom && num!==nom) return num+' - '+nom;
   return num||nom;
 }
+// Chantier tel que le système de pointages le connaît (code + nom) : « DELBELVAL - Delhaize Belval » ; si le nom commence déjà par le code (« P00011 — … »), le nom seul.
+function libChantierPT(c){
+  if(!c) return '';
+  const code = String(c.code||'').trim(), nom = String(c.nom||'').trim();
+  if(!code) return nom;
+  if(!nom || nom.toLowerCase()===code.toLowerCase()) return code;
+  const debut = nom.toLowerCase().startsWith(code.toLowerCase()) && !/[a-z0-9]/i.test(nom.charAt(code.length)||'');   // « P00011 — … », « P00009-… » mais pas « P000111 … »
+  return debut ? nom : code+' - '+nom;
+}
+// Libellé d'une fiche dans les messages (suppression, désactivation) : un chantier avec son n°.
+function libFiche(type, f){ return (type==='chantier' ? libChantierAchat(f) : '') || (f && f.nom) || ''; }
 const jourFac = v => String(v||'').slice(0,10);
 // Montant hors taxe d'une facture fournisseur : colonne montant_ht, sinon TTC − TVA ; null si on ne peut pas le savoir
 const montantHtFacture = r => {
@@ -8925,7 +8899,7 @@ function fenetreSuppressionImpossible(cfg, fiche, liens, apres){
     c.innerHTML = `<div class="modal-overlay" style="z-index:400" id="sup-overlay"><div class="modal" style="max-width:540px">
       <div class="modal-header"><h3>Suppression impossible</h3><button class="modal-close" onclick="_supRepondre('fermer')"><i class="ti ti-x"></i></button></div>
       <div class="modal-body">
-        <div class="alert alert-error" id="sup-msg"><i class="ti ti-ban"></i><span>« ${escHtml(fiche.nom)} » est utilisé : <strong>${escHtml(texteLiens(liens))}</strong>.</span></div>
+        <div class="alert alert-error" id="sup-msg"><i class="ti ti-ban"></i><span>« ${escHtml(libFiche(cfg.table==='chantiers_lyneo'?'chantier':'', fiche))} » est utilisé : <strong>${escHtml(texteLiens(liens))}</strong>.</span></div>
         <p style="font-size:13px;color:var(--gray-6);margin-bottom:14px">Pour garder l'historique (devis, factures, chiffres), on ne supprime pas ce qui a servi.
           ${deja ? ' Cette fiche est déjà désactivée : elle n\'apparaît plus dans les listes de choix.' : ` Vous pouvez la <strong>${cfg.desactiverLabel.toLowerCase()}</strong> : elle disparaît des listes de choix mais l'historique reste intact.`}</p>
         <div class="form-actions">
@@ -8950,12 +8924,12 @@ async function supprimerFiche(type, id, opts){
       const {error} = await sb.from(cfg.table).update(cfg.desactiver).eq('id',id);
       if(error){ showToast('Erreur: '+error.message, 'error'); return false; }
       if(type==='chantier') lancerMajPointagesChantier(id);   // terminé : le code n'est plus proposé aux salariés
-      showToast(`« ${fiche.nom} » désactivé — l'historique est conservé`);
+      showToast(`« ${libFiche(type,fiche)} » désactivé — l'historique est conservé`);
       if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
     }
     return false;
   }
-  if(!confirm(`Supprimer définitivement ${cfg.article} « ${fiche.nom} » ? Cette action est irréversible.`)) return false;
+  if(!confirm(`Supprimer définitivement ${cfg.article} « ${libFiche(type,fiche)} » ? Cette action est irréversible.`)) return false;
   // Fichiers du chantier à retirer du stockage — seulement APRÈS la suppression de la fiche (ses lignes de documents partent en cascade)
   let chemins = [];
   if(type==='chantier'){
@@ -8966,19 +8940,19 @@ async function supprimerFiche(type, id, opts){
   }
   const {data:suppr, error} = await sb.from(cfg.table).delete().eq('id',id).select('id');
   if(error){
-    if(error.code==='23503' || /foreign key|violates|référence/i.test(error.message||'')) showToast(`Suppression refusée : « ${fiche.nom} » est encore utilisé ailleurs. Désactivez-le plutôt.`, 'error');
+    if(error.code==='23503' || /foreign key|violates|référence/i.test(error.message||'')) showToast(`Suppression refusée : « ${libFiche(type,fiche)} » est encore utilisé ailleurs. Désactivez-le plutôt.`, 'error');
     else showToast('Erreur: '+error.message, 'error');
     return false;
   }
   // une base qui refuse l'accès (droits) ne renvoie parfois aucune erreur mais aucune ligne supprimée
-  if(!suppr || !suppr.length){ showToast(`« ${fiche.nom} » n'a pas été supprimé (droits insuffisants ?). Rien n'a changé.`, 'error'); return false; }
+  if(!suppr || !suppr.length){ showToast(`« ${libFiche(type,fiche)} » n'a pas été supprimé (droits insuffisants ?). Rien n'a changé.`, 'error'); return false; }
   if(type==='chantier'){
     try{
       if(chemins.length) await sb.storage.from('Documents').remove(chemins);
       await sb.from('anexos_chantier').delete().eq('chantier_id',id);
     }catch(e){}
   }
-  showToast(`${cfg.article.charAt(0).toUpperCase()+cfg.article.slice(1)} « ${fiche.nom} » supprimé`+(type==='chantier' && fiche.code_pointages ? " (les heures pointées sont conservées ; le code n'est plus proposé aux salariés)" : ''));
+  showToast(`${cfg.article.charAt(0).toUpperCase()+cfg.article.slice(1)} « ${libFiche(type,fiche)} » supprimé`+(type==='chantier' && fiche.code_pointages ? " (les heures pointées sont conservées ; le code n'est plus proposé aux salariés)" : ''));
   if(type==='chantier' && fiche.code_pointages) lancerMajPointagesCodesSupprimes(codesPointagesDe(fiche));
   if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
   return true;
@@ -9437,7 +9411,7 @@ async function openClientDetail(clientId){
         ${heuresParChantier.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucune heure encodée pour ce client</p>' :
           `<table data-tri="oui" style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Total heures</th></tr></thead>
-            <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${h.chantier.numero||''} — ${h.chantier.nom}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
+            <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(libChantierAchat(h.chantier))}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
           </table>`}
       </div>
 
@@ -9875,7 +9849,7 @@ function afficherDevis(){
       items.map(d=>`<tr data-sel-id="${d.id}" style="cursor:pointer" onclick="openDevisDetail('${d.id}')">
         <td style="white-space:nowrap"><strong class="text-blue">${escHtml(d.numero)}</strong></td>
         <td>${escHtml(d.clients?.nom||'—')}</td>
-        <td>${d.chantiers_lyneo?escHtml(d.chantiers_lyneo.nom):'—'}</td>
+        <td>${escHtml(libChantierAchat(d.chantiers_lyneo))||'—'}</td>
         <td>${escHtml(d.objet||'—')}</td>
         <td>${escHtml(String(d.correspondant||'').trim()||'—')}</td>
         <td>${fmtDate(d.date_devis)}</td>
@@ -9897,7 +9871,7 @@ const LIB_FACT_DEVIS = {non:'Non facturé', brouillon:'Facture en brouillon', pa
 const COLS_DEVIS = [
   {k:'numero',   label:'N°',          type:'texte',  val:d=>d.numero||''},
   {k:'client',   label:'Client',      type:'liste',  val:d=>d.clients?.nom||'', aff:v=>v||'—'},
-  {k:'chantier', label:'Chantier',    type:'liste',  val:d=>d.chantiers_lyneo?.nom||'', aff:v=>v||'—'},
+  {k:'chantier', label:'Chantier',    type:'liste',  val:d=>libChantierAchat(d.chantiers_lyneo), aff:v=>v||'—'},
   {k:'objet',    label:'Objet',       type:'texte',  val:d=>d.objet||''},
   {k:'corresp',  label:'Correspondant', type:'liste', val:d=>String(d.correspondant||'').trim(), aff:v=>v||'—'},     // responsable du devis (chargé d'affaire), saisi dans le devis
   {k:'date',     label:'Date',        type:'date',   val:d=>String(d.date_devis||'').slice(0,10)},
@@ -10360,9 +10334,8 @@ async function saveDevis(id){
     return res;
   };
 
-  let devisId = id, chantierAvantDevis = null;
+  let devisId = id;
   if(id){
-    try{ const {data:dAvant} = await sb.from('devis').select('chantier_id').eq('id',id).maybeSingle(); chantierAvantDevis = dAvant ? dAvant.chantier_id : null; }catch(e){}
     const {error} = await essayerSauver(ligne=> sb.from('devis').update(ligne).eq('id',id));
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
   } else {
@@ -10394,7 +10367,6 @@ async function saveDevis(id){
     }
   }
 
-  lancerMajPointagesFacturation({devisId, chantierId:header.chantier_id, avant:[{chantier_id:chantierAvantDevis}]});
   showToast(id?'Devis mis à jour':'Devis créé — '+header.objet);
   if(affaireNonSauvee) setTimeout(()=>showToast("L'« Affaire » / l'« Objet court » n'ont pas pu être enregistrés : exécutez d'abord migration-devis-affaire.sql dans Supabase", 'error'), 900);
   if(attentionNonSauvee) setTimeout(()=>showToast("Les notes / remarques n'ont pas pu être enregistrées : exécutez d'abord migration-devis-attention.sql dans Supabase", 'error'), affaireNonSauvee?2400:900);
@@ -10449,13 +10421,13 @@ async function openDevisDetail(devisId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>${d.numero}</h3><span style="font-size:12px;color:var(--gray-5)">${d.clients?.nom||''} — ${d.objet||''}</span></div>
+      <div><h3>${escHtml(d.numero)}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(d.clients?.nom||'')} — ${escHtml(d.objet||'')}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>Client</label><span>${d.clients?.nom||'—'}</span></div>
-        <div class="info-item"><label>Chantier</label><span>${d.chantiers_lyneo?.nom||'— (pas encore créé)'}</span></div>
+        <div class="info-item"><label>Client</label><span>${escHtml(d.clients?.nom||'—')}</span></div>
+        <div class="info-item"><label>Chantier</label><span>${escHtml(libChantierAchat(d.chantiers_lyneo))||'— (pas encore créé)'}</span></div>
         <div class="info-item"><label>Intervention SAV</label><span>${interventionLiee?`<a href="#" onclick="closeModal();openInterventionDetail('${interventionLiee.id}');return false" style="color:var(--blue);font-weight:600">${interventionLiee.ref}</a> ${bSAV(interventionLiee.statut)}`:'—'}</span></div>
         <div class="info-item"><label>Affaire</label><span>${escHtml(d.affaire)||'—'}</span></div>
         <div class="info-item"><label>Objet court (PDF)</label><span>${escHtml(d.objet_court)||'—'}</span></div>
@@ -10544,10 +10516,8 @@ async function openDevisDetail(devisId){
 
 async function deleteDevis(devisId, numero){
   if(!confirm(`Supprimer définitivement le devis ${numero} ? Les lignes et documents attachés seront aussi supprimés. Cette action est irréversible.`)) return;
-  const chantiersDuDevisSupprime = await chantiersDuDevis(devisId);      // à lire avant la suppression
   const {error} = await sb.from('devis').delete().eq('id',devisId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
-  lancerMajPointagesFacturation({chantierIds:chantiersDuDevisSupprime});
   showToast('Devis supprimé');
   closeModal();
   rafraichirPage();
@@ -10557,7 +10527,6 @@ async function changerStatutDevis(devisId, statut){
   const {data:d} = await sb.from('devis').select('*').eq('id',devisId).single();
   const {error} = await sb.from('devis').update({statut}).eq('id',devisId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
-  lancerMajPointagesFacturation({devisId});
   showToast('Devis marqué : '+STATUT_DV[statut]);
   if(statut==='accepte' && !d.chantier_id){
     if(confirm("Devis accepté ! Voulez-vous créer le chantier correspondant maintenant ?")){
@@ -11123,7 +11092,6 @@ async function saveFactureVenteLibre(){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
-  if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id});
   showToast('Facture client créée — '+num);
   closeModal();
   rafraichirPage();
@@ -11392,7 +11360,7 @@ async function openGenerateFactureVente(chantierId){
   const devisId = devisInfo ? devisInfo.id : null;   // le devis réellement utilisé est lu au moment de créer (window._devisInfoForFv)
   // Acomptes déjà facturés sur ce devis : rappel pour ne pas facturer deux fois la même part au solde
   const alerteAcomptes = await alerteAcomptesFvHTML(devisInfo);
-  window._chantierNomFv = chantier.nom;
+  window._chantierNomFv = libChantierAchat(chantier) || chantier.nom || '';
 
   window._devisInfoForFv = devisInfo;
   window._venteLignesNormales = _venteLignes.slice();
@@ -11404,7 +11372,7 @@ async function openGenerateFactureVente(chantierId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>Nouvelle facture client</h3><span id="fv-devis-titre" style="font-size:12px;color:var(--gray-5)">${chantier.nom}${devisInfo?' — depuis devis '+devisInfo.numero:' — sans devis lié'}</span></div>
+      <div><h3>Nouvelle facture client</h3><span id="fv-devis-titre" style="font-size:12px;color:var(--gray-5)">${escHtml(libChantierAchat(chantier)||chantier.nom||'')}${devisInfo?' — depuis devis '+devisInfo.numero:' — sans devis lié'}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
@@ -11602,7 +11570,6 @@ async function saveFactureVente(chantierId, clientId, devisId){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
-  if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id});
   showToast('Facture client créée — '+num);
   closeModal();
   openChantierDetail(chantierId,'fac_vente');
@@ -11842,7 +11809,6 @@ async function saveAvoirVente(){
     await sb.from('factures_vente').delete().eq('id',av.id);      // pas de note de crédit sans lignes
     showToast('Erreur lignes: '+errL.message,'error'); reactiver(); return; }
 
-  if(av && av.statut && av.statut!=='brouillon') lancerMajPointagesFacturation({factureId:av.id});
   showToast('Note de crédit créée — '+num);
   closeModal();
   rafraichirPage();
@@ -12177,7 +12143,7 @@ async function openFactureVenteDetail(facId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>${escHtml(f.numero)}${avoir?' <span class="badge badge-litige" style="vertical-align:middle;margin-left:6px">Note de crédit</span>':''}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(f.clients?.nom||'')} — ${escHtml(f.chantiers_lyneo?.nom||'')}</span></div>
+      <div><h3>${escHtml(f.numero)}${avoir?' <span class="badge badge-litige" style="vertical-align:middle;margin-left:6px">Note de crédit</span>':''}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(f.clients?.nom||'')} — ${escHtml(libChantierAchat(f.chantiers_lyneo))}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
@@ -12305,7 +12271,7 @@ async function saveEditFactureVente(facId){
   };
   if(el('efv-devis')) maj.devis_id = el('efv-devis').value || null;
   // mêmes garde-fous que les boutons de statut + champs verrouillés si la période est clôturée
-  const {data:avant} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation,devis_id,chantier_id,intervention_id').eq('id',facId).single();
+  const {data:avant} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation').eq('id',facId).single();
   await chargerCloture();
   const refus = await refusChangementStatutFV(avant, maj.statut);
   if(refus){ showToast(refus, 'error'); if(b) b.disabled=false; return; }
@@ -12314,7 +12280,7 @@ async function saveEditFactureVente(facId){
   if(error){ showToast('Erreur: '+error.message, 'error'); if(b) b.disabled=false; return; }
   // les notes de crédit de cette facture suivent son devis
   if(el('efv-devis')){ try{ await sb.from('factures_vente').update({devis_id: maj.devis_id}).eq('facture_origine_id',facId); }catch(e){} }
-  lancerMajPointagesFacturation({factureId:facId, avant:[avant]});     // « avant » : l'ancien devis / chantier si la facture a changé de devis
+  lancerMajPointagesFacturation({factureId:facId});
   showToast('Facture modifiée — '+numero);
   rafraichirPage();
   openFactureVenteDetail(facId);
@@ -12788,6 +12754,30 @@ const JOURNAL_CHAMPS = {valeur_json:'Données',numero:'N°', statut:'Statut', da
   validite_mois:'Validité (mois)', alerte_jours:'Alerte (jours)', duree_heures:'Durée (h)', cout_ht:'Coût HT',
   symbole:'Symbole', qualification:'Qualification', fonction:'Fonction', travaux:'Travaux autorisés', ouvrages:'Ouvrages', indications:'Indications', date_fin:'Date limite', fonction_id:'Habilitation',
   carte_zone:'Zone de la carte', carte_libelle:'Texte de la carte', carte_description:'Explication (carte)'};
+// Champs du journal qui contiennent l'identifiant d'une autre fiche : on les remplace par un libellé lisible (« P00001 - NOM »).
+const JOURNAL_REFS = {
+  chantier_id:{table:'chantiers_lyneo', cols:'id,numero,nom', lib:libChantierAchat},
+  client_id:{table:'clients', cols:'id,nom', lib:c=>String(c.nom||'').trim()},
+  devis_id:{table:'devis', cols:'id,numero', lib:d=>String(d.numero||'').trim()}
+};
+let _journalNoms = {};
+async function journalPreparer(rows){
+  try{
+    const besoin = {};
+    (rows||[]).forEach(r=>{
+      const d = r && r.donnees;
+      if(!d || typeof d!=='object') return;
+      Object.keys(JOURNAL_REFS).forEach(k=>{
+        if(!Array.isArray(d[k])) return;
+        d[k].forEach(x=>{ if(x && typeof x==='string') (besoin[k] = besoin[k]||new Set()).add(x); });
+      });
+    });
+    for(const k of Object.keys(besoin)){
+      const ref = JOURNAL_REFS[k];
+      (await chargerParIds(ref.table, ref.cols, [...besoin[k]])).forEach(x=>{ (_journalNoms[k] = _journalNoms[k]||{})[String(x.id)] = ref.lib(x); });
+    }
+  }catch(e){ /* sans libellés : l'identifiant reste affiché */ }
+}
 function journalValeur(v){
   if(v===null || v===undefined || v==='') return '∅';
   const t = typeof v==='object' ? JSON.stringify(v) : String(v);
@@ -12810,7 +12800,7 @@ function journalResume(r){
   if(r.action==='DELETE') return 'Suppression';
   const ignore = ['updated_at','modifie_le','modifie_par'];
   const lib = r.table_name==='factures_vente' ? STATUT_FV : r.table_name==='devis' ? STATUT_DV : {};
-  const val = (k,x)=> journalValeur(k==='statut' && lib[x] ? lib[x] : x);
+  const val = (k,x)=> (JOURNAL_REFS[k] && x && _journalNoms[k] && _journalNoms[k][String(x)]) ? escHtml(_journalNoms[k][String(x)]) : journalValeur(k==='statut' && lib[x] ? lib[x] : x);
   const parts = Object.entries(d).filter(([k])=>!ignore.includes(k)).map(([k,v])=>
     `${escHtml(JOURNAL_CHAMPS[k]||k)} : <span style="color:var(--gray-5)">${val(k,Array.isArray(v)?v[0]:'')}</span> → <strong>${val(k,Array.isArray(v)?v[1]:v)}</strong>`);
   return parts.length ? parts.join(' ; ') : 'Modification';
@@ -12836,6 +12826,7 @@ async function afficherHistorique(id, cibleId){
   try{
     const r = await sb.from('journal_audit').select('*').or(`row_id.eq.${id},parent_id.eq.${id}`).order('horodatage',{ascending:false}).limit(100);
     if(r.error) throw r.error;
+    await journalPreparer(r.data||[]);
     box.innerHTML = journalLignes(r.data||[], false);
   }catch(e){
     box.innerHTML = `<p style="font-size:12.5px;color:var(--gray-5)"><i class="ti ti-info-circle"></i> ${escHtml(MSG_SQL_JOURNAL)}</p>`;
@@ -12994,6 +12985,7 @@ async function renderControle(){
     const r = await sb.from('journal_audit').select('*').order('horodatage',{ascending:false}).limit(300);
     if(r.error) throw r.error;
     _journalRows = r.data||[];
+    await journalPreparer(_journalRows);
   }catch(e){ journalOk = false; _journalRows = []; }
   const clot = _clotureVentes;
   const aujourdhui = new Date().toISOString().slice(0,10);
@@ -16043,12 +16035,12 @@ async function openEmployeDetail(employeId){
   let dernieresEntrees = [];
   if(emp.pointage_employe_id){
     try{
-      const {data:picages} = await sbPT.from('picages').select('*,chantiers(nom)').eq('employe_id',emp.pointage_employe_id).order('date',{ascending:false});
+      const {data:picages} = await sbPT.from('picages').select('*,chantiers(code,nom)').eq('employe_id',emp.pointage_employe_id).order('date',{ascending:false});
       const pics = picages||[];
       totalHeures = pics.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
       const parChantier = {};
       pics.forEach(p=>{
-        const nom = p.chantiers?.nom || 'Sans chantier';
+        const nom = libChantierPT(p.chantiers) || 'Sans chantier';
         parChantier[nom] = (parChantier[nom]||0) + (parseFloat(p.heures)||0);
       });
       heuresParChantier = Object.entries(parChantier).map(([nom,heures])=>({nom,heures}));
@@ -16154,13 +16146,13 @@ async function openEmployeDetail(employeId){
           </div>
           <table data-tri="oui" style="width:100%;border-collapse:collapse;margin-bottom:12px">
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Heures</th></tr></thead>
-            <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${h.nom}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
+            <tbody>${heuresParChantier.map(h=>`<tr><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(h.nom)}</td><td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${h.heures.toFixed(1)}h</td></tr>`).join('')}</tbody>
           </table>
           <details style="font-size:12px;color:var(--gray-6)">
             <summary style="cursor:pointer;font-weight:600">Voir les dernières entrées</summary>
             <table data-tri="oui" style="width:100%;border-collapse:collapse;margin-top:8px">
               <thead><tr style="background:var(--gray-1)"><th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:6px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Heures</th></tr></thead>
-              <tbody>${dernieresEntrees.map(p=>`<tr><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(p.date)}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${p.chantiers?.nom||'—'}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${(parseFloat(p.heures)||0).toFixed(1)}h</td></tr>`).join('')}</tbody>
+              <tbody>${dernieresEntrees.map(p=>`<tr><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${fmtDate(p.date)}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(libChantierPT(p.chantiers))||'—'}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${(parseFloat(p.heures)||0).toFixed(1)}h</td></tr>`).join('')}</tbody>
             </table>
           </details>`}
       </div>
@@ -16320,6 +16312,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   const {centres, facParCentre} = _savCentresCache;
   const centresMap = {};
   centres.forEach(c=>{ centresMap[c.id] = c.numero; });
+  const centresLib = {}; centres.forEach(c=>{ centresLib[c.id] = libChantierAchat(c); });   // « N° - NOM »
   const centreFiltre = centres.find(c=>c.id===_savCentreFiltre) || null;
   const aUnCentre = i => !!(i.chantier_id && centresMap[i.chantier_id]);
 
@@ -16339,7 +16332,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
   if(search){
     const q = search.toLowerCase();
-    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresMap[i.chantier_id]||'')+(devisMap[i.devis_id]?.numero||'')).toLowerCase().includes(q));
+    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresLib[i.chantier_id]||'')+(devisMap[i.devis_id]?.numero||'')).toLowerCase().includes(q));
   }
 
   const carteCentre = (c)=>{
@@ -16347,7 +16340,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     const actif = _savCentreFiltre===c.id;
     return `<div onclick="filtrerCentreSAV('${c.id}')" style="cursor:pointer;background:#fff;border:2px solid ${actif?'var(--blue)':'var(--gray-3)'};border-radius:var(--radius);padding:14px 16px;flex:1 1 240px;max-width:360px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div><div style="font-size:16px;font-weight:700;color:var(--blue)">${c.numero}</div><div style="font-size:12.5px;color:var(--gray-6)">${c.nom}</div><div style="font-size:11.5px;color:var(--gray-5)">${c.client||'Clients divers'}</div></div>
+        <div><div style="font-size:16px;font-weight:700;color:var(--blue)">${escHtml(c.numero)}</div><div style="font-size:12.5px;color:var(--gray-6)">${escHtml(c.nom)}</div><div style="font-size:11.5px;color:var(--gray-5)">${escHtml(c.client||'Clients divers')}</div></div>
         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openChantierDetail('${c.id}','interventions')" title="Fiche du centre de coûts : interventions, rentabilité, factures, heures"><i class="ti ti-folder-open"></i> Fiche</button>
       </div>
       <div style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--gray-6);flex-wrap:wrap">
@@ -16384,7 +16377,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
       ${[['encours','Actives'],['astreinte','Astreintes'],['toutes','Toutes']].map(([k,label])=>
         `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV('${search}','${k}')">${label}</button>`
       ).join('')}
-      ${_savCentreFiltre?`<button class="btn btn-sm btn-secondary" onclick="filtrerCentreSAV('')" title="Enlever le filtre"><i class="ti ti-filter"></i> Centre : ${_savCentreFiltre==='__aucun'?'sans centre':(centresMap[_savCentreFiltre]||'?')} <i class="ti ti-x"></i></button>`:''}
+      ${_savCentreFiltre?`<button class="btn btn-sm btn-secondary" onclick="filtrerCentreSAV('')" title="Enlever le filtre"><i class="ti ti-filter"></i> Centre : ${_savCentreFiltre==='__aucun'?'sans centre':(escHtml(centresLib[_savCentreFiltre])||'?')} <i class="ti ti-x"></i></button>`:''}
     </div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -16398,7 +16391,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
               <td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>
               <td>${i.nom_site?'<strong>'+escHtml(i.nom_site)+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ escHtml(i.adresse_site||'') +'</span>':(i.adresse_site?escHtml(i.adresse_site):'—')}</td>
               <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${String(devisMap[i.devis_id].objet||'').replace(/"/g,'&quot;')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
-              <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6)">'+centresMap[i.chantier_id]+'</span>':'—'}</td>
+              <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6);white-space:normal">'+escHtml(centresLib[i.chantier_id])+'</span>':'—'}</td>
               <td>${i.employes_rh?escHtml(nomPers(i.employes_rh)):escHtml(i.technicien_nom||'—')}</td>
               <td>${bSAV(i.statut)}</td>
               <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
