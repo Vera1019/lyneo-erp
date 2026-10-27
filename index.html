@@ -4557,8 +4557,28 @@ function avisarSincronizacaoPointages(resultado){
 const HI_CODE = 'HI', HI_NOM = 'Heures improductives';
 const SQL_PT_ACTIF = 'migration-pointages-chantiers-actifs.sql';
 const estCodeHI = c => String(c==null?'':c).trim().toUpperCase()===HI_CODE;
-const chantierOuvertPointages = c => !!c && !['pause','termine','archive'].includes(c.statut);
-const intervOuvertePointages = i => !!i && !['terminee','facturee'].includes(i.statut);
+// Un code n'est plus proposé quand : le chantier est en pause / terminé / archivé, OU il est entièrement FACTURÉ ;
+// une intervention SAV est terminée / facturée, OU elle a une facture émise. Un doute (données illisibles) ne ferme jamais un code.
+const MOTIF_STATUT = {pause:'en pause', termine:'terminé', archive:'archivé'};
+const FV_EMISES = ['envoyee','payee_partiel','payee'];
+// « Entièrement facturé » (chantiers seulement : jamais un centre SAV ni interne) = au moins un devis ACCEPTÉ lié au chantier
+// et TOUS ses devis acceptés facturés à 100 % ou plus (même règle que l'état de facturation des devis). Brouillons et annulées ne comptent pas.
+function chantierEntierementFacture(c, devisListe, facsParDevis){
+  if(!c || (c.type_centre && c.type_centre!=='chantier')) return false;
+  const acceptes = (devisListe||[]).filter(d=>d.statut==='accepte' && (String(d.chantier_id)===String(c.id) || (c.devis_id && String(d.id)===String(c.devis_id))));
+  if(!acceptes.length) return false;
+  return acceptes.every(d=>{ const e = etatFacturationDevis(d, (facsParDevis||{})[d.id]); return e.etat==='total' || e.etat==='sur'; });
+}
+// Intervention SAV facturée = au moins une facture ÉMISE (envoyée / part. payée / payée), notes de crédit « remise en quantités » déduites
+function intervEntierementFacturee(facs){
+  const emises = (facs||[]).filter(f=>FV_EMISES.includes(f.statut));
+  const couvert = emises.filter(f=>f.type_facture!=='avoir' || f.remet_quantites).reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
+  return couvert > 0.005;
+}
+const motifFermetureChantier = (c, facture) => !c ? 'introuvable' : (MOTIF_STATUT[c.statut] || (facture ? 'facturé à 100 %' : ''));
+const motifFermetureIntervention = (i, facturee) => !i ? 'introuvable' : (i.statut==='facturee' ? 'facturée' : i.statut==='terminee' ? 'terminée' : facturee ? 'facturée' : '');
+const chantierOuvertPointages = (c, facture) => motifFermetureChantier(c, facture)==='';
+const intervOuvertePointages = (i, facturee) => motifFermetureIntervention(i, facturee)==='';
 
 // Chantiers des pointages avec leur état. colonne:false = le SQL n'a pas encore été exécuté (état inconnu, rien à écrire).
 async function lireChantiersPointagesActif(){
@@ -4579,6 +4599,41 @@ async function lireChantiersPointagesActif(){
     if(/actif/i.test((e&&e.message)||'')) return {rows: await lire('id,code,nom'), colonne:false};
     throw e;
   }
+}
+// Lecture paginée (1000 lignes par page) ; le filtre éventuel est posé AVANT l'ordre et la plage
+async function lirePagine(table, cols, filtre){
+  const out = [];
+  for(let d0=0; ; d0+=1000){
+    let q = sb.from(table).select(cols);
+    if(filtre) q = filtre(q);
+    const {data,error} = await q.order('id',{ascending:true}).range(d0, d0+999);
+    if(error) throw error;
+    const l = data||[]; out.push(...l);
+    if(l.length<1000) break;
+  }
+  return out;
+}
+const COLS_FV_PT = 'id,devis_id,intervention_id,statut,type_facture,total_ht,remet_quantites';
+async function lireFacturesVentePointages(filtre){
+  try{ return await lirePagine('factures_vente', COLS_FV_PT, filtre); }
+  catch(e){ if(/remet_quantites/i.test((e&&e.message)||'')) return await lirePagine('factures_vente', COLS_FV_PT.replace(',remet_quantites',''), filtre); throw e; }
+}
+const COLS_DEVIS_PT = 'id,statut,montant_ht,chantier_id';
+const grouperPar = (liste, cle)=>{ const m = {}; (liste||[]).forEach(f=>{ if(f[cle]) (m[f[cle]] = m[f[cle]]||[]).push(f); }); return m; };
+// Toute la facturation d'un coup (synchronisation complète). ok=false si illisible : on n'ouvre alors RIEN (on ne sait pas si c'est facturé).
+async function lireFinancePointages(){
+  try{
+    const [devis, facs] = await Promise.all([lirePagine('devis', COLS_DEVIS_PT), lireFacturesVentePointages()]);
+    return {ok:true, devis, parDevis:grouperPar(facs,'devis_id'), parInterv:grouperPar(facs,'intervention_id')};
+  }catch(e){ return {ok:false, devis:[], parDevis:{}, parInterv:{}, erreur:(e&&e.message)||String(e)}; }
+}
+// Facturation d'UN chantier : ses devis (chantier_id, ou le devis d'origine du chantier) et les factures de ses devis acceptés
+async function lireFinanceChantier(ch){
+  const devis = await lirePagine('devis', COLS_DEVIS_PT, q=>q.eq('chantier_id', ch.id));
+  if(ch.devis_id && !devis.some(d=>String(d.id)===String(ch.devis_id))) devis.push(...await lirePagine('devis', COLS_DEVIS_PT, q=>q.eq('id', ch.devis_id)));
+  const ids = devis.filter(d=>d.statut==='accepte').map(d=>d.id);
+  const facs = ids.length ? await lireFacturesVentePointages(q=>q.in('devis_id', ids)) : [];
+  return {devis, parDevis:grouperPar(facs,'devis_id')};
 }
 // Écrit l'état d'un chantier des pointages. 'ok' | 'sql' (colonne absente) | 'droits' (0 ligne modifiée, RLS) | texte d'erreur
 async function ecrireActifPointages(p, ouvert){
@@ -4606,11 +4661,16 @@ async function majPointagesCodes(codes, ouvert){
 }
 async function majPointagesChantier(chantierId){
   try{
-    const {data:ch,error:errCh} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,code_pointages').eq('id',chantierId).single();
+    const {data:ch,error:errCh} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
     if(errCh) throw errCh;
     const codes = ch ? codesPointagesDe(ch) : [];
     if(!codes.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
-    return await majPointagesCodes(codes, chantierOuvertPointages(ch));
+    let facture = false;
+    if(ch && !MOTIF_STATUT[ch.statut] && (!ch.type_centre || ch.type_centre==='chantier')){      // déjà fermé par son statut : inutile de lire la facturation
+      const fin = await lireFinanceChantier(ch);
+      facture = chantierEntierementFacture(ch, fin.devis, fin.parDevis);
+    }
+    return await majPointagesCodes(codes, chantierOuvertPointages(ch, facture));
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
 }
 async function majPointagesIntervention(interventionId){
@@ -4618,10 +4678,18 @@ async function majPointagesIntervention(interventionId){
     const {data:i,error:errIv} = await sb.from('interventions_sav').select('id,ref,statut').eq('id',interventionId).single();
     if(errIv) throw errIv;
     if(!i || !i.ref) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
-    return await majPointagesCodes([i.ref], intervOuvertePointages(i));
+    let facturee = false;
+    if(i.statut!=='terminee' && i.statut!=='facturee') facturee = intervEntierementFacturee(await lireFacturesVentePointages(q=>q.eq('intervention_id', interventionId)));
+    return await majPointagesCodes([i.ref], intervOuvertePointages(i, facturee));
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
 }
 let _ptMajDerniere = null, _ptSqlAvise = false;
+// Les mises à jour des pointages s'exécutent UNE APRÈS L'AUTRE, dans l'ordre où elles ont été lancées : la dernière décision est toujours la dernière écrite
+// (deux changements rapprochés ne peuvent pas s'écraser dans le désordre). _ptMajDerniere se résout quand tout ce qui a été lancé est terminé.
+function suivreMajPointages(faire){
+  _ptMajDerniere = (_ptMajDerniere || Promise.resolve()).catch(()=>{}).then(faire);
+  return _ptMajDerniere;
+}
 function avisarEtatPointages(r){
   if(!r || r.vide) return;
   if(r.ok){
@@ -4640,12 +4708,56 @@ function avisarEtatPointages(r){
 }
 // Lancés SANS bloquer l'écran (le message arrive après le message principal). _ptMajDerniere : promesse de la dernière mise à jour.
 function lancerMajPointagesChantier(id){
-  _ptMajDerniere = majPointagesChantier(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; });
-  return _ptMajDerniere;
+  return suivreMajPointages(()=>majPointagesChantier(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; }));
 }
 function lancerMajPointagesIntervention(id){
-  _ptMajDerniere = majPointagesIntervention(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; });
-  return _ptMajDerniere;
+  return suivreMajPointages(()=>majPointagesIntervention(id).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; }));
+}
+// Une facture client ou un devis vient de changer (créée, émise, payée, note de crédit, devis accepté…) : on réévalue les codes du chantier
+// et de l'intervention concernés (« entièrement facturé » ⇒ plus proposé ; un nouveau devis accepté à facturer ⇒ de nouveau proposé).
+// info = {factureId, devisId, chantierId, interventionId, avant:[{chantier_id, intervention_id, devis_id}]}
+async function majPointagesFacturation(info){
+  const tot = {ok:true, ouverts:[], fermes:[], absents:[], erreur:null, vide:true};
+  try{
+    info = info||{};
+    const chs = new Set(), ivs = new Set(), dvs = new Set();
+    const add = (set,v)=>{ if(v!==undefined && v!==null && v!=='') set.add(String(v)); };
+    add(chs, info.chantierId); add(ivs, info.interventionId); add(dvs, info.devisId);
+    (info.chantierIds||[]).forEach(x=>add(chs,x));
+    (info.avant||[]).forEach(a=>{ if(a){ add(chs,a.chantier_id); add(ivs,a.intervention_id); add(dvs,a.devis_id); } });
+    if(info.factureId){
+      const {data:f} = await sb.from('factures_vente').select('chantier_id,intervention_id,devis_id').eq('id',info.factureId).maybeSingle();
+      if(f){ add(chs,f.chantier_id); add(ivs,f.intervention_id); add(dvs,f.devis_id); }
+    }
+    for(const did of dvs){
+      const {data:d} = await sb.from('devis').select('chantier_id').eq('id',did).maybeSingle();
+      if(d) add(chs,d.chantier_id);
+      try{ const {data:l} = await sb.from('chantiers_lyneo').select('id').eq('devis_id',did); (l||[]).forEach(x=>add(chs,x.id)); }catch(e){}
+    }
+    const resultats = [];
+    for(const id of chs) resultats.push(await majPointagesChantier(id));
+    for(const id of ivs) resultats.push(await majPointagesIntervention(id));
+    resultats.forEach(r=>{
+      if(!r.ok){ tot.vide = false; if(tot.ok){ tot.ok = false; tot.erreur = r.erreur; tot.detail = r.detail; } return; }
+      if(r.vide) return;
+      tot.vide = false; tot.ouverts.push(...r.ouverts); tot.fermes.push(...r.fermes);
+    });
+  }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
+  return tot;
+}
+// Chantiers touchés par un devis (à lire AVANT de le supprimer) : celui auquel il est rattaché + ceux dont il est le devis d'origine
+async function chantiersDuDevis(devisId){
+  const ids = [];
+  try{
+    const {data:d} = await sb.from('devis').select('chantier_id').eq('id',devisId).maybeSingle();
+    if(d && d.chantier_id) ids.push(d.chantier_id);
+    const {data:l} = await sb.from('chantiers_lyneo').select('id').eq('devis_id',devisId);
+    (l||[]).forEach(x=>{ if(!ids.some(i=>String(i)===String(x.id))) ids.push(x.id); });
+  }catch(e){}
+  return ids;
+}
+function lancerMajPointagesFacturation(info){
+  return suivreMajPointages(()=>majPointagesFacturation(info).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; }));
 }
 // Chantier ou intervention SUPPRIMÉ de l'ERP : ses codes ne sont plus proposés aux salariés (le chantier des pointages et ses heures
 // restent intacts). Un code encore revendiqué par un autre chantier / une autre intervention n'est jamais touché (on relit l'ERP).
@@ -4663,37 +4775,46 @@ async function majPointagesCodesSupprimes(codes){
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
 }
 function lancerMajPointagesCodesSupprimes(codes){
-  _ptMajDerniere = majPointagesCodesSupprimes(codes).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; });
-  return _ptMajDerniere;
+  return suivreMajPointages(()=>majPointagesCodesSupprimes(codes).then(r=>{ setTimeout(()=>avisarEtatPointages(r), 1200); return r; }));
 }
 
 // ── Synchronisation complète (bouton « Synchroniser les pointages » de la page Chantiers) ──
 // 1) calcule ce qui doit changer, SANS rien écrire ; 2) l'utilisateur voit l'aperçu et clique « Appliquer ».
 async function planSynchroPointages(){
-  const [chs, ivs, pt] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav'), lireChantiersPointagesActif()]);
+  const [chs, ivs, pt, fin] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav'), lireChantiersPointagesActif(), lireFinancePointages()]);
   const voulu = new Map(), absents = [];
-  const noter = (code, ouvert, source, chantier)=>{
+  const noter = (code, ouvert, source, chantier, motif)=>{
     if(estCodeHI(code)) return;
     const p = trouverChantierPointages(pt.rows, code);
     if(!p){ if(chantier || ouvert) absents.push({code, source}); return; }
     const k = String(p.id), v = voulu.get(k);
-    if(v){ v.ouvert = v.ouvert || ouvert; v.sources.push(source); } else voulu.set(k, {p, ouvert, sources:[source]});
+    if(v){ v.ouvert = v.ouvert || ouvert; v.sources.push(source); if(motif) v.motifs.push(motif); } else voulu.set(k, {p, ouvert, sources:[source], motifs:motif?[motif]:[]});
   };
-  chs.forEach(c=>codesPointagesDe(c).forEach(code=>noter(code, chantierOuvertPointages(c), (c.numero||'')+' — '+(c.nom||''), true)));
-  ivs.forEach(i=>{ if(i.ref) noter(i.ref, intervOuvertePointages(i), i.ref, false); });
-  const aOuvrir = [], aFermer = [], dejaOuverts = [], dejaFermes = [];
+  chs.forEach(c=>{
+    const facture = fin.ok && chantierEntierementFacture(c, fin.devis, fin.parDevis);
+    const motif = motifFermetureChantier(c, facture);
+    codesPointagesDe(c).forEach(code=>noter(code, motif==='', (c.numero||'')+' — '+(c.nom||''), true, motif));
+  });
+  ivs.forEach(i=>{
+    const facturee = fin.ok && intervEntierementFacturee((fin.parInterv||{})[i.id]);
+    const motif = motifFermetureIntervention(i, facturee);
+    if(i.ref) noter(i.ref, motif==='', i.ref, false, motif);
+  });
+  let aOuvrir = [], aFermer = [], dejaOuverts = [], dejaFermes = [];
   voulu.forEach(v=>{
     if(!pt.colonne) return;               // état inconnu : rien à calculer tant que le SQL n'est pas exécuté
     const actuel = v.p.actif!==false;
-    const ligne = {p:v.p, sources:v.sources};
+    const ligne = {p:v.p, sources:v.sources, motifs:v.ouvert ? [] : [...new Set(v.motifs)]};
     if(v.ouvert && !actuel) aOuvrir.push(ligne);
     else if(!v.ouvert && actuel) aFermer.push(ligne);
     else (v.ouvert ? dejaOuverts : dejaFermes).push(ligne);
   });
+  // Facturation illisible (réseau, droits) : on ne sait pas ce qui est facturé ⇒ on ne ROUVRE rien (un code masqué le reste) ; on masque encore selon le statut
+  if(!fin.ok){ dejaFermes = dejaFermes.concat(aOuvrir); aOuvrir = []; }
   const sansLien = pt.rows.filter(p=>!estCodeHI(p.code) && !voulu.has(String(p.id)));
   const hiPt = pt.rows.find(p=>estCodeHI(p.code)) || null;
   const hiErp = chs.find(c=>_txt(c.numero).trim().toUpperCase()===HI_CODE || codesPointagesDe(c).some(estCodeHI)) || null;
-  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp};
+  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp, financeErreur: fin.ok ? null : (fin.erreur||'erreur')};
 }
 // Crée / relie le centre « Heures improductives » des deux côtés (sans doublon : relecture avant chaque création)
 async function assurerCentreHI(plan){
@@ -4774,12 +4895,13 @@ function htmlResultatSynchroPointages(res){
   return h;
 }
 function htmlPlanSynchroPointages(plan, apresApplication){
-  const lib = l => `<li><strong>${escHtml(l.p.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(l.p.nom||'')}</span>${l.sources&&l.sources.length&&l.sources[0]!==l.p.code?` <span style="color:var(--gray-4);font-size:11px">(${escHtml(l.sources.join(' ; '))})</span>`:''}</li>`;
+  const lib = l => `<li><strong>${escHtml(l.p.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(l.p.nom||'')}</span>${l.sources&&l.sources.length&&l.sources[0]!==l.p.code?` <span style="color:var(--gray-4);font-size:11px">(${escHtml(l.sources.join(' ; '))})</span>`:''}${l.motifs&&l.motifs.length?` <span class="badge badge-termine" style="font-size:10px">${escHtml(l.motifs.join(' ; '))}</span>`:''}</li>`;
   const bloc = (titre, liste, id) => liste.length ? `<div id="${id}" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--gray-6);margin-bottom:4px">${titre} (${liste.length})</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${liste.map(lib).join('')}</ul></div>` : '';
   let h = '';
   if(!plan.pt.colonne) h += `<div class="alert alert-warning" id="sync-pt-sql" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La base des pointages n'a pas encore la colonne « actif » : exécutez <strong>${SQL_PT_ACTIF}</strong> dans le projet <strong>POINTAGES</strong> de Supabase (SQL Editor), puis rouvrez cette fenêtre. En attendant, tous les chantiers restent proposés aux salariés.</span></div>`;
+  if(plan.pt.colonne && plan.financeErreur) h += `<div class="alert alert-warning" id="sync-pt-finance" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La facturation n'a pas pu être lue (${escHtml(plan.financeErreur)}) : les codes déjà masqués ne sont pas rouverts et aucun code n'est masqué parce que « facturé ». Réessayez.</span></div>`;
   if(plan.pt.colonne){
-    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (en pause, terminés, archivés, interventions terminées).</p>`;
+    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (en pause, terminés, archivés, entièrement facturés, interventions terminées ou facturées).</p>`;
     h += bloc(apresApplication ? 'Encore à masquer' : 'À masquer maintenant', plan.aFermer, 'sync-pt-fermer');
     h += bloc(apresApplication ? 'Encore à proposer' : 'À proposer de nouveau', plan.aOuvrir, 'sync-pt-ouvrir');
   }
@@ -10238,8 +10360,9 @@ async function saveDevis(id){
     return res;
   };
 
-  let devisId = id;
+  let devisId = id, chantierAvantDevis = null;
   if(id){
+    try{ const {data:dAvant} = await sb.from('devis').select('chantier_id').eq('id',id).maybeSingle(); chantierAvantDevis = dAvant ? dAvant.chantier_id : null; }catch(e){}
     const {error} = await essayerSauver(ligne=> sb.from('devis').update(ligne).eq('id',id));
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
   } else {
@@ -10271,6 +10394,7 @@ async function saveDevis(id){
     }
   }
 
+  lancerMajPointagesFacturation({devisId, chantierId:header.chantier_id, avant:[{chantier_id:chantierAvantDevis}]});
   showToast(id?'Devis mis à jour':'Devis créé — '+header.objet);
   if(affaireNonSauvee) setTimeout(()=>showToast("L'« Affaire » / l'« Objet court » n'ont pas pu être enregistrés : exécutez d'abord migration-devis-affaire.sql dans Supabase", 'error'), 900);
   if(attentionNonSauvee) setTimeout(()=>showToast("Les notes / remarques n'ont pas pu être enregistrées : exécutez d'abord migration-devis-attention.sql dans Supabase", 'error'), affaireNonSauvee?2400:900);
@@ -10420,8 +10544,10 @@ async function openDevisDetail(devisId){
 
 async function deleteDevis(devisId, numero){
   if(!confirm(`Supprimer définitivement le devis ${numero} ? Les lignes et documents attachés seront aussi supprimés. Cette action est irréversible.`)) return;
+  const chantiersDuDevisSupprime = await chantiersDuDevis(devisId);      // à lire avant la suppression
   const {error} = await sb.from('devis').delete().eq('id',devisId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  lancerMajPointagesFacturation({chantierIds:chantiersDuDevisSupprime});
   showToast('Devis supprimé');
   closeModal();
   rafraichirPage();
@@ -10431,6 +10557,7 @@ async function changerStatutDevis(devisId, statut){
   const {data:d} = await sb.from('devis').select('*').eq('id',devisId).single();
   const {error} = await sb.from('devis').update({statut}).eq('id',devisId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  lancerMajPointagesFacturation({devisId});
   showToast('Devis marqué : '+STATUT_DV[statut]);
   if(statut==='accepte' && !d.chantier_id){
     if(confirm("Devis accepté ! Voulez-vous créer le chantier correspondant maintenant ?")){
@@ -10996,6 +11123,7 @@ async function saveFactureVenteLibre(){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
+  if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id});
   showToast('Facture client créée — '+num);
   closeModal();
   rafraichirPage();
@@ -11474,6 +11602,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
+  if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id});
   showToast('Facture client créée — '+num);
   closeModal();
   openChantierDetail(chantierId,'fac_vente');
@@ -11713,6 +11842,7 @@ async function saveAvoirVente(){
     await sb.from('factures_vente').delete().eq('id',av.id);      // pas de note de crédit sans lignes
     showToast('Erreur lignes: '+errL.message,'error'); reactiver(); return; }
 
+  if(av && av.statut && av.statut!=='brouillon') lancerMajPointagesFacturation({factureId:av.id});
   showToast('Note de crédit créée — '+num);
   closeModal();
   rafraichirPage();
@@ -12175,7 +12305,7 @@ async function saveEditFactureVente(facId){
   };
   if(el('efv-devis')) maj.devis_id = el('efv-devis').value || null;
   // mêmes garde-fous que les boutons de statut + champs verrouillés si la période est clôturée
-  const {data:avant} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation').eq('id',facId).single();
+  const {data:avant} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation,devis_id,chantier_id,intervention_id').eq('id',facId).single();
   await chargerCloture();
   const refus = await refusChangementStatutFV(avant, maj.statut);
   if(refus){ showToast(refus, 'error'); if(b) b.disabled=false; return; }
@@ -12184,6 +12314,7 @@ async function saveEditFactureVente(facId){
   if(error){ showToast('Erreur: '+error.message, 'error'); if(b) b.disabled=false; return; }
   // les notes de crédit de cette facture suivent son devis
   if(el('efv-devis')){ try{ await sb.from('factures_vente').update({devis_id: maj.devis_id}).eq('facture_origine_id',facId); }catch(e){} }
+  lancerMajPointagesFacturation({factureId:facId, avant:[avant]});     // « avant » : l'ancien devis / chantier si la facture a changé de devis
   showToast('Facture modifiée — '+numero);
   rafraichirPage();
   openFactureVenteDetail(facId);
@@ -12218,6 +12349,7 @@ async function changerStatutFactureVente(facId, statut){
   }
   const {error} = await sb.from('factures_vente').update({statut}).eq('id',facId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  lancerMajPointagesFacturation({factureId:facId});
   showToast('Facture marquée : '+(STATUT_FV[statut]||statut));
   closeModal();
   rafraichirPage();
@@ -16882,6 +17014,7 @@ async function saveFactureSAV(interventionId, clientId){
   await sb.from('interventions_sav').update({statut:'facturee'}).eq('id',interventionId);
   lancerMajPointagesIntervention(interventionId);
 
+  if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id, interventionId});
   showToast('Facture créée — '+num);
   closeModal();
   openInterventionDetail(interventionId);
