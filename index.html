@@ -227,6 +227,7 @@ table.rc-table tr.rc-tot td{font-weight:800;background:#E2E8F0;border-top:2px so
 .badge-rec_partielle{background:#FEF3C7;color:#92400E}
 .badge-rec_totale{background:#D1FAE5;color:#065F46}
 .badge-facturee{background:#E0E7FF;color:#3730A3}
+.badge-facturee_partiel{background:#FEF3C7;color:#92400E}
 .badge-payee{background:#D1FAE5;color:#064E3B}
 .badge-annulee{background:#FEE2E2;color:#991B1B}
 .badge-actif,.badge-accepte{background:#D1FAE5;color:#065F46}
@@ -1745,7 +1746,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
         });
       };
       boite(24.5,236,'PROJET',[['Affaire:',cfg.affaire],['N° de devis:',cfg.numero],['Objet:',cfg.objet],['Correspondant:',cfg.correspondant]]);
-      boite(334.5,238,'CLIENT',[['Nom:',cfg.client.nom],['Adresse:',cfg.client.adresse],['Code Postal:',cfg.client.cp_ville]]);
+      boite(334.5,238,'CLIENT',[['Nom:',cfg.client.nom],['Adresse:',cfg.client.adresse],['Code Postal:',cfg.client.cp_ville]].concat(cfg.client.tva ? [['N° TVA:',cfg.client.tva]] : []));
 
       let y = 348;
       ['Madame, Messieurs,','','Pour faire suite à votre demande, veuillez trouver ci-dessous notre proposition :','',
@@ -1995,6 +1996,289 @@ function bFD(e){
   const lib = {non:'Non facturé', brouillon:'Facture en brouillon', partiel:'Partiel '+e.pct+' %', total:'Facturé', sur:'Sur-facturé', na:'—'}[e.etat];
   return `<span class="badge badge-fd-${e.etat}">${lib}</span>`;
 }
+// ── FACTURATION D'UNE INTERVENTION SAV / D'UN CHANTIER : état DÉRIVÉ des factures clients (rien à saisir) ──────────────
+// Règle d'Odoo : une facture déjà créée compte, même en brouillon (la colonne le signale) ; une facture annulée jamais ;
+// une note de crédit seulement si elle « remet les quantités à facturer » (erreur à refacturer) et qu'elle est émise.
+// montantRef = montant HT de référence (devis de l'intervention, devis acceptés du chantier). Sans référence : dès qu'une
+// facture existe c'est « facturé » (pas de pourcentage possible). Lecture impossible ⇒ état « inconnu » (jamais un faux « Non facturé »).
+function etatFacturationGlobal(montantRef, facs){
+  const num = v=>parseFloat(v)||0;
+  const liste = (facs||[]).filter(f=>f && f.statut!=='annulee');
+  const compte = f => f.type_facture==='avoir' ? (!!f.remet_quantites && FV_EMISES.includes(f.statut)) : true;
+  const retenues = liste.filter(compte);
+  const couvert = arrondi2(retenues.reduce((a,f)=>a+num(f.total_ht),0));
+  const emisHT = arrondi2(retenues.filter(f=>FV_EMISES.includes(f.statut)).reduce((a,f)=>a+num(f.total_ht),0));
+  const nbBrouillons = liste.filter(f=>f.statut==='brouillon' && f.type_facture!=='avoir').length;
+  const montant = num(montantRef);
+  const reste = arrondi2(montant - couvert);
+  let etat;
+  if(couvert <= 0.005) etat = 'non';
+  else if(!(montant>0)) etat = 'total';
+  else if(reste > TOLERANCE_FACT_DEVIS) etat = 'partiel';
+  else if(reste < -TOLERANCE_FACT_DEVIS) etat = 'sur';
+  else etat = 'total';
+  let pct = montant>0 ? Math.round(couvert/montant*100) : null;
+  if(etat==='partiel') pct = Math.max(0, Math.min(99, Math.floor(couvert/montant*100)));
+  return {etat, montant, couvert, emisHT, reste, pct, sansRef: !(montant>0), nbBrouillons,
+          soloBrouillon: couvert>0.005 && nbBrouillons>0 && emisHT<=0.005};
+}
+// Factures d'une intervention : celles qui lui sont liées, plus celles de SON devis créées sans lien direct (depuis le devis ou le chantier)
+// — jamais une facture déjà liée à une AUTRE intervention.
+function facturesDeIntervention(i, facsTous){
+  const vus = new Set(), id = String(i.id), dv = i.devis_id ? String(i.devis_id) : '';
+  return (facsTous||[]).filter(f=>{
+    const lie = f.intervention_id ? String(f.intervention_id)===id : (!!dv && String(f.devis_id||'')===dv);
+    if(!lie || vus.has(String(f.id))) return false;
+    vus.add(String(f.id)); return true;
+  });
+}
+function etatFacturationIntervention(i, devis, facsTous){
+  if(i.devis_id && !devis) return {etat:'inconnu'};          // devis illisible : on ne devine pas
+  const ref = i.devis_id ? (parseFloat(devis.montant_ht)||0) : 0;
+  return etatFacturationGlobal(ref, facturesDeIntervention(i, facsTous));
+}
+// Statut ENREGISTRÉ d'une intervention d'après sa facturation. Jamais en arrière tout seul (une facture annulée ne « dé-facture » pas) ;
+// « Partiellement facturée » seulement quand le travail est terminé (un acompte sur une intervention en cours ne la ferme pas).
+function statutCibleFacturation(statut, e){
+  const etat = e && e.etat;
+  if(etat==='total' || etat==='sur') return statut==='facturee' ? null : 'facturee';
+  if(etat==='partiel') return (statut==='terminee' || statut==='facturee') ? 'facturee_partiel' : null;
+  return null;
+}
+function libFacturation(e, genre){
+  const f = genre!=='m';
+  if(!e || e.etat==='inconnu') return '—';
+  if(e.etat==='non') return f ? 'Non facturée' : 'Non facturé';
+  if(e.etat==='partiel') return (f ? 'Partielle ' : 'Partiel ') + e.pct + ' %';
+  if(e.etat==='sur') return f ? 'Sur-facturée' : 'Sur-facturé';
+  return f ? 'Facturée' : 'Facturé';
+}
+function titreFacturation(e){
+  if(!e || e.etat==='inconnu') return 'Facturation illisible : factures clients non lues';
+  const p = [];
+  if(!e.sansRef) p.push('Facturé '+fmt(e.couvert)+' HT sur '+fmt(e.montant)+' HT');
+  else if(e.couvert>0.005) p.push('Facturé '+fmt(e.couvert)+' HT (pas de devis de référence : pas de pourcentage)');
+  else p.push('Aucune facture');
+  if(e.nbBrouillons) p.push(e.nbBrouillons+' facture'+(e.nbBrouillons>1?'s':'')+' en brouillon');
+  return p.join(' — ');
+}
+function badgeFacturation(e, o){
+  o = o||{};
+  if(!e || e.etat==='inconnu') return '<span class="text-muted">—</span>';
+  const classe = e.etat==='non' ? (o.aFacturer ? 'badge-fd-non' : 'badge-fd-na') : 'badge-fd-'+e.etat;
+  const brouillon = e.soloBrouillon ? ' <span class="fact-brouillon" style="font-size:10.5px;color:var(--gray-5)">brouillon</span>' : '';
+  return `<span class="badge ${classe}" style="white-space:nowrap">${libFacturation(e, o.genre)}</span>${brouillon}`;
+}
+function cellFacturation(e, o){
+  const inconnu = !e || e.etat==='inconnu';
+  return `<td class="td-fact" data-fact="${inconnu?'inconnu':e.etat}" title="${escHtml(titreFacturation(e))}">${badgeFacturation(e, o)}</td>`;
+}
+// Lecture par paquets (liste d'identifiants longue) ET par pages de 1000 lignes. ok=false si une lecture échoue.
+async function lireParLots(table, cols, col, ids, taille){
+  const liste = [...new Set((ids||[]).map(x=>String(x)).filter(x=>x && x!=='null' && x!=='undefined'))], rows = [];
+  for(let k=0; k<liste.length; k+=(taille||40)){
+    const part = liste.slice(k, k+(taille||40));
+    try{ rows.push(...await lirePagine(table, cols, q=>q.in(col, part))); }
+    catch(e){ return {ok:false, rows:[], erreur:(e&&e.message)||String(e)}; }
+  }
+  return {ok:true, rows};
+}
+const COLS_FV_FACT = 'id,chantier_id,intervention_id,devis_id,statut,type_facture,total_ht,remet_quantites';
+async function lireFacturesVenteFact(col, ids){
+  let r = await lireParLots('factures_vente', COLS_FV_FACT, col, ids);
+  if(!r.ok && /remet_quantites/i.test(r.erreur||'')) r = await lireParLots('factures_vente', COLS_FV_FACT.replace(',remet_quantites',''), col, ids);
+  return r;
+}
+// État de facturation de chaque intervention : {ok, parId:{id:état}}. ok=false ⇒ colonne « — » (rien n'est affirmé).
+async function lireFacturationInterventions(ivs, devisMap){
+  const liste = ivs||[];
+  if(!liste.length) return {ok:true, parId:{}, rows:[]};
+  const [a, b] = await Promise.all([
+    lireFacturesVenteFact('intervention_id', liste.map(i=>i.id)),
+    lireFacturesVenteFact('devis_id', liste.map(i=>i.devis_id).filter(Boolean))
+  ]);
+  if(!a.ok || !b.ok) return {ok:false, parId:{}, rows:[], erreur:a.erreur||b.erreur};
+  const vus = new Set(), rows = [];
+  [...a.rows, ...b.rows].forEach(f=>{ if(!vus.has(String(f.id))){ vus.add(String(f.id)); rows.push(f); } });
+  const parId = {};
+  liste.forEach(i=>{ parId[i.id] = etatFacturationIntervention(i, i.devis_id ? (devisMap||{})[String(i.devis_id)] : null, rows); });
+  return {ok:true, parId, rows};
+}
+// Devis illisibles : seules les interventions AVEC devis passent à « inconnu » (nbInconnus) ; les autres restent calculées.
+async function lireEtatsFacturationInterventions(ivs){
+  const liste = ivs||[];
+  const dv = await lireParLots('devis', 'id,montant_ht', 'id', liste.map(i=>i.devis_id).filter(Boolean));
+  const devisMap = {}; if(dv.ok) dv.rows.forEach(d=>{ devisMap[String(d.id)] = d; });
+  const r = await lireFacturationInterventions(liste, devisMap);
+  if(r.ok) r.nbInconnus = liste.filter(i=>(r.parId[i.id]||{}).etat==='inconnu').length;
+  return r;
+}
+// Chantiers : référence = devis ACCEPTÉS du chantier (ceux qui lui sont rattachés + son devis d'origine) ; factures = celles du chantier.
+async function lireFacturationChantiers(chantiers){
+  const cibles = (chantiers||[]).filter(c=>(c.type_centre||'chantier')==='chantier');
+  if(!cibles.length) return {ok:true, parId:{}};
+  const COLS_DV = 'id,chantier_id,statut,montant_ht';
+  const [fv, dv1, dv2] = await Promise.all([
+    lireFacturesVenteFact('chantier_id', cibles.map(c=>c.id)),
+    lireParLots('devis', COLS_DV, 'chantier_id', cibles.map(c=>c.id)),
+    lireParLots('devis', COLS_DV, 'id', cibles.map(c=>c.devis_id).filter(Boolean))
+  ]);
+  if(!fv.ok || !dv1.ok || !dv2.ok) return {ok:false, parId:{}};
+  const devis = new Map(); [...dv1.rows, ...dv2.rows].forEach(d=>devis.set(String(d.id), d));
+  const parId = {};
+  cibles.forEach(c=>{
+    const cid = String(c.id);
+    const ref = [...devis.values()].filter(d=>d.statut==='accepte' && (String(d.chantier_id||'')===cid || String(d.id)===String(c.devis_id||'')))
+      .reduce((a,d)=>a+(parseFloat(d.montant_ht)||0),0);
+    parId[c.id] = etatFacturationGlobal(ref, fv.rows.filter(f=>String(f.chantier_id)===cid));
+  });
+  return {ok:true, parId};
+}
+// Écrit le statut d'une intervention et vérifie qu'une ligne a vraiment changé (le RLS renvoie 0 ligne sans erreur).
+async function appliquerStatutIntervention(id, cible){
+  const {data, error} = await sb.from('interventions_sav').update({statut:cible}).eq('id', id).select('id,statut');
+  if(error) return {ok:false, motif: /check constraint|violates check/i.test(error.message||'') ? 'contrainte' : 'ecriture', detail:error.message};
+  if(!data || !data.length) return {ok:false, motif:'droits'};
+  return {ok:true};
+}
+// L'intervention suit sa facturation (comme « To Invoice » → « Fully Invoiced » d'Odoo). Relit tout dans la base : jamais de cache.
+async function synchroniserStatutFacturationIntervention(interventionId, opts){
+  opts = opts||{};
+  if(!interventionId) return {ok:false, motif:'sans_intervention'};
+  try{
+    const {data:i, error} = await sb.from('interventions_sav').select('id,ref,statut,devis_id').eq('id', interventionId).maybeSingle();
+    if(error) return {ok:false, motif:'lecture', detail:error.message};
+    if(!i) return {ok:false, motif:'introuvable'};
+    const lu = await lireEtatsFacturationInterventions([i]);
+    if(!lu.ok) return {ok:false, motif:'lecture', detail:lu.erreur, ref:i.ref};
+    const etat = lu.parId[i.id];
+    if(etat.etat==='inconnu') return {ok:false, motif:'lecture', detail:'devis de l\'intervention illisible', ref:i.ref};
+    const cible = statutCibleFacturation(i.statut, etat);
+    if(!cible) return {ok:true, change:false, ref:i.ref, statut:i.statut, etat};
+    const w = await appliquerStatutIntervention(i.id, cible);
+    if(!w.ok) return {...w, ref:i.ref, etat};
+    if(opts.pointages!==false) lancerMajPointagesIntervention(i.id);
+    return {ok:true, change:true, ref:i.ref, de:i.statut, statut:cible, etat};
+  }catch(e){ return {ok:false, motif:'exception', detail:(e&&e.message)||String(e)}; }
+}
+function signalerMajStatutIntervention(maj){
+  if(!maj || maj.motif==='sans_intervention') return;
+  if(maj.ok){ if(maj.change) showToast('Intervention '+maj.ref+' : '+STATUT_SAV[maj.statut]); return; }
+  const m = maj.motif==='droits' ? "droits insuffisants pour modifier l'intervention"
+    : maj.motif==='contrainte' ? "la base refuse ce statut (exécutez "+SQL_SAV_STATUT_PARTIEL+" dans Supabase)"
+    : (maj.detail||'raison inconnue');
+  showToast("⚠ Facture créée, mais le statut de l'intervention"+(maj.ref?' '+maj.ref:'')+" n'a pas pu être mis à jour : "+m+". Utilisez les boutons de statut de la fiche de l'intervention.", 'error');
+}
+const SQL_SAV_STATUT_PARTIEL = 'migration-sav-statut-partiel.sql';
+// L'intervention liée à un devis (une seule par devis) : la facture créée depuis le devis ou le chantier lui est rattachée.
+async function interventionDuDevis(devisId){
+  if(!devisId) return null;
+  try{
+    const {data, error} = await sb.from('interventions_sav').select('id').eq('devis_id', devisId).limit(1);
+    if(error) return null;
+    return (data && data[0]) ? data[0].id : null;
+  }catch(e){ return null; }
+}
+// Rattrapage : interventions qui ont des factures clients mais dont le statut ne le reflète pas (bandeau de la liste SAV).
+async function mettreAJourStatutsFacturationSAV(){
+  const b = el('sav-resync-btn'); if(b) b.disabled = true;
+  const rouvrir = ()=>{ const x = el('sav-resync-btn'); if(x) x.disabled = false; };
+  try{
+    const {data:ivs, error} = await sb.from('interventions_sav').select('id,ref,statut,devis_id').order('numero',{ascending:false});
+    if(error) throw error;
+    const lu = await lireEtatsFacturationInterventions(ivs||[]);
+    if(!lu.ok) throw new Error(lu.erreur||'factures clients illisibles');
+    const aFaire = (ivs||[]).map(i=>({i, cible:statutCibleFacturation(i.statut, lu.parId[i.id])})).filter(x=>x.cible);
+    if(!aFaire.length && lu.nbInconnus){ showToast('⚠ '+lu.nbInconnus+' intervention'+(lu.nbInconnus>1?'s':'')+' non vérifiée'+(lu.nbInconnus>1?'s':'')+' : devis illisibles. Réessayez dans un instant.', 'error'); rouvrir(); return; }
+    if(!aFaire.length){ showToast('Tous les statuts de facturation sont déjà à jour'); rafraichirPage(); return; }
+    const lignes = aFaire.slice(0,15).map(x=>'• '+x.i.ref+' : '+(STATUT_SAV[x.i.statut]||x.i.statut)+' → '+STATUT_SAV[x.cible]).join('\n') + (aFaire.length>15 ? '\n… et '+(aFaire.length-15)+' autre(s)' : '');
+    if(!confirm('Mettre à jour le statut de '+aFaire.length+' intervention(s) d\'après leurs factures clients ?\n\n'+lignes+(lu.nbInconnus ? '\n\n('+lu.nbInconnus+' intervention(s) non vérifiée(s) : devis illisibles.)' : '')+'\n\n(Le statut ne revient jamais en arrière tout seul.)')){ rouvrir(); return; }
+    let ok = 0, ko = 0, dernier = '';
+    for(const x of aFaire){
+      const w = await appliquerStatutIntervention(x.i.id, x.cible);
+      if(w.ok){ ok++; lancerMajPointagesIntervention(x.i.id); } else { ko++; dernier = w.motif==='droits' ? "droits insuffisants" : w.motif==='contrainte' ? "la base refuse ce statut (exécutez "+SQL_SAV_STATUT_PARTIEL+")" : (w.detail||'erreur'); }
+    }
+    if(ok) showToast(ok+' intervention'+(ok>1?'s':'')+' mise'+(ok>1?'s':'')+' à jour');
+    if(ko) showToast('⚠ '+ko+' intervention'+(ko>1?'s':'')+' non modifiée'+(ko>1?'s':'')+' : '+dernier, 'error');
+    rafraichirPage();
+  }catch(e){
+    showToast('Erreur: '+((e&&e.message)||e), 'error'); rouvrir();
+  }
+}
+// ── UN DEVIS FACTURÉ EST UN DEVIS ACCEPTÉ ────────────────────────────────────────────────────────────────────────
+// Dès qu'une facture client est créée à partir d'un devis (depuis la fiche client, le chantier / le devis ou l'intervention SAV),
+// le devis passe tout seul à « Accepté » : le client l'a commandé puisqu'on le lui facture (comme Odoo : la facturation suit la commande confirmée).
+// Brouillon / Envoyé / Expiré → Accepté. Un devis « Refusé » n'est JAMAIS rouvert en silence (simple avertissement).
+// Aucun chantier n'est proposé ni créé. Ne bloque jamais la facture ; le statut ne revient jamais en arrière tout seul.
+const STATUTS_DEVIS_A_ACCEPTER = ['brouillon','envoye','expire'];
+async function accepterDevisFacture(devisId){
+  if(!devisId) return {ok:false, motif:'sans_devis'};
+  try{
+    const lire = ()=> sb.from('devis').select('id,numero,statut').eq('id', devisId).maybeSingle();
+    const {data:d, error} = await lire();
+    if(error) return {ok:false, motif:'lecture', detail:error.message};
+    if(!d) return {ok:false, motif:'introuvable'};
+    if(d.statut==='refuse') return {ok:true, change:false, refuse:true, numero:d.numero, ancien:d.statut};
+    if(!STATUTS_DEVIS_A_ACCEPTER.includes(d.statut)) return {ok:true, change:false, numero:d.numero, ancien:d.statut};
+    // mise à jour conditionnelle : si quelqu'un l'a refusé / accepté entre-temps, on n'écrase rien
+    const {data:maj, error:e2} = await sb.from('devis').update({statut:'accepte'}).eq('id', devisId).in('statut', STATUTS_DEVIS_A_ACCEPTER).select('id,statut');
+    if(e2) return {ok:false, motif:'ecriture', detail:e2.message, numero:d.numero};
+    if(!maj || !maj.length){
+      // 0 ligne : soit le statut a changé entre-temps (on relit), soit le RLS refuse sans erreur
+      const {data:d2, error:e3} = await lire();
+      if(!e3 && d2 && d2.statut==='accepte') return {ok:true, change:false, numero:d.numero, ancien:d2.statut};
+      if(!e3 && d2 && d2.statut==='refuse') return {ok:true, change:false, refuse:true, numero:d.numero, ancien:d2.statut};
+      return {ok:false, motif:'droits', numero:d.numero};
+    }
+    return {ok:true, change:true, numero:d.numero, ancien:d.statut};
+  }catch(e){ return {ok:false, motif:'exception', detail:(e&&e.message)||String(e)}; }
+}
+function signalerAcceptationDevis(r){
+  if(!r || r.motif==='sans_devis') return;
+  const n = r.numero ? ' '+escHtml(r.numero) : '';
+  if(r.ok){
+    if(r.refuse) showToast("⚠ Le devis"+n+" est « Refusé » mais vient d'être facturé : son statut n'a pas été modifié. À vérifier.", 'error');
+    else if(r.change) showToast('Devis'+n+' : '+escHtml(STATUT_DV[r.ancien]||r.ancien)+' → Accepté');
+    return;
+  }
+  const m = r.motif==='droits' ? "droits insuffisants pour modifier le devis"
+    : r.motif==='introuvable' ? "devis introuvable"
+    : escHtml(r.detail||'raison inconnue');
+  showToast("⚠ Facture créée, mais le devis"+n+" n'a pas pu passer à « Accepté » : "+m+". Changez son statut depuis la liste des devis.", 'error');
+}
+// Devis pas encore « Accepté » qui ont déjà au moins une facture client (hors annulée et hors note de crédit)
+function devisAAccepterFacture(d, facs){
+  return !!d && STATUTS_DEVIS_A_ACCEPTER.includes(d.statut) && (facs||[]).some(f=>f && f.statut!=='annulee' && f.type_facture!=='avoir');
+}
+// Rattrapage (bandeau de la page Devis) : les devis facturés avant cette version passent à « Accepté », après confirmation.
+async function mettreAJourStatutsDevisFactures(){
+  const b = el('dv-resync-btn'); if(b) b.disabled = true;
+  const rouvrir = ()=>{ const x = el('dv-resync-btn'); if(x) x.disabled = false; };
+  try{
+    const devis = await lirePagine('devis', 'id,numero,statut', q=>q.in('statut', [...STATUTS_DEVIS_A_ACCEPTER, 'refuse']));
+    const lu = await lireParLots('factures_vente', 'id,devis_id,statut,type_facture', 'devis_id', devis.map(d=>d.id));
+    if(!lu.ok) throw new Error(lu.erreur||'factures clients illisibles');
+    const factures = new Set(lu.rows.filter(f=>f.statut!=='annulee' && f.type_facture!=='avoir').map(f=>String(f.devis_id)));
+    const tous = devis.filter(d=>factures.has(String(d.id)));
+    const aFaire = tous.filter(d=>STATUTS_DEVIS_A_ACCEPTER.includes(d.statut))
+      .sort((a,b)=>String(a.numero||'').localeCompare(String(b.numero||''), 'fr', {numeric:true}));
+    const nbRefuses = tous.length - aFaire.length;
+    if(!aFaire.length){ showToast('Tous les devis facturés sont déjà acceptés'); rafraichirPage(); return; }
+    const lignes = aFaire.slice(0,15).map(d=>'• '+(d.numero||'?')+' : '+(STATUT_DV[d.statut]||d.statut)+' → Accepté').join('\n') + (aFaire.length>15 ? '\n… et '+(aFaire.length-15)+' autre(s)' : '');
+    if(!confirm('Passer à « Accepté » '+aFaire.length+' devis déjà facturé(s) ?\n\n'+lignes+(nbRefuses ? '\n\n('+nbRefuses+' devis « Refusé » facturé(s) : non modifié(s).)' : '')+'\n\n(Aucun chantier n\'est créé.)')){ rouvrir(); return; }
+    let ok = 0, ko = 0, dernier = '';
+    for(const d of aFaire){
+      const w = await accepterDevisFacture(d.id);
+      if(w.ok){ if(w.change) ok++; }
+      else { ko++; dernier = w.motif==='droits' ? 'droits insuffisants' : w.motif==='introuvable' ? 'devis introuvable' : escHtml(w.detail||'erreur'); }
+    }
+    if(ok) showToast(ok+' devis passé'+(ok>1?'s':'')+' à « Accepté »');
+    if(ko) showToast('⚠ '+ko+' devis non modifié'+(ko>1?'s':'')+' : '+dernier, 'error');
+    rafraichirPage();
+  }catch(e){
+    showToast('Erreur: '+escHtml((e&&e.message)||String(e)), 'error'); rouvrir();
+  }
+}
 // Montant TTC restant dû sur une facture une fois les notes de crédit émises déduites
 function soldeFv(f, av){ return (parseFloat(f.total_ttc)||0) + ((av && av[f.id]) ? av[f.id].ttc : 0); }
 function bCH(s){ return `<span class="badge badge-${escHtml(s)}">${escHtml(STATUT_CH[s]||s)}</span>`; }
@@ -2081,7 +2365,7 @@ function pastillesSituationChantier(s){
 const STATUT_DV = {brouillon:'Brouillon', envoye:'Envoyé', accepte:'Accepté', refuse:'Refusé', expire:'Expiré'};
 function bDV(s){ return `<span class="badge badge-${s}">${STATUT_DV[s]||s}</span>`; }
 function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
-const STATUT_SAV = {nouvelle:'Nouvelle', attribuee:'Attribuée', encours:'En cours', terminee:'Terminée — à facturer', facturee:'Facturée'};
+const STATUT_SAV = {nouvelle:'Nouvelle', attribuee:'Attribuée', encours:'En cours', terminee:'Terminée — à facturer', facturee_partiel:'Partiellement facturée', facturee:'Facturée'};
 function bSAV(s){ return `<span class="badge badge-${s}">${STATUT_SAV[s]||s}</span>`; }
 const ARTICLES_SAV = ["Main d'œuvre","Frais de déplacement","Matériel","Astreinte","Sous-traitance","Divers"];
 
@@ -3204,6 +3488,7 @@ let _chantiers = [];   // cache de la liste des chantiers (déclaré ici : openC
 let _chantiersSearchAtual = '';
 let _chVue = 'actifs';        // 'actifs' = liste principale ; 'archives' = onglet « Chantiers archivés »
 let _chEmpNoms = {};          // id employé → nom (chef de chantier affiché depuis la fiche de l'employé)
+let _chFacturation = null;    // id chantier → état de facturation (Non facturé / Partiel / Facturé) ; null = lecture impossible
 let _chSituations = {};       // id chantier terminé → situation financière (à encaisser / retenue / soldé) ; null = lecture impossible
 function chChangerVue(v){ _chVue = (v==='archives') ? 'archives' : 'actifs'; renderChantiers(_chantiersSearchAtual); }
 async function renderChantiers(search=''){
@@ -3220,6 +3505,8 @@ async function renderChantiers(search=''){
       if(fv.ok) termines.forEach(c=>{ _chSituations[c.id] = situationFinanciereChantier(c, fv.rows); });
       else _chSituations = null;
     }
+    // Facturation de chaque chantier (devis acceptés ↔ factures clients). Si la lecture échoue : « — » (jamais un faux « Non facturé »).
+    try{ const fa = await lireFacturationChantiers(_chantiers); _chFacturation = fa.ok ? fa.parId : null; }catch(e){ _chFacturation = null; }
   }
   // Les centres de coûts SAV (SAV 1, SAV 2...) vivent dans le module Interventions : ils ne sont pas listés ici.
   const centresSav = _chantiers.filter(c=>c.type_centre==='sav');
@@ -3263,12 +3550,13 @@ async function renderChantiers(search=''){
             ${sortableTh('Chef chantier','chantiers','chef_chantier',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Début','chantiers','date_debut',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Statut','chantiers','statut',"renderChantiers(_chantiersSearchAtual)")}
+            <th>Facturation</th>
             <th>Actions</th>
           </tr></thead>
           <tbody>
             ${items.length===0 ? (_chVue==='archives'
-              ? '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-archive"></i></div><p>Aucun chantier archivé</p><p style="font-size:12px;color:var(--gray-5)">Un chantier terminé et soldé s\'archive depuis la liste (bouton « Archiver »).</p></div></td></tr>'
-              : '<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>') :
+              ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-archive"></i></div><p>Aucun chantier archivé</p><p style="font-size:12px;color:var(--gray-5)">Un chantier terminé et soldé s\'archive depuis la liste (bouton « Archiver »).</p></div></td></tr>'
+              : '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>') :
             items.map(r=>{
               const arch = chEstArchive(r);
               const sit = (r.statut==='termine' && _chSituations) ? _chSituations[r.id] : null;
@@ -3280,6 +3568,7 @@ async function renderChantiers(search=''){
               <td>${escHtml(nomChef(r,_chEmpNoms))||'—'}${chefNonLie(r,_chEmpNoms) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</td>
               <td>${fmtDate(r.date_debut)}</td>
               <td>${bCH(r.statut)}${sit ? ' '+pastillesSituationChantier(sit) : ''}</td>
+              ${estChantier ? cellFacturation(_chFacturation ? _chFacturation[r.id] : null, {genre:'m'}) : '<td class="td-fact" data-fact="na">—</td>'}
               <td onclick="event.stopPropagation()"><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')" title="Consulter"><i class="ti ti-eye"></i></button>
                 ${arch ? `<button class="btn btn-primary btn-sm" data-chantier-desarchiver="${r.id}" title="Désarchiver" onclick="event.stopPropagation();desarchiverChantier('${r.id}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : `
@@ -4570,7 +4859,7 @@ function intervEntierementFacturee(facs){
   return couvert > 0.005;
 }
 const motifFermetureChantier = c => !c ? 'introuvable' : (MOTIF_STATUT[c.statut] || '');
-const motifFermetureIntervention = (i, facturee) => !i ? 'introuvable' : (i.statut==='facturee' ? 'facturée' : i.statut==='terminee' ? 'terminée' : facturee ? 'facturée' : '');
+const motifFermetureIntervention = (i, facturee) => !i ? 'introuvable' : (i.statut==='facturee' ? 'facturée' : i.statut==='facturee_partiel' ? 'facturée en partie' : i.statut==='terminee' ? 'terminée' : facturee ? 'facturée' : '');
 const chantierOuvertPointages = c => motifFermetureChantier(c)==='';
 const intervOuvertePointages = (i, facturee) => motifFermetureIntervention(i, facturee)==='';
 
@@ -4660,7 +4949,7 @@ async function majPointagesIntervention(interventionId){
     if(errIv) throw errIv;
     if(!i || !i.ref) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
     let facturee = false;
-    if(i.statut!=='terminee' && i.statut!=='facturee') facturee = intervEntierementFacturee(await lireFacturesVentePointages(q=>q.eq('intervention_id', interventionId)));
+    if(i.statut!=='terminee' && i.statut!=='facturee' && i.statut!=='facturee_partiel') facturee = intervEntierementFacturee(await lireFacturesVentePointages(q=>q.eq('intervention_id', interventionId)));
     return await majPointagesCodes([i.ref], intervOuvertePointages(i, facturee));
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
 }
@@ -5309,6 +5598,8 @@ async function renderPOS(search='', filterStatut=''){
               <td>${tracCell(r.cree_par)}</td>
               <td onclick="event.stopPropagation()"><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="openPODetail('${r.id}')"><i class="ti ti-eye"></i></button>
+                ${poPeutEtreReceptionnee(r) ? `<button class="btn btn-secondary btn-sm" data-po-recevoir="${r.id}" onclick="openReceptionPO('${r.id}')" title="Réceptionner la marchandise"><i class="ti ti-truck-delivery"></i></button>` : ''}
+                ${poPeutEtreFacturee(r) ? `<button class="btn btn-secondary btn-sm" data-po-facturer="${r.id}" onclick="openFacFromPO('${r.id}')" title="Générer la facture du fournisseur"><i class="ti ti-file-invoice"></i></button>` : ''}
                 ${r.statut==='brouillon' ? '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();annulerPO(\'' + r.id + '\')" title="Annuler"><i class="ti ti-x"></i></button>' : ''}
               </div></td>
             </tr>`;}).join('')}
@@ -5408,6 +5699,9 @@ async function savePO(marquerEnvoyee){
   closeModal(); renderPOS();
 }
 
+// Quelle étape est possible sur une commande : réceptionner (envoyée ou déjà partiellement reçue) / facturer (au moins une réception) — comme « Recevoir » et « Créer la facture » d'Odoo Achats.
+const poPeutEtreReceptionnee = po => !!po && ['envoyee','rec_partielle'].includes(po.statut);
+const poPeutEtreFacturee = po => !!po && ['rec_partielle','rec_totale'].includes(po.statut);
 async function openPODetail(poId){
   let po = _pos.find(p=>p.id===poId);
   if(!po){
@@ -5438,20 +5732,27 @@ async function openPODetail(poId){
   const chant = _chantiersActive.find(c=>c.id===po.chantier_id) || po.chantiers_lyneo;
   const refIntPO = po.intervention_id ? await refIntervention(po.intervention_id) : '';
 
-  const blsHtml = bls.length===0 ? '' : `
-    <div class="section-title"><i class="ti ti-truck-delivery"></i> Bons de livraison</div>
-    ${bls.map(b=>`<div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
-      <div><strong>${b.numero_bl}</strong> — ${fmtDate(b.date_reception)}</div>
+  // Étapes du flux d'achat (comme les boutons d'étape d'Odoo Achats) : on réceptionne tant qu'il reste de la marchandise, on facture ce qui a été reçu
+  const peutRecevoir = poPeutEtreReceptionnee(po);
+  const peutFacturer = poPeutEtreFacturee(po);
+  const etapePO = {envoyee:'Prochaine étape : réceptionner la marchandise à la livraison (bouton « Réceptionner »).',
+    rec_partielle:'Réception partielle : réceptionnez le reste, ou encodez déjà la facture des quantités reçues.',
+    rec_totale:'Marchandise entièrement reçue : encodez la facture du fournisseur (bouton « Générer facture »).'}[po.statut] || '';
+  const totalFacsPO = facs.filter(f=>f.statut!=='annulee').reduce((a,f)=>a+(parseFloat(f.montant_ttc)||0),0);
+  const blsHtml = `
+    <div class="section-title" style="justify-content:space-between"><span><i class="ti ti-truck-delivery"></i> Bons de livraison (${bls.length})</span>${peutRecevoir?`<button class="btn btn-secondary btn-sm" id="po-sec-recevoir" onclick="closeModal();openReceptionPO('${poId}')"><i class="ti ti-plus"></i> Réceptionner</button>`:''}</div>
+    ${bls.length===0 ? '<p class="po-aucun-bl" style="font-size:13px;color:var(--gray-4);margin-bottom:8px">Aucune réception enregistrée</p>' : bls.map(b=>`<div class="po-ligne-bl" data-bl-id="${escHtml(b.id)}" style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="closeModal();openBLDetail('${escHtml(b.id)}')" title="Ouvrir la réception">
+      <div><strong class="text-blue">${escHtml(b.numero_bl)}</strong> — ${fmtDate(b.date_reception)}</div>
       <div class="flex gap-8 items-center">
         <span class="text-muted text-sm">${escHtml(nomPers(b.utilisateurs))}</span>
         <span class="badge badge-${b.statut_reception==='complet'?'rec_totale':'rec_partielle'}">${b.statut_reception==='complet'?'Complet':'Partiel'}</span>
       </div>
     </div>`).join('')}`;
 
-  const facsHtml = facs.length===0 ? '' : `
-    <div class="section-title"><i class="ti ti-file-invoice"></i> Factures</div>
-    ${facs.map(f=>`<div style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
-      <div><strong>${f.numero_facture_fournisseur}</strong> — ${fmtDate(f.date_facture)}</div>
+  const facsHtml = `
+    <div class="section-title" style="justify-content:space-between"><span><i class="ti ti-file-invoice"></i> Factures (${facs.length})${facs.length?` — ${fmt(totalFacsPO)} TTC sur ${fmt(po.total_ttc)}`:''}</span>${peutFacturer?`<button class="btn btn-secondary btn-sm" id="po-sec-facturer" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-plus"></i> Générer facture</button>`:''}</div>
+    ${facs.length===0 ? '<p class="po-aucune-fac" style="font-size:13px;color:var(--gray-4);margin-bottom:8px">Aucune facture fournisseur liée à cette commande</p>' : facs.map(f=>`<div class="po-ligne-fac" data-fac-id="${escHtml(f.id)}" style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="closeModal();openFacDetail('${escHtml(f.id)}')" title="Ouvrir la facture">
+      <div><strong class="text-blue">${escHtml(f.numero_facture_fournisseur)}</strong> — ${fmtDate(f.date_facture)}</div>
       <div class="flex gap-8 items-center"><span style="font-weight:600">${fmt(f.montant_ttc)}</span>${bFA(f.statut)}</div>
     </div>`).join('')}`;
 
@@ -5463,7 +5764,8 @@ async function openPODetail(poId){
         <button class="btn btn-secondary btn-sm" onclick="envoyerPOParEmail('${poId}')"><i class="ti ti-mail"></i> Envoyer</button>
         <button class="btn btn-warning btn-sm" onclick="closeModal();openEditPO('${poId}')"><i class="ti ti-edit"></i> Modifier</button>
         ${po.statut==='brouillon'?`<button class="btn btn-primary btn-sm" onclick="markSent('${poId}')"><i class="ti ti-send"></i> Marquer envoyée</button>`:''}
-        ${['rec_partielle','rec_totale'].includes(po.statut)?`<button class="btn btn-success btn-sm" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-file-invoice"></i> Générer facture</button>`:''}
+        ${peutRecevoir?`<button class="btn btn-primary btn-sm" id="po-btn-recevoir" onclick="closeModal();openReceptionPO('${poId}')"><i class="ti ti-truck-delivery"></i> Réceptionner</button>`:''}
+        ${peutFacturer?`<button class="btn btn-success btn-sm" id="po-btn-facturer" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-file-invoice"></i> Générer facture</button>`:''}
         <button class="btn btn-danger btn-sm" onclick="deletePO('${poId}','${po.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
@@ -5478,6 +5780,7 @@ async function openPODetail(poId){
         <div class="info-item"><label>Livraison souhaitée</label><span>${fmtDate(po.date_livraison_souhaitee)}</span></div>
         <div class="info-item"><label>Envoyée le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyée'}</span></div>
       </div>
+      ${etapePO?`<div class="alert alert-info po-etape" style="margin-bottom:16px"><i class="ti ti-arrow-right"></i>${etapePO}</div>`:''}
       ${po.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${po.observations}</div>`:''}
       <div style="overflow-x:auto;margin-bottom:12px">
       <table style="width:100%;border-collapse:collapse;min-width:600px">
@@ -6323,6 +6626,14 @@ function devisAvisCapa(d){
 }
 
 // Configuration du PDF d'un devis (fonction pure : sert aussi à l'exemple de la page Documents)
+// N° TVA du client tel qu'il doit être imprimé : '' s'il n'y en a pas (rien n'est alors ajouté au document).
+// Les n° collés depuis un site ou un e-mail contiennent parfois des tirets typographiques, des espaces insécables ou des caractères invisibles
+// que la police du PDF ne sait pas écrire (le PDF échouerait) : ils sont normalisés ici, jamais le n° enregistré.
+function tvaClientPdf(client){
+  const brut = (client && client.numero_tva != null) ? String(client.numero_tva) : '';
+  return brut.replace(/[\u2010-\u2015\u2212]/g,'-').replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g,' ')
+             .replace(/[^\x20-\x7E\u00A1-\u00FF]/g,'').replace(/\s+/g,' ').trim();
+}
 function configPdfDevis(d, client, lignesData){
   const lignesPrincipal = (lignesData||[]).filter(l=>l.bloc==='principal');
   const lignesOption = (lignesData||[]).filter(l=>l.bloc==='option');
@@ -6339,7 +6650,7 @@ function configPdfDevis(d, client, lignesData){
     affaire: affaire || '—',
     objet: objetCourt || '—',   // uniquement ce que l'utilisateur a saisi dans « Objet court » (jamais l'objet complet, trop long)
     correspondant: d.correspondant || '—',
-    client: {nom: client.nom||'—', adresse: client.adresse||'—', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim()||'—'},
+    client: {nom: client.nom||'—', adresse: client.adresse||'—', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim()||'—', tva: tvaClientPdf(client)},
     pastille: [client.nom, d.numero, affaire || objetCourt].filter(Boolean).join(' | '),   // jamais l'objet complet (trop long)
     lignes: versLignesPdf(lignesPrincipal,''),
     totaux: {libelleTotal:'Prix de vente total', total:fmt(d.montant_ht), libelleTva:devisLibelleTva(lignesPrincipal), tva:fmt(d.montant_tva), ttc:fmt(d.montant_ttc)},
@@ -6354,7 +6665,7 @@ function configPdfDevis(d, client, lignesData){
 
 async function downloadPDF_Devis(devisId){
   await entrepriseChargee();
-  const {data:d} = await sb.from('devis').select('*,clients(nom,email,adresse,code_postal,ville),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
+  const {data:d} = await sb.from('devis').select('*,clients(nom,email,adresse,code_postal,ville,numero_tva),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
   if(!d){ showToast("Devis introuvable", 'error'); return; }
   const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
   const client = d.clients||{};
@@ -6448,6 +6759,9 @@ async function renderReceptions(){
   ]);
   _posAttente = posR.data||[];
   const bls = blsR.data||[];
+  // Nombre de documents joints par réception (le script SQL peut manquer : on n'affiche alors simplement pas de trombone)
+  const nbDocsBL = {};
+  try{ const rd = await sb.from('anexos_bl').select('id,bl_id'); if(!rd.error) (rd.data||[]).forEach(d=>{ nbDocsBL[String(d.bl_id)] = (nbDocsBL[String(d.bl_id)]||0)+1; }); }catch(e){}
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Réceptions</h1><p>Bons de livraison et contrôle des marchandises</p></div>
@@ -6457,7 +6771,7 @@ async function renderReceptions(){
       <i class="ti ti-truck-delivery"></i>
       <div>
         <strong>${_posAttente.length} commande(s) en attente de réception</strong>
-        <div style="font-size:12px;margin-top:2px;opacity:.8">${_posAttente.map(p=>p.numero+' — '+(p.fournisseurs?.nom||'')).join(' · ')}</div>
+        <div style="font-size:12px;margin-top:2px;opacity:.8">${_posAttente.map(p=>escHtml(p.numero)+' — '+escHtml(p.fournisseurs?.nom||'')).join(' · ')}</div>
       </div>
     </div>`:''}
     <div class="card">
@@ -6471,14 +6785,16 @@ async function renderReceptions(){
               const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
               const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
               return '<tr data-sel-id="'+b.id+'" style="cursor:pointer" onclick="openBLDetail(\''+b.id+'\')">'
-                +'<td><strong class="text-blue">'+b.numero_bl+'</strong></td>'
-                +'<td>'+(b.purchase_orders_lyneo?.numero||'—')+'</td>'
-                +'<td>'+(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
+                +'<td><strong class="text-blue">'+escHtml(b.numero_bl)+'</strong></td>'
+                +'<td>'+escHtml(b.purchase_orders_lyneo?.numero||'—')+'</td>'
+                +'<td>'+escHtml(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
                 +'<td>'+(htmlCentreCout(b.purchase_orders_lyneo?.chantiers_lyneo)||'—')+'</td>'
                 +'<td>'+fmtDate(b.date_reception)+'</td>'
                 +'<td>'+escHtml(nomPers(b.utilisateurs))+'</td>'
                 +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
-                +'<td><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openBLDetail(\''+b.id+'\')"><i class="ti ti-eye"></i></button></td>'
+                +'<td onclick="event.stopPropagation()"><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="openBLDetail(\''+b.id+'\')"><i class="ti ti-eye"></i></button>'
+                +  (nbDocsBL[String(b.id)] ? '<button class="btn btn-secondary btn-sm" data-bl-docs="'+escHtml(b.id)+'" onclick="apercuBLListe(\''+escHtml(b.id)+'\')" title="'+nbDocsBL[String(b.id)]+' document(s) joint(s) — aperçu"><i class="ti ti-paperclip"></i> '+nbDocsBL[String(b.id)]+'</button>' : '')
+                +'</div></td>'
                 +'</tr>';
             }).join('')}
           </tbody>
@@ -6487,19 +6803,186 @@ async function renderReceptions(){
     </div>`;
 }
 
+// ── DOCUMENTS JOINTS DES BONS DE LIVRAISON (PDF du BL du fournisseur, photo du bon signé…) ─────────────────
+// Table anexos_bl (script « migration-anexos-bl.sql »), fichiers dans le Storage (bucket Documents, dossier bons_livraison/<id du BL>/).
+// Même principe que les factures : glisser-déposer, Aperçu dans le panneau latéral, Ouvrir, Supprimer.
+// Sans le script SQL, l'ERP fonctionne comme avant : la réception s'enregistre, les documents ne sont simplement pas gardés (avis clair, rien n'est envoyé au stockage).
+const SQL_ANEXOS_BL = 'migration-anexos-bl.sql';
+const _anexosBL = {sqlOk:null};
+const erreurTableAnexosBL = err => !!err && (['PGRST205','42P01'].includes(err.code)
+  || /Could not find the table|relation "?(public\.)?anexos_bl"? does not exist|Could not find the '[a-z_]+' column of 'anexos_bl'/i.test(err.message||''));
+let _blFilesNew = [];            // fichiers choisis dans « Nouvelle réception » : envoyés une fois le BL enregistré
+let _blDocsDetail = [];          // documents de la réception ouverte (pour le panneau d'aperçu)
+const MAX_FICHIER_BL = 10*1024*1024;
+
+async function verifierTableAnexosBL(){
+  if(_anexosBL.sqlOk===true) return true;
+  try{
+    const r = await sb.from('anexos_bl').select('id').limit(1);
+    if(r.error){ if(erreurTableAnexosBL(r.error)){ _anexosBL.sqlOk = false; return false; } return null; }
+    _anexosBL.sqlOk = true; return true;
+  }catch(e){ return null; }
+}
+async function chargerAnexesBL(blId){
+  try{
+    const r = await sb.from('anexos_bl').select('*,utilisateurs(nom,prenom)').eq('bl_id',blId).order('created_at',{ascending:false});
+    if(r.error){
+      if(erreurTableAnexosBL(r.error)){ _anexosBL.sqlOk = false; return {ok:false, manque:true, data:[]}; }
+      return {ok:false, manque:false, erreur:r.error.message, data:[]};
+    }
+    _anexosBL.sqlOk = true;
+    return {ok:true, data:r.data||[]};
+  }catch(e){ return {ok:false, manque:false, erreur:(e&&e.message)||String(e), data:[]}; }
+}
+function htmlAnexesBL(anexos, blId){
+  _blDocsDetail = [];
+  if(!anexos || !anexos.length) return '<div id="bl-annexes-vide" style="text-align:center;padding:14px;color:var(--gray-4);font-size:13px"><i class="ti ti-files" style="font-size:24px;display:block;margin-bottom:4px"></i>Aucun document joint</div>';
+  return anexos.map(a=>{
+    const sur = /^https?:\/\//i.test(a.url||'');
+    let idx = -1;
+    if(sur){ idx = _blDocsDetail.length; _blDocsDetail.push({url:a.url, nom:a.nome_ficheiro, tipo:a.tipo}); }
+    const info = `${a.tamanho?tailleFichier(a.tamanho)+' — ':''}Ajouté${a.utilisateurs?' par '+escHtml(nomPers(a.utilisateurs)):''} le ${fmtDate(a.created_at)}`;
+    return `<div class="bl-annexe" data-id="${escHtml(a.id)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:9px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <i class="ti ${/pdf/i.test(a.tipo||'')||/\.pdf$/i.test(a.nome_ficheiro||'')?'ti-file-type-pdf':'ti-file'}" style="font-size:22px;color:var(--blue)"></i>
+        <div style="min-width:0"><div style="font-weight:600;font-size:13px;word-break:break-word">${escHtml(a.nome_ficheiro)}</div>
+        <div style="font-size:11px;color:var(--gray-5)">${info}</div></div>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${idx>=0 && apPrevisualisable({nom:a.nome_ficheiro, tipo:a.tipo}) ? `<button class="btn btn-secondary btn-sm" data-apercu-bl="${idx}" onclick="apercuAnexeBL(${idx})" title="Aperçu à droite"><i class="ti ti-eye"></i> Aperçu</button>` : ''}
+        <a href="${sur?escHtml(a.url):'#'}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="Ouvrir dans un nouvel onglet"><i class="ti ti-external-link"></i></a>
+        <button class="btn btn-danger btn-sm" data-suppr-bl="${escHtml(a.id)}" onclick="deleteAnnexeBL('${escHtml(a.id)}','${escHtml(blId)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function apercuAnexeBL(i){ ouvrirApercu(_blDocsDetail, i, false); }
+function htmlSectionAnexesBL(blId, ax){
+  const id = escHtml(blId);
+  const titre = n => `<strong style="font-size:13px"><i class="ti ti-paperclip"></i> Documents joints${n==null?'':' (<span id="bl-annexes-n">'+n+'</span>)'}</strong>`;
+  if(ax.manque) return `${titre(null)}<div class="alert alert-info" id="bl-annexes-sql" style="margin-top:8px"><i class="ti ti-info-circle"></i> Pour joindre le PDF du bon de livraison, exécutez d'abord <strong>${SQL_ANEXOS_BL}</strong> dans Supabase → SQL Editor (une seule fois).</div>`;
+  if(!ax.ok) return `${titre(null)}<div class="alert alert-warning" id="bl-annexes-erreur" style="margin-top:8px"><i class="ti ti-alert-triangle"></i> Les documents n'ont pas pu être lus pour le moment. Fermez et rouvrez la réception.</div>`;
+  return `${titre(ax.data.length)}
+    <div id="bl-drop-zone" style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:14px;margin:8px 0;text-align:center;background:var(--gray-1)"
+      ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+      ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
+      ondrop="deposerAnnexesBL(event,'${id}')">
+      <label class="btn btn-secondary" style="cursor:pointer"><i class="ti ti-cloud-upload"></i> Joindre le PDF du bon de livraison
+        <input type="file" id="bl-doc-input" multiple style="display:none" onchange="uploadAnnexesBL(this.files,'${id}').then(()=>{ this.value=''; })"/></label>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">ou glissez-le ici — PDF, photo du bon signé… — max 10 MB par fichier</p>
+    </div>
+    <div id="bl-upload-progress" style="display:none;margin-bottom:8px"><div style="background:var(--gray-2);border-radius:4px;height:6px"><div id="bl-progress-bar" style="background:var(--blue);height:6px;border-radius:4px;width:0%"></div></div><div id="bl-progress-text" style="font-size:11px;color:var(--gray-5);margin-top:3px"></div></div>
+    <div id="bl-annexes-liste" data-bl="${id}">${htmlAnexesBL(ax.data, blId)}</div>`;
+}
+async function rafraichirAnexesBL(blId){
+  const zone = el('bl-annexes-liste');
+  if(!zone || zone.dataset.bl!==String(blId)) return;          // la fiche n'est plus ouverte (ou c'est une autre réception)
+  const r = await chargerAnexesBL(blId);
+  if(!r.ok) return;
+  const z2 = el('bl-annexes-liste');
+  if(z2 && z2.dataset.bl===String(blId)){ z2.innerHTML = htmlAnexesBL(r.data, blId); const n = el('bl-annexes-n'); if(n) n.textContent = r.data.length; }
+}
+function deposerAnnexesBL(event, blId){
+  event.preventDefault();
+  const z = el('bl-drop-zone'); if(z){ z.style.borderColor = 'var(--gray-3)'; z.style.background = 'var(--gray-1)'; }
+  return uploadAnnexesBL(event.dataTransfer.files, blId);
+}
+// Envoi des fichiers : 1) contrôle de la table (rien dans le stockage si le script SQL manque), 2) fichier, 3) ligne en base (le fichier est retiré si la ligne échoue).
+// opts.silencieux : pas de message de succès (la réception affiche le sien). Renvoie {reussis, manque}.
+async function uploadAnnexesBL(files, blId, opts){
+  files = Array.from(files||[]); opts = opts || {};
+  const res = {reussis:0, manque:false};
+  if(!files.length) return res;
+  if((await verifierTableAnexosBL())===false){
+    res.manque = true;
+    showToast(opts.silencieux
+      ? `Réception enregistrée, mais ${files.length>1?"les documents n'ont pas été joints":"le document n'a pas été joint"} : exécutez d'abord ${SQL_ANEXOS_BL} dans Supabase`
+      : `Exécutez d'abord ${SQL_ANEXOS_BL} dans Supabase`, 'error');
+    return res;
+  }
+  const progress = el('bl-upload-progress'), bar = el('bl-progress-bar'), txt = el('bl-progress-text');
+  if(progress) progress.style.display = 'block';
+  let derniere = null;
+  for(let i=0;i<files.length;i++){
+    const file = files[i];
+    if(file.size > MAX_FICHIER_BL){ showToast(`${escHtml(file.name)} dépasse 10MB — ignoré`,'error'); continue; }
+    if(bar) bar.style.width = Math.round((i/files.length)*100)+'%';
+    if(txt) txt.textContent = `Envoi ${i+1}/${files.length} : ${file.name}`;
+    const path = `bons_livraison/${blId}/${Date.now()}_${i}_${nomSurStockage(file.name)}`;
+    const up = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(up.error){ showToast('Erreur upload: '+escHtml(up.error.message),'error'); derniere = up.error.message; continue; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    const ins = await sb.from('anexos_bl').insert({bl_id:blId, nome_ficheiro:file.name, url:urlData.publicUrl, tamanho:file.size,
+      tipo:file.type||null, carregado_por:(currentUser&&currentUser.id)||null});
+    if(ins.error){
+      try{ await sb.storage.from('Documents').remove([path]); }catch(e){}           // pas de fichier orphelin si la ligne n'a pas pu être enregistrée
+      if(erreurTableAnexosBL(ins.error)){ _anexosBL.sqlOk = false; res.manque = true; showToast(`Exécutez d'abord ${SQL_ANEXOS_BL} dans Supabase`, 'error'); derniere = ins.error.message; break; }
+      showToast('Erreur: '+escHtml(ins.error.message),'error'); derniere = ins.error.message; continue;
+    }
+    res.reussis++;
+  }
+  if(bar) bar.style.width = '100%';
+  if(progress) setTimeout(()=>{ progress.style.display='none'; if(bar) bar.style.width='0%'; }, 600);
+  if(res.reussis>0 && !opts.silencieux) showToast(res.reussis>1 ? `${res.reussis} documents ajoutés` : 'Document ajouté');
+  else if(res.reussis===0 && derniere && !res.manque) showToast("Aucun document n'a pu être ajouté", 'error');
+  await rafraichirAnexesBL(blId);
+  return res;
+}
+async function deleteAnnexeBL(id, blId){
+  const {data:a} = await sb.from('anexos_bl').select('*').eq('id',id).maybeSingle();
+  if(!a){ showToast('Document introuvable','error'); await rafraichirAnexesBL(blId); return; }
+  if(!confirm('Supprimer ce document ?')) return;
+  const r = await sb.from('anexos_bl').delete().eq('id',id).select();
+  if(r.error){ showToast('Erreur: '+escHtml(r.error.message),'error'); return; }
+  if(!r.data || r.data.length===0){ showToast("Suppression refusée par la base de données (droits d'accès)", 'error'); return; }
+  await supprimerFichiersStockage([a.url]);
+  showToast('Document supprimé');
+  await rafraichirAnexesBL(blId);
+}
+// Depuis la liste des réceptions : le trombone ouvre directement le(s) document(s) dans le panneau d'aperçu (PDF et images d'abord)
+async function apercuBLListe(blId){
+  const r = await chargerAnexesBL(blId);
+  if(!r.ok){ showToast(r.manque ? `Exécutez d'abord ${SQL_ANEXOS_BL} dans Supabase` : 'Erreur: '+escHtml(r.erreur||''), 'error'); return; }
+  const docs = r.data.map(d=>({url:d.url, nom:d.nome_ficheiro, tipo:d.tipo}));
+  if(!docs.length){ showToast('Aucun document joint à cette réception', 'error'); return; }
+  ouvrirApercu(docs.filter(apPrevisualisable).concat(docs.filter(d=>!apPrevisualisable(d))), 0, false);
+}
+// « Nouvelle réception » : fichiers choisis avant l'enregistrement (aperçu local possible, envoyés après le BL)
+function blRendreFichiers(){
+  const z = el('bl-fichiers-liste'); if(!z) return;
+  z.innerHTML = _blFilesNew.map((f,i)=>`<div class="bl-fichier-new" data-i="${i}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-top:6px;background:#fff">
+      <span style="font-size:13px;word-break:break-word"><i class="ti ti-file"></i> ${escHtml(f.name)} <span style="color:var(--gray-5);font-size:11px">${tailleFichier(f.size)}</span></span>
+      <span style="display:flex;gap:6px">${apPrevisualisable({nom:f.name, tipo:f.type})?`<button type="button" class="btn btn-secondary btn-sm" onclick="blApercuLocal(${i})" title="Aperçu"><i class="ti ti-eye"></i></button>`:''}
+      <button type="button" class="btn btn-danger btn-sm" onclick="blRetirerFichier(${i})" title="Retirer"><i class="ti ti-x"></i></button></span></div>`).join('');
+}
+function blChoisirFichiers(input){
+  Array.from(input.files||[]).forEach(f=>{
+    if(f.size > MAX_FICHIER_BL){ showToast(`${escHtml(f.name)} dépasse 10MB — ignoré`,'error'); return; }
+    if(!_blFilesNew.some(x=>x.name===f.name && x.size===f.size && x.lastModified===f.lastModified)) _blFilesNew.push(f);
+  });
+  input.value = '';
+  blRendreFichiers();
+}
+function blRetirerFichier(i){ _blFilesNew.splice(i,1); blRendreFichiers(); }
+function blApercuLocal(i){
+  if(!_blFilesNew[i]) return;
+  ouvrirApercu(_blFilesNew.map(f=>({url:URL.createObjectURL(f), nom:f.name, tipo:f.type})), i, true);
+}
+
 async function openBLDetail(blId){
   const {data:bl} = await sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(numero,nom)),utilisateurs(nom,prenom)').eq('id',blId).single();
   if(!bl){ showToast("Réception introuvable", 'error'); return; }
 
   const {data:lignesBL} = await sb.from('lignes_bl').select('*,lignes_po(description,reference_article,unite,quantite,prix_unitaire_ht)').eq('bl_id',blId);
   const lignes = lignesBL||[];
+  const ax = await chargerAnexesBL(blId);
 
   const statutLabel = bl.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
   const statutClass = bl.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>Réception ${bl.numero_bl}</h3><span style="font-size:12px;color:var(--gray-5)">${bl.purchase_orders_lyneo?.numero||''} — ${bl.purchase_orders_lyneo?.fournisseurs?.nom||''}</span></div>
+      <div><h3>Réception ${escHtml(bl.numero_bl)}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(bl.purchase_orders_lyneo?.numero||'')} — ${escHtml(bl.purchase_orders_lyneo?.fournisseurs?.nom||'')}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
@@ -6509,7 +6992,7 @@ async function openBLDetail(blId){
         <div class="info-item"><label>Reçu par</label><span>${escHtml(nomPers(bl.utilisateurs))}</span></div>
         <div class="info-item"><label>Statut</label><span><span class="badge badge-${statutClass}">${statutLabel}</span></span></div>
       </div>
-      ${bl.observations?`<div style="margin-bottom:20px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${bl.observations}</p></div>`:''}
+      ${bl.observations?`<div style="margin-bottom:20px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(bl.observations)}</p></div>`:''}
       <strong style="font-size:13px">Lignes reçues dans cette réception (${lignes.length})</strong>
       <div style="overflow-x:auto;margin-top:8px">
         <table style="width:100%;border-collapse:collapse;min-width:520px">
@@ -6522,26 +7005,43 @@ async function openBLDetail(blId){
           <tbody>
             ${lignes.length===0 ? '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--gray-4)">Aucune ligne enregistrée pour cette réception</td></tr>' :
             lignes.map(l=>`<tr>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${l.lignes_po?.description||'—'}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${l.lignes_po?.reference_article||'—'}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.lignes_po?.quantite||'—'} ${l.lignes_po?.unite||''}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--green)">${l.quantite_recue} ${l.lignes_po?.unite||''}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(l.lignes_po?.description||'—')}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(l.lignes_po?.reference_article||'—')}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${escHtml(l.lignes_po?.quantite||'—')} ${escHtml(l.lignes_po?.unite||'')}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--green)">${escHtml(l.quantite_recue)} ${escHtml(l.lignes_po?.unite||'')}</td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>
+      <div id="bl-annexes" style="margin-top:22px">${htmlSectionAnexesBL(blId, ax)}</div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
-        ${bl.purchase_orders_lyneo?.numero?`<button class="btn btn-primary" onclick="closeModal();openPODetail('${bl.po_id}')"><i class="ti ti-eye"></i> Voir la commande</button>`:''}
+        ${bl.purchase_orders_lyneo?.numero?`<button class="btn btn-primary" onclick="closeModal();openPODetail('${escHtml(bl.po_id)}')"><i class="ti ti-eye"></i> Voir la commande</button>`:''}
       </div>
     </div>
   </div></div>`);
 }
 
-function openBLModal(){
-  const posOpts = _posAttente.map(p=>`<option value="${p.id}">${p.numero} — ${p.fournisseurs?.nom} (${escHtml(libChantierAchat(p.chantiers_lyneo))||'—'})</option>`).join('');
+// Réceptionner une commande depuis sa fiche (ou sa ligne dans la liste) : la fenêtre s'ouvre avec la commande choisie et ses quantités restantes ;
+// à l'enregistrement (ou en annulant) on revient à la fiche de la commande, comme dans Odoo Achats.
+function openReceptionPO(poId){ return openBLModal(poId); }
+function annulerBL(){ const po = window._blRetourPO; window._blRetourPO = null; closeModal(); if(po) openPODetail(po); }
+async function openBLModal(poIdInit){
+  poIdInit = poIdInit ? String(poIdInit) : '';
+  let liste = _posAttente.slice();
+  window._blRetourPO = null; _blFilesNew = [];
+  if(poIdInit){
+    // Depuis la commande : on relit la commande (statut à jour) et on ne propose qu'elle — comme le bouton « Recevoir » d'Odoo
+    let po = null;
+    try{ const r = await sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom)').eq('id',poIdInit).maybeSingle(); po = r && r.data; }catch(e){}
+    if(!po){ showToast("Commande introuvable", 'error'); return; }
+    if(!poPeutEtreReceptionnee(po)){ showToast("Cette commande ne peut pas être réceptionnée (statut : "+(STATUT_PO[po.statut]||po.statut)+")", 'error'); return; }
+    liste = [po];
+    window._blRetourPO = poIdInit;
+  }
+  const posOpts = liste.map(p=>`<option value="${escHtml(p.id)}"${String(p.id)===poIdInit?' selected':''}>${escHtml(p.numero)} — ${escHtml(p.fournisseurs?.nom||'')} (${escHtml(libChantierAchat(p.chantiers_lyneo))||'—'})</option>`).join('');
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
-    <div class="modal-header"><h3>Nouvelle réception</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-header"><h3>Nouvelle réception</h3><button class="modal-close" onclick="annulerBL()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Commande *</label>
@@ -6558,14 +7058,26 @@ function openBLModal(){
           </select>
         </div>
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="bl-obs" placeholder="Remarques, dommages constatés..."></textarea></div>
+        <div class="form-group full" id="bl-fichiers-groupe"><label class="field-label">Bon de livraison du fournisseur (PDF, photo) <span style="font-weight:400;text-transform:none">— facultatif, max 10 MB par fichier</span></label>
+          <input type="file" id="bl-fichiers" multiple onchange="blChoisirFichiers(this)"/>
+          <div id="bl-fichiers-liste"></div></div>
       </div>
       <div id="bl-lignes-section"></div>
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveBL()"><i class="ti ti-check"></i> Enregistrer le BL</button>
+        <button class="btn btn-secondary" onclick="annulerBL()">Annuler</button>
+        <button class="btn btn-primary" id="bl-btn-save" onclick="saveBL()"><i class="ti ti-check"></i> Enregistrer le BL</button>
       </div>
     </div>
   </div></div>`);
+  // Le script SQL manque ? On le dit tout de suite (le BL s'enregistrera quand même, sans le document)
+  verifierTableAnexosBL().then(ok=>{
+    const g = el('bl-fichiers-groupe');
+    if(ok===false && g && !el('bl-fichiers-sql')){
+      const inp = el('bl-fichiers'); if(inp) inp.disabled = true;
+      g.insertAdjacentHTML('beforeend', `<div class="alert alert-info" id="bl-fichiers-sql" style="margin-top:6px"><i class="ti ti-info-circle"></i> Pour joindre le PDF du bon de livraison, exécutez d'abord <strong>${SQL_ANEXOS_BL}</strong> dans Supabase → SQL Editor (une seule fois). Vous pouvez enregistrer la réception sans document.</div>`);
+    }
+  });
+  if(window._blRetourPO) await loadLignesBL(window._blRetourPO);
 }
 
 async function loadLignesBL(poId){
@@ -6634,12 +7146,13 @@ async function saveBL(){
   const poId = el('bl-po').value;
   const num = el('bl-num').value.trim();
   if(!poId||!num){ showToast("Commande et N° BL obligatoires",'error'); return; }
+  const btnBL = el('bl-btn-save'); if(btnBL){ if(btnBL.disabled) return; btnBL.disabled = true; }   // double clic : un seul BL
   const {data:bl,error} = await sb.from('bons_livraison').insert({
     po_id:poId, numero_bl:num, date_reception:el('bl-date').value,
     recu_par:currentUser.id, statut_reception:el('bl-statut').value,
     observations:el('bl-obs').value
   }).select().single();
-  if(error){ showToast('Erreur: '+error.message,'error'); return; }
+  if(error){ showToast('Erreur: '+error.message,'error'); if(btnBL) btnBL.disabled = false; return; }
   const lignesInsert = _lignesRec
     .filter(l=>l.restant>0 && (parseFloat(el('qty-'+l.id)?.value)||0)>0)
     .map(l=>({
@@ -6654,8 +7167,14 @@ async function saveBL(){
   });
   const newStatut = toutRecu ? 'rec_totale' : 'rec_partielle';
   await sb.from('purchase_orders_lyneo').update({statut:newStatut}).eq('id',poId);
-  showToast(toutRecu ? 'Réception complète enregistrée ✓' : 'Réception partielle enregistrée');
-  closeModal(); renderReceptions();
+  let docsOk = 0;
+  if(_blFilesNew.length){ const rd = await uploadAnnexesBL(_blFilesNew, bl.id, {silencieux:true}); docsOk = rd.reussis; }
+  _blFilesNew = [];
+  showToast((toutRecu ? 'Réception complète enregistrée ✓' : 'Réception partielle enregistrée') + (docsOk ? ` — ${docsOk} document${docsOk>1?'s joints':' joint'}` : ''));
+  const retourPO = window._blRetourPO; window._blRetourPO = null;
+  closeModal();
+  if(retourPO){ if(currentPage==='pos') renderPOS(); openPODetail(retourPO); }   // ouvert depuis la commande : on y retourne (la liste se rafraîchit derrière)
+  else renderReceptions();
 }
 
 // ── FACTURES ─────────────────────────────────────────────────
@@ -9139,6 +9658,7 @@ async function renderClients(search=''){
                 +'<td>'+badge+'</td>'
                 +'<td><div class="td-actions">'
                 +  '<button class="btn btn-secondary btn-sm" data-client-detail="'+r.id+'" title="Voir le détail"><i class="ti ti-eye"></i></button>'
+                +  '<button class="btn btn-secondary btn-sm" data-client-facturer="'+r.id+'" title="Facturer ce client" onclick="openFacturerClient(\''+r.id+'\')"><i class="ti ti-receipt"></i></button>'
                 +  '<button class="btn btn-secondary btn-sm" data-client-edit="'+r.id+'" title="Modifier"><i class="ti ti-edit"></i></button>'
                 +  '<button class="btn btn-danger btn-sm" data-client-suppr="'+r.id+'" title="Supprimer" onclick="event.stopPropagation();supprimerClient(\''+r.id+'\')"><i class="ti ti-trash"></i></button>'
                 +'</div></td>'
@@ -9292,6 +9812,56 @@ async function editClientById(clientId){
   openClientModal(c);
 }
 
+// « Facturer » depuis un client (comme « Créer la facture » d'Odoo Ventes) : la liste de ce qui reste à facturer — devis acceptés, interventions SAV terminées —
+// avec un bouton par ligne qui ouvre le bon formulaire (facture de chantier / de devis, facture SAV, facture libre). On ne refait aucun calcul : on ouvre les formulaires existants.
+async function openFacturerClient(clientId){
+  const {data:client} = await sb.from('clients').select('id,nom').eq('id',clientId).maybeSingle();
+  if(!client){ showToast("Client introuvable", 'error'); return; }
+  let devisClient = [], facsParDevis = {}, interventions = [], connu = true;
+  try{
+    const r = await sb.from('devis').select('*').eq('client_id',client.id);
+    devisClient = (r.data||[]).slice().sort((a,b)=>String(b.date_devis||b.created_at||'').localeCompare(String(a.date_devis||a.created_at||'')));
+    if(devisClient.length){
+      const r2 = await sb.from('factures_vente').select('*').in('devis_id', devisClient.map(d=>d.id));
+      if(r2.error) connu = false;
+      (r2.data||[]).forEach(f=>{ (facsParDevis[f.devis_id] = facsParDevis[f.devis_id]||[]).push(f); });
+    }
+  }catch(e){ devisClient = []; connu = false; }
+  try{ const r3 = await sb.from('interventions_sav').select('*').eq('client_id',client.id).order('created_at',{ascending:false}); interventions = r3.data||[]; }catch(e){}
+  const ivDuDevis = {}; interventions.forEach(i=>{ if(i.devis_id && !ivDuDevis[i.devis_id]) ivDuDevis[i.devis_id] = i; });
+  const aFacturer = connu ? devisClient.map(d=>({d, e:etatFacturationDevis(d, facsParDevis[d.id])})).filter(x=>x.e.aFacturer) : [];
+  const devisListes = new Set(aFacturer.map(x=>String(x.d.id)));
+  // Une intervention dont le devis est déjà proposé ci-dessus se facture par cette ligne ; les autres interventions terminées sont à facturer telles quelles
+  const savAFacturer = interventions.filter(i=>i.statut==='terminee' && !(i.devis_id && devisListes.has(String(i.devis_id))));
+  const bouton = (js, txt, icone='ti-receipt') => `<button class="btn btn-primary btn-sm" onclick="${js}"><i class="ti ${icone}"></i> ${txt}</button>`;
+  const ligneDevis = ({d,e})=>{
+    const iv = ivDuDevis[d.id];
+    const action = iv ? bouton(`closeModal();openFactureSAVModal('${escHtml(iv.id)}')`, 'Facturer ('+escHtml(iv.ref)+')')
+      : d.chantier_id ? bouton(`closeModal();openGenerateFactureVente('${escHtml(d.chantier_id)}','${escHtml(d.id)}')`, 'Facturer')
+      : `<span style="font-size:12px;color:var(--gray-5)" title="Un devis accepté se facture par son chantier">Pas encore de chantier — <a href="#" onclick="closeModal();openDevisDetail('${escHtml(d.id)}');return false">ouvrir le devis</a></span>`;
+    return `<div class="fc-ligne-devis" data-devis-id="${escHtml(d.id)}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
+      <div><strong class="text-blue">${escHtml(d.numero)}</strong> <span style="font-size:13px;color:var(--gray-6)">${escHtml(d.objet||'')}</span>
+        <div style="font-size:12px;color:var(--gray-5)">${fmt(d.montant_ht)} HT · ${e.etat==='partiel'?'déjà facturé '+e.pct+' % — reste '+fmt(e.reste)+' HT':e.etat==='brouillon'?'facture en brouillon':'rien de facturé'}</div></div>
+      ${action}</div>`;
+  };
+  const ligneSav = i=>`<div class="fc-ligne-sav" data-sav-id="${escHtml(i.id)}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
+      <div><strong class="text-blue">${escHtml(i.ref)}</strong> <span style="font-size:13px;color:var(--gray-6)">${escHtml(i.nom_site||i.adresse_site||'')}</span><div style="font-size:12px;color:var(--gray-5)">Terminée — à facturer</div></div>
+      ${bouton(`closeModal();openFactureSAVModal('${escHtml(i.id)}')`, 'Facturer')}</div>`;
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><div><h3>Facturer ${escHtml(client.nom)}</h3><span style="font-size:12px;color:var(--gray-5)">Choisissez ce qu'il reste à facturer ; le formulaire de facture s'ouvre déjà rempli.</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <strong style="font-size:13px">Devis acceptés à facturer (${aFacturer.length})</strong>
+      <div style="margin:8px 0 18px">${!connu ? '<p style="font-size:13px;color:var(--orange)">Les factures de ce client n\'ont pas pu être lues : utilisez la facture libre ci-dessous.</p>'
+        : aFacturer.length===0 ? '<p class="fc-aucun-devis" style="font-size:13px;color:var(--gray-4)">Aucun devis accepté en attente de facturation</p>' : aFacturer.map(ligneDevis).join('')}</div>
+      <strong style="font-size:13px">Interventions SAV terminées à facturer (${savAFacturer.length})</strong>
+      <div style="margin:8px 0 18px">${savAFacturer.length===0 ? '<p class="fc-aucun-sav" style="font-size:13px;color:var(--gray-4)">Aucune intervention SAV terminée en attente de facturation</p>' : savAFacturer.map(ligneSav).join('')}</div>
+      <strong style="font-size:13px">Autre facture</strong>
+      <div style="margin:8px 0 6px"><button class="btn btn-secondary" id="fc-libre" onclick="closeModal();openNewFactureVenteLibre({clientId:'${escHtml(client.id)}'})"><i class="ti ti-file-plus"></i> Facture libre pour ce client (acompte, situation, solde ou lignes libres)</button></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal();openClientDetail('${escHtml(client.id)}')">Retour au client</button></div>
+    </div>
+  </div></div>`);
+}
+
 async function openClientDetail(clientId){
   let client = _clients.find(c=>c.id===clientId);
   if(!client){
@@ -9401,7 +9971,7 @@ async function openClientDetail(clientId){
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.nom_site?i.nom_site+' — ':''}${i.adresse_site||'—'}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.date_intervention?fmtDate(i.date_intervention):fmtDate(i.created_at)}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bSAV(i.statut)}</td>
-              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.statut==='facturee'?'<i class="ti ti-check" style="color:var(--green)"></i> Oui':'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.statut==='facturee'?'<i class="ti ti-check" style="color:var(--green)"></i> Oui':(i.statut==='facturee_partiel'?'Partiel':'—')}</td>
             </tr>`).join('')}</tbody>
           </table>`}
       </div>
@@ -9463,6 +10033,7 @@ async function openClientDetail(clientId){
       <div class="form-actions">
         <button class="btn btn-danger" id="cl-detail-suppr" onclick="supprimerClient('${client.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+        <button class="btn btn-success" id="cl-detail-facturer" onclick="closeModal();openFacturerClient('${client.id}')"><i class="ti ti-receipt"></i> Facturer</button>
         <button class="btn btn-primary" onclick="closeModal();editClientById('${client.id}')"><i class="ti ti-edit"></i> Modifier</button>
       </div>
     </div>
@@ -9746,6 +10317,9 @@ async function renderDevis(search){
   _dvFactures = {};
   try{ const r = await sb.from('factures_vente').select('*'); (r.data||[]).forEach(f=>{ if(f.devis_id) (_dvFactures[f.devis_id] = _dvFactures[f.devis_id]||[]).push(f); }); }catch(e){}
   const F = _dvFiltres, sel = (v,c)=> v===c ? ' selected' : '';
+  // Devis déjà facturés mais pas « Accepté » (factures créées avant que le passage soit automatique) : rattrapage en un clic
+  const aAccepter = (!!currentUser && ['admin','comptabilite'].includes(currentUser.role)) ? _devis.filter(d=>devisAAccepterFacture(d, _dvFactures[d.id])) : [];
+  const bandeauAcc = aAccepter.length ? `<div class="alert alert-warning" id="dv-resync" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span><i class="ti ti-refresh"></i> <strong>${aAccepter.length}</strong> devis ${aAccepter.length>1?'ont':'a'} déjà ${aAccepter.length>1?'des factures clients':'une facture client'} sans être « Accepté ».</span><button class="btn btn-secondary btn-sm" id="dv-resync-btn" onclick="mettreAJourStatutsDevisFactures()"><i class="ti ti-check"></i> Passer à « Accepté »</button></div>` : '';
 
   el('page-content').innerHTML = `
     <div class="page-header">
@@ -9758,6 +10332,7 @@ async function renderDevis(search){
         <button class="btn btn-primary" onclick="openDevisModal()"><i class="ti ti-plus"></i> Nouveau devis</button>
       </div>
     </div>
+    ${bandeauAcc}
     <div id="dv-resume" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <input id="dvf-client" list="dvf-clients" placeholder="Client — tapez ou choisissez" autocomplete="off" style="width:230px" value="${escHtml(F.client)}" oninput="dvClientTop(this.value)" title="Filtrer par client"/>
@@ -10506,6 +11081,7 @@ async function openDevisDetail(devisId){
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
         ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
+        ${!interventionLiee && d.statut==='accepte' && d.chantier_id?`<button class="btn btn-primary" id="dv-btn-facturer" onclick="closeModal();openGenerateFactureVente('${escHtml(d.chantier_id)}','${escHtml(d.id)}')"><i class="ti ti-receipt"></i> Facturer</button>`:''}
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-success" onclick="changerStatutDevis('${d.id}','accepte')"><i class="ti ti-check"></i> Marquer accepté</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-danger" onclick="changerStatutDevis('${d.id}','refuse')"><i class="ti ti-x"></i> Marquer refusé</button>`:''}
@@ -10763,7 +11339,8 @@ function afficherFacturesVente(){
   </table>`;
 }
 
-async function openNewFactureVenteLibre(){
+async function openNewFactureVenteLibre(opts){
+  opts = opts || {};
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
     sb.from('clients').select('id,nom,conditions_paiement,pays').eq('actif',true).order('nom'),
     sb.from('chantiers_lyneo').select('id,numero,nom,client_id,statut').order('nom')
@@ -10841,6 +11418,16 @@ async function openNewFactureVenteLibre(){
     </div>
   </div></div>`);
   renderVenteLignesLibre();
+  if(opts.clientId){ const sc = el('fvl-client'); if(sc){ sc.value = String(opts.clientId); filtrerChantiersParClient(); } }
+  if(opts.chantierId){
+    const sh = el('fvl-chantier');
+    if(sh){
+      sh.value = String(opts.chantierId);
+      const sc = el('fvl-client'), opt = sh.options[sh.selectedIndex];
+      if(sc && !sc.value && opt && opt.dataset.client){ sc.value = opt.dataset.client; sh.value = String(opts.chantierId); }
+      filtrerChantiersParClient(); await syncAcompteLibre();
+    }
+  }
 }
 
 async function syncAcompteLibre(){
@@ -11073,9 +11660,10 @@ async function saveFactureVenteLibre(){
   // Devis d'origine : seulement si la facture reprend le devis (acompte, ou lignes du devis) — pas pour une facture libre
   const typeFac = el('fv-type').value;
   const devisLie = (chantierId && window._devisInfoForFv && (typeFac==='acompte' || _venteLignes.some(l=>l.ligne_devis_id))) ? window._devisInfoForFv.id : null;
+  const ivId = await interventionDuDevis(devisLie);     // devis d'une intervention SAV : la facture lui est rattachée
 
   const {data:fac, error} = await sb.from('factures_vente').insert({
-    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisLie,
+    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisLie, ...(ivId ? {intervention_id: ivId} : {}),
     type_facture: typeFac,
     reference_client: el('fv-reference').value.trim(),
     date_creation: el('fv-date').value,
@@ -11092,7 +11680,11 @@ async function saveFactureVenteLibre(){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
+  const acc = await accepterDevisFacture(devisLie);          // devis facturé ⇒ « Accepté »
+  const maj = ivId ? await synchroniserStatutFacturationIntervention(ivId) : null;
   showToast('Facture client créée — '+num);
+  signalerMajStatutIntervention(maj);
+  signalerAcceptationDevis(acc);
   closeModal();
   rafraichirPage();
 }
@@ -11349,13 +11941,13 @@ function majEcheanceEdit(){
   infoEcheance('efv');
 }
 
-async function openGenerateFactureVente(chantierId){
+async function openGenerateFactureVente(chantierId, devisIdChoisi){
   const {data:chantier} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
   if(!chantier){ showToast("Chantier introuvable", 'error'); return; }
   if(!chantier.client_id){ showToast("Ce chantier n'a pas de client lié", 'error'); return; }
 
   _venteLigneMode = 'devis';
-  const {devisInfo, lignes, devisListe} = await chargerDonneesDevisPourFacture(chantierId);
+  const {devisInfo, lignes, devisListe} = await chargerDonneesDevisPourFacture(chantierId, devisIdChoisi);
   _venteLignes = lignes;
   const devisId = devisInfo ? devisInfo.id : null;   // le devis réellement utilisé est lu au moment de créer (window._devisInfoForFv)
   // Acomptes déjà facturés sur ce devis : rappel pour ne pas facturer deux fois la même part au solde
@@ -11551,9 +12143,10 @@ async function saveFactureVente(chantierId, clientId, devisId){
   const choixNum = await numeroFactureVenteChoisi();
   if(choixNum.erreur){ showToast(choixNum.erreur, 'error'); const b=el('btn-save-fv'); if(b) b.disabled=false; return; }
   const num = choixNum.num;
+  const ivId = await interventionDuDevis(devisId);      // devis d'une intervention SAV : la facture lui est rattachée
 
   const {data:fac, error} = await sb.from('factures_vente').insert({
-    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisId||null,
+    numero: num, client_id: clientId, chantier_id: chantierId, devis_id: devisId||null, ...(ivId ? {intervention_id: ivId} : {}),
     type_facture: typeFacture,
     reference_client: el('fv-reference').value.trim(),
     date_creation: el('fv-date').value,
@@ -11570,7 +12163,11 @@ async function saveFactureVente(chantierId, clientId, devisId){
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
+  const acc = await accepterDevisFacture(devisId);           // devis facturé ⇒ « Accepté »
+  const maj = ivId ? await synchroniserStatutFacturationIntervention(ivId) : null;
   showToast('Facture client créée — '+num);
+  signalerMajStatutIntervention(maj);
+  signalerAcceptationDevis(acc);
   closeModal();
   openChantierDetail(chantierId,'fac_vente');
 }
@@ -11843,7 +12440,7 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
     ],
     boxes: [
       {label:'Émetteur', lines:LyneoPDF.emetteurLignes()},
-      {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim(), client.email||''].concat(client.adresse_livraison?['Livraison/intervention : '+client.adresse_livraison]:[])}
+      {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim()].concat(tvaClientPdf(client)?['TVA : '+tvaClientPdf(client)]:[], [client.email||''], client.adresse_livraison?['Livraison/intervention : '+client.adresse_livraison]:[])}
     ],
     refRow: [
       {label:'Référence', value: refDevis},
@@ -12044,7 +12641,7 @@ function archiverPdfFactureVente(f, bytes){
 
 async function downloadPDF_FactureVente(facId){
   await entrepriseChargee();
-  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,adresse_livraison,code_postal,ville,conditions_paiement),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
+  const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,adresse_livraison,code_postal,ville,conditions_paiement,numero_tva),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
   if(!f){ showToast("Facture introuvable", 'error'); return; }
   const {data:lignes} = await sb.from('lignes_facture_vente').select('*').eq('facture_vente_id',facId).order('ordre');
   const client = f.clients||{};
@@ -12402,7 +12999,7 @@ const GROUPES_ENTREPRISE = [
 // Ce que contient chaque fichier généré par l'ERP
 const CATALOGUE_DOCUMENTS = [
   {id:'devis_pdf', format:'PDF', titre:'Devis', ou:'Devis → télécharger le PDF', fichier:'N° du devis.pdf', detail:'3 pages A4',
-   contenu:['Page de garde : logo, n° et date, cadres PROJET (affaire, n° de devis, objet, correspondant) et CLIENT, lettre d’introduction',
+   contenu:['Page de garde : logo, n° et date, cadres PROJET (affaire, n° de devis, objet, correspondant) et CLIENT (nom, adresse, code postal, n° TVA si renseigné), lettre d’introduction',
             'Détail des prestations et fournitures : lignes numérotées par section, sous-totaux, prix de vente total, TVA, TTC, options (hors prix) et remarque « Attention »',
             'Modalités : facturation et paiement (acompte, délai, IBAN et BIC), cadre légal (réserve de propriété, révision des prix, validité), approbation et signatures'],
    donnees:['Bandeau bleu en bas de chaque page (mentions légales + site cliquable)','Coordonnées bancaires','E-mail de retour du devis signé']},
@@ -12419,20 +13016,20 @@ const CATALOGUE_DOCUMENTS = [
             'Tableau : description, référence, quantité, unité, P.U. HT, TVA, total HT','Totaux HT / TVA / TTC, observations et rappel de la référence à mentionner sur la facture'],
    donnees:['Bloc Émetteur','Pied de page (mentions légales + site cliquable)']},
   {id:'fv_pdf', format:'PDF', titre:'Facture client (facture, acompte, situation, solde)', ou:'Factures clients → PDF', fichier:'N° de la facture.pdf', detail:'Facture + conditions générales de vente',
-   contenu:['En-tête : N° de facture, date d’émission, date d’échéance','Cadres Émetteur et Facturé à (client, adresse, e-mail, livraison / intervention)',
+   contenu:['En-tête : N° de facture, date d’émission, date d’échéance','Cadres Émetteur et Facturé à (client, adresse, n° TVA du client si renseigné, e-mail, livraison / intervention)',
             'Référence (n° de devis), n° de commande du client, chantier ou lieu d’intervention, modalité de paiement',
             'Tableau des prestations (avec « Réf. article » si renseignée), sous-total HT, TVA, total','Observations, informations de règlement (IBAN, BIC, référence à indiquer)',
             'Conditions générales de vente en annexe (texte juridique fixe, qui cite « Lyneo SARL »)'],
    donnees:['Bloc Émetteur','Coordonnées bancaires','Titre des conditions générales','Pied de page (mentions légales + site cliquable)']},
   {id:'avoir_pdf', format:'PDF', titre:'Note de crédit', ou:'Factures clients → note de crédit → PDF', fichier:'N° de la note de crédit.pdf', detail:'1 page ou plus, sans conditions générales',
-   contenu:['En-tête : N° de note de crédit, date, facture d’origine','Cadres Émetteur et Facturé à','Nature (totale ou partielle) et tableau des lignes créditées','Montant à votre crédit et rappel de la facture rectifiée'],
+   contenu:['En-tête : N° de note de crédit, date, facture d’origine','Cadres Émetteur et Facturé à (client, adresse, n° TVA du client si renseigné)','Nature (totale ou partielle) et tableau des lignes créditées','Montant à votre crédit et rappel de la facture rectifiée'],
    donnees:['Bloc Émetteur','Pied de page (mentions légales + site cliquable)']}
 ];
 
 // ── Exemples de documents (données fictives, numérotés « EXEMPLE ») ──
 function exemplesDocuments(){
   const t = today(), plus30 = new Date(Date.now()+30*864e5).toISOString().slice(0,10);
-  const client = {nom:'Client Exemple S.A.', adresse:"12 rue de l'Exemple", code_postal:'L-1234', ville:'Luxembourg', email:'contact@exemple.lu', conditions_paiement:'30 jours'};
+  const client = {nom:'Client Exemple S.A.', adresse:"12 rue de l'Exemple", code_postal:'L-1234', ville:'Luxembourg', numero_tva:'LU98765432', email:'contact@exemple.lu', conditions_paiement:'30 jours'};
   const lignesDevis = [
     {type:'section', bloc:'principal', description:'Fournitures', ordre:1},
     {type:'ligne', bloc:'principal', description:'Câble U-1000 R2V 3G2,5', unite:'m', quantite:120, prix_unitaire_ht:2.5, taux_tva:17, ordre:2},
@@ -12855,7 +13452,7 @@ const TRAC_FICHES = {                 // fenêtre « fiche » → table
   openBLDetail:'bons_livraison', openEmployeDetail:'employes_rh'
 };
 Object.assign(JOURNAL_TABLES, {bons_livraison:'Réceptions (BL)', lignes_bl:'Lignes de réception', remarques_intervention:'Remarques SAV', codes_ressource:'Codes ressource',
-  anexos:'Documents (factures fournisseurs)', anexos_chantier:'Documents (chantiers)', anexos_devis:'Documents (devis)', anexos_facture_vente:'Documents (factures clients)',
+  anexos:'Documents (factures fournisseurs)', anexos_chantier:'Documents (chantiers)', anexos_devis:'Documents (devis)', anexos_facture_vente:'Documents (factures clients)', anexos_bl:'Documents (réceptions)',
   anexos_intervention:'Documents (SAV)', anexos_employe:'Documents (employés)'});
 const TRAC_SYSTEME = /^(postgres|service_role|supabase_admin|authenticator|anon)$/i;      // opérations faites depuis le SQL Editor / un script (imports…)
 const TRAC_CACHE_MS = 10*60*1000;
@@ -13065,7 +13662,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','codes_ressource','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_bl','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
@@ -16260,6 +16857,7 @@ async function deleteEmploye(employeId){
 
 // ── INTERVENTIONS (SAV) ───────────────────────────────────────
 let _interventionsSAV = [];
+let _savFacturation = {ok:false, parId:{}};   // état de facturation de chaque intervention de la liste
 let _sav_venteLignes = [];
 let _savCentreFiltre = '';        // '' = tous · id d'un centre SAV · '__aucun' = interventions sans centre SAV
 let _savCentresCache = null;      // {centres, facParCentre} — rechargé quand on ne tape pas dans la recherche
@@ -16295,6 +16893,9 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     }catch(e){}
   }
 
+  // Facturation de chaque intervention (dérivée des factures clients). Illisible ⇒ colonne « — » : jamais un faux « Non facturée ».
+  _savFacturation = await lireEtatsFacturationInterventions(_interventionsSAV);
+
   // Centres de coûts SAV (SAV 1, SAV 2...) — requêtes séparées et protégées : sans effet si la migration n'est pas faite
   if(!search || !_savCentresCache){
     let centres = [];
@@ -16321,7 +16922,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   _interventionsSAV.forEach(i=>{
     const k = aUnCentre(i) ? i.chantier_id : '__aucun';
     const s = stat[k] = stat[k] || {total:0, afacturer:0};
-    s.total++; if(i.statut==='terminee') s.afacturer++;
+    s.total++; if(i.statut==='terminee' || i.statut==='facturee_partiel') s.afacturer++;
   });
 
   let items = _interventionsSAV;
@@ -16360,6 +16961,13 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
       </div>`:''}
     </div>
     ${centres.length===0?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> Aucun centre de coûts SAV pour l'instant. Créez-les avec « Nouveau centre SAV » (ex : SAV 1, SAV 2) : chaque intervention y est rattachée, avec ses heures, ses devis et ses factures.</div>`:''}`;
+  // Colonne « Client » inutile quand le centre filtré est celui d'un seul client (ex. SAV 2 = Delhaize) ; gardée pour « Clients divers » et sans filtre
+  const montreClient = !(centreFiltre && centreFiltre.client_id);
+  const nbColsSav = montreClient ? 11 : 10;
+  // Interventions facturées (ou en partie) dont le statut ne le dit pas encore : rattrapage en un clic pour admin / comptabilité
+  const aMajStatut = _savFacturation.ok ? _interventionsSAV.filter(i=>statutCibleFacturation(i.statut, _savFacturation.parId[i.id])) : [];
+  const peutMajStatut = !!currentUser && ['admin','comptabilite'].includes(currentUser.role);
+  const bandeauMaj = (aMajStatut.length && peutMajStatut) ? `<div class="alert alert-warning" id="sav-resync" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span><i class="ti ti-refresh"></i> <strong>${aMajStatut.length}</strong> intervention${aMajStatut.length>1?'s ont':' a'} des factures clients, mais ${aMajStatut.length>1?'leur statut ne le reflète':'son statut ne le reflète'} pas encore (ex. « Terminée — à facturer »).</span><button class="btn btn-secondary btn-sm" id="sav-resync-btn" onclick="mettreAJourStatutsFacturationSAV()"><i class="ti ti-check"></i> Mettre à jour les statuts</button></div>` : '';
   const nouvelleIntArg = centreFiltre ? `{client_id:'${centreFiltre.client_id||''}',chantier_id:'${centreFiltre.id}'}` : '';
 
   el('page-content').innerHTML = `
@@ -16373,6 +16981,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
       </div>
     </div>
     ${cartesCentres}
+    ${bandeauMaj}
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
       ${[['encours','Actives'],['astreinte','Astreintes'],['toutes','Toutes']].map(([k,label])=>
         `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV('${search}','${k}')">${label}</button>`
@@ -16382,21 +16991,21 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="interventions_sav">
-          <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Technicien</th><th>Statut</th><th>Astreinte</th><th>Créé par</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Facturation</th><th>Statut</th><th>Astreinte</th><th>Créé par</th><th>Actions</th></tr></thead>
           <tbody>
-            ${items.length===0 ? '<tr><td colspan="11"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
+            ${items.length===0 ? '<tr><td colspan="'+nbColsSav+'"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
             items.map(i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
               <td><strong class="text-blue">${escHtml(i.ref)}</strong></td>
               ${savCelluleDate(i)}
-              <td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>
+              ${montreClient?`<td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>`:''}
               <td>${i.nom_site?'<strong>'+escHtml(i.nom_site)+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ escHtml(i.adresse_site||'') +'</span>':(i.adresse_site?escHtml(i.adresse_site):'—')}</td>
               <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${String(devisMap[i.devis_id].objet||'').replace(/"/g,'&quot;')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
               <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6);white-space:normal">'+escHtml(centresLib[i.chantier_id])+'</span>':'—'}</td>
-              <td>${i.employes_rh?escHtml(nomPers(i.employes_rh)):escHtml(i.technicien_nom||'—')}</td>
+              ${cellFacturation(_savFacturation.ok ? _savFacturation.parId[i.id] : null, {genre:'f', aFacturer:(i.statut==='terminee' || i.statut==='facturee_partiel')})}
               <td>${bSAV(i.statut)}</td>
               <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
               <td>${tracCell(i.cree_par)}</td>
-              <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button></div></td>
+              <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button>${(i.statut==='terminee' || i.statut==='facturee_partiel')?`<button class="btn btn-primary btn-sm" data-sav-facturer="${i.id}" onclick="event.stopPropagation();openFactureSAVModal('${i.id}')" title="${i.statut==='terminee'?'Terminée — à facturer : créer la facture':'Partiellement facturée : facturer le reste'}"><i class="ti ti-receipt"></i></button>`:''}</div></td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -16730,11 +17339,21 @@ async function openInterventionDetail(interventionId){
   const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,email,telephone),employes_rh(nom,prenom,email)').eq('id',interventionId).single();
   if(!i){ showToast("Intervention introuvable", 'error'); return; }
   await tracChargerUtilisateurs();
-  const [{data:remarques},{data:anexos},{data:facturesLiees}] = await Promise.all([
+  const [{data:remarques},{data:anexos},{data:facturesDirectes}] = await Promise.all([
     sb.from('remarques_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
     sb.from('anexos_intervention').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false}),
     sb.from('factures_vente').select('*').eq('intervention_id',interventionId).order('created_at',{ascending:false})
   ]);
+  // + les factures du devis de l'intervention créées sans lien direct (depuis le devis ou le chantier) : sans doublon, sans celles d'une AUTRE intervention
+  const facturesLiees = (facturesDirectes||[]).slice();
+  if(i.devis_id){
+    try{
+      const rf = await sb.from('factures_vente').select('*').eq('devis_id',i.devis_id).order('created_at',{ascending:false});
+      const deja = new Set(facturesLiees.map(f=>String(f.id)));
+      (rf.data||[]).forEach(f=>{ if(!deja.has(String(f.id)) && (!f.intervention_id || String(f.intervention_id)===String(i.id))) facturesLiees.push(f); });
+      facturesLiees.sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+    }catch(e){}
+  }
   // Devis d'origine, centre de coûts et heures pointées. Requêtes séparées : elles ne cassent
   // rien si les colonnes n'existent pas encore ou si le système de pointages est indisponible.
   let devisLie = null, centreSav = null, heuresPointees = null, coutMOInterv = null, heuresSansCoutInterv = 0;
@@ -16757,6 +17376,7 @@ async function openInterventionDetail(interventionId){
       if(couts.etat==='ok'){ const r = coutDesPicages(pics||[], couts.parPt); coutMOInterv = r.cout; heuresSansCoutInterv = r.heuresSansCout; }
     }
   }catch(e){ /* système de pointages indisponible */ }
+  const etatFact = etatFacturationIntervention(i, devisLie, facturesLiees);
   const photos = (anexos||[]).filter(a=>a.categorie==='photo');
   const documents = (anexos||[]).filter(a=>a.categorie!=='photo');
   const achatsInterv = await chargerAchatsInterventions([i.id]);
@@ -16765,7 +17385,7 @@ async function openInterventionDetail(interventionId){
     ach: achatsInterv.parInterv[i.id], dispo: achatsInterv.dispo, coutMO: coutMOInterv, heuresSansCout: heuresSansCoutInterv
   });
   const technicienLabel = escHtml(i.employes_rh ? nomPers(i.employes_rh) : (i.technicien_nom||'—'));
-  const statusOrder = ['nouvelle','attribuee','encours','terminee','facturee'];
+  const statusOrder = ['nouvelle','attribuee','encours','terminee','facturee_partiel','facturee'];
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -16793,6 +17413,7 @@ async function openInterventionDetail(interventionId){
       ${blocCouts}
 
       <div class="form-actions" style="margin-bottom:20px">
+        <button class="btn ${i.statut==='facturee'?'btn-secondary':'btn-primary'}" id="int-btn-facturer" onclick="closeModal();openFactureSAVModal('${i.id}')" title="Créer la facture client de cette intervention"><i class="ti ti-receipt"></i> Facturer</button>
         <button class="btn btn-ghost" onclick="closeModal();editInterventionById('${i.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-secondary" onclick="emailClientIntervention('${i.id}')"><i class="ti ti-mail"></i> Email client</button>
         <button class="btn btn-secondary" onclick="emailTechnicienIntervention('${i.id}')"><i class="ti ti-mail"></i> Email technicien</button>
@@ -16837,7 +17458,8 @@ async function openInterventionDetail(interventionId){
         <button class="btn btn-secondary" onclick="addRemarqueIntervention('${interventionId}')">Ajouter</button>
       </div>
 
-      <strong style="font-size:13px">Facturation</strong>
+      <div id="int-facturation" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong style="font-size:13px">Facturation</strong><span id="int-fact-badge">${badgeFacturation(etatFact,{genre:'f', aFacturer:(i.statut==='terminee' || i.statut==='facturee_partiel')})}</span></div>
+      ${(etatFact.etat!=='non' && etatFact.etat!=='inconnu') ? `<div id="int-fact-detail" style="font-size:12px;color:var(--gray-5);margin-top:4px">${escHtml(titreFacturation(etatFact))}</div>` : ''}
       <div style="margin-top:8px">
         ${(facturesLiees||[]).length===0?'<p style="font-size:13px;color:var(--gray-4)">Aucune facture créée pour cette intervention</p>':
           facturesLiees.map(f=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--gray-2);font-size:13px">
@@ -17004,11 +17626,15 @@ async function saveFactureSAV(interventionId, clientId){
     quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
   })));
 
-  await sb.from('interventions_sav').update({statut:'facturee'}).eq('id',interventionId);
+  const acc = await accepterDevisFacture(ctx.devisId);       // devis facturé ⇒ « Accepté »
+  // L'intervention suit la facturation : « Facturée » si tout est facturé, « Partiellement facturée » s'il reste du devis à facturer
+  const maj = await synchroniserStatutFacturationIntervention(interventionId, {pointages:false});
   lancerMajPointagesIntervention(interventionId);
 
   if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id, interventionId});
   showToast('Facture créée — '+num);
+  signalerMajStatutIntervention(maj);
+  signalerAcceptationDevis(acc);
   closeModal();
   openInterventionDetail(interventionId);
 }
