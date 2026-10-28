@@ -292,6 +292,27 @@ tbody tr:hover td{background:var(--blue-light)}
 #fv-liste tbody tr:hover td:last-child{background:var(--blue-light)}
 #fac-liste th{padding:11px 10px}#fac-liste td{padding:11px 10px}#fac-liste th:first-child,#fac-liste td:first-child{padding-left:16px}#fac-liste th:last-child,#fac-liste td:last-child{padding-right:16px}
 #fac-liste tbody tr.fac-sel td{background:#EFF6FF}
+/* colonne du menu ⋮ (colonnes optionnelles) : toujours visible à droite, même quand la liste défile */
+#fac-liste thead th.fac-colmenu,#fac-liste tbody td.fac-colmenu{position:sticky;right:0;width:42px;min-width:42px;max-width:42px;padding:0 6px;text-align:center;background:#fff;box-shadow:-8px 0 8px -8px rgba(15,23,42,.18)}
+#fac-liste tr.fac-filtres th.fac-colmenu{background:var(--gray-1);box-shadow:none;padding:0 6px}
+#fac-liste tbody tr:hover td.fac-colmenu{background:var(--blue-light)}
+.fac-colbtn{border:0;background:transparent;cursor:pointer;padding:4px 6px;border-radius:6px;color:var(--gray-5);font-size:18px;line-height:1}
+.fac-colbtn:hover,.fac-colbtn[aria-expanded="true"]{background:var(--gray-2);color:var(--blue)}
+.fac-colbtn:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.fac-cols-pop{display:none;position:fixed;z-index:70;min-width:250px;max-width:320px;background:#fff;border:1px solid var(--gray-3);border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.18);padding:8px 6px}
+.fac-cols-titre{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gray-5);padding:6px 10px 4px}
+.fac-cols-opt{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--gray-7)}
+.fac-cols-opt:hover{background:var(--gray-1)}
+.fac-cols-opt input{width:16px;height:16px;margin:0;flex:none}
+.fac-cols-note{font-size:11.5px;color:var(--gray-5);padding:8px 10px 4px;border-top:1px solid var(--gray-2);margin-top:4px;line-height:1.4}
+.fac-pay{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.fac-echue{font-size:11px;font-weight:700;color:var(--red);white-space:nowrap}
+.cr-tous{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 12px;margin:0 0 8px;background:var(--blue-light);border:1px solid var(--gray-3);border-radius:var(--radius)}
+.cr-tous-lib{font-size:12px;font-weight:700;color:var(--gray-6)}
+.cr-tous-select{min-width:170px;max-width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;background:#fff}
+.cr-tous-vides{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--gray-6);cursor:pointer}
+.fac-obs-ico{margin-left:5px;font-size:15px;color:var(--gray-5);vertical-align:middle;cursor:help}
+.fac-int.fac-obs-r,strong.fac-obs-r,.fac-obs-ico.fac-obs-r{color:var(--red);font-weight:800}
 .fac-ndf{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:#E0F2FE;color:#075985;border:1px solid #7DD3FC;white-space:nowrap}
 .fac-dbl{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:#FEF3C7;color:#92400E;border:1px solid var(--orange);cursor:pointer;white-space:nowrap}
 .fac-int{font-weight:600;font-size:12.5px;color:var(--gray-7,#374151);font-variant-numeric:tabular-nums;letter-spacing:.2px}
@@ -1952,7 +1973,11 @@ const STATUT_PO = {
   rec_totale:'Réc. totale', facturee:'Facturée', payee:'Payée', annulee:'Annulée'
 };
 const STATUT_CH = {actif:'En cours', pause:'En pause', termine:'Terminé', archive:'Archivé'};
-const STATUT_FA = {recue:'Reçue', validee:'Validée', payee:'Payée', litige:'Litige', annulee:'Annulée', avoir:'Avoir'};
+const STATUT_FA = {recue:'Validée', validee:'Validée', payee:'Payée', litige:'Litige', annulee:'Annulée', avoir:'Avoir'};
+// Une facture fournisseur encodée est validée d'office. L'ancien état « Reçue » ('recue' : valeur par défaut de la colonne et factures
+// déjà enregistrées) se lit donc « Validée » partout : même badge, même bouton Payer, mêmes filtres. Aucune donnée n'est modifiée.
+const statutFaNorm = s => s==='recue' ? 'validee' : s;
+const FA_A_PAYER = ['recue','validee'];
 
 function bPO(s){ return `<span class="badge badge-${s}">${STATUT_PO[s]||s}</span>`; }
 const STATUT_FV = {brouillon:'Brouillon',envoyee:'Envoyée',payee_partiel:'Part. payée',payee:'Payée',annulee:'Annulée'};
@@ -2463,7 +2488,7 @@ function pastillesSituationChantier(s){
 }
 const STATUT_DV = {brouillon:'Brouillon', envoye:'Envoyé', accepte:'Accepté', refuse:'Refusé', expire:'Expiré'};
 function bDV(s){ return `<span class="badge badge-${s}">${STATUT_DV[s]||s}</span>`; }
-function bFA(s){ return `<span class="badge badge-${s}">${STATUT_FA[s]||s}</span>`; }
+function bFA(s){ const k = statutFaNorm(s); return `<span class="badge badge-${k}">${STATUT_FA[k]||k}</span>`; }
 const STATUT_SAV = {nouvelle:'Nouvelle', attribuee:'Attribuée', encours:'En cours', terminee:'Terminée — à facturer', facturee_partiel:'Partiellement facturée', facturee:'Facturée'};
 function bSAV(s){ return `<span class="badge badge-${s}">${STATUT_SAV[s]||s}</span>`; }
 const ARTICLES_SAV = ["Main d'œuvre","Frais de déplacement","Matériel","Astreinte","Sous-traitance","Divers"];
@@ -7292,8 +7317,106 @@ let _posPourFac = [];
 // État de la page : les filtres et la sélection survivent aux rechargements de la liste
 let _facsListe = [], _facChantiers = [], _facSel = new Set(), _facIntervRefs = {};
 const nIntTxt = f => f && f.numero_interne ? ' · n° interne '+f.numero_interne : '';
-const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', statut:'', codes:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:'', type:''});
+const filtresFacVides = () => ({search:'', interne:'', num:'', cmd:'', four:'', chantier:'', paie:'', codes:'', dateDe:'', dateA:'', echDe:'', echA:'', montMin:'', montMax:'', type:'', obs:''});
 let _facFiltres = filtresFacVides();
+// ── OBSERVATIONS d'une facture fournisseur : quand quelqu'un a écrit une remarque, la liste attire l'attention dessus.
+// Une remarque AUTOMATIQUE (import comptable, note de crédit) n'est pas une remarque écrite par l'équipe : elle n'est pas signalée.
+// Rouge (n° interne, n° fournisseur, icône) = remarque sur une facture qui demande encore une action (à payer ou en litige) ; icône grise = remarque sur une facture payée/annulée/avoir.
+const obsAutoFac = t => /^Import fichier comptable \d{2}\/\d{2}\/\d{4}[^\n]*$/.test(t) || /^Note de crédit relative à la facture [^\n]*$/.test(t);
+const obsFac = r => { const t = String((r && r.observations) || '').trim(); return t && !obsAutoFac(t) ? t : ''; };
+const obsFacUrgente = r => !!obsFac(r) && (facAPayer(r) || (r && r.statut==='litige'));
+const iconeObsFac = r => { const t = obsFac(r); return !t ? '' : `<i class="ti ti-note fac-obs-ico${obsFacUrgente(r)?' fac-obs-r':''}" role="img" aria-label="Observation" title="${escHtml('Observation : '+(t.length>300 ? t.slice(0,300)+'…' : t))}"></i>`; };
+
+// ── PAIEMENT d'une facture fournisseur (colonne « Paiement » de la liste) ────────────────────────────────────────────
+// « À payer » = facture validée (ou ancienne « Reçue ») pas encore payée ; « Échue » = à payer ET échéance strictement dépassée
+// (une facture qui arrive à échéance aujourd'hui n'est pas encore échue, comme au tableau de bord).
+const facAPayer = r => FA_A_PAYER.includes(r.statut);
+const facEchue = r => facAPayer(r) && !!r.date_echeance && jourFac(r.date_echeance) < today();
+const etatPaiementFac = r => { const e = statutFaNorm(r.statut); return e==='validee' ? (facEchue(r) ? 'echue' : 'apayer') : e; };
+const RANG_PAIE_FAC = {echue:0, apayer:1, litige:2, payee:3, avoir:4, annulee:5};
+const rangPaiementFac = r => { const e = etatPaiementFac(r); return Object.prototype.hasOwnProperty.call(RANG_PAIE_FAC, e) ? RANG_PAIE_FAC[e] : 9; };
+function cellPaiementFac(r){
+  if(statutFaNorm(r.statut)==='validee'){
+    return `<div class="fac-pay"><button class="btn btn-primary btn-sm" data-fac-payer="${r.id}" onclick="openPayModal('${r.id}','${r.po_id||''}',${parseFloat(r.montant_ttc)||0})" title="Enregistrer le paiement de cette facture"><i class="ti ti-currency-euro"></i> Payer</button>${facEchue(r) ? `<span class="fac-echue" title="${escHtml('Échéance dépassée : '+fmtDate(r.date_echeance))}">⚠ Échue</span>` : ''}</div>`;
+  }
+  return `<span data-fac-etat="${escHtml(statutFaNorm(r.statut))}">${bFA(r.statut)}</span>`;
+}
+
+// ── COLONNES OPTIONNELLES (menu ⋮ en bout d'en-tête, comme dans Odoo) ───────────────────────────────────────────────
+// Elles ne changent QUE l'affichage : les données, la recherche, les sommes et les exports Excel gardent toutes les colonnes.
+// Choix mémorisé par utilisateur et par navigateur (tout est visible par défaut). Masquer une colonne retire aussi son filtre et son tri,
+// pour ne jamais laisser la liste filtrée ou triée par une colonne qu'on ne voit plus.
+const COLS_OPT_FAC = [
+  {k:'ech', lib:'Échéance', filtres:['echDe','echA']},
+  {k:'tva', lib:'TVA', filtres:[]},
+  {k:'chantier', lib:'Centre de coûts', filtres:['chantier']},
+  {k:'codes', lib:'Codes', filtres:['codes'], si:()=>_facCodesOk}
+];
+const colsOptDispoFac = () => COLS_OPT_FAC.filter(c=>!c.si || c.si());
+let _facColsCache = null;          // {uid, set} : colonnes masquées de l'utilisateur courant (aussi en mémoire si le navigateur refuse le stockage)
+let _facColsOuvert = false;
+const uidColsFac = () => String((typeof currentUser!=='undefined' && currentUser && currentUser.id) || '');
+function colsMasqueesFac(){
+  const uid = uidColsFac();
+  if(!_facColsCache || _facColsCache.uid!==uid){
+    let arr = [];
+    try{ const v = JSON.parse(localStorage.getItem('lyneo-fac-cols:'+uid) || '[]'); if(Array.isArray(v)) arr = v.filter(k=>COLS_OPT_FAC.some(c=>c.k===k)); }catch(e){}
+    _facColsCache = {uid, set:new Set(arr)};
+  }
+  return _facColsCache.set;
+}
+function colVisibleFac(k){
+  const c = COLS_OPT_FAC.find(x=>x.k===k);
+  if(!c) return true;
+  if(c.si && !c.si()) return false;      // « Codes » n'existe que si la base les gère
+  return !colsMasqueesFac().has(k);
+}
+const nbColsFac = () => 13 + COLS_OPT_FAC.filter(c=>colVisibleFac(c.k)).length;
+function menuColsFacHtml(){
+  return `<div class="fac-cols-titre">Colonnes optionnelles</div>`
+    + colsOptDispoFac().map(c=>`<label class="fac-cols-opt"><input type="checkbox" data-fac-col="${c.k}"${colVisibleFac(c.k)?' checked':''} onchange="basculerColFac('${c.k}',this.checked)"/> ${escHtml(c.lib)}</label>`).join('')
+    + `<div class="fac-cols-note">Une colonne masquée reste prise en compte dans les recherches, les totaux et les exports Excel. Votre choix est mémorisé sur cet appareil.</div>`;
+}
+function fermerMenuColsFac(){
+  const pop = el('fac-cols-pop'), btn = el('fac-cols-btn');
+  if(pop) pop.style.display = 'none';
+  if(btn) btn.setAttribute('aria-expanded','false');
+  _facColsOuvert = false;
+}
+function basculerMenuColsFac(ev){
+  if(ev && ev.stopPropagation) ev.stopPropagation();
+  const pop = el('fac-cols-pop'), btn = el('fac-cols-btn'); if(!pop || !btn) return;
+  if(_facColsOuvert){ fermerMenuColsFac(); return; }
+  pop.innerHTML = menuColsFacHtml();
+  pop.style.display = 'block';
+  const r = btn.getBoundingClientRect(), w = pop.offsetWidth;
+  pop.style.top = Math.round(r.bottom+4)+'px';
+  pop.style.left = Math.max(8, Math.min(window.innerWidth-w-8, Math.round(r.right-w)))+'px';
+  btn.setAttribute('aria-expanded','true');
+  _facColsOuvert = true;
+}
+function basculerColFac(k, visible){
+  const c = COLS_OPT_FAC.find(x=>x.k===k); if(!c) return;
+  const masquees = colsMasqueesFac();
+  if(visible) masquees.delete(k); else masquees.add(k);
+  try{ localStorage.setItem('lyneo-fac-cols:'+uidColsFac(), JSON.stringify([...masquees])); }catch(e){}
+  if(!visible){
+    const F = _facFiltres;
+    const pose = c.filtres.some(f=>F[f]!=='' && F[f]!=null);
+    c.filtres.forEach(f=>{ F[f] = ''; });
+    if(_facTri && _facTri.col===k) _facTri = null;
+    if(pose){ _facSel.clear(); _facPage = 1; showToast(`Filtre « ${c.lib} » retiré : la colonne est masquée`); }
+  }
+  majEnteteFactures();
+  afficherFactures();
+}
+if(!window._facColsEv){
+  window._facColsEv = true;
+  document.addEventListener('click', e=>{ if(_facColsOuvert && !(e.target && e.target.closest && e.target.closest('#fac-cols-pop'))) fermerMenuColsFac(); });   // le bouton ⋮ arrête la propagation de son propre clic
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && _facColsOuvert){ fermerMenuColsFac(); const b = el('fac-cols-btn'); if(b) b.focus(); } });
+  window.addEventListener('resize', ()=>{ if(_facColsOuvert) fermerMenuColsFac(); });
+  window.addEventListener('scroll', e=>{ if(!_facColsOuvert) return; const t = e.target; if(t && t.closest && t.closest('#fac-liste,#fac-scroll-top,#fac-cols-pop')) return; fermerMenuColsFac(); }, true);
+}
 // Pagination : 10 / 20 / 30 / 50 factures par page ; le choix est mémorisé dans ce navigateur
 const PAR_PAGE_FAC = [10,20,30,50];
 let _facPage = 1;
@@ -7411,13 +7534,10 @@ async function renderFactures(){
   const ids = new Set(_facsListe.map(f=>f.id));
   _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
   const F = _facFiltres, sel = (a,b)=>a===b?' selected':'';
-  const nbCodes = {a_coder:0, ok:0, sans:0, na:0}, nbParCode = {}; _facsListe.forEach(r=>{ const e = etatCodesFacture(r); nbCodes[e.etat]++; e.ids.forEach(id=>{ nbParCode[id] = (nbParCode[id]||0)+1; }); });
-  const optCodes = (()=>{ const ids = new Set(Object.keys(nbParCode)); if(String(F.codes||'').startsWith('c:')) ids.add(F.codes.slice(2)); return [...ids].map(id=>({id, code:nomCodeRes(id)})).sort(cmpCodeRes).map(c=>`<option value="c:${escHtml(c.id)}"${sel('c:'+c.id,F.codes)}>${escHtml(c.code)} (${nbParCode[c.id]||0})</option>`).join(''); })();
-  const fours = [...new Set(_facsListe.map(nomFournisseurFac).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
   el('page-content').innerHTML = `
     <div class="page-header">
-      <div class="page-header-left"><h1>Factures fournisseurs</h1><p>Validation et suivi des paiements</p></div>
+      <div class="page-header-left"><h1>Factures fournisseurs</h1><p>Suivi des factures et des paiements</p></div>
       <button class="btn btn-primary" onclick="openFacModal()"><i class="ti ti-plus"></i> Saisir une facture</button>
       <button class="btn btn-secondary" onclick="openFacLibreModal()"><i class="ti ti-plus"></i> Facture sans commande</button>
       <button class="btn btn-secondary" id="btn-note-frais" onclick="openNoteFraisModal()" title="Dépense avancée par un salarié (ticket, facture…) : s'encode comme une facture fournisseur dont le fournisseur est le salarié"><i class="ti ti-receipt-2"></i> Note de frais</button>
@@ -7425,6 +7545,7 @@ async function renderFactures(){
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <div class="search-wrap"><i class="ti ti-search"></i><input id="fac-recherche" placeholder="Rechercher partout (n°, fournisseur, chantier...)" oninput="majFiltreFactures('search',this.value)" value="${escHtml(F.search)}"/></div>
       ${_ndfSet.size ? `<select id="fac-type" style="width:auto" title="Notes de frais = factures dont le fournisseur est un salarié" onchange="majFiltreFactures('type',this.value)"><option value="">Factures et notes de frais</option><option value="fac"${sel('fac',F.type)}>Factures fournisseurs (${_facsListe.filter(r=>!estNoteDeFrais(r)).length})</option><option value="ndf"${sel('ndf',F.type)}>Notes de frais (${_facsListe.filter(estNoteDeFrais).length})</option></select>` : ''}
+      ${(_facsListe.some(obsFac) || F.obs) ? `<select id="fac-obs" style="width:auto" title="Remarques écrites dans le champ Observations (les textes automatiques de l'import et des notes de crédit ne comptent pas)" onchange="majFiltreFactures('obs',this.value)"><option value="">Avec ou sans observation</option><option value="oui"${sel('oui',F.obs)}>Avec observation (${_facsListe.filter(obsFac).length})</option></select>` : ''}
       <button class="btn btn-ghost btn-sm" id="facf-reset" onclick="reinitialiserFiltresFactures()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
       <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
       <div id="fac-pager-top" class="pager" style="margin-left:auto"></div>
@@ -7445,33 +7566,53 @@ async function renderFactures(){
       <div id="fac-scroll-top" class="scroll-top" style="display:none" title="Faire défiler la liste"><div id="fac-scroll-top-in"></div></div>
       <div class="table-wrap" id="fac-liste" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table>
-          <thead>
-            <tr class="fac-filtres">
+          <thead id="fac-thead">${enteteFacturesHtml()}</thead>
+          <tbody id="fac-tbody"></tbody>
+        </table>
+      </div>
+      <div id="fac-pager" class="pager pager-bas"></div>
+    </div>
+    <div id="fac-cols-pop" class="fac-cols-pop" role="menu" aria-label="Colonnes optionnelles"></div>`;
+  _facColsOuvert = false;
+  afficherFactures();
+}
+
+// En-têtes de la liste (filtres + titres) : reconstruits quand on change les colonnes optionnelles, sans relire la base.
+function enteteFacturesHtml(){
+  const F = _facFiltres, sel = (a,b)=>a===b?' selected':'', v = colVisibleFac;
+  const fours = [...new Set(_facsListe.map(nomFournisseurFac).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const nbP = {apayer:0, echue:0, payee:0, litige:0, annulee:0, avoir:0};
+  _facsListe.forEach(r=>{ const e = etatPaiementFac(r); if(e==='echue'){ nbP.echue++; nbP.apayer++; } else if(e in nbP) nbP[e]++; });
+  let thCodes = '';
+  if(v('codes')){
+    const nbCodes = {a_coder:0, ok:0, sans:0, na:0}, nbParCode = {}; _facsListe.forEach(r=>{ const e = etatCodesFacture(r); nbCodes[e.etat]++; e.ids.forEach(id=>{ nbParCode[id] = (nbParCode[id]||0)+1; }); });
+    const optCodes = (()=>{ const ids = new Set(Object.keys(nbParCode)); if(String(F.codes||'').startsWith('c:')) ids.add(F.codes.slice(2)); return [...ids].map(id=>({id, code:nomCodeRes(id)})).sort(cmpCodeRes).map(c=>`<option value="c:${escHtml(c.id)}"${sel('c:'+c.id,F.codes)}>${escHtml(c.code)} (${nbParCode[c.id]||0})</option>`).join(''); })();
+    thCodes = `<th><select id="facc-codes" style="min-width:150px" title="Filtrer par code ressource, ou voir ce qui reste à coder" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Toutes codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option>${optCodes ? `<optgroup label="Par code ressource">${optCodes}</optgroup>` : ''}</select></th>`;
+  }
+  return `<tr class="fac-filtres">
               <th></th>
               <th><input id="facc-int" placeholder="Filtrer…" style="min-width:104px" value="${escHtml(F.interne)}" oninput="majFiltreFactures('interne',this.value)"/></th>
               <th><input id="facc-num" placeholder="Filtrer…" style="min-width:110px" value="${escHtml(F.num)}" oninput="majFiltreFactures('num',this.value)"/></th>
               <th><select id="facc-four" style="min-width:140px" onchange="majFiltreFactures('four',this.value)"><option value="">Tous</option>${fours.map(n=>`<option value="${escHtml(n)}"${sel(n,F.four)}>${escHtml(n)}</option>`).join('')}</select></th>
               <th><div class="fac-range"><span>Du</span><input type="date" id="facc-date-de" value="${escHtml(F.dateDe)}" onchange="majFiltreFactures('dateDe',this.value)"/><span>Au</span><input type="date" id="facc-date-a" value="${escHtml(F.dateA)}" onchange="majFiltreFactures('dateA',this.value)"/></div></th>
-              <th><div class="fac-range"><span>Du</span><input type="date" id="facc-ech-de" value="${escHtml(F.echDe)}" onchange="majFiltreFactures('echDe',this.value)"/><span>Au</span><input type="date" id="facc-ech-a" value="${escHtml(F.echA)}" onchange="majFiltreFactures('echA',this.value)"/></div></th>
+              ${v('ech') ? `<th><div class="fac-range"><span>Du</span><input type="date" id="facc-ech-de" value="${escHtml(F.echDe)}" onchange="majFiltreFactures('echDe',this.value)"/><span>Au</span><input type="date" id="facc-ech-a" value="${escHtml(F.echA)}" onchange="majFiltreFactures('echA',this.value)"/></div></th>` : ''}
               <th></th>
-              <th></th>
+              ${v('tva') ? '<th></th>' : ''}
               <th><div class="fac-range"><span>Min</span><input type="number" step="0.01" id="facc-mont-min" placeholder="€" value="${escHtml(F.montMin)}" oninput="majFiltreFactures('montMin',this.value)"/><span>Max</span><input type="number" step="0.01" id="facc-mont-max" placeholder="€" value="${escHtml(F.montMax)}" oninput="majFiltreFactures('montMax',this.value)"/></div></th>
               <th><input id="facc-cmd" placeholder="Filtrer…" style="min-width:90px" value="${escHtml(F.cmd)}" oninput="majFiltreFactures('cmd',this.value)"/></th>
-              <th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans centre de coûts (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>
-              ${_facCodesOk ? `<th><select id="facc-codes" style="min-width:150px" title="Filtrer par code ressource, ou voir ce qui reste à coder" onchange="majFiltreFactures('codes',this.value)"><option value="">Tous</option><option value="a_coder"${sel('a_coder',F.codes)}>À coder (${nbCodes.a_coder})</option><option value="ok"${sel('ok',F.codes)}>Toutes codées (${nbCodes.ok})</option><option value="sans"${sel('sans',F.codes)}>Sans lignes (${nbCodes.sans})</option>${optCodes ? `<optgroup label="Par code ressource">${optCodes}</optgroup>` : ''}</select></th>` : ''}
+              ${v('chantier') ? `<th><select id="facc-chantier" style="min-width:150px" onchange="majFiltreFactures('chantier',this.value)"><option value="">Tous</option><option value="sans"${sel('sans',F.chantier)}>Sans centre de coûts (à affecter)</option>${_facChantiers.map(c=>`<option value="${c.id}"${sel(c.id,F.chantier)}>${escHtml(libelleChantierFac(c))}</option>`).join('')}</select></th>` : ''}
+              ${thCodes}
+              <th><select id="facc-paie" style="min-width:120px" title="Factures à payer, échues ou déjà payées" onchange="majFiltreFactures('paie',this.value)"><option value="">Tous</option><option value="apayer"${sel('apayer',F.paie)}>À payer (${nbP.apayer})</option><option value="echue"${sel('echue',F.paie)}>Échues (${nbP.echue})</option><option value="payee"${sel('payee',F.paie)}>Payées (${nbP.payee})</option><option value="litige"${sel('litige',F.paie)}>Litige (${nbP.litige})</option><option value="annulee"${sel('annulee',F.paie)}>Annulées (${nbP.annulee})</option><option value="avoir"${sel('avoir',F.paie)}>Avoirs (${nbP.avoir})</option></select></th>
               <th></th>
-              <th><select id="facc-statut" style="min-width:100px" onchange="majFiltreFactures('statut',this.value)"><option value="">Tous</option>${Object.entries(STATUT_FA).map(([k,l])=>`<option value="${k}"${sel(k,F.statut)}>${l}</option>`).join('')}</select></th>
               <th></th>
               <th></th>
+              <th class="fac-colmenu"></th>
             </tr>
-            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${thTriFac('ech','Échéance')}${thTriFac('ht','Montant HT')}${thTriFac('tva','TVA')}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${thTriFac('chantier','Centre de coûts')}${_facCodesOk ? thTriFac('codes','Codes') : ''}<th>Documents</th>${thTriFac('statut','Statut')}${thTriFac('par','Saisie par')}<th>Actions</th></tr>
-          </thead>
-          <tbody id="fac-tbody"></tbody>
-        </table>
-      </div>
-      <div id="fac-pager" class="pager pager-bas"></div>
-    </div>`;
-  afficherFactures();
+            <tr><th style="width:34px"><input type="checkbox" id="fac-sel-all" title="Tout sélectionner" onchange="toutSelectionnerFactures(this.checked)"/></th>${thTriFac('interne','N° interne')}${thTriFac('num','N° Facture four.')}${thTriFac('four','Fournisseur')}${thTriFac('date','Date')}${v('ech') ? thTriFac('ech','Échéance') : ''}${thTriFac('ht','Montant HT')}${v('tva') ? thTriFac('tva','TVA') : ''}${thTriFac('ttc','Montant TTC')}${thTriFac('cmd','Commande')}${v('chantier') ? thTriFac('chantier','Centre de coûts') : ''}${v('codes') ? thTriFac('codes','Codes') : ''}${thTriFac('paie','Paiement')}<th>Actions</th><th>Documents</th>${thTriFac('par','Saisie par')}<th class="fac-colmenu"><button type="button" class="fac-colbtn" id="fac-cols-btn" aria-haspopup="true" aria-expanded="${_facColsOuvert}" title="Colonnes optionnelles" aria-label="Colonnes optionnelles" onclick="basculerMenuColsFac(event)"><i class="ti ti-dots-vertical"></i></button></th></tr>`;
+}
+function majEnteteFactures(){
+  const th = el('fac-thead'); if(!th) return;
+  th.innerHTML = enteteFacturesHtml();
 }
 
 // Tri des factures fournisseurs : appliqué à TOUTE la liste filtrée (avant la pagination), pas seulement à la page affichée.
@@ -7489,7 +7630,7 @@ const COLS_TRI_FAC = {
   ht:['nombre', r=>montantHtFacture(r)],
   tva:['nombre', r=>montantTvaFacture(r)],
   ttc:['nombre', r=>parseFloat(r.montant_ttc)||0],
-  statut:['texte', r=>cleTexteTri(STATUT_FA[r.statut]||r.statut)],
+  paie:['nombre', r=>rangPaiementFac(r)],
   par:['texte', r=>cleTexteTri(tracNomAuteur(r.saisie_par))],
   codes:['texte', r=>RANG_CODES_FAC[etatCodesFacture(r).etat]+' '+cleTexteTri(codesDeFacture(r).map(c=>c.code).join(' '))]
 };
@@ -7515,7 +7656,8 @@ function facturesFiltrees(){
   const res = _facsListe.filter(r=>{
     const nomF = nomFournisseurFac(r);
     if(F.four && nomF!==F.four) return false;
-    if(F.statut && r.statut!==F.statut) return false;
+    if(F.paie){ const e = etatPaiementFac(r); if(F.paie==='apayer' ? !(e==='apayer' || e==='echue') : e!==F.paie) return false; }
+    if(F.obs==='oui' && !obsFac(r)) return false;
     if(F.type==='ndf' && !estNoteDeFrais(r)) return false;
     if(F.type==='fac' && estNoteDeFrais(r)) return false;
     if(F.codes){ const e = etatCodesFacture(r); if(String(F.codes).startsWith('c:')){ if(!e.ids.includes(F.codes.slice(2))) return false; } else if(e.etat!==F.codes) return false; }
@@ -7554,40 +7696,39 @@ function afficherFactures(){
   const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
   const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
   const dblFac = doublonsFacturesParId(_facsListe);
-  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${_facCodesOk ? 16 : 15}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
+  const vis = {ech:colVisibleFac('ech'), tva:colVisibleFac('tva'), chantier:colVisibleFac('chantier'), codes:colVisibleFac('codes')};
+  tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${nbColsFac()}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
     items.map(r=>{
-      const enRetard = r.date_echeance && new Date(r.date_echeance)<new Date() && r.statut!=='payee';
+      const enRetard = facEchue(r);
       const choisie = _facSel.has(r.id);
-      const cellChantier = htmlCentreCout(r.chantiers_lyneo) ? htmlCentreCout(r.chantiers_lyneo) + (_facIntervRefs[r.intervention_id] ? `<div class="fac-int-ref" style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_facIntervRefs[r.intervention_id])}</div>` : '')
+      const cellChantier = !vis.chantier ? '' : htmlCentreCout(r.chantiers_lyneo) ? htmlCentreCout(r.chantiers_lyneo) + (_facIntervRefs[r.intervention_id] ? `<div class="fac-int-ref" style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_facIntervRefs[r.intervention_id])}</div>` : '')
         : (r.statut==='annulee' ? '—'
           : `<select style="width:140px;max-width:140px;font-size:12px;border-color:var(--orange)" title="Affecter ce chantier à la facture" onchange="affecterChantierFacture('${r.id}',this.value)"><option value="">À affecter…</option>${optChantiers}</select>`);
       return `<tr id="fac-tr-${r.id}"${choisie?' class="fac-sel"':''}>
         <td><input type="checkbox" ${choisie?'checked':''} ${r.statut==='annulee'?'disabled':''} onchange="basculerSelFacture('${r.id}',this.checked)"/></td>
-        <td style="white-space:nowrap">${r.numero_interne ? `<span class="fac-int" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_interne)}</span>` : '<span style="color:var(--gray-4)">—</span>'}</td>
-        <td><strong class="text-blue" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong>${dblFac.has(String(r.id)) ? `<div><span class="fac-dbl" role="button" tabindex="0" onclick="ouvrirDoublons('factures')" title="${escHtml('Doublon : même fournisseur et même n° de facture que '+dblFac.get(String(r.id)).map(libAutreFacture).join(' ; ')+' — cliquer pour voir')}">Doublon</span></div>` : ''}</td>
+        <td style="white-space:nowrap">${r.numero_interne ? `<span class="fac-int${obsFacUrgente(r)?' fac-obs-r':''}" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_interne)}</span>` : '<span style="color:var(--gray-4)">—</span>'}</td>
+        <td><strong class="text-blue${obsFacUrgente(r)?' fac-obs-r':''}" style="cursor:pointer" onclick="openFacDetail('${r.id}')">${escHtml(r.numero_facture_fournisseur)}</strong>${iconeObsFac(r)}${dblFac.has(String(r.id)) ? `<div><span class="fac-dbl" role="button" tabindex="0" onclick="ouvrirDoublons('factures')" title="${escHtml('Doublon : même fournisseur et même n° de facture que '+dblFac.get(String(r.id)).map(libAutreFacture).join(' ; ')+' — cliquer pour voir')}">Doublon</span></div>` : ''}</td>
         <td>${escHtml(nomFournisseurFac(r)||'—')}${estNoteDeFrais(r) ? '<div><span class="fac-ndf" title="Note de frais : dépense avancée par ce salarié">Note de frais</span></div>' : ''}</td>
         <td>${fmtDate(r.date_facture)}</td>
-        <td style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>
+        ${vis.ech ? `<td data-col="ech" style="${enRetard?'color:var(--red);font-weight:600':''}">${fmtDate(r.date_echeance)}${enRetard?' ⚠️':''}</td>` : ''}
         <td style="white-space:nowrap">${fmtHtFacture(r)}</td>
-        <td style="white-space:nowrap">${fmtTvaFacture(r)}</td>
+        ${vis.tva ? `<td data-col="tva" style="white-space:nowrap">${fmtTvaFacture(r)}</td>` : ''}
         <td style="white-space:nowrap"><strong>${fmt(r.montant_ttc)}</strong></td>
         <td>${escHtml(r.purchase_orders_lyneo?.numero||'—')}</td>
-        <td>${cellChantier}</td>
-        ${_facCodesOk ? `<td>${cellCodesFac(r)}</td>` : ''}
-        <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button> <button class="btn btn-ghost btn-sm" data-fac-apercu="${r.id}" onclick="apercuFactureListe('${r.id}')" title="Aperçu du PDF (sans le télécharger)"><i class="ti ti-eye"></i></button></td>
-        <td>${bFA(r.statut)}</td>
-        <td>${tracCell(r.saisie_par)}</td>
-        <td><div class="td-actions">
+        ${vis.chantier ? `<td data-col="chantier">${cellChantier}</td>` : ''}
+        ${vis.codes ? `<td data-col="codes">${cellCodesFac(r)}</td>` : ''}
+        <td data-col="paie">${cellPaiementFac(r)}</td>
+        <td data-col="actions"><div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="openEditFacLignes('${r.id}')" title="Modifier"><i class="ti ti-edit"></i></button>
           <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${r.id}')" title="Dupliquer"><i class="ti ti-copy"></i></button>
-          ${r.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${r.id}')"><i class="ti ti-check"></i> Valider</button>`:''}
-          ${r.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="openPayModal('${r.id}','${r.po_id}',${r.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
-          ${r.statut==='recue'?`<button class="btn btn-danger btn-sm" onclick="litigeFac('${r.id}')"><i class="ti ti-alert-triangle"></i></button>`:''}
+          ${facAPayer(r)?`<button class="btn btn-danger btn-sm" data-fac-litige="${r.id}" onclick="litigeFac('${r.id}')" title="Mettre en litige"><i class="ti ti-alert-triangle"></i></button>`:''}
           ${!['annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="creerNoteCredit('${r.id}')" title="Note de crédit"><i class="ti ti-receipt-refund"></i></button>`:''}
           ${!['annulee','payee'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" onclick="annulerFacture('${r.id}')" title="Annuler"><i class="ti ti-ban"></i></button>`:''}
-          ${['recue','litige','annulee','avoir'].includes(r.statut)?`<button class="btn btn-ghost btn-sm" data-fac-suppr="${r.id}" onclick="supprimerFactureFournisseur('${r.id}')" title="Supprimer" style="color:var(--red)"><i class="ti ti-trash"></i></button>`:''}
+          ${r.statut!=='payee'?`<button class="btn btn-ghost btn-sm" data-fac-suppr="${r.id}" onclick="supprimerFactureFournisseur('${r.id}')" title="Supprimer" style="color:var(--red)"><i class="ti ti-trash"></i></button>`:''}
         </div></td>
-
+        <td data-col="docs" style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openFacDetail('${r.id}')"><i class="ti ti-paperclip"></i> Voir</button> <button class="btn btn-ghost btn-sm" data-fac-apercu="${r.id}" onclick="apercuFactureListe('${r.id}')" title="Aperçu du PDF (sans le télécharger)"><i class="ti ti-eye"></i></button></td>
+        <td data-col="par">${tracCell(r.saisie_par)}</td>
+        <td class="fac-colmenu"></td>
       </tr>`;
     }).join('');
   majBarreFactures();
@@ -7746,7 +7887,7 @@ function viderSelectionFactures(){ _facSel.clear(); afficherFactures(); }
 function majFiltreFactures(k, v){ _facFiltres[k] = v; _facSel.clear(); _facPage = 1; afficherFactures(); }
 function reinitialiserFiltresFactures(){
   _facFiltres = filtresFacVides(); _facSel.clear(); _facPage = 1; _facTri = null;
-  ['fac-recherche','facc-num','facc-cmd','facc-four','facc-chantier','facc-statut','fac-type','facc-codes','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
+  ['fac-recherche','facc-int','facc-num','facc-cmd','facc-four','facc-chantier','facc-paie','fac-type','fac-obs','facc-codes','facc-date-de','facc-date-a','facc-ech-de','facc-ech-a','facc-mont-min','facc-mont-max'].forEach(i=>{ const e=el(i); if(e) e.value=''; });
   afficherFactures();
 }
 
@@ -7964,11 +8105,10 @@ async function openFacDetail(facId){
       <div class="flex gap-8 items-center">
         <button class="btn btn-ghost btn-sm" onclick="closeModal();openEditFacLignes('${fac.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-ghost btn-sm" onclick="duplicateFacture('${fac.id}')"><i class="ti ti-copy"></i> Dupliquer</button>
-        ${fac.statut==='recue'?`<button class="btn btn-success btn-sm" onclick="validerFac('${fac.id}');closeModal()"><i class="ti ti-check"></i> Valider</button>`:''}
-        ${fac.statut==='validee'?`<button class="btn btn-primary btn-sm" onclick="closeModal();openPayModal('${fac.id}','${fac.po_id}',${fac.montant_ttc})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
+        ${facAPayer(fac)?`<button class="btn btn-primary btn-sm" id="fac-detail-payer" onclick="closeModal();openPayModal('${fac.id}','${fac.po_id||''}',${parseFloat(fac.montant_ttc)||0})"><i class="ti ti-currency-euro"></i> Payer</button>`:''}
         ${!['annulee','avoir'].includes(fac.statut)?`<button class="btn btn-secondary btn-sm" onclick="creerNoteCredit('${fac.id}')"><i class="ti ti-receipt-refund"></i> Note de crédit</button>`:''}
         ${!['annulee','payee'].includes(fac.statut)?`<button class="btn btn-danger btn-sm" onclick="annulerFacture('${fac.id}')"><i class="ti ti-ban"></i> Annuler</button>`:''}
-        ${['recue','litige','annulee','avoir'].includes(fac.statut)?`<button class="btn btn-danger btn-sm" id="fac-detail-suppr" onclick="supprimerFactureFournisseur('${fac.id}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
+        ${fac.statut!=='payee'?`<button class="btn btn-danger btn-sm" id="fac-detail-suppr" onclick="supprimerFactureFournisseur('${fac.id}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
@@ -7983,7 +8123,7 @@ async function openFacDetail(facId){
         <div class="info-item"><label>TVA</label><span>${fmt(fac.montant_tva)}</span></div>
         <div class="info-item"><label>Total TTC</label><span style="font-weight:700;color:var(--blue);font-size:16px">${fmt(fac.montant_ttc)}</span></div>
       </div>
-      ${fac.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${escHtml(fac.observations)}</div>`:''}
+      ${fac.observations?`<div class="alert ${obsFac(fac)?'alert-warning':'alert-info'}" id="fac-det-obs" style="margin-bottom:16px;white-space:pre-line"><i class="ti ${obsFac(fac)?'ti-note':'ti-info-circle'}"></i>${escHtml(fac.observations)}</div>`:''}
 
       <!-- LIGNES DE LA FACTURE (lecture seule) -->
       ${htmlLignesFactureDetail(fac, lignesFac, lignesOk)}
@@ -8248,6 +8388,39 @@ const crLienGerer = (fnRedessiner, couleur) => (_codesResDispo && peutGererCodes
   ? '<a href="#" class="cr-gerer" onclick="ouvrirGestionCodesRes(\''+fnRedessiner+'\');return false" title="Ajouter, renommer ou désactiver des codes ressource" style="font-size:12px;font-weight:600;margin-left:12px;color:'+(couleur||'var(--blue-mid)')+'"><i class="ti ti-settings"></i> Gérer les codes</a>' : '';
 const crErreur = e => { const m = String((e && e.message) || e || ''); return (e && e.code==='23505') || /duplicate key|unique/i.test(m) ? 'Ce code existe déjà' : (e && e.code==='23503') || /foreign key|violates/i.test(m) ? 'Ce code est utilisé par des lignes de facture : désactivez-le au lieu de le supprimer' : 'Erreur: '+m; };
 
+// « Appliquer à toutes les lignes » (comme dans Odoo) : on choisit UN code ressource en haut du tableau des lignes et on l'applique d'un clic à toutes les lignes.
+// Le choix vit dans le DOM de la barre (nouvelle fenêtre = barre vierge) ; chaque formulaire de lignes a une zone #cr-tous-zone redessinée avec ses lignes.
+const CR_EDITEURS = {
+  libre:          {lignes:()=>_facLignesLibre,  redessiner:()=>renderFacLignesLibre()},
+  commande:       {lignes:()=>_facLignesPO,     redessiner:()=>renderFacLignesEdit()},
+  depuisCommande: {lignes:()=>_facFromPoLignes, redessiner:()=>{ if(window.renderFacPOLines) window.renderFacPOLines(); }},
+  modif:          {lignes:()=>_efacLignes,      redessiner:()=>renderEfacLignes()}
+};
+const crMemoBarreTous = () => ({sel: (el('cr-tous-sel')||{}).value || '', vides: !!(el('cr-tous-vides') && el('cr-tous-vides').checked)});
+function crBarreTousHtml(ed, memo){
+  const cfg = CR_EDITEURS[ed];
+  if(!cfg || !_codesResDispo || cfg.lignes().length < 2) return '';
+  const m = memo || crMemoBarreTous();
+  return '<div class="cr-tous"><i class="ti ti-tag" style="color:var(--gray-5)"></i><span class="cr-tous-lib">Code ressource pour toutes les lignes</span>'
+    +'<select id="cr-tous-sel" class="cr-tous-select" aria-label="Code ressource à appliquer à toutes les lignes">'+crOptions(m.sel)+'</select>'
+    +'<label class="cr-tous-vides"><input type="checkbox" id="cr-tous-vides"'+(m.vides?' checked':'')+'/> Seulement les lignes sans code</label>'
+    +'<button type="button" class="btn btn-secondary btn-sm" id="cr-tous-btn" onclick="crAppliquerATous(\''+ed+'\')"><i class="ti ti-arrow-down"></i> Appliquer à toutes les lignes</button></div>';
+}
+function crMajBarreTous(ed, memo){ const z = el('cr-tous-zone'); if(z) z.innerHTML = crBarreTousHtml(ed, memo); }
+function crAppliquerATous(ed){
+  const cfg = CR_EDITEURS[ed]; if(!cfg) return;
+  const m = crMemoBarreTous();
+  if(!m.sel){ showToast("Choisissez d'abord le code ressource à appliquer", 'error'); return; }
+  const c = _codesRes.find(x=>String(x.id)===String(m.sel));
+  if(!c){ showToast("Code ressource introuvable : choisissez-le à nouveau", 'error'); return; }
+  if(c.actif===false){ showToast('Le code « '+escHtml(c.code)+' » est désactivé : choisissez un code actif', 'error'); return; }
+  const cibles = cfg.lignes().filter(l=>!m.vides || !l.code_ressource_id);
+  if(!cibles.length){ showToast('Toutes les lignes ont déjà un code ressource'); return; }
+  cibles.forEach(l=>{ l.code_ressource_id = m.sel; });
+  cfg.redessiner();
+  showToast('Code « '+escHtml(c.code)+' » appliqué à '+cibles.length+' ligne'+(cibles.length>1?'s':''));
+}
+
 async function lireUsageCodesRes(){
   const usage = {};
   try{
@@ -8442,6 +8615,7 @@ async function openNoteFraisModal(){
         <span><strong style="font-size:13px">Dépenses (une ligne par ticket ou par taux de TVA)</strong>${crLienGerer('renderFacLignesLibre')}</span>
         <button class="btn btn-secondary btn-sm" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
+      <div id="cr-tous-zone"></div>
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:600px">
           <thead><tr style="background:var(--gray-1)">
@@ -8583,7 +8757,7 @@ async function saveNoteFraisCore(){
     date_facture: date,
     date_echeance: el('facl-echeance').value||null,
     montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
-    statut: 'recue', saisie_par: currentUser.id,
+    statut: 'validee', saisie_par: currentUser.id,
     ...achatIntervPayload('facl', null),
     observations: el('facl-obs').value
   }).select().single();
@@ -8645,6 +8819,7 @@ async function openFacLibreModal(){
         <span><strong style="font-size:13px">Lignes</strong>${crLienGerer('renderFacLignesLibre')}</span>
         <button class="btn btn-secondary btn-sm" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
+      <div id="cr-tous-zone"></div>
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:600px">
           <thead><tr style="background:var(--gray-1)">
@@ -8684,6 +8859,7 @@ function renderFacLignesLibre(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_facLignesLibre.length>1?`<button onclick="delFacLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
   </tr>`).join('');
+  crMajBarreTous('libre');
   const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   const box = el('facl-totaux');
@@ -8716,7 +8892,7 @@ async function saveFacLibre(){
     date_facture: el('facl-date').value,
     date_echeance: el('facl-echeance').value||null,
     montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
-    statut: 'recue', saisie_par: currentUser.id,
+    statut: 'validee', saisie_par: currentUser.id,
     ...achatIntervPayload('facl', null),
     observations: el('facl-obs').value
   }).select().single();
@@ -8919,6 +9095,7 @@ function renderFacLignesEdit(){
     +  '<span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.06em">Lignes de la commande — modifiez quantités et prix</span>'
     +  '<span style="font-size:11px;color:rgba(255,255,255,.5)">'+crLienGerer('renderFacLignesEdit','#fff')+' &nbsp; '+_facLignesPO.length+' article(s)</span>'
     +'</div>'
+    +'<div id="cr-tous-zone" style="padding:8px 10px 0"></div>'
     +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:550px">'
     +'<thead><tr style="background:var(--gray-1)">'
     +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>'
@@ -8957,7 +9134,9 @@ function renderFacLignesEdit(){
   });
 
   html += '</tbody></table></div></div>';
+  const _crMemo = crMemoBarreTous();
   section.innerHTML = html;
+  crMajBarreTous('commande', _crMemo);
 
   // Attach events via delegation
   section.querySelectorAll('.fac-ligne-input').forEach(inp=>{
@@ -9075,7 +9254,7 @@ async function saveFacCore(){
     ...(poRow?.intervention_id ? {intervention_id: poRow.intervention_id} : {}),
     date_facture:date, date_echeance:el('fac-echeance')?.value||null,
     montant_ht:mHT, montant_tva:mTVA, montant_ttc:mTTC,
-    statut:'recue', saisie_par:currentUser.id,
+    statut:'validee', saisie_par:currentUser.id,
     observations:el('fac-obs')?.value||''
   }).select().single();
   if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return; }
@@ -9115,7 +9294,6 @@ async function saveFacCore(){
 }
 
 
-async function validerFac(id){ await sb.from('factures').update({statut:'validee'}).eq('id',id); showToast('Facture validée'); renderFactures(); }
 async function litigeFac(id){ await sb.from('factures').update({statut:'litige'}).eq('id',id); showToast('Facture mise en litige'); renderFactures(); }
 
 function openPayModal(facId, poId, montant){
@@ -9143,9 +9321,12 @@ function openPayModal(facId, poId, montant){
 }
 
 async function savePay(facId, poId){
-  await sb.from('paiements').insert({facture_id:facId,date_paiement:el('pay-date').value,montant:parseFloat(el('pay-montant').value),mode_paiement:el('pay-mode').value,reference_virement:el('pay-ref').value,effectue_par:currentUser.id});
-  await sb.from('factures').update({statut:'payee'}).eq('id',facId);
-  await sb.from('purchase_orders_lyneo').update({statut:'payee'}).eq('id',poId);
+  // Le paiement d'abord ; la facture ne passe « Payée » que si le paiement est bien enregistré (droits, réseau). Une facture sans commande n'a pas de commande à mettre à jour.
+  const p = await sb.from('paiements').insert({facture_id:facId,date_paiement:el('pay-date').value,montant:parseFloat(el('pay-montant').value),mode_paiement:el('pay-mode').value,reference_virement:el('pay-ref').value,effectue_par:currentUser.id});
+  if(p && p.error){ showToast('Paiement non enregistré : '+p.error.message, 'error'); return; }
+  const f = await sb.from('factures').update({statut:'payee'}).eq('id',facId).select('id');
+  if((f && f.error) || !(f && f.data && f.data.length)){ showToast("Le paiement est enregistré mais la facture n'est pas passée à « Payée »"+(f && f.error ? ' : '+f.error.message : ' (droits insuffisants ?)')+'. Vérifiez la facture.', 'error'); renderFactures(); return; }
+  if(poId) await sb.from('purchase_orders_lyneo').update({statut:'payee'}).eq('id',poId);
   showToast('Paiement enregistré'); closeModal(); renderFactures();
 }
 
@@ -9590,7 +9771,7 @@ const supprimerClient = (id, o) => supprimerFiche('client', id, o);
 const supprimerFournisseur = (id, o) => supprimerFiche('fournisseur', id, o);
 const supprimerChantier = (id, o) => supprimerFiche('chantier', id, o);
 
-// Factures fournisseur : suppression seulement si rien n'est validé ni payé (sinon « Annuler » / note de crédit)
+// Factures fournisseur : une facture encodée est validée d'office (28/10), donc seule une facture PAYÉE (ou ayant un paiement) est protégée ; sinon « Annuler » / note de crédit
 async function supprimerFactureFournisseur(id, opts){
   opts = opts||{};
   const {data:f} = await sb.from('factures').select('*').eq('id',id).single();
@@ -9598,10 +9779,8 @@ async function supprimerFactureFournisseur(id, opts){
   const {data:pays} = await sb.from('paiements').select('id').eq('facture_id',id);
   if((pays||[]).length || f.statut==='payee'){
     showToast("Cette facture a un paiement enregistré : elle ne peut pas être supprimée. Utilisez « Note de crédit » pour la corriger.", 'error'); return false; }
-  if(f.statut==='validee'){
-    showToast("Cette facture est validée : utilisez « Annuler » (ou « Note de crédit ») pour garder la trace, au lieu de la supprimer.", 'error'); return false; }
   const nom = f.numero_facture_fournisseur||'';
-  if(!confirm(`Supprimer définitivement la facture ${nom}${f.numero_interne?' ('+f.numero_interne+')':''} de ${fmt(f.montant_ttc)} ? Ses lignes et documents seront aussi supprimés. Cette action est irréversible.`)) return false;
+  if(!confirm(`Supprimer définitivement la facture ${nom}${f.numero_interne?' ('+f.numero_interne+')':''} de ${fmt(f.montant_ttc)} ? Ses lignes et documents seront aussi supprimés. Cette action est irréversible.${['annulee','avoir'].includes(f.statut) ? '' : ' Pour garder la trace d\'une facture réelle, utilisez plutôt « Annuler » ou « Note de crédit ».'}`)) return false;
   let chemins = [];
   try{
     const {data:docs} = await sb.from('anexos').select('id,url').eq('factura_id',id);
@@ -17910,7 +18089,7 @@ function rcChantierFacture(f, D){ const id = f.chantier_id || ((D.pos||{})[f.po_
 // Une facture passe-t-elle les filtres qui la concernent elle (pas la ligne) ?
 function rcFacturePasse(f, D, F){
   if(!f || f.statut==='annulee') return false;
-  if(F.statut && f.statut!==F.statut) return false;
+  if(F.statut && statutFaNorm(f.statut)!==F.statut) return false;
   if(F.four && String(f.fournisseur_id)!==String(F.four)) return false;
   const date = jourISO(f.date_facture);
   if(!date) return false;
@@ -18203,7 +18382,7 @@ function rcDessinerPage(){
   const centres = Object.values(D.chantiers).sort((a,b)=>rcCmp(rcLibCentre(a), rcLibCentre(b))).map(c=>[String(c.id), rcLibCentre(c)]);
   const codes = Object.values(D.codes).sort((a,b)=>rcCmp(a.code,b.code)).map(c=>[String(c.id), (c.code||'')+(c.description?' — '+c.description:'')+(c.actif===false?' (désactivé)':'')]);
   const fours = Object.values(D.fours).sort((a,b)=>rcCmp(a.nom,b.nom)).map(f=>[String(f.id), f.nom||'']);
-  const statuts = Object.entries(STATUT_FA).filter(([k])=>k!=='annulee');
+  const statuts = Object.entries(STATUT_FA).filter(([k])=>k!=='annulee' && k!=='recue');
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Détail par code ressource</h1><p>Factures fournisseurs : pour chaque code ressource, le total et les factures qui le composent (hors factures annulées)</p></div>
@@ -18838,6 +19017,7 @@ async function openFacFromPO(poId){
       '<div class="totaux-row"><span>Total HT</span><span>'+fmt(totalHT)+'</span></div>'
       +'<div class="totaux-row"><span>TVA</span><span>'+fmt(totalTVA)+'</span></div>'
       +'<div class="totaux-row ttc"><span>TOTAL TTC</span><span>'+fmt(totalHT+totalTVA)+'</span></div>';
+    crMajBarreTous('depuisCommande');
     if(el('fac-gen-ht')) el('fac-gen-ht').value = totalHT.toFixed(2);
     if(el('fac-gen-tva')) el('fac-gen-tva').value = totalTVA.toFixed(2);
     if(el('fac-gen-ttc')) el('fac-gen-ttc').value = (totalHT+totalTVA).toFixed(2);
@@ -18865,6 +19045,7 @@ async function openFacFromPO(poId){
     +    '<div style="font-size:12px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.06em">Lignes facturées — modifiez les quantités et les prix'+crLienGerer('renderFacPOLines')+'</div>'
     +    '<button class="btn btn-secondary btn-sm" onclick="addFacPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
+    +  '<div id="cr-tous-zone"></div>'
     +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:600px">'
     +    '<thead><tr style="background:var(--navy)">'
     +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
@@ -18939,7 +19120,7 @@ async function saveFacFromPOCore(poId){
     montant_ht: totalHT,
     montant_tva: totalTVA,
     montant_ttc: totalHT+totalTVA,
-    statut: 'recue',
+    statut: 'validee',
     saisie_par: currentUser.id,
     observations: el('fac-gen-obs')?.value||''
   }).select().single();
@@ -19051,7 +19232,7 @@ async function openEditFacLignes(facId){
     +    '<div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du fournisseur ; modifiable)</span></label><input type="date" id="efac-echeance" value="'+(fac.date_echeance||'')+'" oninput="this.dataset.auto=\'0\';majEcheanceFourn(\'efac\')"/><div id="efac-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>'
     +    '<div class="form-group"><label class="field-label">Statut</label>'
     +      '<select id="efac-statut">'
-    +        ['recue','validee','litige'].concat(['recue','validee','litige'].includes(fac.statut) ? [] : [fac.statut]).map(k=>'<option value="'+k+'"'+(fac.statut===k?' selected':'')+'>'+(STATUT_FA[k]||k)+'</option>').join('')
+    +        ['validee','litige'].concat(['validee','litige'].includes(statutFaNorm(fac.statut)) ? [] : [fac.statut]).map(k=>'<option value="'+k+'"'+(statutFaNorm(fac.statut)===k?' selected':'')+'>'+(STATUT_FA[k]||k)+'</option>').join('')
     +      '</select>'
     +    '</div>'
     +  '</div>'
@@ -19059,6 +19240,7 @@ async function openEditFacLignes(facId){
     +    '<span><strong style="font-size:13px">Lignes de la facture</strong>'+crLienGerer('renderEfacLignes')+'</span>'
     +    '<button class="btn btn-secondary btn-sm" onclick="addEfacLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
+    +  '<div id="cr-tous-zone"></div>'
     +  '<div style="overflow-x:auto;max-width:100%">'
     +    '<table class="lignes-table" id="efac-lignes-table" style="min-width:580px">'
     +      '<thead><tr>'
@@ -19110,6 +19292,7 @@ function renderEfacLignes(){
   </tr>`).join('');
   const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  crMajBarreTous('modif');
   const tot = el('efac-totaux');
   if(tot) tot.innerHTML = `
     <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
@@ -19285,7 +19468,7 @@ async function duplicateFacture(facId){
     montant_ht: fac.montant_ht,
     montant_tva: fac.montant_tva,
     montant_ttc: fac.montant_ttc,
-    statut: 'recue',
+    statut: 'validee',
     saisie_par: currentUser.id,
     observations: fac.observations||''
   }).select().single();
