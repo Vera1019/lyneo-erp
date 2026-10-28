@@ -272,6 +272,10 @@ body.apercu-ouvert #sel-somme{right:var(--apercu-w)}
 .badge-fd-total{background:#D1FAE5;color:#065F46}
 .badge-fd-sur{background:#FFEDD5;color:#9A3412}
 .badge-fd-na{background:var(--gray-2);color:var(--gray-6)}
+.badge-pa-payee{background:#D1FAE5;color:#065F46}
+.badge-pa-a_encaisser{background:#FEF3C7;color:#92400E}
+.badge-pa-retard{background:#FEE2E2;color:#991B1B}
+.badge-pa-brouillon{background:#F3E8FF;color:#6D28D9}
 
 /* ── TABLE ───────────────────────────────────────────────────── */
 .table-wrap{overflow-x:auto}
@@ -2037,6 +2041,84 @@ function etatFacturationIntervention(i, devis, facsTous){
   const ref = i.devis_id ? (parseFloat(devis.montant_ht)||0) : 0;
   return etatFacturationGlobal(ref, facturesDeIntervention(i, facsTous));
 }
+// ── PAIEMENT D'UNE INTERVENTION SAV : état DÉRIVÉ des factures clients et des notes de crédit (rien à saisir) ──────────────
+// Trois questions distinctes, trois colonnes : où en est le travail (Statut), a-t-on facturé (Statut « Facturée » + « N % facturé »),
+// a-t-on été payé (Paiement). Une facture « payée » ne doit plus rien ; « envoyée » / « part. payée » doit son solde TTC (notes de crédit
+// émises déduites) ; le montant déjà payé d'une facture « part. payée » n'est pas enregistré : elle compte pour son solde entier.
+// Un brouillon ou une facture annulée n'a rien à encaisser. « En retard » = au moins un solde dû dont l'échéance est dépassée.
+function etatPaiement(facs, avoirs, auj){
+  const liste = (facs||[]).filter(f=>f && f.type_facture!=='avoir' && f.statut!=='annulee');
+  const av = avoirsParFacture(avoirs||[]);
+  const r = {etat:'aucune', aEncaisser:0, nbEmises:0, nbDues:0, nbPayees:0, nbPartiel:0, nbBrouillons:0, retardJours:0, echeance:null};
+  liste.forEach(f=>{
+    if(f.statut==='brouillon'){ r.nbBrouillons++; return; }
+    if(!FV_EMISES.includes(f.statut)) return;
+    r.nbEmises++;
+    const solde = f.statut==='payee' ? 0 : soldeFv(f, av);
+    if(!(solde > 0.005)){ r.nbPayees++; return; }
+    r.aEncaisser += solde; r.nbDues++;
+    if(f.statut==='payee_partiel') r.nbPartiel++;
+    const e = f.date_echeance ? String(f.date_echeance).slice(0,10) : '';
+    if(e){
+      if(auj && e < auj) r.retardJours = Math.max(r.retardJours, Math.round((new Date(auj) - new Date(e)) / 86400000));
+      if(!r.echeance || e < r.echeance) r.echeance = e;
+    }
+  });
+  r.aEncaisser = arrondi2(r.aEncaisser);
+  if(r.nbEmises===0) r.etat = r.nbBrouillons ? 'brouillon' : 'aucune';
+  else if(r.nbDues===0) r.etat = 'payee';
+  else r.etat = r.retardJours>0 ? 'retard' : 'a_encaisser';
+  return r;
+}
+const LIB_PAIEMENT = {payee:'Payée', a_encaisser:'À encaisser', retard:'En retard', brouillon:'Facture en brouillon'};
+function sousPaiement(p){
+  if(!p) return '';
+  if(p.etat==='retard') return fmt(p.aEncaisser)+' · +'+p.retardJours+' j';
+  if(p.etat==='a_encaisser') return fmt(p.aEncaisser)+(p.echeance ? ' · éch. '+fmtDate(p.echeance) : '');
+  return '';
+}
+function titrePaiement(p){
+  if(!p || p.etat==='inconnu') return 'Paiement illisible : factures ou notes de crédit non lues';
+  if(p.etat==='aucune') return 'Aucune facture émise';
+  if(p.etat==='brouillon') return p.nbBrouillons+' facture'+(p.nbBrouillons>1?'s':'')+' en brouillon : rien n\'est encore émis';
+  if(p.etat==='payee') return 'Toutes les factures émises sont payées ('+p.nbEmises+')';
+  const t = [fmt(p.aEncaisser)+' TTC à encaisser sur '+p.nbDues+' facture'+(p.nbDues>1?'s':'')+' (notes de crédit déduites)'];
+  if(p.nbPayees) t.push(p.nbPayees+' déjà payée'+(p.nbPayees>1?'s':''));
+  if(p.nbPartiel) t.push(p.nbPartiel+' partiellement payée'+(p.nbPartiel>1?'s':'')+' : comptée'+(p.nbPartiel>1?'s':'')+' pour '+(p.nbPartiel>1?'leur':'son')+' solde entier');
+  if(p.retardJours>0) t.push('échéance dépassée de '+p.retardJours+' jour'+(p.retardJours>1?'s':''));
+  return t.join(' — ');
+}
+function cellPaiement(p){
+  const inconnu = !p || p.etat==='inconnu';
+  const etat = inconnu ? 'inconnu' : p.etat;
+  let corps = '<span class="text-muted">—</span>';
+  if(!inconnu && LIB_PAIEMENT[etat]){
+    const sous = sousPaiement(p);
+    corps = `<span class="badge badge-pa-${etat}" style="white-space:nowrap">${LIB_PAIEMENT[etat]}</span>`
+      + (sous ? `<div class="paie-sous" style="font-size:11.5px;color:${etat==='retard'?'var(--red)':'var(--gray-5)'};margin-top:2px;white-space:nowrap">${escHtml(sous)}</div>` : '');
+  }
+  return `<td class="td-paie" data-paie="${etat}" title="${escHtml(titrePaiement(p))}">${corps}</td>`;
+}
+// Ce que le Statut ne dit pas : la part facturée d'une intervention partiellement facturée, ou une sur-facturation à vérifier.
+function sousStatutFacturation(e){
+  if(!e || e.etat==='inconnu') return '';
+  const t = e.etat==='partiel' ? e.pct+' % facturé' : (e.etat==='sur' ? '⚠ Sur-facturée' : '');
+  return t ? `<div class="fact-sous" style="font-size:11.5px;color:${e.etat==='sur'?'var(--orange)':'var(--gray-5)'};margin-top:2px;white-space:nowrap">${escHtml(t)}</div>` : '';
+}
+// Cellule « Statut » de la liste SAV : le statut enregistré + ce qu'il ne dit pas (part facturée) ; l'info-bulle donne le détail de la facturation.
+function cellStatutSAV(i, e){
+  const inconnu = !e || e.etat==='inconnu';
+  return `<td class="td-st" data-fact="${inconnu?'inconnu':e.etat}" title="${escHtml(titreFacturation(e))}">${bSAV(i.statut)}${sousStatutFacturation(e)}</td>`;
+}
+// Paiement de chaque intervention de la liste. Factures ou notes de crédit illisibles ⇒ « — » (jamais un faux « À encaisser » ni un faux « Payée »).
+function paiementsInterventions(ivs, lu, auj){
+  const parId = {};
+  (ivs||[]).forEach(i=>{
+    parId[i.id] = (lu && lu.ok && lu.avoirs && lu.avoirs.ok) ? etatPaiement(facturesDeIntervention(i, lu.rows), lu.avoirs.rows, auj||today()) : {etat:'inconnu'};
+  });
+  return parId;
+}
+const estImpayePaiement = p => !!p && (p.etat==='a_encaisser' || p.etat==='retard');
 // Statut ENREGISTRÉ d'une intervention d'après sa facturation. Jamais en arrière tout seul (une facture annulée ne « dé-facture » pas) ;
 // « Partiellement facturée » seulement quand le travail est terminé (un acompte sur une intervention en cours ne la ferme pas).
 function statutCibleFacturation(statut, e){
@@ -2060,6 +2142,7 @@ function titreFacturation(e){
   else if(e.couvert>0.005) p.push('Facturé '+fmt(e.couvert)+' HT (pas de devis de référence : pas de pourcentage)');
   else p.push('Aucune facture');
   if(e.nbBrouillons) p.push(e.nbBrouillons+' facture'+(e.nbBrouillons>1?'s':'')+' en brouillon');
+  if(e.enAttenteN) p.push(e.enAttenteN+' devis envoyé'+(e.enAttenteN>1?'s':'')+', pas encore accepté'+(e.enAttenteN>1?'s':'')+' ('+fmt(e.enAttenteHT)+' HT), compté'+(e.enAttenteN>1?'s':'')+' dans le total à facturer');
   return p.join(' — ');
 }
 function badgeFacturation(e, o){
@@ -2071,7 +2154,8 @@ function badgeFacturation(e, o){
 }
 function cellFacturation(e, o){
   const inconnu = !e || e.etat==='inconnu';
-  return `<td class="td-fact" data-fact="${inconnu?'inconnu':e.etat}" title="${escHtml(titreFacturation(e))}">${badgeFacturation(e, o)}</td>`;
+  const sous = (!inconnu && e.etat==='partiel' && e.enAttenteN>0) ? `<div class="fact-sous" style="font-size:11.5px;color:var(--gray-5);margin-top:2px;white-space:nowrap">${e.enAttenteN} devis non accepté${e.enAttenteN>1?'s':''}</div>` : '';
+  return `<td class="td-fact" data-fact="${inconnu?'inconnu':e.etat}" title="${escHtml(titreFacturation(e))}">${badgeFacturation(e, o)}${sous}</td>`;
 }
 // Lecture par paquets (liste d'identifiants longue) ET par pages de 1000 lignes. ok=false si une lecture échoue.
 async function lireParLots(table, cols, col, ids, taille){
@@ -2083,14 +2167,25 @@ async function lireParLots(table, cols, col, ids, taille){
   }
   return {ok:true, rows};
 }
-const COLS_FV_FACT = 'id,chantier_id,intervention_id,devis_id,statut,type_facture,total_ht,remet_quantites';
+const COLS_FV_FACT = 'id,chantier_id,intervention_id,devis_id,statut,type_facture,total_ht,total_ttc,date_echeance,remet_quantites';
 async function lireFacturesVenteFact(col, ids){
-  let r = await lireParLots('factures_vente', COLS_FV_FACT, col, ids);
-  if(!r.ok && /remet_quantites/i.test(r.erreur||'')) r = await lireParLots('factures_vente', COLS_FV_FACT.replace(',remet_quantites',''), col, ids);
+  let cols = COLS_FV_FACT, r = await lireParLots('factures_vente', cols, col, ids);
+  for(const c of ['remet_quantites','date_echeance']){       // colonne absente d'une ancienne base : on relit sans elle (pas de « — » partout)
+    if(!r.ok && new RegExp(c,'i').test(r.erreur||'')){ cols = cols.replace(','+c,''); r = await lireParLots('factures_vente', cols, col, ids); }
+  }
+  return r;
+}
+// Notes de crédit émises qui réduisent des factures non payées. Base sans notes de crédit (colonne absente) ⇒ aucune ; autre erreur ⇒ ok=false.
+async function lireAvoirsDesFactures(rows){
+  const ids = (rows||[]).filter(f=>f.type_facture!=='avoir' && ['envoyee','payee_partiel'].includes(f.statut)).map(f=>f.id);
+  if(!ids.length) return {ok:true, rows:[]};
+  const r = await lireParLots('factures_vente', 'id,facture_origine_id,statut,type_facture,total_ttc', 'facture_origine_id', ids);
+  if(!r.ok && /facture_origine_id/i.test(r.erreur||'')) return {ok:true, rows:[]};
   return r;
 }
 // État de facturation de chaque intervention : {ok, parId:{id:état}}. ok=false ⇒ colonne « — » (rien n'est affirmé).
-async function lireFacturationInterventions(ivs, devisMap){
+// opts.paiement : lit aussi les notes de crédit (→ avoirs) pour la colonne « Paiement ».
+async function lireFacturationInterventions(ivs, devisMap, opts){
   const liste = ivs||[];
   if(!liste.length) return {ok:true, parId:{}, rows:[]};
   const [a, b] = await Promise.all([
@@ -2102,14 +2197,16 @@ async function lireFacturationInterventions(ivs, devisMap){
   [...a.rows, ...b.rows].forEach(f=>{ if(!vus.has(String(f.id))){ vus.add(String(f.id)); rows.push(f); } });
   const parId = {};
   liste.forEach(i=>{ parId[i.id] = etatFacturationIntervention(i, i.devis_id ? (devisMap||{})[String(i.devis_id)] : null, rows); });
-  return {ok:true, parId, rows};
+  const res = {ok:true, parId, rows};
+  if(opts && opts.paiement) res.avoirs = await lireAvoirsDesFactures(rows);
+  return res;
 }
 // Devis illisibles : seules les interventions AVEC devis passent à « inconnu » (nbInconnus) ; les autres restent calculées.
-async function lireEtatsFacturationInterventions(ivs){
+async function lireEtatsFacturationInterventions(ivs, opts){
   const liste = ivs||[];
   const dv = await lireParLots('devis', 'id,montant_ht', 'id', liste.map(i=>i.devis_id).filter(Boolean));
   const devisMap = {}; if(dv.ok) dv.rows.forEach(d=>{ devisMap[String(d.id)] = d; });
-  const r = await lireFacturationInterventions(liste, devisMap);
+  const r = await lireFacturationInterventions(liste, devisMap, opts);
   if(r.ok) r.nbInconnus = liste.filter(i=>(r.parId[i.id]||{}).etat==='inconnu').length;
   return r;
 }
@@ -2128,9 +2225,14 @@ async function lireFacturationChantiers(chantiers){
   const parId = {};
   cibles.forEach(c=>{
     const cid = String(c.id);
-    const ref = [...devis.values()].filter(d=>d.statut==='accepte' && (String(d.chantier_id||'')===cid || String(d.id)===String(c.devis_id||'')))
-      .reduce((a,d)=>a+(parseFloat(d.montant_ht)||0),0);
-    parId[c.id] = etatFacturationGlobal(ref, fv.rows.filter(f=>String(f.chantier_id)===cid));
+    const dvs = [...devis.values()].filter(d=>String(d.chantier_id||'')===cid || String(d.id)===String(c.devis_id||''));
+    const somme = l => l.reduce((a,d)=>a+(parseFloat(d.montant_ht)||0),0);
+    const envoyes = dvs.filter(d=>d.statut==='envoye');
+    // Référence = devis acceptés + devis envoyés (pas encore acceptés) : facturer un devis l'accepte tout seul, donc si seuls les acceptés comptaient
+    // un chantier « 3 devis facturés sur 10 » s'afficherait toujours « Facturé ». Refusés, expirés et brouillons ne comptent pas.
+    const e = etatFacturationGlobal(somme(dvs.filter(d=>d.statut==='accepte')) + somme(envoyes), fv.rows.filter(f=>String(f.chantier_id)===cid));
+    e.enAttenteN = envoyes.length; e.enAttenteHT = arrondi2(somme(envoyes));
+    parId[c.id] = e;
   });
   return {ok:true, parId};
 }
@@ -2208,9 +2310,10 @@ async function mettreAJourStatutsFacturationSAV(){
 // ── UN DEVIS FACTURÉ EST UN DEVIS ACCEPTÉ ────────────────────────────────────────────────────────────────────────
 // Dès qu'une facture client est créée à partir d'un devis (depuis la fiche client, le chantier / le devis ou l'intervention SAV),
 // le devis passe tout seul à « Accepté » : le client l'a commandé puisqu'on le lui facture (comme Odoo : la facturation suit la commande confirmée).
-// Brouillon / Envoyé / Expiré → Accepté. Un devis « Refusé » n'est JAMAIS rouvert en silence (simple avertissement).
+// Brouillon / Envoyé / Expiré / Refusé → Accepté (un devis « Refusé » que l'on facture est un devis que le client a finalement accepté ;
+// le message « Devis DV-105 : Refusé → Accepté » le rend visible).
 // Aucun chantier n'est proposé ni créé. Ne bloque jamais la facture ; le statut ne revient jamais en arrière tout seul.
-const STATUTS_DEVIS_A_ACCEPTER = ['brouillon','envoye','expire'];
+const STATUTS_DEVIS_A_ACCEPTER = ['brouillon','envoye','expire','refuse'];
 async function accepterDevisFacture(devisId){
   if(!devisId) return {ok:false, motif:'sans_devis'};
   try{
@@ -2218,16 +2321,14 @@ async function accepterDevisFacture(devisId){
     const {data:d, error} = await lire();
     if(error) return {ok:false, motif:'lecture', detail:error.message};
     if(!d) return {ok:false, motif:'introuvable'};
-    if(d.statut==='refuse') return {ok:true, change:false, refuse:true, numero:d.numero, ancien:d.statut};
     if(!STATUTS_DEVIS_A_ACCEPTER.includes(d.statut)) return {ok:true, change:false, numero:d.numero, ancien:d.statut};
-    // mise à jour conditionnelle : si quelqu'un l'a refusé / accepté entre-temps, on n'écrase rien
+    // mise à jour conditionnelle : si quelqu'un l'a accepté ou changé en « Terminé »… entre-temps, on n'écrase rien
     const {data:maj, error:e2} = await sb.from('devis').update({statut:'accepte'}).eq('id', devisId).in('statut', STATUTS_DEVIS_A_ACCEPTER).select('id,statut');
     if(e2) return {ok:false, motif:'ecriture', detail:e2.message, numero:d.numero};
     if(!maj || !maj.length){
       // 0 ligne : soit le statut a changé entre-temps (on relit), soit le RLS refuse sans erreur
       const {data:d2, error:e3} = await lire();
       if(!e3 && d2 && d2.statut==='accepte') return {ok:true, change:false, numero:d.numero, ancien:d2.statut};
-      if(!e3 && d2 && d2.statut==='refuse') return {ok:true, change:false, refuse:true, numero:d.numero, ancien:d2.statut};
       return {ok:false, motif:'droits', numero:d.numero};
     }
     return {ok:true, change:true, numero:d.numero, ancien:d.statut};
@@ -2237,8 +2338,7 @@ function signalerAcceptationDevis(r){
   if(!r || r.motif==='sans_devis') return;
   const n = r.numero ? ' '+escHtml(r.numero) : '';
   if(r.ok){
-    if(r.refuse) showToast("⚠ Le devis"+n+" est « Refusé » mais vient d'être facturé : son statut n'a pas été modifié. À vérifier.", 'error');
-    else if(r.change) showToast('Devis'+n+' : '+escHtml(STATUT_DV[r.ancien]||r.ancien)+' → Accepté');
+    if(r.change) showToast('Devis'+n+' : '+escHtml(STATUT_DV[r.ancien]||r.ancien)+' → Accepté');
     return;
   }
   const m = r.motif==='droits' ? "droits insuffisants pour modifier le devis"
@@ -2246,7 +2346,7 @@ function signalerAcceptationDevis(r){
     : escHtml(r.detail||'raison inconnue');
   showToast("⚠ Facture créée, mais le devis"+n+" n'a pas pu passer à « Accepté » : "+m+". Changez son statut depuis la liste des devis.", 'error');
 }
-// Devis pas encore « Accepté » qui ont déjà au moins une facture client (hors annulée et hors note de crédit)
+// Devis pas encore « Accepté » (y compris « Refusé ») qui ont déjà au moins une facture client (hors annulée et hors note de crédit)
 function devisAAccepterFacture(d, facs){
   return !!d && STATUTS_DEVIS_A_ACCEPTER.includes(d.statut) && (facs||[]).some(f=>f && f.statut!=='annulee' && f.type_facture!=='avoir');
 }
@@ -2255,17 +2355,16 @@ async function mettreAJourStatutsDevisFactures(){
   const b = el('dv-resync-btn'); if(b) b.disabled = true;
   const rouvrir = ()=>{ const x = el('dv-resync-btn'); if(x) x.disabled = false; };
   try{
-    const devis = await lirePagine('devis', 'id,numero,statut', q=>q.in('statut', [...STATUTS_DEVIS_A_ACCEPTER, 'refuse']));
+    const devis = await lirePagine('devis', 'id,numero,statut', q=>q.in('statut', STATUTS_DEVIS_A_ACCEPTER));
     const lu = await lireParLots('factures_vente', 'id,devis_id,statut,type_facture', 'devis_id', devis.map(d=>d.id));
     if(!lu.ok) throw new Error(lu.erreur||'factures clients illisibles');
     const factures = new Set(lu.rows.filter(f=>f.statut!=='annulee' && f.type_facture!=='avoir').map(f=>String(f.devis_id)));
-    const tous = devis.filter(d=>factures.has(String(d.id)));
-    const aFaire = tous.filter(d=>STATUTS_DEVIS_A_ACCEPTER.includes(d.statut))
+    const aFaire = devis.filter(d=>factures.has(String(d.id)))
       .sort((a,b)=>String(a.numero||'').localeCompare(String(b.numero||''), 'fr', {numeric:true}));
-    const nbRefuses = tous.length - aFaire.length;
+    const nbRefuses = aFaire.filter(d=>d.statut==='refuse').length;
     if(!aFaire.length){ showToast('Tous les devis facturés sont déjà acceptés'); rafraichirPage(); return; }
     const lignes = aFaire.slice(0,15).map(d=>'• '+(d.numero||'?')+' : '+(STATUT_DV[d.statut]||d.statut)+' → Accepté').join('\n') + (aFaire.length>15 ? '\n… et '+(aFaire.length-15)+' autre(s)' : '');
-    if(!confirm('Passer à « Accepté » '+aFaire.length+' devis déjà facturé(s) ?\n\n'+lignes+(nbRefuses ? '\n\n('+nbRefuses+' devis « Refusé » facturé(s) : non modifié(s).)' : '')+'\n\n(Aucun chantier n\'est créé.)')){ rouvrir(); return; }
+    if(!confirm('Passer à « Accepté » '+aFaire.length+' devis déjà facturé(s)'+(nbRefuses ? ' (dont '+nbRefuses+' « Refusé »)' : '')+' ?\n\n'+lignes+'\n\n(Aucun chantier n\'est créé.)')){ rouvrir(); return; }
     let ok = 0, ko = 0, dernier = '';
     for(const d of aFaire){
       const w = await accepterDevisFacture(d.id);
@@ -6375,6 +6474,17 @@ const XLM = (function(){
       xml = remplace(xml, ancien, `<c r="${ref}" s="${r.s}" t="inlineStr"><is><t xml:space="preserve">${esc(r.t)}</t></is></c>`);
       if(r.fusion) fusions.push(`${ref}:${CASES_GARDE[ref].fin}${ref.slice(1)}`);
     });
+    // N° TVA du client : 4e ligne du cadre CLIENT. Les cases H13 (libellé) et I13 (valeur) existent déjà dans le modèle, vides, avec le style du cadre :
+    // rien ne se décale. Sans n° TVA on ne touche à rien (page de garde identique à avant).
+    const tva = String((cfg.client && cfg.client.tva) || '').trim();
+    if(tva){
+      const a1 = '<c r="H13" s="13"/>', a2 = '<c r="I13" s="49"/>';
+      if(xml.indexOf(a1) < 0 || xml.indexOf(a2) < 0) throw new Error('modèle : cellules H13/I13 introuvables');
+      const r = styleCase(tva, 160, styles);
+      xml = remplace(xml, a1, '<c r="H13" s="13" t="inlineStr"><is><t xml:space="preserve">N° TVA:</t></is></c>');
+      xml = remplace(xml, a2, `<c r="I13" s="${r.s}" t="inlineStr"><is><t xml:space="preserve">${esc(r.t)}</t></is></c>`);
+      if(r.fusion) fusions.push('I13:K13');
+    }
     const v = {J3: esc(cfg.numero), J4: String(cfg.dateSerial), C11: esc(cfg.numero), C29: esc(cfg.correspondant||'')};
     Object.keys(v).forEach(k=>{ xml = remplace(xml,'@@'+k+'@@',v[k]); });
     if(fusions.length) xml = remplace(xml,'</sheetData>',`</sheetData><mergeCells count="${fusions.length}">${fusions.map(m=>`<mergeCell ref="${m}"/>`).join('')}</mergeCells>`);
@@ -6501,7 +6611,7 @@ function devisConfigExcel(d, client, lignesPrincipal, lignesOption){
   return {
     numero: d.numero, dateSerial: devisExcelSerial(d.date_devis || today()),
     affaire, objetCourt, correspondant: d.correspondant || '',   // « Objet court » et « Affaire » : saisis à la main dans le devis, jamais déduits
-    client: {nom: client.nom||'', adresse: client.adresse||'', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim()},
+    client: {nom: client.nom||'', adresse: client.adresse||'', cp_ville: ((client.code_postal||'')+' '+(client.ville||'')).trim(), tva: tvaClientPdf(client)},
     pastille: [client.nom, d.numero, affaire || objetCourt].filter(Boolean).join(' | '),   // jamais l'objet complet (trop long)
     bandeau: LyneoPDF.BANDEAU_LEGAL,
     principal: {lignes: devisLignesNumerotees(lignesPrincipal,''), libelleTotal:'Prix de vente total', totalHT: Number(d.montant_ht)||0,
@@ -6515,7 +6625,7 @@ function devisConfigExcel(d, client, lignesPrincipal, lignesOption){
 async function downloadExcel_Devis(devisId){
   await entrepriseChargee();
   if(typeof JSZip==='undefined'){ showToast("La mise en forme Excel n'a pas pu être chargée — export simplifié à la place", 'error'); return downloadExcel_DevisSimple(devisId); }
-  const {data:d} = await sb.from('devis').select('*,clients(nom,adresse,code_postal,ville,telephone,email),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
+  const {data:d} = await sb.from('devis').select('*,clients(nom,adresse,code_postal,ville,telephone,email,numero_tva),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
   if(!d){ showToast("Devis introuvable", 'error'); return; }
   const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
   showToast('Génération du fichier Excel...');
@@ -6535,7 +6645,7 @@ async function downloadExcel_Devis(devisId){
 async function downloadExcel_DevisSimple(devisId){
   await entrepriseChargee();
   if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
-  const {data:d} = await sb.from('devis').select('*,clients(nom,adresse,code_postal,ville,telephone,email),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
+  const {data:d} = await sb.from('devis').select('*,clients(nom,adresse,code_postal,ville,telephone,email,numero_tva),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
   if(!d){ showToast("Devis introuvable", 'error'); return; }
   const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
   const client = d.clients||{};
@@ -6558,7 +6668,7 @@ async function downloadExcel_DevisSimple(devisId){
     [null,'Affaire:',d.affaire||'',null,null,null,null,'Nom:',client.nom||''],
     [null,'N° de devis:',d.numero,null,null,null,null,'Adresse:',client.adresse||''],
     [null,'Objet:',d.objet||'',null,null,null,null,'Code Postal:',((client.code_postal||'')+' '+(client.ville||'')).trim()],
-    [null,'Correspondant:',d.correspondant||''],
+    tvaClientPdf(client) ? [null,'Correspondant:',d.correspondant||'',null,null,null,null,'N° TVA:',tvaClientPdf(client)] : [null,'Correspondant:',d.correspondant||''],
     [],[],
     [null,'Madame, Messieurs,'],
     [],
@@ -13004,7 +13114,7 @@ const CATALOGUE_DOCUMENTS = [
             'Modalités : facturation et paiement (acompte, délai, IBAN et BIC), cadre légal (réserve de propriété, révision des prix, validité), approbation et signatures'],
    donnees:['Bandeau bleu en bas de chaque page (mentions légales + site cliquable)','Coordonnées bancaires','E-mail de retour du devis signé']},
   {id:'devis_xlsx', format:'Excel', titre:'Devis (modèle Excel complet)', ou:'Devis → télécharger l’Excel', fichier:'N° du devis.xlsx', detail:'3 onglets, présentation du modèle Lyneo',
-   contenu:['Page initiale : logo, en-tête, cadres PROJET et CLIENT, lettre d’introduction',
+   contenu:['Page initiale : logo, en-tête, cadres PROJET et CLIENT (avec le n° de TVA du client si renseigné), lettre d’introduction',
             'DEVIS : détail des prestations, totaux, options, remarque « Attention » (pagination automatique)',
             'Modalités : facturation, cadre légal, approbation et signatures'],
    donnees:['Bandeau bleu (mentions légales + site)','Coordonnées bancaires','E-mail de retour du devis signé']},
@@ -16858,6 +16968,7 @@ async function deleteEmploye(employeId){
 // ── INTERVENTIONS (SAV) ───────────────────────────────────────
 let _interventionsSAV = [];
 let _savFacturation = {ok:false, parId:{}};   // état de facturation de chaque intervention de la liste
+let _savPaiement = {};                         // état de paiement de chaque intervention de la liste (voir etatPaiement)
 let _sav_venteLignes = [];
 let _savCentreFiltre = '';        // '' = tous · id d'un centre SAV · '__aucun' = interventions sans centre SAV
 let _savCentresCache = null;      // {centres, facParCentre} — rechargé quand on ne tape pas dans la recherche
@@ -16894,7 +17005,8 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   }
 
   // Facturation de chaque intervention (dérivée des factures clients). Illisible ⇒ colonne « — » : jamais un faux « Non facturée ».
-  _savFacturation = await lireEtatsFacturationInterventions(_interventionsSAV);
+  _savFacturation = await lireEtatsFacturationInterventions(_interventionsSAV, {paiement:true});
+  _savPaiement = paiementsInterventions(_interventionsSAV, _savFacturation);
 
   // Centres de coûts SAV (SAV 1, SAV 2...) — requêtes séparées et protégées : sans effet si la migration n'est pas faite
   if(!search || !_savCentresCache){
@@ -16928,7 +17040,9 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   let items = _interventionsSAV;
   if(_savCentreFiltre==='__aucun') items = items.filter(i=>!aUnCentre(i));
   else if(_savCentreFiltre) items = items.filter(i=>i.chantier_id===_savCentreFiltre);
-  if(filterStatut==='astreinte') items = items.filter(i=>i.astreinte);
+  const nbAEncaisser = items.filter(i=>estImpayePaiement(_savPaiement[i.id])).length;   // chiffre du filtre « À encaisser » (centre déjà filtré)
+  if(filterStatut==='encaisser') items = items.filter(i=>estImpayePaiement(_savPaiement[i.id]));
+  else if(filterStatut==='astreinte') items = items.filter(i=>i.astreinte);
   else if(filterStatut==='encours') items = items.filter(i=>i.statut!=='facturee');
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
   if(search){
@@ -16983,7 +17097,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     ${cartesCentres}
     ${bandeauMaj}
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-      ${[['encours','Actives'],['astreinte','Astreintes'],['toutes','Toutes']].map(([k,label])=>
+      ${[['encours','Actives'],['astreinte','Astreintes'],['encaisser','À encaisser'+(nbAEncaisser?' ('+nbAEncaisser+')':'')],['toutes','Toutes']].map(([k,label])=>
         `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV('${search}','${k}')">${label}</button>`
       ).join('')}
       ${_savCentreFiltre?`<button class="btn btn-sm btn-secondary" onclick="filtrerCentreSAV('')" title="Enlever le filtre"><i class="ti ti-filter"></i> Centre : ${_savCentreFiltre==='__aucun'?'sans centre':(escHtml(centresLib[_savCentreFiltre])||'?')} <i class="ti ti-x"></i></button>`:''}
@@ -16991,7 +17105,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="interventions_sav">
-          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Facturation</th><th>Statut</th><th>Astreinte</th><th>Créé par</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Statut</th><th>Paiement</th><th>Astreinte</th><th>Créé par</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="'+nbColsSav+'"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
             items.map(i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
@@ -17001,8 +17115,8 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
               <td>${i.nom_site?'<strong>'+escHtml(i.nom_site)+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ escHtml(i.adresse_site||'') +'</span>':(i.adresse_site?escHtml(i.adresse_site):'—')}</td>
               <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${String(devisMap[i.devis_id].objet||'').replace(/"/g,'&quot;')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
               <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6);white-space:normal">'+escHtml(centresLib[i.chantier_id])+'</span>':'—'}</td>
-              ${cellFacturation(_savFacturation.ok ? _savFacturation.parId[i.id] : null, {genre:'f', aFacturer:(i.statut==='terminee' || i.statut==='facturee_partiel')})}
-              <td>${bSAV(i.statut)}</td>
+              ${cellStatutSAV(i, _savFacturation.ok ? _savFacturation.parId[i.id] : null)}
+              ${cellPaiement(_savPaiement[i.id])}
               <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
               <td>${tracCell(i.cree_par)}</td>
               <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button>${(i.statut==='terminee' || i.statut==='facturee_partiel')?`<button class="btn btn-primary btn-sm" data-sav-facturer="${i.id}" onclick="event.stopPropagation();openFactureSAVModal('${i.id}')" title="${i.statut==='terminee'?'Terminée — à facturer : créer la facture':'Partiellement facturée : facturer le reste'}"><i class="ti ti-receipt"></i></button>`:''}</div></td>
