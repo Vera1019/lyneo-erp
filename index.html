@@ -4982,10 +4982,209 @@ function intervEntierementFacturee(facs){
   const couvert = emises.filter(f=>f.type_facture!=='avoir' || f.remet_quantites).reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0);
   return couvert > 0.005;
 }
-const motifFermetureChantier = c => !c ? 'introuvable' : (MOTIF_STATUT[c.statut] || '');
+const motifFermetureChantier = c => !c ? 'introuvable' : (estCentreInterneNonPointable(c) ? 'centre interne : non pointable' : (MOTIF_STATUT[c.statut] || ''));
 const motifFermetureIntervention = (i, facturee) => !i ? 'introuvable' : (i.statut==='facturee' ? 'facturée' : i.statut==='facturee_partiel' ? 'facturée en partie' : i.statut==='terminee' ? 'terminée' : facturee ? 'facturée' : '');
 const chantierOuvertPointages = c => motifFermetureChantier(c)==='';
 const intervOuvertePointages = (i, facturee) => motifFermetureIntervention(i, facturee)==='';
+
+// ══ POINTAGES — codes alignés sur l'ERP, trois codes SAV seulement, centres internes jamais pointables ══════════
+// Dans l'application des pointages un salarié voit « CODE — Nom » :
+//  · chantier : CODE = Numéro du chantier dans l'ERP (P00001…), Nom = nom du chantier ;
+//  · SAV : UN code par centre (SAV 1 « Divers clients », SAV 2 « Delhaize », SAV 3 « Bains d'Esch »). Les codes de clients (DPSINTER, NASSO…)
+//    et d'interventions (SAV26001…) restent dans la base (les heures déjà pointées sont conservées) mais ne sont plus proposés ;
+//  · STOCK, frais généraux et tout autre centre interne : jamais proposés (seul « Heures improductives » l'est).
+// Règle de sécurité : on ne masque jamais un code de client / d'intervention tant que le code du centre SAV n'existe pas dans les pointages
+// (le salarié doit toujours avoir où pointer).
+const SAV_LIBELLES = {sav1:'Divers clients', sav2:'Delhaize', sav3:"Bains d'Esch"};
+// Clé de comparaison d'un code : sans casse, sans espaces ni tirets (« SAV 1 » = « sav1 » = « SAV-1 »)
+const cleCodePt = s => String(s==null?'':s).trim().toLowerCase().replace(/[\s_.\-–—]+/g,'');
+const sansAccentsPt = s => String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const estCentreSav = c => !!c && c.type_centre==='sav';
+// Nom d'un chantier des pointages sans le code qui le précède (comme l'application : « P00001 — Belval » → « Belval »)
+function nomSansCodePt(p){
+  const code = String((p&&p.code)||'').trim(), nom = String((p&&p.nom)||'').trim();
+  if(!code) return nom;
+  const re = new RegExp('^'+code.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:\\s*[—–:\\-]+\\s*|\\s*$)','i');
+  return nom.replace(re,'').trim();
+}
+// Libellé affiché aux salariés pour un centre : SAV 1/2/3 ont leur libellé convenu, les autres gardent le nom de l'ERP
+const libellePointagesDe = c => { const k = estCentreSav(c) ? cleCodePt(c.numero) : ''; return (k && SAV_LIBELLES[k]) || String((c&&c.nom)||'').trim(); };
+const nomPointagesVoulu = c => { const num = String((c&&c.numero)||'').trim(), lib = libellePointagesDe(c); return lib && sansAccentsPt(lib)!==sansAccentsPt(num) ? num+' — '+lib : num; };
+// Centres internes qui ne se pointent jamais (STOCK, frais généraux…) ; « Heures improductives » (HI) est le seul centre interne pointable
+const estNomInterneNonPointable = s => { const t = sansAccentsPt(s); return t==='stock' || t==='fg' || /^frais generaux?(\s|$)/.test(t); };
+const estCentreInterneNonPointable = c => !!c
+  && String(c.numero||'').trim().toUpperCase()!==HI_CODE && !codesPointagesDe(c).some(estCodeHI)
+  && (c.type_centre==='interne' || [c.numero, c.nom].some(estNomInterneNonPointable));
+const estLignePtInterneNonPointable = p => !!p && !estCodeHI(p.code) && [p.code, nomSansCodePt(p)].some(estNomInterneNonPointable);
+// Centre SAV : son code visible = celui de la liste qui porte le NUMÉRO du centre (SAV 1…) ET qui existe dans les pointages ; sinon null
+function codePrincipalSav(c, ptRows){
+  if(!estCentreSav(c)) return null;
+  const cle = cleCodePt(c.numero); if(!cle) return null;
+  const code = codesPointagesDe(c).find(x=>cleCodePt(x)===cle);
+  return code && trouverChantierPointages(ptRows, code) ? code : null;
+}
+// État voulu de chaque code d'un centre / chantier : {code, ouvert, motif}. Statut de l'ERP, centre interne, et pour un centre SAV :
+// les codes de clients sont masqués dès que le code du centre existe.
+function etatsCodesChantier(c, ptRows){
+  const motif = motifFermetureChantier(c), ouvert = motif==='';
+  const princ = codePrincipalSav(c, ptRows);
+  return codesPointagesDe(c).map(code=> princ && cleCodePt(code)!==cleCodePt(princ)
+    ? {code, ouvert:false, motif:'code de client : on pointe sur '+princ}
+    : {code, ouvert, motif});
+}
+
+// ── Alignement des codes / noms des pointages sur l'ERP (calcul pur : rien n'est écrit) ──
+// Pour chaque centre de l'ERP : code des pointages = Numéro du centre ; nom = « Numéro — nom ». Une ligne des pointages n'est jamais fusionnée ni supprimée :
+// ses heures (liées à l'identifiant de la ligne, pas au texte du code) sont conservées. Renvoie :
+//  maj      [{c, row, de, vers, codeChange, nomChange, liste, listeChange}]  ligne existante à renommer / relier
+//  creer    [{c, vers, liste}]                                               code de centre SAV à créer dans les pointages
+//  creerErp [{numero, nom, row, vers, nomChange, codeChange}]                 centre SAV manquant dans l'ERP (SAV 1/2/3)
+//  bloques  [{c, titre, motif}]  conflits à traiter à la main   ·   multi [{c, codes}]  plusieurs codes sur un chantier ordinaire
+function planAlignementPointages(chs, ptRows){
+  const rows = ptRows||[], al = {maj:[], creer:[], creerErp:[], bloques:[], multi:[]};
+  const reclame = new Map();                      // id d'une ligne des pointages → centre de l'ERP qui la revendique (champ « Code pointages »)
+  (chs||[]).forEach(c=>codesPointagesDe(c).forEach(code=>{ const r = trouverChantierPointages(rows, code); if(r && !reclame.has(String(r.id))) reclame.set(String(r.id), c); }));
+  const vises = new Map();                        // clé de code visée → centre (deux centres ne peuvent pas viser le même code)
+  const centres = (chs||[]).filter(c=>String(c.numero||'').trim() && String(c.numero).trim().toUpperCase()!==HI_CODE && !codesPointagesDe(c).some(estCodeHI))
+    .sort((a,b)=>String(a.numero).localeCompare(String(b.numero),'fr',{numeric:true,sensitivity:'base'}));
+  for(const c of centres){
+    const cible = String(c.numero).trim(), cle = cleCodePt(cible);
+    if(/[,;]/.test(cible)){ al.bloques.push({c, motif:"le numéro contient une virgule ou un point-virgule : impossible comme code de pointage"}); continue; }
+    if(vises.has(cle)){ al.bloques.push({c, motif:"même code que le centre « "+vises.get(cle).numero+" »"}); continue; }
+    vises.set(cle, c);
+    const codes = codesPointagesDe(c), sav = estCentreSav(c);
+    const lignes = codes.map(code=>({code, row:trouverChantierPointages(rows, code)}));
+    const memes = rows.filter(r=>cleCodePt(r.code)===cle);                      // lignes des pointages qui ont déjà ce code
+    const existantes = lignes.filter(l=>l.row);
+    let row = (lignes.find(l=>l.row && cleCodePt(l.row.code)===cle)||{}).row || null, creer = false;
+    if(!row){
+      if(memes.length){
+        const libre = memes.find(r=>!reclame.has(String(r.id)) || reclame.get(String(r.id))===c);
+        if(!libre){ al.bloques.push({c, motif:"le code « "+memes[0].code+" » existe déjà dans les pointages mais est lié à un autre centre ("+(reclame.get(String(memes[0].id))||{}).numero+")"}); continue; }
+        if(!sav && existantes.length){ al.bloques.push({c, motif:"le code « "+libre.code+" » existe déjà dans les pointages, sur une ligne distincte de « "+existantes[0].code+" » : fusion à faire à la main (deux lignes = deux historiques d'heures)"}); continue; }
+        row = libre;
+      } else if(existantes.length===1 && codes.length===1){ row = existantes[0].row; }             // un seul code → on le renomme (heures conservées)
+      else if(sav) creer = true;                                                                    // plusieurs codes de clients (ou aucun) → nouveau code du centre
+      else if(!codes.length || !existantes.length) continue;                                         // non lié / introuvable : voir « codes introuvables »
+      else { al.multi.push({c, codes}); continue; }                                                  // plusieurs codes sur un chantier ordinaire : à la main
+    }
+    const nomVoulu = nomPointagesVoulu(c);
+    const autres = codes.filter(x=>cleCodePt(x)!==cle && !(row && trouverChantierPointages(rows, x)===row));
+    // Chantier ordinaire dont un AUTRE code existe aussi dans les pointages : on ne le retire pas du lien en silence (ses heures
+    // disparaîtraient du chantier) ⇒ à traiter à la main. Un code qui n'existe pas dans les pointages est simplement conservé dans la liste.
+    if(!sav && autres.some(x=>trouverChantierPointages(rows, x))){ al.multi.push({c, codes}); continue; }
+    const liste = [cible, ...autres].join(', ');
+    const listeChange = liste !== codes.join(', ');
+    if(creer){ al.creer.push({c, vers:{code:cible, nom:nomVoulu}, liste}); continue; }
+    const codeChange = row.code!==cible;
+    if(codeChange && memes.some(r=>String(r.id)!==String(row.id))){ al.bloques.push({c, motif:"le code « "+cible+" » existe déjà dans les pointages sur une autre ligne"}); continue; }
+    // nom : on compare sans le code (« P00001 — Belval » = « Belval ») ; si le code change, le nom est réécrit (il commençait par l'ancien code)
+    let libVoulu = sansAccentsPt(libellePointagesDe(c)); if(libVoulu===sansAccentsPt(cible)) libVoulu = '';
+    const nomEcrit = codeChange || sansAccentsPt(nomSansCodePt(row))!==libVoulu;
+    if(!nomEcrit && !listeChange) continue;
+    al.maj.push({c, row, de:{code:row.code, nom:row.nom||''}, vers:{code:cible, nom:nomEcrit?nomVoulu:(row.nom||'')}, codeChange, nomChange:nomEcrit, liste, listeChange});
+  }
+  // Centres SAV 1 / 2 / 3 absents de l'ERP : créés (comme « Heures improductives »), reliés à la ligne des pointages si elle existe déjà
+  Object.keys(SAV_LIBELLES).forEach(key=>{
+    if((chs||[]).some(c=>cleCodePt(c.numero)===key)) return;
+    const numero = 'SAV '+key.slice(3), nom = SAV_LIBELLES[key], memes = rows.filter(r=>cleCodePt(r.code)===key);
+    const libre = memes.find(r=>!reclame.has(String(r.id)));
+    if(memes.length && !libre){ al.bloques.push({c:null, titre:numero, motif:"le code « "+memes[0].code+" » existe déjà dans les pointages mais est lié à un autre centre ("+(reclame.get(String(memes[0].id))||{}).numero+")"}); return; }
+    const vers = {code:numero, nom:numero+' — '+nom};
+    al.creerErp.push({numero, nom, row:libre||null, vers, codeChange: !!libre && libre.code!==numero, nomChange: !!libre && sansAccentsPt(nomSansCodePt(libre))!==sansAccentsPt(nom)});
+  });
+  return al;
+}
+// Copie des données telles qu'elles seront APRÈS l'alignement : l'aperçu montre ainsi l'état final (codes masqués, codes proposés…)
+function projeterAlignement(chs, ptRows, al){
+  const rows = (ptRows||[]).map(r=>({...r})), chs2 = (chs||[]).map(c=>({...c}));
+  const ligne = id => rows.find(x=>String(x.id)===String(id)), centre = id => chs2.find(x=>String(x.id)===String(id));
+  al.maj.forEach(o=>{ const r = ligne(o.row.id), c = centre(o.c.id); if(r){ r.code = o.vers.code; r.nom = o.vers.nom; } if(c) c.code_pointages = o.liste; });
+  al.creer.forEach(o=>{ const c = centre(o.c.id); rows.push({id:'nouveau:'+o.vers.code, code:o.vers.code, nom:o.vers.nom, actif:true, _nouveau:true}); if(c) c.code_pointages = o.liste; });
+  al.creerErp.forEach(o=>{
+    if(o.row){ const r = ligne(o.row.id); if(r){ r.code = o.vers.code; r.nom = o.vers.nom; } }
+    else rows.push({id:'nouveau:'+o.vers.code, code:o.vers.code, nom:o.vers.nom, actif:true, _nouveau:true});
+    chs2.push({id:'nouveau:'+o.numero, numero:o.numero, nom:o.nom, client:'Clients divers', statut:'actif', type_centre:'sav', code_pointages:o.vers.code, _nouveau:true});
+  });
+  return {chs2, rows2:rows};
+}
+// Écrit l'alignement. Ordre : pointages d'abord, puis le champ « Code pointages » de l'ERP ; si l'ERP refuse, la ligne des pointages est remise comme avant.
+async function ecrirePtChantier(id, patch){
+  const {data,error} = await sbPT.from('chantiers').update(patch).eq('id',id).select('id,code,nom');
+  if(error) return (error.message||'erreur');
+  if(!data || !data.length) return 'droits';
+  return 'ok';
+}
+async function ecrireListeCodesErp(centreId, liste){
+  const {data,error} = await sb.from('chantiers_lyneo').update({code_pointages:liste}).eq('id',centreId).select('id');
+  if(error) return (error.message||'erreur');
+  if(!data || !data.length) return 'droits';
+  return 'ok';
+}
+const MSG_ECRITURE = r => r==='droits' ? 'droits insuffisants' : r;
+async function appliquerAlignementPointages(al){
+  const res = {renomes:[], noms:[], crees:[], creesErp:[], liens:[], erreurs:[], fait:false, stop:false};
+  if(!al || (!al.maj.length && !al.creer.length && !al.creerErp.length)) return res;
+  let stop = false;
+  const echec = (titre, r) => { res.erreurs.push(titre+' : '+MSG_ECRITURE(r)+(r==='droits'?' (base des pointages)':'')); if(r==='droits') stop = true; };
+  // relecture juste avant de créer : jamais de doublon
+  const existe = async code => { const {data,error} = await sbPT.from('chantiers').select('id,code,nom').ilike('code', code); if(error) throw error; return (data||[]).find(r=>cleCodePt(r.code)===cleCodePt(code)) || null; };
+  for(const o of al.maj){
+    if(stop) break;
+    const titre = (o.codeChange ? o.de.code+' → ' : '')+o.vers.code;
+    const patch = {}; if(o.codeChange) patch.code = o.vers.code; if(o.nomChange || o.codeChange) patch.nom = o.vers.nom;
+    if(Object.keys(patch).length){
+      const r = await ecrirePtChantier(o.row.id, patch);
+      if(r!=='ok'){ echec(titre, r); continue; }
+    }
+    if(o.listeChange || o.codeChange){
+      const r2 = await ecrireListeCodesErp(o.c.id, o.liste);
+      if(r2!=='ok'){
+        if(Object.keys(patch).length){ const back = {}; if(o.codeChange) back.code = o.de.code; back.nom = o.de.nom; await ecrirePtChantier(o.row.id, back); }
+        res.erreurs.push(titre+" : le lien dans l'ERP n'a pas pu être enregistré ("+MSG_ECRITURE(r2)+") — la ligne des pointages a été remise comme avant");
+        continue;
+      }
+    }
+    if(o.codeChange) res.renomes.push(o.de.code+' → '+o.vers.code); else if(o.nomChange) res.noms.push(o.vers.code); else res.liens.push(o.vers.code);
+  }
+  for(const o of al.creer){
+    if(stop) break;
+    try{
+      let ligne = await existe(o.vers.code);
+      if(!ligne){
+        const {data,error} = await sbPT.from('chantiers').insert({code:o.vers.code, nom:o.vers.nom}).select('id,code,nom');
+        if(error) throw error;
+        if(!data || !data.length){ echec(o.vers.code, 'droits'); continue; }
+        res.crees.push(o.vers.code);
+      } else res.liens.push(o.vers.code);
+      const r2 = await ecrireListeCodesErp(o.c.id, o.liste);
+      if(r2!=='ok') res.erreurs.push(o.vers.code+" : créé dans les pointages, mais le lien dans l'ERP n'a pas pu être enregistré ("+MSG_ECRITURE(r2)+")");
+    }catch(e){ res.erreurs.push(o.vers.code+' : '+((e&&e.message)||e)); }
+  }
+  for(const o of al.creerErp){
+    if(stop) break;
+    try{
+      const {data:ex,error:e0} = await sb.from('chantiers_lyneo').select('id,numero');
+      if(e0) throw e0;
+      if((ex||[]).some(c=>cleCodePt(c.numero)===cleCodePt(o.numero))) continue;       // créé entre-temps
+      let ligne = await existe(o.vers.code);
+      if(!ligne){
+        const {data,error} = await sbPT.from('chantiers').insert({code:o.vers.code, nom:o.vers.nom}).select('id,code,nom');
+        if(error) throw error;
+        if(!data || !data.length){ echec(o.vers.code, 'droits'); continue; }
+      } else {
+        const patch = {}; if(ligne.code!==o.vers.code) patch.code = o.vers.code; if(sansAccentsPt(nomSansCodePt(ligne))!==sansAccentsPt(o.nom)) patch.nom = o.vers.nom;
+        if(Object.keys(patch).length){ const r = await ecrirePtChantier(ligne.id, patch); if(r!=='ok'){ echec(o.vers.code, r); continue; } }
+      }
+      const {error:e2} = await sb.from('chantiers_lyneo').insert({numero:o.numero, nom:o.nom, client:'Clients divers', statut:'actif', type_centre:'sav', code_pointages:o.vers.code});
+      if(e2) throw e2;
+      res.creesErp.push(o.numero);
+    }catch(e){ res.erreurs.push(o.numero+' : '+((e&&e.message)||e)); }
+  }
+  res.stop = stop;
+  res.fait = !!(res.renomes.length || res.noms.length || res.crees.length || res.creesErp.length || res.liens.length);
+  return res;
+}
 
 // Chantiers des pointages avec leur état. colonne:false = le SQL n'a pas encore été exécuté (état inconnu, rien à écrire).
 async function lireChantiersPointagesActif(){
@@ -5042,36 +5241,47 @@ async function ecrireActifPointages(p, ouvert){
   p.actif = ouvert;
   return 'ok';
 }
-// Met des codes des pointages « proposés » (ouvert=true) ou « masqués » (ouvert=false). Ne touche que ce qui change.
-async function majPointagesCodes(codes, ouvert){
+// Applique des états {code, ouvert} (un par code) : « proposé » (ouvert=true) ou « masqué » (ouvert=false). Ne touche que ce qui change.
+// ptDeja = lecture des pointages déjà faite (évite de relire).
+async function majPointagesEtats(etats, ptDeja){
   const out = {ok:true, ouverts:[], fermes:[], absents:[], erreur:null};
-  const pt = await lireChantiersPointagesActif();
+  const pt = ptDeja || await lireChantiersPointagesActif();
   if(!pt.colonne){ out.ok = false; out.erreur = 'sql'; return out; }
-  for(const code of codes){
-    if(estCodeHI(code)) continue;
-    const p = trouverChantierPointages(pt.rows, code);
-    if(!p){ out.absents.push(code); continue; }
-    if((p.actif!==false)===ouvert) continue;
-    const r = await ecrireActifPointages(p, ouvert);
+  for(const e of etats){
+    if(estCodeHI(e.code)) continue;
+    const p = trouverChantierPointages(pt.rows, e.code);
+    if(!p){ out.absents.push(e.code); continue; }
+    if((p.actif!==false)===e.ouvert) continue;
+    const r = await ecrireActifPointages(p, e.ouvert);
     if(r!=='ok'){ out.ok = false; out.erreur = r; return out; }
-    (ouvert ? out.ouverts : out.fermes).push(p.code);
+    (e.ouvert ? out.ouverts : out.fermes).push(p.code);
   }
   return out;
 }
+async function majPointagesCodes(codes, ouvert){ return majPointagesEtats(codes.map(code=>({code, ouvert}))); }
 async function majPointagesChantier(chantierId){
   try{
     const {data:ch,error:errCh} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
     if(errCh) throw errCh;
     const codes = ch ? codesPointagesDe(ch) : [];
     if(!codes.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
-    return await majPointagesCodes(codes, chantierOuvertPointages(ch));
+    const pt = await lireChantiersPointagesActif();
+    return await majPointagesEtats(etatsCodesChantier(ch, pt.rows), pt);
   }catch(e){ return {ok:false, erreur:'exception', detail:(e&&e.message)||String(e)}; }
 }
 async function majPointagesIntervention(interventionId){
   try{
-    const {data:i,error:errIv} = await sb.from('interventions_sav').select('id,ref,statut').eq('id',interventionId).single();
+    let rIv = await sb.from('interventions_sav').select('id,ref,statut,chantier_id').eq('id',interventionId).single();
+    if(rIv.error && /chantier_id/i.test(rIv.error.message||'')) rIv = await sb.from('interventions_sav').select('id,ref,statut').eq('id',interventionId).single();
+    const {data:i,error:errIv} = rIv;
     if(errIv) throw errIv;
     if(!i || !i.ref) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
+    // Intervention rattachée à un centre SAV dont le code existe dans les pointages : le salarié pointe sur le centre (SAV 1/2/3), le code de l'intervention n'est plus proposé
+    if(i.chantier_id){
+      const {data:ce} = await sb.from('chantiers_lyneo').select('*').eq('id',i.chantier_id).maybeSingle();
+      const pt = await lireChantiersPointagesActif();
+      if(ce && codePrincipalSav(ce, pt.rows)) return await majPointagesEtats([{code:i.ref, ouvert:false}], pt);
+    }
     let facturee = false;
     if(i.statut!=='terminee' && i.statut!=='facturee' && i.statut!=='facturee_partiel') facturee = intervEntierementFacturee(await lireFacturesVentePointages(q=>q.eq('intervention_id', interventionId)));
     return await majPointagesCodes([i.ref], intervOuvertePointages(i, facturee));
@@ -5155,8 +5365,13 @@ function lancerMajPointagesCodesSupprimes(codes){
 
 // ── Synchronisation complète (bouton « Synchroniser les pointages » de la page Chantiers) ──
 // 1) calcule ce qui doit changer, SANS rien écrire ; 2) l'utilisateur voit l'aperçu et clique « Appliquer ».
-async function planSynchroPointages(){
-  const [chs, ivs, pt, fin] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav'), lireChantiersPointagesActif(), lireFinancePointages()]);
+// opts.reel : états calculés sur ce qui existe VRAIMENT dans les pointages (après application) ; sinon sur ce que l'alignement donnera (aperçu)
+async function planSynchroPointages(opts){
+  const [chs0, ivs, pt0, fin] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav'), lireChantiersPointagesActif(), lireFinancePointages()]);
+  // 1) alignement des codes / noms sur l'ERP ; 2) états « proposé / masqué » calculés sur ce que l'alignement donnera (l'aperçu montre l'état final)
+  const alignement = planAlignementPointages(chs0, pt0.rows);
+  const proj = opts && opts.reel ? {chs2:chs0, rows2:pt0.rows} : projeterAlignement(chs0, pt0.rows, alignement);
+  const chs = proj.chs2, pt = Object.assign({}, pt0, {rows:proj.rows2});
   const voulu = new Map(), absents = [];
   // sur = le code est proposé par un CHANTIER (décision qui ne dépend pas de la lecture de la facturation) ; une intervention « ouverte » en dépend
   const noter = (code, ouvert, source, chantier, motif)=>{
@@ -5167,14 +5382,20 @@ async function planSynchroPointages(){
     if(v){ v.ouvert = v.ouvert || ouvert; v.sur = v.sur || sur; v.sources.push(source); if(motif) v.motifs.push(motif); } else voulu.set(k, {p, ouvert, sur, sources:[source], motifs:motif?[motif]:[]});
   };
   chs.forEach(c=>{
-    const motif = motifFermetureChantier(c);
-    codesPointagesDe(c).forEach(code=>noter(code, motif==='', (c.numero||'')+' — '+(c.nom||''), true, motif));
+    etatsCodesChantier(c, pt.rows).forEach(e=>noter(e.code, e.ouvert, (c.numero||'')+' — '+(c.nom||''), true, e.motif));
   });
+  const ivsSansCentre = [];
   ivs.forEach(i=>{
+    const centre = i.chantier_id ? chs.find(x=>String(x.id)===String(i.chantier_id)) : null;
+    const princ = centre ? codePrincipalSav(centre, pt.rows) : null;
+    if(princ){ if(i.ref) noter(i.ref, false, i.ref, false, "code d'intervention : on pointe sur "+princ); return; }     // le salarié pointe sur le centre SAV
     const facturee = fin.ok && intervEntierementFacturee((fin.parInterv||{})[i.id]);
     const motif = motifFermetureIntervention(i, facturee);
     if(i.ref) noter(i.ref, motif==='', i.ref, false, motif);
+    if(i.ref && motif==='' && trouverChantierPointages(pt.rows, i.ref)) ivsSansCentre.push(i);
   });
+  // Centres internes sans lien avec l'ERP (STOCK, frais généraux…) : jamais proposés
+  pt.rows.forEach(p=>{ if(!estCodeHI(p.code) && !voulu.has(String(p.id)) && estLignePtInterneNonPointable(p)) voulu.set(String(p.id), {p, ouvert:false, sur:false, sources:[p.code], motifs:['centre interne : non pointable']}); });
   let aOuvrir = [], aFermer = [], dejaOuverts = [], dejaFermes = [];
   voulu.forEach(v=>{
     if(!pt.colonne) return;               // état inconnu : rien à calculer tant que le SQL n'est pas exécuté
@@ -5190,7 +5411,7 @@ async function planSynchroPointages(){
   const sansLien = pt.rows.filter(p=>!estCodeHI(p.code) && !voulu.has(String(p.id)));
   const hiPt = pt.rows.find(p=>estCodeHI(p.code)) || null;
   const hiErp = chs.find(c=>_txt(c.numero).trim().toUpperCase()===HI_CODE || codesPointagesDe(c).some(estCodeHI)) || null;
-  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp, financeErreur: fin.ok ? null : (fin.erreur||'erreur')};
+  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp, alignement, ivsSansCentre, financeErreur: fin.ok ? null : (fin.erreur||'erreur')};
 }
 // Crée / relie le centre « Heures improductives » des deux côtés (sans doublon : relecture avant chaque création)
 async function assurerCentreHI(plan){
@@ -5233,10 +5454,14 @@ async function appliquerSynchroPointages(){
   _syncPtEnCours = true;
   const btn = el('btn-sync-pt-appliquer'); if(btn) btn.disabled = true;
   try{
-    const plan = await planSynchroPointages();       // tout est relu au moment du clic
-    const res = {ouverts:[], fermes:[], erreurs:[], hi:null};
+    const plan0 = await planSynchroPointages();      // tout est relu au moment du clic
+    const res = {ouverts:[], fermes:[], erreurs:[], hi:null, align:null};
+    // 1) codes / noms alignés sur l'ERP (et centres SAV créés) ; 2) les états proposé / masqué sont alors RECALCULÉS sur ce qui existe vraiment
+    res.align = await appliquerAlignementPointages(plan0.alignement);
+    res.erreurs.push(...res.align.erreurs);
+    const plan = await planSynchroPointages({reel:true});      // jamais sur une projection : un centre SAV dont la création a échoué n'existe pas ⇒ ses codes de clients restent proposés
     if(plan.pt.colonne){
-      let stop = false;                    // droits refusés / colonne absente : inutile d'insister sur les autres codes
+      let stop = !!res.align.stop;         // droits refusés / colonne absente : inutile d'insister sur les autres codes
       for(const [liste, ouvert] of [[plan.aFermer,false],[plan.aOuvrir,true]]){
         for(const l of liste){
           if(stop) break;
@@ -5250,13 +5475,21 @@ async function appliquerSynchroPointages(){
     res.erreurs.push(...res.hi.erreurs);
     const apres = await planSynchroPointages();
     el('sync-pt-corps').innerHTML = htmlResultatSynchroPointages(res) + htmlPlanSynchroPointages(apres, true);
-    if(res.hi && res.hi.erp!=='deja' && res.hi.erp!=='erreur' && currentPage==='chantiers') renderChantiers('');
+    if(((res.hi && res.hi.erp!=='deja' && res.hi.erp!=='erreur') || res.align.fait) && currentPage==='chantiers') renderChantiers('');
   }catch(e){
     el('sync-pt-corps').innerHTML = `<div class="alert alert-error" id="sync-pt-erreur"><i class="ti ti-alert-circle"></i><span>Synchronisation impossible : ${escHtml((e&&e.message)||String(e))}</span></div>`;
   }finally{ _syncPtEnCours = false; }
 }
 function htmlResultatSynchroPointages(res){
   const l = [];
+  const al = res.align;
+  if(al){
+    if(al.renomes.length) l.push(`<strong>${al.renomes.length}</strong> code${al.renomes.length>1?'s':''} aligné${al.renomes.length>1?'s':''} sur l'ERP : ${al.renomes.map(escHtml).join(', ')}`);
+    if(al.noms.length) l.push(`Nom${al.noms.length>1?'s':''} mis à jour : ${al.noms.map(escHtml).join(', ')}`);
+    if(al.liens.length) l.push(`Lien${al.liens.length>1?'s':''} mis à jour dans l'ERP : ${al.liens.map(escHtml).join(', ')}`);
+    if(al.crees.length) l.push(`Code${al.crees.length>1?'s':''} créé${al.crees.length>1?'s':''} dans les pointages : ${al.crees.map(escHtml).join(', ')}`);
+    if(al.creesErp.length) l.push(`Centre${al.creesErp.length>1?'s':''} SAV créé${al.creesErp.length>1?'s':''} dans l'ERP : ${al.creesErp.map(escHtml).join(', ')}`);
+  }
   if(res.fermes.length) l.push(`<strong>${res.fermes.length}</strong> code${res.fermes.length>1?'s':''} masqué${res.fermes.length>1?'s':''} : ${res.fermes.map(escHtml).join(', ')}`);
   if(res.ouverts.length) l.push(`<strong>${res.ouverts.length}</strong> code${res.ouverts.length>1?'s':''} de nouveau proposé${res.ouverts.length>1?'s':''} : ${res.ouverts.map(escHtml).join(', ')}`);
   if(res.hi){
@@ -5276,8 +5509,16 @@ function htmlPlanSynchroPointages(plan, apresApplication){
   let h = '';
   if(!plan.pt.colonne) h += `<div class="alert alert-warning" id="sync-pt-sql" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La base des pointages n'a pas encore la colonne « actif » : exécutez <strong>${SQL_PT_ACTIF}</strong> dans le projet <strong>POINTAGES</strong> de Supabase (SQL Editor), puis rouvrez cette fenêtre. En attendant, tous les chantiers restent proposés aux salariés.</span></div>`;
   if(plan.pt.colonne && plan.financeErreur) h += `<div class="alert alert-warning" id="sync-pt-finance" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La facturation SAV n'a pas pu être lue (${escHtml(plan.financeErreur)}) : les codes d'interventions déjà masqués ne sont pas rouverts et aucune intervention n'est masquée à cause d'une facture émise. Réessayez.</span></div>`;
+  const al = plan.alignement || {maj:[], creer:[], creerErp:[], bloques:[], multi:[]};
+  const titreSection = (txt, couleur) => `<div style="font-size:12px;font-weight:700;color:${couleur||'var(--gray-6)'};margin-bottom:4px">${txt}</div>`;
+  if(al.maj.length) h += `<div id="sync-pt-aligner" style="margin-bottom:12px">${titreSection(`Codes à aligner sur l'ERP (${al.maj.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.maj.map(o=>`<li>${o.codeChange?`<strong>${escHtml(o.de.code)}</strong> → `:''}<strong>${escHtml(o.vers.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.vers.nom)}</span>${o.codeChange?'':` <span class="badge badge-termine" style="font-size:10px">${o.nomChange?'nom mis à jour':'lien ERP mis à jour'}</span>`}</li>`).join('')}</ul><p style="font-size:11px;color:var(--gray-4);margin-top:4px">Le code et le nom changent dans les pointages et le champ « Code pointages » du chantier est mis à jour. Les heures déjà pointées sont conservées.</p></div>`;
+  if(al.creer.length) h += `<div id="sync-pt-creer" style="margin-bottom:12px">${titreSection(`À créer dans les pointages (${al.creer.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.creer.map(o=>`<li><strong>${escHtml(o.vers.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.vers.nom)}</span></li>`).join('')}</ul></div>`;
+  if(al.creerErp.length) h += `<div id="sync-pt-creer-erp" style="margin-bottom:12px">${titreSection(`Centres SAV à créer dans l'ERP (${al.creerErp.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.creerErp.map(o=>`<li><strong>${escHtml(o.numero)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.nom)}</span>${o.row?` <span class="badge badge-termine" style="font-size:10px">relié au code existant « ${escHtml(o.row.code)} »</span>`:''}</li>`).join('')}</ul></div>`;
+  if(al.bloques.length || al.multi.length) h += `<div id="sync-pt-bloques" style="margin-bottom:12px">${titreSection(`<i class="ti ti-alert-circle"></i> Alignement impossible — à traiter à la main (${al.bloques.length+al.multi.length})`, 'var(--orange)')}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.bloques.map(b=>`<li><strong>${escHtml(b.c?b.c.numero:b.titre)}</strong> <span style="color:var(--gray-5)">— ${escHtml(b.motif)}</span></li>`).join('')}${al.multi.map(m=>`<li><strong>${escHtml(m.c.numero)}</strong> <span style="color:var(--gray-5)">— plusieurs codes de pointages (${escHtml(m.codes.join(', '))}) : un chantier ordinaire n'en a qu'un</span></li>`).join('')}</ul></div>`;
+  if(plan.ivsSansCentre && plan.ivsSansCentre.length) h += `<div class="alert alert-warning" id="sync-pt-sanscentre" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span><strong>${plan.ivsSansCentre.length}</strong> intervention${plan.ivsSansCentre.length>1?'s':''} SAV ouverte${plan.ivsSansCentre.length>1?'s':''} sans centre SAV (${plan.ivsSansCentre.slice(0,8).map(i=>escHtml(i.ref)).join(', ')}${plan.ivsSansCentre.length>8?'…':''}) : ${plan.ivsSansCentre.length>1?'leurs codes restent proposés':'son code reste proposé'} aux salariés. Rattachez-les à SAV 1, SAV 2 ou SAV 3 (Interventions → Modifier → Centre) puis relancez.</span></div>`;
+  if([...plan.aFermer, ...plan.dejaFermes].some(l=>(l.motifs||[]).some(m=>/on pointe sur/.test(m)))) h += `<div class="alert alert-info" id="sync-pt-note-sav" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>Les salariés pointent sur le <strong>centre SAV</strong> (SAV 1, SAV 2, SAV 3). Les codes de clients et d'interventions sont conservés avec leurs heures mais ne sont plus proposés ; les nouvelles heures ne sont donc plus rattachées à une intervention précise.</span></div>`;
   if(plan.pt.colonne){
-    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (chantiers en pause, terminés ou archivés ; interventions SAV terminées ou facturées).</p>`;
+    h += `<p style="font-size:13px;margin-bottom:12px" id="sync-pt-resume"><strong>${plan.dejaOuverts.length+plan.aOuvrir.length}</strong> code${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} lié${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} à l'ERP proposé${plan.dejaOuverts.length+plan.aOuvrir.length>1?'s':''} aux salariés (en cours) · <strong>${plan.dejaFermes.length+plan.aFermer.length}</strong> masqué${plan.dejaFermes.length+plan.aFermer.length>1?'s':''} (chantiers en pause, terminés ou archivés ; interventions SAV terminées ou facturées ; centres internes ; codes de clients et d\'interventions rattachés à un centre SAV).</p>`;
     h += bloc(apresApplication ? 'Encore à masquer' : 'À masquer maintenant', plan.aFermer, 'sync-pt-fermer');
     h += bloc(apresApplication ? 'Encore à proposer' : 'À proposer de nouveau', plan.aOuvrir, 'sync-pt-ouvrir');
   }
@@ -5285,9 +5526,10 @@ function htmlPlanSynchroPointages(plan, apresApplication){
   if(plan.absents.length) h += `<div id="sync-pt-absents" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--orange);margin-bottom:4px"><i class="ti ti-alert-circle"></i> Codes de l'ERP introuvables dans les pointages (${plan.absents.length})</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${plan.absents.map(a=>`<li><strong>${escHtml(a.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(a.source)}</span></li>`).join('')}</ul></div>`;
   const hiTxt = (plan.hiPt ? '<span style="color:var(--green)">✓ pointages</span>' : '<span style="color:var(--orange)">à créer dans les pointages</span>') + ' · ' + (plan.hiErp ? '<span style="color:var(--green)">✓ ERP</span>' : '<span style="color:var(--orange)">à créer dans l\'ERP (centre interne, code HI)</span>');
   h += `<div id="sync-pt-hi" style="font-size:13px;margin-bottom:6px"><strong>Centre « ${HI_NOM} »</strong> (code ${HI_CODE}, toujours proposé aux salariés) : ${hiTxt}</div>`;
-  const rien = !plan.aFermer.length && !plan.aOuvrir.length && plan.hiPt && plan.hiErp;
+  const rienAligner = !al.maj.length && !al.creer.length && !al.creerErp.length;
+  const rien = !plan.aFermer.length && !plan.aOuvrir.length && rienAligner && plan.hiPt && plan.hiErp;
   if(!apresApplication){
-    h += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button>${rien||(!plan.pt.colonne&&plan.hiPt&&plan.hiErp)?'':`<button class="btn btn-primary" id="btn-sync-pt-appliquer" onclick="appliquerSynchroPointages()"><i class="ti ti-check"></i> Appliquer</button>`}</div>`;
+    h += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button>${rien||(!plan.pt.colonne&&rienAligner&&plan.hiPt&&plan.hiErp)?'':`<button class="btn btn-primary" id="btn-sync-pt-appliquer" onclick="appliquerSynchroPointages()"><i class="ti ti-check"></i> Appliquer</button>`}</div>`;
     if(rien) h = `<div class="alert alert-info" id="sync-pt-rien" style="margin-bottom:12px"><i class="ti ti-check"></i><span>Les pointages sont déjà à jour : rien à appliquer.</span></div>` + h;
   } else h += `<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
   return h;
@@ -17529,17 +17771,9 @@ async function saveIntervention(id){
     const {error} = await sb.from('interventions_sav').insert({...data, ref, numero, statut:'nouvelle', cree_par:currentUser.id});
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
 
-    // Tentative de création automatique du code dans le système de pointages,
-    // pour que le technicien puisse le sélectionner immédiatement.
-    let codePointagesOk = false;
-    try{
-      const clientSel = el('int-client');
-      const clientNom = clientSel.options[clientSel.selectedIndex]?.text || '';
-      const {error: ptErr} = await sbPT.from('chantiers').insert({code: ref, nom: `${ref} — ${clientNom}`});
-      if(!ptErr) codePointagesOk = true;
-    }catch(e){ /* système de pointages indisponible pour le moment */ }
-
-    showToast('Intervention créée — '+ref + (codePointagesOk ? ' (code déjà disponible pour le pointage)' : ' — pensez à créer aussi le code dans le système de pointages'));
+    // Plus de code par intervention dans les pointages : les salariés pointent sur le centre SAV (SAV 1, SAV 2, SAV 3).
+    // Une intervention n'a donc plus de code à créer ; on rappelle seulement de choisir le centre.
+    showToast('Intervention créée — '+ref + (data.chantier_id ? ' (les heures se pointent sur le centre SAV)' : ' — choisissez un centre SAV (Modifier) : les heures se pointent sur SAV 1, SAV 2 ou SAV 3'));
   }
   closeModal();
   rafraichirPage();
