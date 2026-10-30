@@ -997,6 +997,19 @@ const fmt = n => new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR'}
 const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 // Arrondi au centime et totaux d'une facture : HT = somme des lignes arrondies, TVA calculée par taux sur le HT arrondi
 const arrondi2 = x => Math.round(((Number(x)||0)+Number.EPSILON)*100)/100;
+// ── Montants d'un document CLIENT (devis, facture, note de crédit) — UNE seule règle, en CENTIMES ENTIERS ──
+// Chaque ligne est arrondie au centime (demi vers l'extérieur, identique pour un avoir, sans « bruit » de virgule
+// flottante : 4 × 77,07375 = 308,295 → 308,30), HT = somme des lignes arrondies, TVA = par taux sur le HT de ce taux,
+// TTC = HT + TVA ajoutés en centimes ⇒ HT + TVA = TTC exactement (0,29 + 0,38 = 0,67), partout.
+function arrondiEntier(v){ const n = Number(v)||0, s = n<0 ? -1 : 1; return (s*Math.round(Math.abs(Number(n.toPrecision(15))))) || 0; }
+function centimesDe(x){ return arrondiEntier((Number(x)||0)*100); }
+function totalLigneFV(l){ return centimesDe((parseFloat(l&&l.quantite)||0)*(parseFloat(l&&l.prix_unitaire_ht)||0))/100; }
+// Prix unitaire affiché avec les décimales réellement saisies (2 à 5) : « 82,57875 € » et non « 82,58 € »,
+// sinon quantité × P.U. affiché ne retombe pas sur le total de la ligne.
+function fmtPU(n){
+  const v = Number(n)||0, d = Math.min(5, Math.max(2, (String(Math.round(v*1e5)/1e5).split('.')[1]||'').length));
+  return new Intl.NumberFormat('fr-LU',{style:'currency',currency:'EUR',minimumFractionDigits:d,maximumFractionDigits:d}).format(v);
+}
 // ── TVA ─────────────────────────────────────────────────────────
 // 0 % est un taux valide : on ne remplace par 17 que si le taux est vraiment absent (et non « 0 »).
 const TVA_TAUX = [17,14,8,3,0];
@@ -1028,15 +1041,36 @@ function libelleTvaLignes(lignes){
   return t==='' ? 'TVA' : 'TVA '+t+'%';
 }
 function totauxFacture(lignes){
-  let ht = 0; const parTaux = {};
+  let ht = 0; const parTaux = {};                       // tout en centimes entiers
   (lignes||[]).forEach(l=>{
-    const lht = arrondi2((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0));
-    ht += lht;
+    const c = centimesDe((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0));
+    ht += c;
     const t = parseFloat(l.taux_tva)||0;
-    parTaux[t] = (parTaux[t]||0) + lht;
+    parTaux[t] = (parTaux[t]||0) + c;
   });
-  const tva = Object.entries(parTaux).reduce((a,[t,base])=>a+arrondi2(base*parseFloat(t)/100),0);
-  return {ht:arrondi2(ht), tva:arrondi2(tva), ttc:arrondi2(ht+tva)};
+  const tva = Object.entries(parTaux).reduce((a,[t,base])=>a+arrondiEntier(base*parseFloat(t)/100),0);
+  return {ht:ht/100, tva:tva/100, ttc:(ht+tva)/100};
+}
+// Contrôle d'une facture / note de crédit DÉJÀ ENREGISTRÉE : HT + TVA doit donner le TTC, au centime près.
+// null si on ne peut pas le savoir (TVA absente) ; sinon {ok, ecart (TTC enregistré − (HT+TVA), en €), attendu (HT+TVA)}.
+function ecartTotauxFV(f){
+  if(!f || [f.total_ht, f.total_tva, f.total_ttc].some(v=>v==null || v==='' || !isFinite(Number(v)))) return null;
+  const e = centimesDe(f.total_ttc) - (centimesDe(f.total_ht) + centimesDe(f.total_tva));
+  return {ok: e===0, ecart: e/100, attendu: (centimesDe(f.total_ht)+centimesDe(f.total_tva))/100};
+}
+// Les LIGNES redonnent-elles les montants de l'en-tête ? null s'il n'y a pas de lignes ; sinon {ok, calc:{ht,tva,ttc}, diff:{ht,tva,ttc}}.
+// Tolérance de 5 centimes (anciennes factures arrondies autrement, comme pour les factures fournisseurs) : seul HT + TVA = TTC est exigé au centime.
+const TOLERANCE_LIGNES_FV_CT = 5;
+function ecartLignesFV(f, lignes){
+  if(!f || !lignes || !lignes.length) return null;
+  const calc = totauxFacture(lignes), diff = {}, ct = [];
+  ['ht','tva','ttc'].forEach(k=>{
+    const v = f['total_'+k];
+    if(v==null || v==='' || !isFinite(Number(v))){ diff[k] = null; return; }
+    const d = centimesDe(v) - centimesDe(calc[k]);
+    diff[k] = d/100; ct.push(Math.abs(d));
+  });
+  return {ok: ct.every(d=>d<=TOLERANCE_LIGNES_FV_CT), calc, diff};
 }
 // Modalité de paiement affichée sur la facture : déduite des dates de CETTE facture
 // (échéance = émission → « À réception de facture » ; sinon « N jours date de facture »).
@@ -4816,6 +4850,8 @@ async function desarchiverChantier(id){
 async function openChantierModal(r=null){
   // r peut être un chantier existant (avec id) ou seulement des valeurs de départ (nouveau chantier / nouveau centre SAV)
   const isEdit = !!(r && r.id);
+  // Le devis d'origine ne vaut que pour la création lancée depuis ce devis (sinon un devis resté en mémoire d'une création annulée serait lié à un chantier sans rapport)
+  if(!isEdit && !(r && r.depuisDevis)) window._chantierFromDevisId = null;
   const [{data:clientsData}, empR] = await Promise.all([
     sb.from('clients').select('id,nom').eq('actif',true).order('nom'),
     sb.from('employes_rh').select('id,nom,prenom,actif').order('nom')
@@ -4872,9 +4908,9 @@ async function openChantierModal(r=null){
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label>${champChef}</div>
-        <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide pour génération automatique CH-AAAA-NNN)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FG"/></div>
+        <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide : numéro automatique)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FG"/>${isEdit?'':'<span id="ch-numero-hint" style="font-size:12px;color:var(--gray-5)"></span>'}</div>
         <div class="form-group"><label class="field-label">Type de centre de coûts</label>
-          <select id="ch-type" data-had="${r&&r.type_centre!==undefined?'1':''}">
+          <select id="ch-type" onchange="majNumeroAutoChantier()" data-had="${r&&r.type_centre!==undefined?'1':''}">
             <option value="chantier" ${(r?.type_centre||'chantier')==='chantier'?'selected':''}>Chantier</option>
             <option value="sav" ${r?.type_centre==='sav'?'selected':''}>SAV (interventions, dépannages)</option>
             <option value="interne" ${r?.type_centre==='interne'?'selected':''}>Interne (frais généraux)</option>
@@ -4908,6 +4944,7 @@ async function openChantierModal(r=null){
       </div>
     </div>
   </div></div>`);
+  if(!isEdit) await majNumeroAutoChantier();
 }
 
 // Additionne les lignes en heures (unité « h ») du devis accepté du chantier — ou du devis d'origine d'un chantier en cours de création
@@ -5623,7 +5660,13 @@ async function saveChantierCore(id){
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
     lancerMajPointagesChantier(id);
   } else {
-    const num = numeroManuel || await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);
+    let num = numeroManuel, motifSerie = '';
+    if(!num){
+      if(typeChoisi==='chantier'){
+        try{ const a = await numeroAutoChantier(window._chantierFromDevisId||null); num = a.numero; motifSerie = libMotifSerie(a); }
+        catch(e){ showToast("Numéro automatique impossible (lecture des chantiers) : saisissez le numéro à la main — "+((e&&e.message)||e), 'error'); return; }
+      } else num = await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);   // centre SAV / interne : numéro à saisir, sinon CH-AAAA-NNN comme avant
+    }
     const devisIdOrigine = window._chantierFromDevisId||null;
     const {data:newChantier} = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
     let resultadoSync = {ok:false, motif:'non_cree'};
@@ -5632,9 +5675,9 @@ async function saveChantierCore(id){
     if(devisIdOrigine && newChantier){
       await sb.from('devis').update({chantier_id:newChantier.id}).eq('id',devisIdOrigine);
       window._chantierFromDevisId = null;
-      showToast('Chantier créé et lié au devis — '+num);
+      showToast('Chantier créé et lié au devis — '+num+(motifSerie?' ('+motifSerie+')':''));
     } else {
-      showToast('Chantier créé — '+num);
+      showToast('Chantier créé — '+num+(motifSerie?' ('+motifSerie+')':''));
     }
     setTimeout(()=>avisarSincronizacaoPointages(resultadoSync), 1200);
   }
@@ -9870,6 +9913,84 @@ async function numeroChantierLibre(propose){
   return num;
 }
 
+// ── Numéro automatique d'un nouveau chantier : série P ou CF selon le responsable ──
+// Le préfixe dépend du responsable du devis (champ « Correspondant »), sinon de la personne qui crée le chantier, sinon de la série par défaut.
+// Ajouter une personne ou une série = une ligne ici (largeur = nombre de chiffres : P00012, CF0002). Les noms se comparent sans tenir compte de l'ordre,
+// des accents ni de la casse (« Jonathan Girault » = « GIRAULT Jonathan »).
+const SERIES_CHANTIER = [
+  {prefixe:'P',  largeur:5, defaut:true, personnes:['Jonathan Girault']},
+  {prefixe:'CF', largeur:4,              personnes:['Manuel Barthelemy']}
+];
+function serieDePersonne(texte){
+  const k = cleNomChef(texte); if(!k) return null;
+  return SERIES_CHANTIER.find(s=>s.personnes.some(p=>cleNomChef(p)===k)) || null;
+}
+const serieParDefaut = () => SERIES_CHANTIER.find(s=>s.defaut) || SERIES_CHANTIER[0];
+// 1) le correspondant du devis, 2) la personne connectée, 3) la série par défaut : la première qui a une série gagne
+function choisirSerieChantier(o){
+  const sd = serieDePersonne(o && o.correspondant);
+  if(sd) return {serie:sd, motif:'devis', qui:String(o.correspondant).trim()};
+  const sc = serieDePersonne(o && o.createur);
+  if(sc) return {serie:sc, motif:'createur', qui:String(o.createur).trim()};
+  return {serie:serieParDefaut(), motif:'defaut', qui:''};
+}
+function libMotifSerie(c){
+  const p = c.serie.prefixe;
+  return c.motif==='devis' ? 'série '+p+' · correspondant du devis : '+c.qui
+       : c.motif==='createur' ? 'série '+p+' · créateur du chantier : '+c.qui
+       : 'série '+p+' par défaut (ni le devis ni le créateur n\'ont de série)';
+}
+// Plus grand numéro de la série + 1, parmi les numéros ET les codes pointages des chantiers de l'ERP et les codes de l'application Pointages
+// (jamais de numéro repris, même après une suppression). Lecture ERP impossible = erreur (on ne devine pas : risque de doublon) ; Pointages illisible = on l'ignore.
+async function prochainNumeroSerie(serie){
+  const re = new RegExp('^'+serie.prefixe.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(\\d+)$','i');
+  let max = 0;
+  const noter = v=>{ const m = re.exec(_txt(v).trim()); if(m) max = Math.max(max, parseInt(m[1],10)); };
+  const rows = await lirePagine('chantiers_lyneo', 'id,numero,code_pointages');
+  rows.forEach(c=>{ noter(c.numero); codesPointagesDe(c).forEach(noter); });
+  try{
+    for(let d0=0; ; d0+=1000){
+      const {data,error} = await sbPT.from('chantiers').select('id,code').order('id',{ascending:true}).range(d0, d0+999);
+      if(error) break;
+      const l = data||[]; l.forEach(c=>noter(c.code));
+      if(l.length<1000) break;
+    }
+  }catch(e){}
+  return serie.prefixe + String(max+1).padStart(serie.largeur,'0');
+}
+// Numéro proposé pour un nouveau chantier : {numero, serie, motif, qui}
+async function numeroAutoChantier(devisId){
+  let correspondant = '';
+  if(devisId){
+    try{ const {data} = await sb.from('devis').select('correspondant').eq('id',devisId).single(); correspondant = (data && data.correspondant) || ''; }catch(e){}
+  }
+  const createur = currentUser ? [currentUser.prenom, currentUser.nom].filter(Boolean).join(' ') : '';
+  const choix = choisirSerieChantier({correspondant, createur});
+  return {numero: await prochainNumeroSerie(choix.serie), ...choix};
+}
+// Aperçu sous le champ « Numéro » du formulaire (nouveau chantier seulement) : le numéro qui sera attribué et pourquoi
+async function majNumeroAutoChantier(){
+  const h = el('ch-numero-hint'), inp = el('ch-numero'), typ = el('ch-type');
+  if(!h || !inp) return;
+  if(typ && typ.value!=='chantier'){
+    inp.placeholder = 'Ex: SAV 4, FG';
+    h.style.color = 'var(--gray-5)';
+    h.textContent = 'Centre SAV ou interne : indiquez le numéro voulu (laissé vide, il recevrait un numéro CH-AAAA-NNN).';
+    return;
+  }
+  try{
+    const a = await numeroAutoChantier(window._chantierFromDevisId||null);
+    if(!el('ch-numero-hint')) return;
+    inp.placeholder = 'Auto : '+a.numero;
+    h.style.color = 'var(--gray-5)';
+    h.innerHTML = '<strong>'+escHtml(a.numero)+'</strong> sera attribué automatiquement — '+escHtml(libMotifSerie(a))+'. Vous pouvez écrire un autre numéro.';
+  }catch(e){
+    if(!el('ch-numero-hint')) return;
+    h.style.color = 'var(--orange)';
+    h.textContent = 'Numéro automatique indisponible (lecture des chantiers impossible) : saisissez le numéro à la main.';
+  }
+}
+
 // ── Chantiers : même nom + même client, numéro déjà pris ──
 async function controlerDoublonsChantier(v, id){
   let ancien = null;
@@ -11172,7 +11293,7 @@ function devisSectionSubtotal(arr, sectionIdx){
 }
 
 function devisBlocTotal(arr){
-  return arr.filter(r=>r.type==='ligne').reduce((a,r)=>a+(parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0),0);
+  return totauxFacture(arr.filter(r=>r.type==='ligne')).ht;       // somme des lignes arrondies au centime
 }
 
 function renderDevisLignesBloc(bloc){
@@ -11267,13 +11388,12 @@ function majTvaDefautDevis(){
   }
 }
 function updateDevisTotaux(){
-  const totalHT = devisBlocTotal(_devisLignes.principal);
-  const totalTVA = _devisLignes.principal.filter(r=>r.type==='ligne').reduce((a,r)=>a+(parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0)*(parseFloat(r.taux_tva)||0)/100,0);
+  const totD = totauxFacture(_devisLignes.principal.filter(r=>r.type==='ligne'));
   const box = el('devis-totaux');
   if(box) box.innerHTML = `
-    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
-    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
-    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(totD.ht)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(totD.tva)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totD.ttc)}</span></div>`;
 }
 
 async function openDevisModal(d=null){
@@ -11402,8 +11522,8 @@ async function saveDevis(id){
   const acompteBrut = el('dv-acompte').value.trim(), acompteSaisi = parseFloat(acompteBrut);
   if(acompteBrut!=='' && (!isFinite(acompteSaisi) || acompteSaisi<0 || acompteSaisi>100)){ showToast("Acompte : entrez un pourcentage entre 0 et 100 (0 = pas d'acompte)", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
 
-  const totalHT = devisBlocTotal(_devisLignes.principal);
-  const totalTVA = _devisLignes.principal.filter(r=>r.type==='ligne').reduce((a,r)=>a+(parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0)*(parseFloat(r.taux_tva)||0)/100,0);
+  const totD = totauxFacture(_devisLignes.principal.filter(r=>r.type==='ligne'));
+  const totalHT = totD.ht, totalTVA = totD.tva;
 
   const header = {
     client_id,
@@ -11417,7 +11537,7 @@ async function saveDevis(id){
     statut: el('dv-statut').value,
     conditions_acompte_pct: parseFloat(el('dv-acompte').value)||0,
     conditions_paiement: el('dv-cond-paiement').value,
-    montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
+    montant_ht: totD.ht, montant_tva: totD.tva, montant_ttc: totD.ttc,
     observations: el('dv-obs').value,
     attention: el('dv-attention') ? devisNotesNormaliser(el('dv-attention').value) : ''
   };
@@ -11640,7 +11760,7 @@ async function changerStatutDevis(devisId, statut){
       closeModal();
       navigate('chantiers');
       window._chantierFromDevisId = devisId;
-      setTimeout(()=>openChantierModal({nom:d.objet||('Chantier — '+d.numero), client_id:d.client_id}),300);
+      setTimeout(()=>openChantierModal({nom:d.objet||('Chantier — '+d.numero), client_id:d.client_id, depuisDevis:true}),300);
       return;
     }
   }
@@ -11758,7 +11878,7 @@ async function renderFacturesVente(){
       </select>
       <select id="fvf-statut" style="width:auto;min-width:150px" onchange="_fvFiltres.statut=this.value;afficherFacturesVente()">
         <option value="">Tous les statuts</option>
-        ${[['brouillon','Brouillon'],['envoyee','Envoyée'],['retard','En retard'],['payee_partiel','Part. payée'],['payee','Payée'],['annulee','Annulée']].map(([k,l])=>`<option value="${k}"${optSel(k,F.statut)}>${l}</option>`).join('')}
+        ${[['brouillon','Brouillon'],['envoyee','Envoyée'],['retard','En retard'],['payee_partiel','Part. payée'],['payee','Payée'],['annulee','Annulée'],['ecart','⚠ Écart HT+TVA≠TTC']].map(([k,l])=>`<option value="${k}"${optSel(k,F.statut)}>${l}</option>`).join('')}
       </select>
       <select id="fvf-centre" style="width:auto;min-width:200px;max-width:320px" onchange="_fvFiltres.centre=this.value;afficherFacturesVente()">
         <option value="">Tous les centres de coûts</option>
@@ -11783,7 +11903,11 @@ function facturesVenteFiltrees(){
   return _facturesVente.filter(f=>{
     if(F.mois && String(f.date_creation||'').slice(0,7)!==F.mois) return false;
     if(F.centre){ if(F.centre==='__aucun' ? !!f.chantier_id : f.chantier_id!==F.centre) return false; }
-    if(F.statut){ if(F.statut==='retard' ? joursRetardFv(f)===0 : f.statut!==F.statut) return false; }
+    if(F.statut){
+      if(F.statut==='retard'){ if(joursRetardFv(f)===0) return false; }
+      else if(F.statut==='ecart'){ const e = ecartTotauxFV(f); if(f.statut==='annulee' || !e || e.ok) return false; }
+      else if(f.statut!==F.statut) return false;
+    }
     if(q){
       const dv = _fvCtx.devis[f.devis_id], iv = _fvCtx.interv[f.intervention_id], c = f.chantiers_lyneo;
       const orig = f.facture_origine_id ? _facturesVente.find(x=>x.id===f.facture_origine_id) : null;
@@ -11806,6 +11930,7 @@ function afficherFacturesVente(){
   const aEncaisser = items.filter(f=>['envoyee','payee_partiel'].includes(f.statut));
   const enRetard = items.filter(f=>joursRetardFv(f)>0);
   const brouillons = items.filter(f=>f.statut==='brouillon'), annulees = items.filter(f=>f.statut==='annulee');
+  const avecEcart = _facturesVente.filter(f=>{ const e = ecartTotauxFV(f); return f.statut!=='annulee' && e && !e.ok; });   // sur TOUTES les factures, pas seulement les filtrées
 
   // Boutons « Réinitialiser » visibles seulement si un filtre est actif
   const actif = !!(F.search||F.mois||F.statut||F.centre);
@@ -11819,7 +11944,8 @@ function afficherFacturesVente(){
   if(resume) resume.innerHTML =
     carte('Facturé HT', fmt(totHT), `${nbFactures} facture${nbFactures>1?'s':''} émise${nbFactures>1?'s':''}${nbAvoirs?` · ${nbAvoirs} avoir${nbAvoirs>1?'s':''} déduit${nbAvoirs>1?'s':''}`:''}`, 'var(--blue)') +
     carte('À encaisser TTC', fmt(somme(aEncaisser,f=>num(f.total_ttc))), `${aEncaisser.length} document${aEncaisser.length>1?'s':''} · avoirs déduits · une facture « part. payée » est comptée en entier`, 'var(--orange)') +
-    carte('En retard TTC', fmt(somme(enRetard,f=>soldeFv(f,_fvAvoirs))), enRetard.length ? `${enRetard.length} facture${enRetard.length>1?'s':''} — cliquer pour les voir` : 'Aucune facture en retard', enRetard.length?'var(--red)':'var(--green)', enRetard.length?"_fvFiltres.statut='retard';renderFacturesVente()":'');
+    carte('En retard TTC', fmt(somme(enRetard,f=>soldeFv(f,_fvAvoirs))), enRetard.length ? `${enRetard.length} facture${enRetard.length>1?'s':''} — cliquer pour les voir` : 'Aucune facture en retard', enRetard.length?'var(--red)':'var(--green)', enRetard.length?"_fvFiltres.statut='retard';renderFacturesVente()":'') +
+    (avecEcart.length ? carte('⚠ Écart HT + TVA ≠ TTC', String(avecEcart.length), `facture${avecEcart.length>1?'s':''} à vérifier : ${avecEcart.slice(0,3).map(f=>escHtml(f.numero)).join(', ')}${avecEcart.length>3?'…':''} — cliquer pour les voir`, 'var(--red)', "_fvFiltres.statut='ecart';renderFacturesVente()") : '');
 
   const sub = 'font-size:11.5px;color:var(--gray-5);line-height:1.3';
   const th = (t,al)=>`<th style="${al?'text-align:'+al+';':''}white-space:nowrap">${t}</th>`;
@@ -11833,7 +11959,7 @@ function afficherFacturesVente(){
     const montant = (v,k)=>`<td data-som="${k}" data-v="${num(v)}" style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;${annulee?'text-decoration:line-through;color:var(--gray-5)':(avoir?'color:var(--red)':'')}">${fmt(v)}</td>`;
     const lienOrig = avoir ? `<div style="${sub}">Sur ${orig?`<a href="#" class="text-blue" onclick="event.stopPropagation();openFactureVenteDetail('${orig.id}');return false">${escHtml(orig.numero)}</a>`:'—'}</div>` : '';
     return `<tr data-sel-id="${f.id}"${annulee?' data-som-off="1"':''} style="cursor:pointer" onclick="openFactureVenteDetail('${f.id}')">
-      <td style="white-space:nowrap"><strong class="text-blue">${escHtml(f.numero)}</strong>${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
+      <td style="white-space:nowrap"><strong class="text-blue">${escHtml(f.numero)}</strong>${(()=>{ const e = annulee ? null : ecartTotauxFV(f); return (e && !e.ok) ? ` <i class="ti ti-alert-triangle" data-ecart-fv="1" title="HT + TVA = ${escHtml(fmt(e.attendu))} mais TTC = ${escHtml(fmt(f.total_ttc))} (écart ${escHtml(fmt(Math.abs(e.ecart)))})" style="color:var(--red)"></i>` : ''; })()}${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
       <td style="white-space:nowrap">${fmtDate(f.date_creation)}</td>
       <td style="white-space:nowrap;${jr?'color:var(--red);font-weight:600':''}">${f.date_echeance?fmtDate(f.date_echeance):'—'}${jr?`<div style="font-size:11.5px;font-weight:500">+${jr} j</div>`:''}</td>
       <td>${escHtml(f.clients?.nom||'—')}</td>
@@ -12142,7 +12268,7 @@ function renderVenteLignesLibre(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_venteLignes.length>1?`<button onclick="delVenteLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
   </tr>`).join('');
   const tot = totauxFacture(_venteLignes);
@@ -12624,7 +12750,7 @@ function renderVenteLignes(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delVenteLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
   </tr>`).join('');
   const tot = totauxFacture(_venteLignes);
@@ -12874,7 +13000,7 @@ function renderAvoirLignes(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="text" data-calc="4" autocomplete="off" step="any" min="0" ${l.libre?'':`max="${l.max}"`} value="${l.quantite}" onchange="updAvoirLigne(${i},'quantite',this.value)" style="${inp};text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="text" data-calc="4" autocomplete="off" step="0.01" min="0" value="${l.prix_unitaire_ht}" onchange="updAvoirLigne(${i},'prix_unitaire_ht',this.value)" style="${inp};text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2)">${tvaSelectHTML(l.taux_tva, `updAvoirLigne(${i},'taux_tva',this.value)`)}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--red)">${fmt(-arrondi2((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)))}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--red)">${fmt(-totalLigneFV(l)||0)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${l.libre?`<button onclick="avoirSupprimerLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
   </tr>`).join('');
   const tot = totauxFacture(_avoirLignes.filter(l=>(parseFloat(l.quantite)||0)>0));
@@ -12988,7 +13114,7 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
         {header:'P.U. HT', width:90, align:'right'},
         {header:'Total HT', width:90, align:'right'}
       ]),
-      rows: (lignes||[]).map(l=>({cells:(avecRefArticle?[l.reference_article||'']:[]).concat([l.description, `${String(l.quantite).replace('.',',')} ${(l.unite==='%'||l.unite==='u')?'':(l.unite||'')}`.trim(), fmt(l.prix_unitaire_ht), fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))])}))
+      rows: (lignes||[]).map(l=>({cells:(avecRefArticle?[l.reference_article||'']:[]).concat([l.description, `${String(l.quantite).replace('.',',')} ${(l.unite==='%'||l.unite==='u')?'':(l.unite||'')}`.trim(), fmtPU(l.prix_unitaire_ht), fmt(totalLigneFV(l))])}))
     },
     totals: [
       {label:'Sous-total HT', value: fmt(f.total_ht)},
@@ -13230,6 +13356,43 @@ async function contexteSuppressionFV(f){
   return analyseSuppressionFV(f, (nums||[]).map(x=>x.numero), nbAvoirs);
 }
 
+// Bandeau d'alerte de la fiche : montants enregistrés incohérents (HT + TVA ≠ TTC) ou ne correspondant pas aux lignes.
+// Une facture déjà ÉMISE n'est jamais modifiée ici (pièce comptable) : on explique comment la corriger.
+function htmlEcartFV(f, lignes){
+  if(!f || f.statut==='annulee') return '';
+  const ec = ecartTotauxFV(f), el2 = ecartLignesFV(f, lignes);
+  const ecartInterne = !!(ec && !ec.ok), ecartLignes = !!(el2 && !el2.ok);
+  if(!ecartInterne && !ecartLignes) return '';
+  const brouillon = f.statut==='brouillon';
+  let msg = '';
+  if(ecartInterne) msg += `<strong>Montants incohérents :</strong> HT ${fmt(f.total_ht)} + TVA ${fmt(f.total_tva)} = ${fmt(ec.attendu)}, mais le TTC enregistré est ${fmt(f.total_ttc)} (écart de ${fmt(Math.abs(ec.ecart))}).`;
+  if(ecartLignes) msg += `${msg?'<br>':'<strong>Montants différents des lignes :</strong> '}Les lignes totalisent HT ${fmt(el2.calc.ht)} · TVA ${fmt(el2.calc.tva)} · TTC ${fmt(el2.calc.ttc)}${ecartInterne?'.':`, la facture indique HT ${fmt(f.total_ht)} · TVA ${fmt(f.total_tva)} · TTC ${fmt(f.total_ttc)}.`}`;
+  let aide;
+  if(brouillon && lignes && lignes.length)
+    aide = `<button class="btn btn-secondary btn-sm" id="btn-recalc-fv" onclick="recalculerTotauxFV('${f.id}')"><i class="ti ti-calculator"></i> Recalculer les totaux depuis les lignes</button>`;
+  else if(brouillon) aide = `<span>Brouillon sans lignes : supprimez-le et recréez-le.</span>`;
+  else aide = `<span>Facture déjà émise : ne modifiez pas ses montants. Pour la corriger : note de crédit, puis nouvelle facture — à valider avec votre comptable.</span>`;
+  return `<div class="alert alert-warning" id="fv-ecart" style="margin-top:12px;flex-wrap:wrap"><i class="ti ti-alert-triangle"></i><div style="flex:1;min-width:240px">${msg}<div style="margin-top:6px">${aide}</div></div></div>`;
+}
+
+// Recalcule HT / TVA / TTC d'un BROUILLON à partir de ses lignes (même règle que la création). Jamais sur une facture émise.
+async function recalculerTotauxFV(facId){
+  const b = el('btn-recalc-fv'); if(b) b.disabled = true;
+  const reactiver = ()=>{ if(b) b.disabled = false; };
+  const {data:f} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation').eq('id',facId).single();
+  if(!f){ showToast('Facture introuvable','error'); reactiver(); return; }
+  if(f.statut!=='brouillon'){ showToast('Seul un brouillon peut être recalculé : une facture émise se corrige par une note de crédit','error'); reactiver(); return; }
+  const {data:lignes, error:errL} = await sb.from('lignes_facture_vente').select('*').eq('facture_vente_id',facId).order('ordre');
+  if(errL || !lignes || !lignes.length){ showToast(errL ? 'Erreur: '+errL.message : 'Aucune ligne : impossible de recalculer','error'); reactiver(); return; }
+  const tot = totauxFacture(lignes);
+  if(!confirm(`Recalculer ${f.numero} depuis ses lignes ?\n\nHT ${fmt(tot.ht)} · TVA ${fmt(tot.tva)} · TTC ${fmt(tot.ttc)}`)){ reactiver(); return; }
+  const {error} = await sb.from('factures_vente').update({total_ht:tot.ht, total_tva:tot.tva, total_ttc:tot.ttc}).eq('id',facId).eq('statut','brouillon');
+  if(error){ showToast('Erreur: '+error.message,'error'); reactiver(); return; }
+  showToast('Totaux recalculés — '+f.numero);
+  rafraichirPage();
+  openFactureVenteDetail(facId);
+}
+
 async function openFactureVenteDetail(facId){
   const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email),chantiers_lyneo!chantier_id(nom,numero)').eq('id',facId).single();
   if(!f){ showToast("Facture introuvable", 'error'); return; }
@@ -13293,8 +13456,8 @@ async function openFactureVenteDetail(facId){
             ${(lignes||[]).map(l=>`<tr>
               <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(l.description)}</td>
               <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${l.quantite} ${escHtml(l.unite||'')}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${fmt(l.prix_unitaire_ht)}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right">${fmtPU(l.prix_unitaire_ht)}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(totalLigneFV(l))}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -13304,6 +13467,7 @@ async function openFactureVenteDetail(facId){
         <div class="totaux-row"><span>TVA</span><span>${fmt(f.total_tva)}</span></div>
         <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(f.total_ttc)}</span></div>
       </div></div>
+      ${htmlEcartFV(f, lignes)}
       ${avoirsLies.length?`<div id="fv-avoirs-lies" style="margin-top:16px;border:1px solid var(--gray-3);border-radius:var(--radius);padding:12px 14px">
         <strong style="font-size:13px">Notes de crédit sur cette facture</strong>
         <table style="width:100%;border-collapse:collapse;margin-top:6px">
@@ -18088,16 +18252,15 @@ function renderSavLignes(tarifs){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="text" data-calc="4" autocomplete="off" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updSavLigne(${idx},'taux_tva',this.value)`)}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delSavLigne(${idx})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
   </tr>`).join('');
-  const totalHT = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _sav_venteLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const totSav = totauxFacture(_sav_venteLignes);
   const box = el('sav-totaux');
   if(box) box.innerHTML = `
-    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
-    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
-    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(totSav.ht)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(totSav.tva)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totSav.ttc)}</span></div>`;
   const g = el('sav-tva-all'); if(g) g.value = tvaCommune(_sav_venteLignes);
 }
 function addSavLigne(){ _sav_venteLignes.push({categorie:ARTICLES_SAV[0],description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautSav??17}); renderSavLignes(); }
@@ -18128,8 +18291,7 @@ async function saveFactureSAV(interventionId, clientId){
     const b=el('btn-save-sav'); if(b) b.disabled=false;
     return;
   }
-  const totalHT = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = lignesAFacturer.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const tot = totauxFacture(lignesAFacturer);              // même règle que les autres factures : HT + TVA = TTC
   const choixNum = await numeroFactureVenteChoisi();
   if(choixNum.erreur){ showToast(choixNum.erreur, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return; }
   const num = choixNum.num;
@@ -18141,7 +18303,7 @@ async function saveFactureSAV(interventionId, clientId){
     reference_client: el('fv-reference') ? el('fv-reference').value.trim() : '',
     date_creation: el('fv-date').value,
     date_echeance: el('fv-echeance').value||null,
-    total_ht: totalHT, total_tva: totalTVA, total_ttc: totalHT+totalTVA,
+    total_ht: tot.ht, total_tva: tot.tva, total_ttc: tot.ttc,
     statut: el('fv-statut')?.value||'brouillon', cree_par: currentUser.id,
     observations: el('fv-obs')?.value||''
   }).select().single();
