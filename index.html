@@ -4887,9 +4887,9 @@ async function openChantierModal(r=null){
     return l.map(o=>`<option value="${escHtml(o.id)}" data-nom="${escHtml(o.nom)}"${o.id===chefSel?' selected':''}>${escHtml(o.nom+o.suffixe)}</option>`).join('');
   })();
   const champChef = empOk
-    ? `<select id="ch-chef-id" data-had="${r && ('chef_chantier_id' in r) ? '1' : ''}" data-legacy="${(!r?.chef_chantier_id && r?.chef_chantier) ? escHtml(r.chef_chantier) : ''}"><option value="">— Aucun —</option>${ancienOpt}${chefOpts}</select>
+    ? `<select id="ch-chef-id" onchange="majNumeroAutoChantier()" data-had="${r && ('chef_chantier_id' in r) ? '1' : ''}" data-legacy="${(!r?.chef_chantier_id && r?.chef_chantier) ? escHtml(r.chef_chantier) : ''}"><option value="">— Aucun —</option>${ancienOpt}${chefOpts}</select>
        <span id="ch-chef-hint" style="font-size:12px;color:var(--gray-5)">${chefHint ? escHtml(chefHint) : 'Choisi parmi les employés (Ressources humaines) : le nom vient de leur fiche.'}</span>`
-    : `<input id="ch-chef" value="${escHtml(r?.chef_chantier||'')}" placeholder="Responsable"/>
+    : `<input id="ch-chef" oninput="majNumeroAutoChantier()" value="${escHtml(r?.chef_chantier||'')}" placeholder="Responsable"/>
        <span id="ch-chef-hint" style="font-size:12px;color:var(--orange)">Liste des employés indisponible : saisie libre provisoire.</span>`;
   showModal(`<div class="modal-overlay"><div class="modal">
     <div class="modal-header"><h3>${isEdit?(r.type_centre==='sav'?'Modifier le centre SAV':'Modifier chantier'):(r&&r.type_centre==='sav'?'Nouveau centre SAV':'Nouveau chantier')}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -5663,7 +5663,7 @@ async function saveChantierCore(id){
     let num = numeroManuel, motifSerie = '';
     if(!num){
       if(typeChoisi==='chantier'){
-        try{ const a = await numeroAutoChantier(window._chantierFromDevisId||null); num = a.numero; motifSerie = libMotifSerie(a); }
+        try{ const a = await numeroAutoChantier(window._chantierFromDevisId||null, chefTexte); num = a.numero; motifSerie = libMotifSerie(a); }
         catch(e){ showToast("Numéro automatique impossible (lecture des chantiers) : saisissez le numéro à la main — "+((e&&e.message)||e), 'error'); return; }
       } else num = await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);   // centre SAV / interne : numéro à saisir, sinon CH-AAAA-NNN comme avant
     }
@@ -9914,7 +9914,7 @@ async function numeroChantierLibre(propose){
 }
 
 // ── Numéro automatique d'un nouveau chantier : série P ou CF selon le responsable ──
-// Le préfixe dépend du responsable du devis (champ « Correspondant »), sinon de la personne qui crée le chantier, sinon de la série par défaut.
+// Le préfixe dépend du responsable du devis (champ « Correspondant »), sinon du chef de chantier choisi dans le formulaire, sinon de la personne qui crée le chantier, sinon de la série par défaut.
 // Ajouter une personne ou une série = une ligne ici (largeur = nombre de chiffres : P00012, CF0002). Les noms se comparent sans tenir compte de l'ordre,
 // des accents ni de la casse (« Jonathan Girault » = « GIRAULT Jonathan »).
 const SERIES_CHANTIER = [
@@ -9926,10 +9926,12 @@ function serieDePersonne(texte){
   return SERIES_CHANTIER.find(s=>s.personnes.some(p=>cleNomChef(p)===k)) || null;
 }
 const serieParDefaut = () => SERIES_CHANTIER.find(s=>s.defaut) || SERIES_CHANTIER[0];
-// 1) le correspondant du devis, 2) la personne connectée, 3) la série par défaut : la première qui a une série gagne
+// 1) le correspondant du devis, 2) le chef de chantier choisi dans le formulaire, 3) la personne connectée, 4) la série par défaut : le premier qui a une série gagne
 function choisirSerieChantier(o){
   const sd = serieDePersonne(o && o.correspondant);
   if(sd) return {serie:sd, motif:'devis', qui:String(o.correspondant).trim()};
+  const sh = serieDePersonne(o && o.chef);
+  if(sh) return {serie:sh, motif:'chef', qui:String(o.chef).trim()};
   const sc = serieDePersonne(o && o.createur);
   if(sc) return {serie:sc, motif:'createur', qui:String(o.createur).trim()};
   return {serie:serieParDefaut(), motif:'defaut', qui:''};
@@ -9937,6 +9939,7 @@ function choisirSerieChantier(o){
 function libMotifSerie(c){
   const p = c.serie.prefixe;
   return c.motif==='devis' ? 'série '+p+' · correspondant du devis : '+c.qui
+       : c.motif==='chef' ? 'série '+p+' · chef de chantier : '+c.qui
        : c.motif==='createur' ? 'série '+p+' · créateur du chantier : '+c.qui
        : 'série '+p+' par défaut (ni le devis ni le créateur n\'ont de série)';
 }
@@ -9958,20 +9961,27 @@ async function prochainNumeroSerie(serie){
   }catch(e){}
   return serie.prefixe + String(max+1).padStart(serie.largeur,'0');
 }
+// Chef de chantier tel qu'il est choisi dans le formulaire ouvert (liste des employés, ou champ texte de secours)
+function chefDuFormulaire(){
+  const sel = el('ch-chef-id');
+  if(sel){ if(!sel.value) return ''; const o = sel.options[sel.selectedIndex]; return (o && (o.dataset.nom || o.textContent.trim())) || ''; }
+  const t = el('ch-chef'); return t ? t.value.trim() : '';
+}
 // Numéro proposé pour un nouveau chantier : {numero, serie, motif, qui}
-async function numeroAutoChantier(devisId){
+async function numeroAutoChantier(devisId, chef){
   let correspondant = '';
   if(devisId){
     try{ const {data} = await sb.from('devis').select('correspondant').eq('id',devisId).single(); correspondant = (data && data.correspondant) || ''; }catch(e){}
   }
   const createur = currentUser ? [currentUser.prenom, currentUser.nom].filter(Boolean).join(' ') : '';
-  const choix = choisirSerieChantier({correspondant, createur});
+  const choix = choisirSerieChantier({correspondant, chef, createur});
   return {numero: await prochainNumeroSerie(choix.serie), ...choix};
 }
 // Aperçu sous le champ « Numéro » du formulaire (nouveau chantier seulement) : le numéro qui sera attribué et pourquoi
 async function majNumeroAutoChantier(){
   const h = el('ch-numero-hint'), inp = el('ch-numero'), typ = el('ch-type');
   if(!h || !inp) return;
+  const seq = (window._majNumSeq = (window._majNumSeq||0)+1);   // un calcul plus lent ne doit pas écraser le plus récent
   if(typ && typ.value!=='chantier'){
     inp.placeholder = 'Ex: SAV 4, FG';
     h.style.color = 'var(--gray-5)';
@@ -9979,13 +9989,13 @@ async function majNumeroAutoChantier(){
     return;
   }
   try{
-    const a = await numeroAutoChantier(window._chantierFromDevisId||null);
-    if(!el('ch-numero-hint')) return;
+    const a = await numeroAutoChantier(window._chantierFromDevisId||null, chefDuFormulaire());
+    if(!el('ch-numero-hint') || seq!==window._majNumSeq) return;
     inp.placeholder = 'Auto : '+a.numero;
     h.style.color = 'var(--gray-5)';
     h.innerHTML = '<strong>'+escHtml(a.numero)+'</strong> sera attribué automatiquement — '+escHtml(libMotifSerie(a))+'. Vous pouvez écrire un autre numéro.';
   }catch(e){
-    if(!el('ch-numero-hint')) return;
+    if(!el('ch-numero-hint') || seq!==window._majNumSeq) return;
     h.style.color = 'var(--orange)';
     h.textContent = 'Numéro automatique indisponible (lecture des chantiers impossible) : saisissez le numéro à la main.';
   }
@@ -11733,6 +11743,7 @@ async function openDevisDetail(devisId){
         ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
         ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
         ${!interventionLiee && d.statut==='accepte' && d.chantier_id?`<button class="btn btn-primary" id="dv-btn-facturer" onclick="closeModal();openGenerateFactureVente('${escHtml(d.chantier_id)}','${escHtml(d.id)}')"><i class="ti ti-receipt"></i> Facturer</button>`:''}
+        ${!interventionLiee && d.statut==='accepte' && !d.chantier_id?`<button class="btn btn-primary" id="dv-btn-creer-chantier" onclick="creerChantierDepuisDevis('${escHtml(d.id)}')" title="Ouvre le formulaire Nouveau chantier, rempli et lié à ce devis"><i class="ti ti-building-factory-2"></i> Créer le chantier</button>`:''}
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-success" onclick="changerStatutDevis('${d.id}','accepte')"><i class="ti ti-check"></i> Marquer accepté</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-danger" onclick="changerStatutDevis('${d.id}','refuse')"><i class="ti ti-x"></i> Marquer refusé</button>`:''}
@@ -11757,15 +11768,26 @@ async function changerStatutDevis(devisId, statut){
   showToast('Devis marqué : '+STATUT_DV[statut]);
   if(statut==='accepte' && !d.chantier_id){
     if(confirm("Devis accepté ! Voulez-vous créer le chantier correspondant maintenant ?")){
-      closeModal();
-      navigate('chantiers');
-      window._chantierFromDevisId = devisId;
-      setTimeout(()=>openChantierModal({nom:d.objet||('Chantier — '+d.numero), client_id:d.client_id, depuisDevis:true}),300);
+      ouvrirChantierDepuisDevis(d);
       return;
     }
   }
   closeModal();
   rafraichirPage();
+}
+// Ouvre le formulaire « Nouveau chantier » déjà rempli et lié au devis (nom, client ; le numéro suit le « Correspondant » du devis)
+function ouvrirChantierDepuisDevis(d){
+  closeModal();
+  navigate('chantiers');
+  window._chantierFromDevisId = d.id;
+  setTimeout(()=>openChantierModal({nom:d.objet||('Chantier — '+d.numero), client_id:d.client_id, depuisDevis:true}),300);
+}
+// Bouton « Créer le chantier » d'un devis accepté qui n'a pas encore de chantier
+async function creerChantierDepuisDevis(devisId){
+  const {data:d,error} = await sb.from('devis').select('id,numero,objet,client_id,chantier_id,statut').eq('id',devisId).single();
+  if(error || !d){ showToast('Devis introuvable : '+((error&&error.message)||''), 'error'); return; }
+  if(d.chantier_id){ showToast('Ce devis a déjà un chantier : '+d.numero, 'error'); return; }
+  ouvrirChantierDepuisDevis(d);
 }
 
 async function uploadAnnexesDevis(files, devisId){
