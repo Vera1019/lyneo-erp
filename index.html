@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
+<meta name="lyneo-build" content="BUILD:2026-10-30-a728012"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -492,6 +493,12 @@ select{cursor:pointer}
 .totaux-row.ttc{border-top:2px solid var(--gray-3);margin-top:8px;padding-top:10px;font-weight:800;font-size:17px;color:var(--blue)}
 
 /* ── TOAST ───────────────────────────────────────────────────── */
+#banniere-version{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:2000;width:max-content;max-width:min(760px,calc(100vw - 24px));background:#0F172A;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:10px;box-shadow:var(--shadow-xl);padding:10px 12px 10px 14px;display:flex;align-items:center;gap:12px;font-size:13px;line-height:1.35}
+#banniere-version .banniere-x{background:none;border:none;color:#fff;opacity:.65;cursor:pointer;font-size:16px;padding:2px 4px}
+#banniere-version .banniere-x:hover{opacity:1}
+@media(max-width:600px){#banniere-version{flex-wrap:wrap;gap:8px}}
+.sidebar-version{padding:6px 10px 0;font-size:10.5px;color:rgba(255,255,255,.3);cursor:pointer}
+.sidebar-version:hover{color:rgba(255,255,255,.6)}
 .toast{position:fixed;bottom:28px;right:28px;z-index:999;color:#fff;padding:14px 20px;border-radius:var(--radius);box-shadow:var(--shadow-xl);font-size:13px;font-weight:600;display:flex;align-items:center;gap:10px;max-width:380px;animation:toastIn .3s cubic-bezier(.34,1.56,.64,1)}
 .toast-success{background:linear-gradient(135deg,var(--green),#059669)}
 .toast-error{background:linear-gradient(135deg,var(--red),#DC2626)}
@@ -790,6 +797,7 @@ button.frm-pill:hover{filter:brightness(.96)}
       <button class="sidebar-logout" id="btn-installer-app" onclick="installerApp()" style="display:none"><i class="ti ti-download" style="font-size:15px"></i> Installer l'application</button>
       <button class="sidebar-logout" onclick="openMotDePasse()"><i class="ti ti-key" style="font-size:15px"></i> Mon mot de passe</button>
       <button class="sidebar-logout" onclick="doLogout()"><i class="ti ti-logout" style="font-size:15px"></i> Déconnexion</button>
+      <div class="sidebar-version" id="sidebar-version" onclick="verifierVersionManuel()" title="Cliquer pour vérifier s'il existe une nouvelle version"></div>
     </div>
   </div>
 
@@ -2650,6 +2658,91 @@ async function doLogout(){
   try{ sessionStorage.removeItem('lyneo_user'); }catch(e){}
 }
 
+// ── Nouvelle version disponible (30/10/2026) ───────────────────────────────────────────────────────────────────────
+// Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
+// « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
+// numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
+const APP_BUILD = 'BUILD:2026-10-30-a728012';
+const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
+let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
+function buildCourant(){ return APP_BUILD; }
+function versionAffichee(b){
+  const m = /^BUILD:(\d{4})-(\d{2})-(\d{2})-([0-9a-f]{7})$/.exec(b||'');
+  return m ? m[3]+'/'+m[2]+'/'+m[1]+' · '+m[4] : 'développement';
+}
+function extraireBuild(texte){
+  const m = /<meta\s+name="lyneo-build"\s+content="(BUILD:\d{4}-\d{2}-\d{2}-[0-9a-f]{7})"/.exec(texte||'');
+  return m ? m[1] : null;
+}
+// Lit le numéro de version du fichier actuellement sur le serveur ; null si on ne peut pas le savoir (réseau, page d'erreur…)
+async function lireVersionServeur(){
+  try{
+    const url = location.href.split('#')[0].split('?')[0] + '?_v=' + Date.now();
+    const rep = await fetch(url, {cache:'no-store', credentials:'same-origin'});
+    if(!rep || !rep.ok) return null;
+    if(rep.body && rep.body.getReader){                       // on s'arrête dès que la balise est lue (elle est dans les 1000 premiers octets)
+      const rd = rep.body.getReader(), dec = new TextDecoder();
+      let texte = '';
+      while(texte.length < 16000){
+        const r = await rd.read();
+        if(r.done) break;
+        texte += dec.decode(r.value, {stream:true});
+        const b = extraireBuild(texte);
+        if(b){ try{ rd.cancel(); }catch(e){} return b; }
+      }
+      try{ rd.cancel(); }catch(e){}
+      return extraireBuild(texte);
+    }
+    return extraireBuild(await rep.text());
+  }catch(e){ return null; }
+}
+async function verifierVersion(forcer){
+  const cur = buildCourant();
+  if(cur.indexOf('@@')>=0) return {etat:'dev'};                // fichier non numéroté (développement) : pas de contrôle
+  const maintenant = Date.now();
+  if(!forcer && maintenant - _verifVersionDernier < VERIF_VERSION_MIN_MS) return {etat:'trop-tot'};
+  _verifVersionDernier = maintenant;
+  const srv = await lireVersionServeur();
+  if(!srv) return {etat:'inconnu'};
+  _versionServeur = srv;
+  if(srv === cur){ masquerBanniereVersion(); return {etat:'a-jour', srv}; }
+  afficherBanniereVersion(srv);
+  return {etat:'nouvelle', srv};
+}
+function afficherBanniereVersion(srv){
+  if(_banniereFermeeSrv===srv && Date.now()-_banniereFermeeA < BANNIERE_RAPPEL_MS) return;   // fermé : rappel seulement après 30 min
+  let b = document.getElementById('banniere-version');
+  if(!b){ b = document.createElement('div'); b.id = 'banniere-version'; b.setAttribute('role','status'); document.body.appendChild(b); }
+  b.innerHTML = '<span><i class="ti ti-refresh"></i> <strong>Nouvelle version disponible.</strong> Enregistrez votre travail en cours, puis rechargez la page.</span>'
+    + '<button class="btn btn-primary btn-sm" id="banniere-recharger" onclick="rechargerNouvelleVersion()">Recharger</button>'
+    + '<button class="banniere-x" title="Plus tard" onclick="fermerBanniereVersion()"><i class="ti ti-x"></i></button>';
+  b.title = 'Version affichée : '+versionAffichee(buildCourant())+' · Version disponible : '+versionAffichee(srv);
+}
+function masquerBanniereVersion(){ const b = document.getElementById('banniere-version'); if(b) b.remove(); }
+function fermerBanniereVersion(){ _banniereFermeeSrv = _versionServeur; _banniereFermeeA = Date.now(); masquerBanniereVersion(); }
+function rechargerPage(){ location.reload(); }
+function rechargerNouvelleVersion(){
+  const ouvert = document.querySelector('#modal-container .modal-overlay, #modal-container .modal');
+  if(ouvert && !confirm("Un formulaire est ouvert : ce qui n'a pas été enregistré sera perdu.\n\nRecharger quand même ?")) return;
+  rechargerPage();
+}
+async function verifierVersionManuel(){
+  const r = await verifierVersion(true);
+  if(r.etat==='a-jour') showToast('Vous utilisez la dernière version ('+versionAffichee(buildCourant())+').','success');
+  else if(r.etat==='inconnu') showToast("Impossible de vérifier la version pour l'instant (réseau ?).",'error');
+  else if(r.etat==='dev') showToast('Version de développement : pas de contrôle.','info');
+  return r;
+}
+function afficherVersionSidebar(){ const v = document.getElementById('sidebar-version'); if(v) v.textContent = 'Version '+versionAffichee(buildCourant()); }
+function demarrerVerifVersion(forcer){
+  afficherVersionSidebar();
+  if(_verifVersionTimer || (location.protocol==='file:' && !forcer)) return;      // hors serveur (fichier local) : pas de contrôle
+  setTimeout(()=>{ verifierVersion(true).catch(()=>{}); }, 20000);
+  _verifVersionTimer = setInterval(()=>{ verifierVersion(false).catch(()=>{}); }, VERIF_VERSION_MS);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) verifierVersion(false).catch(()=>{}); });
+  window.addEventListener('focus', ()=>{ verifierVersion(false).catch(()=>{}); });
+}
+
 function initApp(){
   el('login-page').classList.add('hidden');
   el('app-layout').classList.remove('hidden');
@@ -2665,6 +2758,7 @@ function initApp(){
   entrepriseChargee();     // données de l'entreprise imprimées sur les PDF / Excel (page Administration → Documents)
   { const p = pageDepuisHash(); if(pageAutorisee(p)) navigate(p, true); else navigate('dashboard', 'remplacer'); }   // un nouvel onglet ouvert sur #/devis arrive directement sur les devis
   setTimeout(()=>{ afficherNotifAnniversaire().catch(()=>{}); }, 900);   // « Aujourd'hui, c'est l'anniversaire de … » (une fois par jour)
+  demarrerVerifVersion();   // version affichée dans le menu + contrôle périodique « Nouvelle version disponible »
 }
 
 // Mon mot de passe (chaque utilisateur change le sien)
@@ -4037,18 +4131,18 @@ async function openChantierDetail(chantierId, tab){
     ${blocSituation}
     <div class="info-grid" style="margin-bottom:16px;max-width:100%">
       <div class="info-item"><label>Chef de chantier</label><span>${escHtml(nomChef(chantier, nomsEmp))||'—'}${chefNonLie(chantier, nomsEmp) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</span></div>
-      <div class="info-item"><label>Adresse</label><span>${chantier.adresse||'—'}</span></div>
+      <div class="info-item"><label>Adresse</label><span>${escHtml(chantier.adresse||'—')}</span></div>
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
       <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
       <div class="info-item"><label>Heures prévues</label><span>${aHeuresPrevues ? fmtHeures(heuresPrevues)+' h'+(heuresCumul!==null ? ' <span style="font-weight:400;color:var(--gray-5)">· '+fmtHeures(heuresCumul)+' h pointées ('+Math.round(heuresCumul/heuresPrevues*100)+' %)</span>' : '') : '—'}</span></div>
       <div class="info-item"><label>Total commandes</label><span style="font-weight:700;color:var(--blue)">${fmt(totalCmds)}</span></div>
     </div>
-    ${chantier.observations?`<div class="alert alert-info"><i class="ti ti-info-circle"></i>${chantier.observations}</div>`:''}
+    ${chantier.observations?`<div class="alert alert-info"><i class="ti ti-info-circle"></i>${escHtml(chantier.observations)}</div>`:''}
     <div style="margin-top:16px;padding:14px 16px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius)">
       <div style="font-size:12px;font-weight:600;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Liaison système de pointages</div>
       ${estSav ? htmlLiaisonPointagesSav(chantierId, codesCentre, statsHeures) : `
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="ch-code-pt" placeholder="Code chantier dans le système de pointages" value="${chantier.code_pointages||''}"
+        <input id="ch-code-pt" placeholder="Code chantier dans le système de pointages" value="${escHtml(chantier.code_pointages||'')}"
           style="flex:1;padding:8px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:13px"/>
         <button class="btn btn-primary btn-sm" onclick="saveCodePointages('${chantierId}')"><i class="ti ti-link"></i> Lier</button>
       </div>
@@ -4060,7 +4154,7 @@ async function openChantierDetail(chantierId, tab){
     ? `<div class="empty"><i class="ti ti-shopping-cart"></i><p>Aucune commande pour ce chantier</p></div>`
     : pos.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:8px;background:#fff">
         <strong class="text-blue">${p.numero}</strong>
-        <span class="text-muted">${p.fournisseurs?.nom||'—'}</span>
+        <span class="text-muted">${escHtml(p.fournisseurs?.nom||'—')}</span>
         <span style="font-weight:600">${fmt(p.total_ttc)}</span>
         ${bPO(p.statut)}
       </div>`).join('');
@@ -4163,7 +4257,7 @@ async function openChantierDetail(chantierId, tab){
       + '</tr></thead><tbody>'
       + facsVente.map(f=>'<tr style="cursor:pointer" onclick="closeModal();openFactureVenteDetail(\''+f.id+'\')">'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+f.numero+'</strong></td>'
-          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(f.clients?.nom||'—')+'</td>'
+          +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+escHtml(f.clients?.nom||'—')+'</td>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(f.date_creation)+'</td>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(f.total_ttc)+'</td>'
           +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bFV(f.statut)+'</td>'
@@ -4185,7 +4279,7 @@ async function openChantierDetail(chantierId, tab){
         + '</tr></thead><tbody>'
         + devisChantier.map(d=>'<tr style="cursor:pointer" onclick="closeModal();openDevisDetail(\''+d.id+'\')">'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)"><strong class="td-primary">'+d.numero+'</strong></td>'
-            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+(d.objet||'—')+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+escHtml(d.objet||'—')+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+fmtDate(d.date_devis)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">'+fmt(d.montant_ht)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'+bDV(d.statut)+'</td>'
@@ -4935,7 +5029,7 @@ async function openChantierModal(r=null){
           <div style="display:flex;gap:6px"><input type="number" step="0.5" min="0" id="ch-heures-prevues" style="flex:1;min-width:0" data-had="${r && r.heures_prevues!==undefined?'1':''}" value="${escHtml(r?.heures_prevues??'')}" placeholder="Ex: 800"/>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-calc-heures-prevues" onclick="calculerHeuresPrevuesDevis('${r?.id||''}')" title="Additionne les lignes en heures (unité « h ») du devis accepté"><i class="ti ti-calculator"></i> Depuis le devis</button></div>
           <span style="font-size:12px;color:var(--gray-5)">Sert à suivre le % d'heures consommées dans l'onglet Heures.</span></div>
-        <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${r?.observations||''}</textarea></div>
+        <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${escHtml(r?.observations||'')}</textarea></div>
       </div>
       <div class="form-actions">
         ${isEdit ? `<button class="btn btn-danger" id="ch-suppr" onclick="supprimerChantier('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
@@ -5702,7 +5796,7 @@ async function renderFournisseurs(search=''){
     <div class="page-header">
       <div class="page-header-left"><h1>Fournisseurs</h1><p>Annuaire et conditions de paiement</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFournisseurs(this.value)" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFournisseurs(this.value)" value="${escHtml(search)}"/></div>
         ${btnExport('fournisseurs')}
         ${btnDoublons('fournisseurs', _fournisseurs)}
         <button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>
@@ -5715,15 +5809,15 @@ async function renderFournisseurs(search=''){
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
             items.map(r=>{
-              const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
+              const email = r.email ? '<a href="mailto:'+escHtml(r.email)+'" style="color:var(--blue)">'+escHtml(r.email)+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif?'oui':'non')+'">'+(r.actif?'Oui':'Non')+'</span>';
               return '<tr data-sel-id="'+r.id+'">'
                 +'<td><strong>'+escHtml(r.nom)+'</strong>'+(r.employe_id ? ' <span class="fac-ndf" title="Fournisseur salarié : relié à une fiche employé, sert aux notes de frais">Salarié</span>' : '')+'</td>'
                 +'<td>'+email+'</td>'
-                +'<td>'+(r.telephone||'—')+'</td>'
-                +'<td>'+(r.ville||'—')+'</td>'
-                +'<td>'+(r.numero_tva||'—')+'</td>'
-                +'<td>'+(r.conditions_paiement||'—')+'</td>'
+                +'<td>'+escHtml(r.telephone||'—')+'</td>'
+                +'<td>'+escHtml(r.ville||'—')+'</td>'
+                +'<td>'+escHtml(r.numero_tva||'—')+'</td>'
+                +'<td>'+escHtml(r.conditions_paiement||'—')+'</td>'
                 +'<td>'+badge+'</td>'
                 +'<td><div class="td-actions">'
                 +  '<button class="btn btn-secondary btn-sm" data-four-detail="'+r.id+'" title="Voir les factures"><i class="ti ti-eye"></i></button>'
@@ -5785,14 +5879,14 @@ async function openFourDetail(fourId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>${four.nom}</h3><span style="font-size:12px;color:var(--gray-5)">${four.email||''} ${four.telephone?' — '+four.telephone:''}</span></div>
+      <div><h3>${escHtml(four.nom)}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(four.email||'')} ${four.telephone?' — '+escHtml(four.telephone):''}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>Adresse</label><span>${four.adresse||'—'} ${four.code_postal||''} ${four.ville||''}</span></div>
-        <div class="info-item"><label>N° TVA</label><span>${four.numero_tva||'—'}</span></div>
-        <div class="info-item"><label>Conditions de paiement</label><span>${four.conditions_paiement||'—'}</span></div>
+        <div class="info-item"><label>Adresse</label><span>${escHtml(four.adresse||'—')} ${escHtml(four.code_postal||'')} ${escHtml(four.ville||'')}</span></div>
+        <div class="info-item"><label>N° TVA</label><span>${escHtml(four.numero_tva||'—')}</span></div>
+        <div class="info-item"><label>Conditions de paiement</label><span>${escHtml(four.conditions_paiement||'—')}</span></div>
       </div>
       <strong style="font-size:13px">Factures liées (${facs.length})</strong>
       <div style="overflow-x:auto;margin-top:8px">
@@ -5852,14 +5946,14 @@ function openFourModal(r=null, selectId=null){
     <div class="modal-body">
       ${r?.employe_id ? '<div class="alert alert-info" id="f-salarie-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>Fournisseur <strong>salarié</strong> : relié à une fiche employé, il sert aux notes de frais. Ne copiez ici ni IBAN ni adresse personnelle.</span></div>' : ''}
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${r?.nom||''}" placeholder="Nom de la société"/></div>
-        <div class="form-group"><label class="field-label">Email</label><input type="email" id="f-email" value="${r?.email||''}" placeholder="contact@fournisseur.com"/></div>
-        <div class="form-group"><label class="field-label">Téléphone</label><input id="f-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
-        <div class="form-group"><label class="field-label">N° TVA</label><input id="f-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
-        <div class="form-group full"><label class="field-label">Adresse</label><input id="f-adresse" value="${r?.adresse||''}" placeholder="Rue et numéro"/></div>
-        <div class="form-group"><label class="field-label">Code postal</label><input id="f-cp" value="${r?.code_postal||''}" placeholder="L-1234"/></div>
-        <div class="form-group"><label class="field-label">Ville</label><input id="f-ville" value="${r?.ville||''}" placeholder="Luxembourg"/></div>
-        <div class="form-group"><label class="field-label">Pays</label><input id="f-pays" value="${r?.pays||'Luxembourg'}"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${escHtml(r?.nom||'')}" placeholder="Nom de la société"/></div>
+        <div class="form-group"><label class="field-label">Email</label><input type="email" id="f-email" value="${escHtml(r?.email||'')}" placeholder="contact@fournisseur.com"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="f-tel" value="${escHtml(r?.telephone||'')}" placeholder="+352 ..."/></div>
+        <div class="form-group"><label class="field-label">N° TVA</label><input id="f-tva" value="${escHtml(r?.numero_tva||'')}" placeholder="LU12345678"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="f-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Rue et numéro"/></div>
+        <div class="form-group"><label class="field-label">Code postal</label><input id="f-cp" value="${escHtml(r?.code_postal||'')}" placeholder="L-1234"/></div>
+        <div class="form-group"><label class="field-label">Ville</label><input id="f-ville" value="${escHtml(r?.ville||'')}" placeholder="Luxembourg"/></div>
+        <div class="form-group"><label class="field-label">Pays</label><input id="f-pays" value="${escHtml(r?.pays||'Luxembourg')}"/></div>
         <div class="form-group"><label class="field-label">Conditions paiement</label>
           <select id="f-cond">
             ${optionsConditionsPaiement(r?.conditions_paiement,'30 jours')}
@@ -5968,7 +6062,7 @@ async function renderPOS(search='', filterStatut=''){
     <div class="page-header">
       <div class="page-header-left"><h1>Bons de commande</h1><p>Achats et commandes fournisseurs</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="N° PO, chantier, fournisseur..." oninput="renderPOS(this.value,document.getElementById('po-filter-statut').value)" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="N° PO, chantier, fournisseur..." oninput="renderPOS(this.value,document.getElementById('po-filter-statut').value)" value="${escHtml(search)}"/></div>
         <select id="po-filter-statut" onchange="renderPOS(document.querySelector('.search-wrap input').value,this.value)" style="padding:7px 10px;border-radius:var(--radius);border:1px solid var(--gray-3);font-size:13px">
           <option value="">Tous les statuts</option>${statusOpts}
         </select>
@@ -5990,7 +6084,7 @@ async function renderPOS(search='', filterStatut=''){
               const pctColor = pct===100?'var(--green)':pct>0?'var(--blue)':'var(--gray-3)';
               return `<tr data-sel-id="${r.id}"${r.statut==='annulee'?' data-som-off="1"':''} style="cursor:pointer" onclick="openPODetail('${r.id}')">
               <td><span class="td-primary">${r.numero}</span></td>
-              <td>${r.fournisseurs?.nom||'—'}</td>
+              <td>${escHtml(r.fournisseurs?.nom||'—')}</td>
               <td>${centreHtml}${_poRefs[r.intervention_id] ? `<div style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_poRefs[r.intervention_id])}</div>` : ''}</td>
               <td>${fmtDate(r.date_creation)}</td>
               <td>
@@ -6020,7 +6114,7 @@ async function renderPOS(search='', filterStatut=''){
 
 function openNewPO(){
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
-  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${c.numero} — ${c.nom}</option>`).join('');
+  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${escHtml(c.numero)} — ${escHtml(c.nom)}</option>`).join('');
   const foursOpts = _foursActive.filter(f=>!f.employe_id).map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');   // pas de salariés (notes de frais)
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -6054,8 +6148,8 @@ function renderPoLignes(){
   const body = el('lignes-body');
   if(!body) return;
   body.innerHTML = poLignes.map((l,i)=>`<tr>
-    <td><input value="${l.description}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
-    <td><input value="${l.reference_article}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
+    <td><input value="${escHtml(l.description)}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
+    <td><input value="${escHtml(l.reference_article)}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
@@ -6181,7 +6275,7 @@ async function openPODetail(poId){
     </div>
     <div class="modal-body">
       <div class="info-grid">
-        <div class="info-item"><label>Fournisseur</label><span><strong>${four?.nom||'—'}</strong></span></div>
+        <div class="info-item"><label>Fournisseur</label><span><strong>${escHtml(four?.nom||'—')}</strong></span></div>
         <div class="info-item"><label>Chantier</label><span id="po-det-chantier">${escHtml(libChantierAchat(chant))||'—'}</span></div>
         ${refIntPO ? `<div class="info-item"><label>Intervention SAV</label><span style="font-weight:600;color:var(--blue)">${escHtml(refIntPO)}</span></div>` : ''}
         <div class="info-item"><label>Client</label><span>${escHtml(chant?.client||po.chantiers?.client||'—')}</span></div>
@@ -6190,7 +6284,7 @@ async function openPODetail(poId){
         <div class="info-item"><label>Envoyée le</label><span>${po.envoye_le?fmtDate(po.envoye_le):'Non encore envoyée'}</span></div>
       </div>
       ${etapePO?`<div class="alert alert-info po-etape" style="margin-bottom:16px"><i class="ti ti-arrow-right"></i>${etapePO}</div>`:''}
-      ${po.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${po.observations}</div>`:''}
+      ${po.observations?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i>${escHtml(po.observations)}</div>`:''}
       <div style="overflow-x:auto;margin-bottom:12px">
       <table style="width:100%;border-collapse:collapse;min-width:600px">
         <thead>
@@ -6212,17 +6306,17 @@ async function openPODetail(poId){
           const bg = i%2===0?'#fff':'var(--gray-1)';
           return '<tr style="background:'+bg+'">'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2)">'
-            +  '<div style="font-weight:500;color:var(--gray-8)">'+l.description+'</div>'
-            +  (l.reference_article?'<div style="font-size:11px;color:var(--gray-5);margin-top:1px">'+l.reference_article+'</div>':'')
+            +  '<div style="font-weight:500;color:var(--gray-8)">'+escHtml(l.description)+'</div>'
+            +  (l.reference_article?'<div style="font-size:11px;color:var(--gray-5);margin-top:1px">'+escHtml(l.reference_article)+'</div>':'')
             +'</td>'
-            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600">'+l.quantite+' '+l.unite+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600">'+l.quantite+' '+escHtml(l.unite)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'
-            +  '<div style="font-weight:700;color:'+pctColor+'">'+recu+' '+l.unite+'</div>'
+            +  '<div style="font-weight:700;color:'+pctColor+'">'+recu+' '+escHtml(l.unite)+'</div>'
             +  '<div style="background:var(--gray-2);border-radius:3px;height:5px;margin-top:4px;overflow:hidden">'
             +    '<div style="background:'+pctColor+';height:100%;width:'+pct+'%;border-radius:3px"></div>'
             +  '</div>'
             +'</td>'
-            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:'+(restant>0?'var(--orange)':'var(--green)')+'">'+restant+' '+l.unite+'</td>'
+            +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:'+(restant>0?'var(--orange)':'var(--green)')+'">'+restant+' '+escHtml(l.unite)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right">'+fmt(l.prix_unitaire_ht)+'</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:center">'+l.taux_tva+'%</td>'
             +'<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">'+fmt(l.total_ht)+'</td>'
@@ -7542,10 +7636,10 @@ async function loadLignesBL(poId){
         const pct = Math.min(100, Math.round((l.deja_recu/parseFloat(l.quantite))*100));
         const isDone = l.restant <= 0;
         return '<tr style="'+(isDone?'opacity:.5;background:var(--gray-1)':'')+'">'
-          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px"><strong>'+l.description+'</strong></td>'
-          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">'+l.quantite+' '+l.unite+'</td>'
-          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px;color:var(--green)">'+l.deja_recu+' '+l.unite+'</td>'
-          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px;font-weight:700;color:'+(isDone?'var(--green)':'var(--orange)')+'">'+l.restant+' '+l.unite+'</td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);font-size:13px"><strong>'+escHtml(l.description)+'</strong></td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px">'+l.quantite+' '+escHtml(l.unite)+'</td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px;color:var(--green)">'+l.deja_recu+' '+escHtml(l.unite)+'</td>'
+          + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:13px;font-weight:700;color:'+(isDone?'var(--green)':'var(--orange)')+'">'+l.restant+' '+escHtml(l.unite)+'</td>'
           + '<td style="padding:9px 12px;border-bottom:1px solid var(--gray-2);min-width:100px">'
           +   '<div style="background:var(--gray-2);border-radius:4px;height:8px;overflow:hidden">'
           +     '<div style="background:'+(pct>=100?'var(--green)':'var(--blue)')+';height:100%;width:'+pct+'%;border-radius:4px"></div>'
@@ -9090,7 +9184,7 @@ async function openFacLibreModal(){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Chantier *</label>
-          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${c.id}">${c.numero||''} — ${c.nom}</option>`).join('')}</select>
+          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${c.id}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
         </div>
         ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">Fournisseur *</label>
@@ -9135,8 +9229,8 @@ function renderFacLignesLibre(){
   const body = el('facl-lignes-body');
   if(!body) return;
   body.innerHTML = _facLignesLibre.map((l,i)=>`<tr>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.reference_article||''}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     ${crTd(l.code_ressource_id, "updFacLigneLibre("+i+",'code_ressource_id',this.value)", 'padding:6px 10px;border-bottom:1px solid var(--gray-2)')}
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updFacLigneLibre(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updFacLigneLibre(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
@@ -9239,7 +9333,7 @@ async function appliquerEcheanceFourn(prefix){
 
 function openFacModal(){
   // Odoo style: PO selector first, then lines load automatically
-  const opts = _posPourFac.map(p=>'<option value="'+p.id+'">'+p.numero+' — '+(p.fournisseurs?.nom||'')+'</option>').join('');
+  const opts = _posPourFac.map(p=>'<option value="'+p.id+'">'+p.numero+' — '+escHtml(p.fournisseurs?.nom||'')+'</option>').join('');
 
   el('modal-container').innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal modal-lg">'
     +'<div class="modal-header">'
@@ -9397,13 +9491,13 @@ function renderFacLignesEdit(){
     const bg = i%2===0 ? '#fff' : 'var(--gray-1)';
     html += '<tr style="background:'+bg+'">'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
-      +  '<input value="'+l.description.replace(/"/g,'&quot;')+'" data-field="description" data-idx="'+i+'" class="fac-ligne-input" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;background:var(--blue-light)"/>'
+      +  '<input value="'+escHtml(l.description)+'" data-field="description" data-idx="'+i+'" class="fac-ligne-input" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;background:var(--blue-light)"/>'
       +'</td>'
       +crTd(l.code_ressource_id,'_facLignesPO['+i+'].code_ressource_id=this.value','padding:6px 10px;border-bottom:1px solid var(--gray-2)')
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" data-field="quantite" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
       +'</td>'
-      +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
+      +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+escHtml(l.unite)+'</td>'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" data-field="prix_unitaire_ht" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
       +'</td>'
@@ -10295,7 +10389,7 @@ async function renderClients(search=''){
     <div class="page-header">
       <div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderClients(this.value)" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderClients(this.value)" value="${escHtml(search)}"/></div>
         ${btnExport('clients')}
         ${btnDoublons('clients', _clients)}
         <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
@@ -10308,15 +10402,15 @@ async function renderClients(search=''){
           <tbody>
             ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Aucun client trouvé</p><button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button></div></td></tr>' :
             items.map(r=>{
-              const email = r.email ? '<a href="mailto:'+r.email+'" style="color:var(--blue)">'+r.email+'</a>' : '—';
+              const email = r.email ? '<a href="mailto:'+escHtml(r.email)+'" style="color:var(--blue)">'+escHtml(r.email)+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif!==false?'oui':'non')+'">'+(r.actif!==false?'Oui':'Non')+'</span>';
               return '<tr data-sel-id="'+r.id+'">'
-                +'<td><strong>'+r.nom+'</strong></td>'
+                +'<td><strong>'+escHtml(r.nom)+'</strong></td>'
                 +'<td>'+email+'</td>'
-                +'<td>'+(r.telephone||'—')+'</td>'
-                +'<td>'+(r.ville||'—')+'</td>'
-                +'<td>'+(r.numero_tva||'—')+'</td>'
-                +'<td>'+(r.conditions_paiement||'—')+'</td>'
+                +'<td>'+escHtml(r.telephone||'—')+'</td>'
+                +'<td>'+escHtml(r.ville||'—')+'</td>'
+                +'<td>'+escHtml(r.numero_tva||'—')+'</td>'
+                +'<td>'+escHtml(r.conditions_paiement||'—')+'</td>'
                 +'<td>'+badge+'</td>'
                 +'<td><div class="td-actions">'
                 +  '<button class="btn btn-secondary btn-sm" data-client-detail="'+r.id+'" title="Voir le détail"><i class="ti ti-eye"></i></button>'
@@ -10356,16 +10450,16 @@ function openClientModal(r=null, selectId=null){
     <div class="modal-header"><h3>${isEdit?'Modifier client':'Nouveau client'}</h3><button class="modal-close" onclick="${fermer}"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${r?.nom||''}" placeholder="Nom de la société ou du client"/></div>
-        <div class="form-group"><label class="field-label">Contact principal</label><input id="cl-contact" value="${r?.contact_principal||''}" placeholder="Nom du contact"/></div>
-        <div class="form-group"><label class="field-label">Email</label><input type="email" id="cl-email" value="${r?.email||''}" placeholder="contact@client.com"/></div>
-        <div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel" value="${r?.telephone||''}" placeholder="+352 ..."/></div>
-        <div class="form-group"><label class="field-label">N° TVA</label><input id="cl-tva" value="${r?.numero_tva||''}" placeholder="LU12345678"/></div>
-        <div class="form-group full"><label class="field-label">Adresse</label><input id="cl-adresse" value="${r?.adresse||''}" placeholder="Rue et numéro"/></div>
-        <div class="form-group full"><label class="field-label">Adresse de livraison / intervention (si différente)</label><input id="cl-adresse-livraison" value="${r?.adresse_livraison||''}" placeholder="Complément affiché sur les factures, si différent de l'adresse principale"/></div>
-        <div class="form-group"><label class="field-label">Code postal</label><input id="cl-cp" value="${r?.code_postal||''}" placeholder="L-1234"/></div>
-        <div class="form-group"><label class="field-label">Ville</label><input id="cl-ville" value="${r?.ville||''}" placeholder="Luxembourg"/></div>
-        <div class="form-group"><label class="field-label">Pays</label><input id="cl-pays" value="${r?.pays||'Luxembourg'}"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${escHtml(r?.nom||'')}" placeholder="Nom de la société ou du client"/></div>
+        <div class="form-group"><label class="field-label">Contact principal</label><input id="cl-contact" value="${escHtml(r?.contact_principal||'')}" placeholder="Nom du contact"/></div>
+        <div class="form-group"><label class="field-label">Email</label><input type="email" id="cl-email" value="${escHtml(r?.email||'')}" placeholder="contact@client.com"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel" value="${escHtml(r?.telephone||'')}" placeholder="+352 ..."/></div>
+        <div class="form-group"><label class="field-label">N° TVA</label><input id="cl-tva" value="${escHtml(r?.numero_tva||'')}" placeholder="LU12345678"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="cl-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Rue et numéro"/></div>
+        <div class="form-group full"><label class="field-label">Adresse de livraison / intervention (si différente)</label><input id="cl-adresse-livraison" value="${escHtml(r?.adresse_livraison||'')}" placeholder="Complément affiché sur les factures, si différent de l'adresse principale"/></div>
+        <div class="form-group"><label class="field-label">Code postal</label><input id="cl-cp" value="${escHtml(r?.code_postal||'')}" placeholder="L-1234"/></div>
+        <div class="form-group"><label class="field-label">Ville</label><input id="cl-ville" value="${escHtml(r?.ville||'')}" placeholder="Luxembourg"/></div>
+        <div class="form-group"><label class="field-label">Pays</label><input id="cl-pays" value="${escHtml(r?.pays||'Luxembourg')}"/></div>
         <div class="form-group"><label class="field-label">Conditions paiement</label>
           <select id="cl-cond">
             ${optionsConditionsPaiement(r?.conditions_paiement,'30 jours')}
@@ -10377,7 +10471,7 @@ function openClientModal(r=null, selectId=null){
             <option value="0" ${r?.actif===false?'selected':''}>Non</option>
           </select>
         </div>
-        <div class="form-group full"><label class="field-label">Notes</label><textarea id="cl-notes" placeholder="Informations complémentaires...">${r?.notes||''}</textarea></div>
+        <div class="form-group full"><label class="field-label">Notes</label><textarea id="cl-notes" placeholder="Informations complémentaires...">${escHtml(r?.notes||'')}</textarea></div>
       </div>
       <div class="form-actions">
         ${isEdit && !selectId ? `<button class="btn btn-danger" id="cl-suppr" onclick="supprimerClient('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
@@ -10586,18 +10680,18 @@ async function openClientDetail(clientId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>${client.nom}</h3><span style="font-size:12px;color:var(--gray-5)">${client.email||''} ${client.telephone?' — '+client.telephone:''}</span></div>
+      <div><h3>${escHtml(client.nom)}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(client.email||'')} ${client.telephone?' — '+escHtml(client.telephone):''}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>Contact principal</label><span>${client.contact_principal||'—'}</span></div>
-        <div class="info-item"><label>Adresse</label><span>${client.adresse||'—'} ${client.code_postal||''} ${client.ville||''}</span></div>
-        ${client.adresse_livraison?`<div class="info-item"><label>Adresse de livraison / intervention</label><span>${client.adresse_livraison}</span></div>`:''}
-        <div class="info-item"><label>N° TVA</label><span>${client.numero_tva||'—'}</span></div>
-        <div class="info-item"><label>Conditions de paiement</label><span>${client.conditions_paiement||'—'}</span></div>
+        <div class="info-item"><label>Contact principal</label><span>${escHtml(client.contact_principal||'—')}</span></div>
+        <div class="info-item"><label>Adresse</label><span>${escHtml(client.adresse||'—')} ${escHtml(client.code_postal||'')} ${escHtml(client.ville||'')}</span></div>
+        ${client.adresse_livraison?`<div class="info-item"><label>Adresse de livraison / intervention</label><span>${escHtml(client.adresse_livraison)}</span></div>`:''}
+        <div class="info-item"><label>N° TVA</label><span>${escHtml(client.numero_tva||'—')}</span></div>
+        <div class="info-item"><label>Conditions de paiement</label><span>${escHtml(client.conditions_paiement||'—')}</span></div>
       </div>
-      ${client.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${client.notes}</p></div>`:''}
+      ${client.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(client.notes)}</p></div>`:''}
 
       <strong style="font-size:13px">Chantiers liés (${chantiers.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
@@ -10630,7 +10724,7 @@ async function openClientDetail(clientId){
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Réf.</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Site</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Date</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Facturée</th></tr></thead>
             <tbody>${interventionsClient.map(i=>`<tr style="cursor:pointer" onclick="closeModal();openInterventionDetail('${i.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${i.ref}</strong>${i.astreinte?' <span class="badge badge-litige" style="font-size:10px">⚡</span>':''}</td>
-              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.nom_site?i.nom_site+' — ':''}${i.adresse_site||'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.nom_site?escHtml(i.nom_site)+' — ':''}${escHtml(i.adresse_site||'—')}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.date_intervention?fmtDate(i.date_intervention):fmtDate(i.created_at)}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bSAV(i.statut)}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${i.statut==='facturee'?'<i class="ti ti-check" style="color:var(--green)"></i> Oui':(i.statut==='facturee_partiel'?'Partiel':'—')}</td>
@@ -10669,7 +10763,7 @@ async function openClientDetail(clientId){
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Fournisseur</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
             <tbody>${pos.map(p=>`<tr style="cursor:pointer" onclick="closeModal();openPODetail('${p.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${p.numero}</strong></td>
-              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${p.fournisseurs?.nom||'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(p.fournisseurs?.nom||'—')}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${chantierMap[p.chantier_id]?(chantierMap[p.chantier_id].numero||'')+' — '+chantierMap[p.chantier_id].nom:'—'}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(p.total_ttc)}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bPO(p.statut)}</td>
@@ -10684,7 +10778,7 @@ async function openClientDetail(clientId){
             <thead><tr style="background:var(--gray-1)"><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">N°</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Fournisseur</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Chantier</th><th style="padding:7px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">TTC</th><th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Statut</th></tr></thead>
             <tbody>${facsFourn.map(f=>`<tr style="cursor:pointer" onclick="closeModal();openFacDetail('${f.id}')">
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)"><strong class="text-blue">${f.numero_facture_fournisseur}</strong></td>
-              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${f.fournisseurs?.nom||'—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(f.fournisseurs?.nom||'—')}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${chantierMap[f.chantier_id]?(chantierMap[f.chantier_id].numero||'')+' — '+chantierMap[f.chantier_id].nom:'—'}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(f.montant_ttc)}</td>
               <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${bFA(f.statut)}</td>
@@ -11279,14 +11373,14 @@ function renderDevisLignesReadOnly(arr){
     if(r.type==='section'){
       const subtotal = devisSectionSubtotal(arr,i);
       return `<tr style="background:var(--gray-1)">
-        <td colspan="4" style="padding:7px 10px;border-bottom:1px solid var(--gray-3);font-weight:700;text-transform:uppercase;font-size:12.5px">${r.description}</td>
+        <td colspan="4" style="padding:7px 10px;border-bottom:1px solid var(--gray-3);font-weight:700;text-transform:uppercase;font-size:12.5px">${escHtml(r.description)}</td>
         <td style="padding:7px 10px;border-bottom:1px solid var(--gray-3);text-align:right;font-weight:700">${fmt(subtotal)}</td>
       </tr>`;
     }
     const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
     return `<tr>
-      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${r.description}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:center;color:var(--gray-5)">${r.unite||''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2)">${escHtml(r.description)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:center;color:var(--gray-5)">${escHtml(r.unite||'')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-5)">${r.quantite}</td>
       <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-5)">${fmt(r.prix_unitaire_ht)}</td>
       <td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(total)}</td>
@@ -11320,7 +11414,7 @@ function renderDevisLignesBloc(bloc){
       return `<tr style="background:var(--gray-1)">
         <td colspan="5" style="padding:8px 10px;border-bottom:1px solid var(--gray-3)">
           <div style="display:flex;align-items:center">${moveBtns(i)}
-          <input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" placeholder="Titre de la section..." style="width:100%;padding:4px 6px;border:none;background:transparent;font-weight:700;text-transform:uppercase;font-size:12.5px"/></div>
+          <input value="${escHtml(r.description)}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" placeholder="Titre de la section..." style="width:100%;padding:4px 6px;border:none;background:transparent;font-weight:700;text-transform:uppercase;font-size:12.5px"/></div>
         </td>
         <td style="padding:8px 10px;border-bottom:1px solid var(--gray-3);text-align:right;font-weight:700">${fmt(subtotal)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid var(--gray-3);text-align:center"><button onclick="delDevisRow('${bloc}',${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
@@ -11328,8 +11422,8 @@ function renderDevisLignesBloc(bloc){
     }
     const total = (parseFloat(r.quantite)||0)*(parseFloat(r.prix_unitaire_ht)||0);
     return `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><div style="display:flex;align-items:center">${moveBtns(i)}<input value="${r.description}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></div></td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input value="${r.unite}" onchange="updDevisRow('${bloc}',${i},'unite',this.value)" style="width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;text-align:center"/></td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><div style="display:flex;align-items:center">${moveBtns(i)}<input value="${escHtml(r.description)}" onchange="updDevisRow('${bloc}',${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></div></td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input value="${escHtml(r.unite)}" onchange="updDevisRow('${bloc}',${i},'unite',this.value)" style="width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;text-align:center"/></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${r.quantite}" onchange="updDevisRow('${bloc}',${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:110px"><input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="${r.prix_unitaire_ht}" onchange="updDevisRow('${bloc}',${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
       <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:74px">${tvaSelectHTML(r.taux_tva, `updDevisRow('${bloc}',${i},'taux_tva',this.value)`)}</td>
@@ -11435,14 +11529,14 @@ async function openDevisModal(d=null){
           <div style="display:flex;gap:6px">
             <select id="dv-client" style="flex:1" onchange="majTvaDefautDevis()">
               <option value="">— Sélectionner —</option>
-              ${clients.map(c=>`<option value="${c.id}" data-pays="${(c.pays||'').replace(/"/g,'&quot;')}" ${d?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+              ${clients.map(c=>`<option value="${c.id}" data-pays="${escHtml(c.pays||'')}" ${d?.client_id===c.id?'selected':''}>${escHtml(c.nom)}</option>`).join('')}
             </select>
             ${boutonsClientRapide('dv-client')}
           </div>
           <div id="dv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin-top:4px"></div>
         </div>
         <div class="form-group"><label class="field-label">Chantier</label>
-          <select id="dv-chantier"><option value="">— Aucun (pas encore créé) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${c.numero||''} — ${c.nom}</option>`).join('')}</select>
+          <select id="dv-chantier"><option value="">— Aucun (pas encore créé) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
         </div>
         <div class="form-group full"><label class="field-label">Objet <span style="font-weight:400;color:var(--gray-5)">(description complète du devis)</span></label><input id="dv-objet" value="${escHtml(d?.objet||'')}" placeholder="Ex: Assistance à la coupure et au raccordement d'un groupe électrogène"/></div>
         <div class="form-group"><label class="field-label">Affaire <span style="font-weight:400;color:var(--gray-5)">(page de garde et en-tête du PDF)</span></label><input id="dv-affaire" value="${escHtml(d?.affaire||'')}" placeholder="Ex: DELNIEDERKORN"/></div>
@@ -11454,7 +11548,7 @@ async function openDevisModal(d=null){
           <select id="dv-statut">${Object.keys(STATUT_DV).map(s=>`<option value="${s}" ${(d?.statut||'brouillon')===s?'selected':''}>${STATUT_DV[s]}</option>`).join('')}</select>
         </div>
         <div class="form-group"><label class="field-label">Acompte (%)</label><input type="number" id="dv-acompte" value="${d ? devisAcomptePct(d) : 40}" min="0" max="100" step="any"/></div>
-        <div class="form-group"><label class="field-label">Conditions de paiement</label><input id="dv-cond-paiement" value="${d?.conditions_paiement||'30 jours'}"/></div>
+        <div class="form-group"><label class="field-label">Conditions de paiement</label><input id="dv-cond-paiement" value="${escHtml(d?.conditions_paiement||'30 jours')}"/></div>
       </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -11506,7 +11600,7 @@ async function openDevisModal(d=null){
       </div>
       <div style="text-align:right;font-size:13px;font-weight:700;margin-top:8px">Total options HT : <span id="devis-option-total">0,00 €</span></div>
 
-      <div class="form-group full" style="margin-top:20px"><label class="field-label">Observations</label><textarea id="dv-obs">${d?.observations||''}</textarea></div>
+      <div class="form-group full" style="margin-top:20px"><label class="field-label">Observations</label><textarea id="dv-obs">${escHtml(d?.observations||'')}</textarea></div>
       <div class="form-group full"><label class="field-label">Notes / remarques / attention <span style="font-weight:400;color:var(--gray-5)">(facultatif — imprimé sous le total, en gras italique, dans le PDF et l'Excel ; vide = rien ne s'imprime)</span></label>
         <textarea id="dv-attention" rows="3" placeholder="Ex : Note : Lyneo S.à r.l. assume la responsabilité de ces installations, mais…">${escHtml(d?.attention||'')}</textarea>
         <div style="font-size:11.5px;color:var(--gray-5);margin-top:4px">Écrivez vous-même « Note : », « Attention : » ou « Remarque : » au début. Un paragraphe par ligne.
@@ -11672,7 +11766,7 @@ async function openDevisDetail(devisId){
         <div class="info-item"><label>Validité</label><span>${d.validite_jours} jours</span></div>
         <div class="info-item"><label>Statut</label><span>${bDV(d.statut)}</span></div>
         <div class="info-item"><label>Acompte</label><span>${devisAcomptePct(d)}%</span></div>
-        <div class="info-item"><label>Conditions</label><span>${d.conditions_paiement||'—'}</span></div>
+        <div class="info-item"><label>Conditions</label><span>${escHtml(d.conditions_paiement||'—')}</span></div>
       </div>
 
       <strong style="font-size:13px">Lignes du devis</strong>
@@ -11709,7 +11803,7 @@ async function openDevisDetail(devisId){
         <div class="totaux-row"><span>TVA</span><span>${fmt(d.montant_tva)}</span></div>
         <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(d.montant_ttc)}</span></div>
       </div></div>
-      ${d.observations?`<div style="margin-bottom:20px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${d.observations}</p></div>`:''}
+      ${d.observations?`<div style="margin-bottom:20px"><strong style="font-size:13px">Observations</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(d.observations)}</p></div>`:''}
       ${d.attention?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes / remarques</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px;font-style:italic;font-weight:600">${escHtml(d.attention).replace(/\n/g,'<br>')}</p></div>`:''}
 
       ${blocFacturation}
@@ -12042,7 +12136,7 @@ async function openNewFactureVenteLibre(opts){
           <div style="display:flex;gap:6px">
             <select id="fvl-client" style="flex:1" onchange="filtrerChantiersParClient()">
               <option value="">— Sélectionner —</option>
-              ${clients.map(c=>`<option value="${c.id}" data-cond="${c.conditions_paiement||''}" data-pays="${(c.pays||'').replace(/"/g,'&quot;')}">${c.nom}</option>`).join('')}
+              ${clients.map(c=>`<option value="${c.id}" data-cond="${escHtml(c.conditions_paiement||'')}" data-pays="${escHtml(c.pays||'')}">${escHtml(c.nom)}</option>`).join('')}
             </select>
             ${boutonsClientRapide('fvl-client')}
           </div>
@@ -12050,7 +12144,7 @@ async function openNewFactureVenteLibre(opts){
         <div class="form-group"><label class="field-label">Chantier</label>
           <select id="fvl-chantier" onchange="filtrerChantiersParClient();syncAcompteLibre()">
             <option value="">— Aucun —</option>
-            ${chantiers.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}">${c.numero||''} — ${c.nom}</option>`).join('')}
+            ${chantiers.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}
           </select>
         </div>
         <div class="form-group full" id="fvl-devis-wrap" style="display:none"></div>
@@ -12287,8 +12381,8 @@ function renderVenteLignesLibre(){
   const body = el('vente-lignes-body');
   if(!body) return;
   body.innerHTML = _venteLignes.map((l,i)=>`<tr>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updVenteLigne(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
@@ -12767,8 +12861,8 @@ function renderVenteLignes(){
   const body = el('vente-lignes-body');
   if(!body) return;
   body.innerHTML = _venteLignes.map((l,i)=>`<tr>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:130px"><input value="${l.reference_article||''}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${l.description}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:130px"><input value="${escHtml(l.reference_article||'')}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.quantite_devis!==undefined?l.quantite_devis+' '+l.unite:'—'}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.deja_facture!==undefined?l.deja_facture+' '+l.unite:'—'}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/></td>
@@ -17697,7 +17791,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="page-header">
       <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${search}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${escHtml(search)}"/></div>
         ${btnExport('interventions_sav')}
         <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
         <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
@@ -17722,7 +17816,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
               ${savCelluleDate(i)}
               ${montreClient?`<td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>`:''}
               <td>${i.nom_site?'<strong>'+escHtml(i.nom_site)+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ escHtml(i.adresse_site||'') +'</span>':(i.adresse_site?escHtml(i.adresse_site):'—')}</td>
-              <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${String(devisMap[i.devis_id].objet||'').replace(/"/g,'&quot;')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
+              <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${escHtml(devisMap[i.devis_id].objet||'')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
               <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6);white-space:normal">'+escHtml(centresLib[i.chantier_id])+'</span>':'—'}</td>
               ${cellStatutSAV(i, _savFacturation.ok ? _savFacturation.parId[i.id] : null)}
               ${cellPaiement(_savPaiement[i.id])}
@@ -17757,9 +17851,9 @@ async function openInterventionModal(r=null){
   const devisOpts = devisList.map(d=>{
     const prisPar = devisPrisMap[d.id];
     const label = `${d.numero} — ${(d.objet||'').slice(0,45)} — ${fmt(d.montant_ht)} HT (${STATUT_DV[d.statut]||d.statut})${prisPar?' — déjà lié à '+prisPar:''}`;
-    return `<option value="${d.id}" data-client="${d.client_id||''}" data-objet="${(d.objet||'').replace(/"/g,'&quot;')}" data-statut="${d.statut||''}" ${prisPar?'disabled':''} ${r?.devis_id===d.id?'selected':''}>${label}</option>`;
+    return `<option value="${d.id}" data-client="${d.client_id||''}" data-objet="${escHtml(d.objet||'')}" data-statut="${d.statut||''}" ${prisPar?'disabled':''} ${r?.devis_id===d.id?'selected':''}>${escHtml(label)}</option>`;
   }).join('');
-  const centresOpts = centresList.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}" ${r?.chantier_id===c.id?'selected':''}>${c.numero||''} — ${c.nom}</option>`).join('');
+  const centresOpts = centresList.map(c=>`<option value="${c.id}" data-client="${c.client_id||''}" ${r?.chantier_id===c.id?'selected':''}>${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('');
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>${isEdit?'Modifier — '+r.ref:'Nouvelle intervention'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -17769,17 +17863,17 @@ async function openInterventionModal(r=null){
           <div style="display:flex;gap:6px">
             <select id="int-client" style="flex:1" onchange="prefillClientIntervention()">
               <option value="">— Sélectionner —</option>
-              ${clientsList.map(c=>`<option value="${c.id}" data-email="${c.email||''}" data-tel="${c.telephone||''}" data-adresse="${(c.adresse||'').replace(/"/g,'&quot;')}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+              ${clientsList.map(c=>`<option value="${c.id}" data-email="${escHtml(c.email||'')}" data-tel="${escHtml(c.telephone||'')}" data-adresse="${escHtml(c.adresse||'')}" ${r?.client_id===c.id?'selected':''}>${escHtml(c.nom)}</option>`).join('')}
             </select>
             ${boutonsClientRapide('int-client')}
           </div>
         </div>
         <div class="form-group"><label class="field-label">Date / heure prévue</label><input type="datetime-local" id="int-date" value="${r?.date_intervention?r.date_intervention.slice(0,16):''}"/></div>
-        <div class="form-group"><label class="field-label">Téléphone</label><input id="int-tel" value="${r?.telephone||''}"/></div>
-        <div class="form-group"><label class="field-label">Email</label><input id="int-email" value="${r?.email||''}"/></div>
-        <div class="form-group full"><label class="field-label">Adresse du client (siège)</label><input id="int-adresse-client" value="${r?.adresse_client||''}"/></div>
-        <div class="form-group"><label class="field-label">Nom du site d'intervention</label><input id="int-nom-site" value="${r?.nom_site||''}" placeholder="Ex: Entrepôt, Magasin Belval..."/></div>
-        <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${r?.adresse_site||''}"/></div>
+        <div class="form-group"><label class="field-label">Téléphone</label><input id="int-tel" value="${escHtml(r?.telephone||'')}"/></div>
+        <div class="form-group"><label class="field-label">Email</label><input id="int-email" value="${escHtml(r?.email||'')}"/></div>
+        <div class="form-group full"><label class="field-label">Adresse du client (siège)</label><input id="int-adresse-client" value="${escHtml(r?.adresse_client||'')}"/></div>
+        <div class="form-group"><label class="field-label">Nom du site d'intervention</label><input id="int-nom-site" value="${escHtml(r?.nom_site||'')}" placeholder="Ex: Entrepôt, Magasin Belval..."/></div>
+        <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${escHtml(r?.adresse_site||'')}"/></div>
         <div class="form-group full"><label class="field-label">Devis lié (la facture reprendra les lignes du devis)</label>
           <select id="int-devis" data-ordre="fixe" data-had="${r&&r.devis_id!==undefined?'1':''}" onchange="prefillDepuisDevisIntervention()">
             <option value="">— Aucun devis —</option>
@@ -17795,17 +17889,17 @@ async function openInterventionModal(r=null){
         </div>
       </div>
 
-      <div class="form-group full" style="margin-bottom:16px"><label class="field-label">Description du problème</label><textarea id="int-description" placeholder="Panne signalée, symptômes, équipement concerné...">${r?.description||''}</textarea></div>
+      <div class="form-group full" style="margin-bottom:16px"><label class="field-label">Description du problème</label><textarea id="int-description" placeholder="Panne signalée, symptômes, équipement concerné...">${escHtml(r?.description||'')}</textarea></div>
 
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Technicien (employé)</label>
           <select id="int-technicien-id" onchange="prefillTechnicienIntervention()">
             <option value="">— Aucun / non listé —</option>
-            ${employesList.map(e=>`<option value="${e.id}" data-email="${e.email||''}" ${r?.technicien_id===e.id?'selected':''}>${escHtml(nomPers(e))}</option>`).join('')}
+            ${employesList.map(e=>`<option value="${e.id}" data-email="${escHtml(e.email||'')}" ${r?.technicien_id===e.id?'selected':''}>${escHtml(nomPers(e))}</option>`).join('')}
           </select>
         </div>
-        <div class="form-group"><label class="field-label">Nom technicien (si non listé)</label><input id="int-technicien-nom" value="${r?.technicien_nom||''}"/></div>
-        <div class="form-group"><label class="field-label">Email technicien</label><input id="int-email-technicien" value="${r?.email_technicien||''}"/></div>
+        <div class="form-group"><label class="field-label">Nom technicien (si non listé)</label><input id="int-technicien-nom" value="${escHtml(r?.technicien_nom||'')}"/></div>
+        <div class="form-group"><label class="field-label">Email technicien</label><input id="int-email-technicien" value="${escHtml(r?.email_technicien||'')}"/></div>
       </div>
 
       <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:12px;${r?.astreinte?'background:#FEF2F2;border-color:var(--red)':''}">
@@ -18104,7 +18198,7 @@ async function openInterventionDetail(interventionId){
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
-      <div><h3>${i.ref}</h3><span style="font-size:12px;color:var(--gray-5)">${i.clients?.nom||''} ${i.astreinte?' — ⚡ Astreinte':''}</span></div>
+      <div><h3>${i.ref}</h3><span style="font-size:12px;color:var(--gray-5)">${escHtml(i.clients?.nom||'')} ${i.astreinte?' — ⚡ Astreinte':''}</span></div>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
@@ -18113,9 +18207,9 @@ async function openInterventionDetail(interventionId){
       </div>
 
       <div class="info-grid" style="margin-bottom:20px">
-        <div class="info-item"><label>Client</label><span>${i.clients?.nom||'—'}</span></div>
-        <div class="info-item"><label>Téléphone / Email</label><span>${i.telephone||'—'} ${i.email?' · '+i.email:''}</span></div>
-        <div class="info-item"><label>Site d'intervention</label><span>${i.nom_site?i.nom_site+' — ':''}${i.adresse_site||'—'}</span></div>
+        <div class="info-item"><label>Client</label><span>${escHtml(i.clients?.nom||'—')}</span></div>
+        <div class="info-item"><label>Téléphone / Email</label><span>${escHtml(i.telephone||'—')} ${i.email?' · '+escHtml(i.email):''}</span></div>
+        <div class="info-item"><label>Site d'intervention</label><span>${i.nom_site?escHtml(i.nom_site)+' — ':''}${escHtml(i.adresse_site||'—')}</span></div>
         <div class="info-item"><label>Date prévue</label><span>${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'—'}</span></div>
         <div class="info-item"><label>Technicien</label><span>${technicienLabel}</span></div>
         <div class="info-item"><label>Notifications</label><span>${i.notif_client?'✓ Client notifié':'○ Client non notifié'} · ${i.notif_technicien?'✓ Technicien notifié':'○ Technicien non notifié'}</span></div>
@@ -18123,7 +18217,7 @@ async function openInterventionDetail(interventionId){
         <div class="info-item"><label>Centre de coûts</label><span>${centreSav?(centreSav.numero||'')+' — '+centreSav.nom:'—'}</span></div>
         <div class="info-item"><label>Heures pointées</label><span>${heuresPointees!==null?heuresPointees.toFixed(1)+' h':'—'}</span></div>
       </div>
-      ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${i.description}</p></div>`:''}
+      ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(i.description)}</p></div>`:''}
 
       ${blocCouts}
 
@@ -18240,7 +18334,7 @@ async function openFactureSAVModal(interventionId){
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('sav-tva-all','appliquerTvaGlobaleSav(this.value)')}
         <button class="btn btn-secondary btn-sm" onclick="addSavLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       </div>
-      <div id="sav-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px">Pays du client : ${i.clients?.pays||'Luxembourg'} → TVA ${tvaDefautPays(i.clients?.pays)} % par défaut (modifiable ligne par ligne)</div>
+      <div id="sav-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px">Pays du client : ${escHtml(i.clients?.pays||'Luxembourg')} → TVA ${tvaDefautPays(i.clients?.pays)} % par défaut (modifiable ligne par ligne)</div>
       <div style="overflow-x:auto;max-width:100%">
         <table style="width:100%;border-collapse:collapse;min-width:600px">
           <thead><tr style="background:var(--gray-1)">
@@ -18272,7 +18366,7 @@ function renderSavLignes(tarifs){
   if(!body) return;
   body.innerHTML = _sav_venteLignes.map((l,idx)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updSavLigne(${idx},'categorie',this.value,true)">${ARTICLES_SAV.map(a=>`<option ${l.categorie===a?'selected':''}>${a}</option>`).join('')}</select></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${String(l.description||'').replace(/"/g,'&quot;')}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${l.unite||''} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${escHtml(l.unite||'')} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="text" data-calc="4" autocomplete="off" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updSavLigne(${idx},'taux_tva',this.value)`)}</td>
@@ -19279,7 +19373,7 @@ async function openEditPO(poId){
     +  '</div>'
     +  '<div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>'
     +  '<div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label>'
-    +    '<textarea id="po-obs">'+(po.observations||'')+'</textarea></div>'
+    +    '<textarea id="po-obs">'+escHtml(po.observations||'')+'</textarea></div>'
     +  '<div class="form-actions">'
     +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
     +    '<button class="btn btn-primary" id="btn-save-edit-po"><i class="ti ti-check"></i> Enregistrer les modifications</button>'
@@ -19409,15 +19503,15 @@ async function openFacFromPO(poId){
       const bg = i%2===0?'#fff':'var(--gray-1)';
       return '<tr style="background:'+bg+'">'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">'
-      +  '<input value="'+l.description+'" onchange="_facFromPoLignes['+i+'].description=this.value" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>'
+      +  '<input value="'+escHtml(l.description)+'" onchange="_facFromPoLignes['+i+'].description=this.value" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>'
       +'</td>'
       +crTd(l.code_ressource_id,'_facFromPoLignes['+i+'].code_ressource_id=this.value','padding:6px 8px;border-bottom:1px solid var(--gray-2)')
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5);white-space:nowrap">'+l.quantite_commandee+' '+l.unite+'</td>'
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+l.unite+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5);white-space:nowrap">'+l.quantite_commandee+' '+escHtml(l.unite)+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+escHtml(l.unite)+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:80px">'
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+l.unite+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+escHtml(l.unite)+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:100px">'
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="0.01" value="'+l.prix_unitaire_ht+'" onchange="_facFromPoLignes['+i+'].prix_unitaire_ht=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
@@ -19450,7 +19544,7 @@ async function openFacFromPO(poId){
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
     +  '<div><h3>Générer une facture — '+po.numero+'</h3>'
-    +  '<div class="modal-header-sub">'+( four?.nom||'')+'</div></div>'
+    +  '<div class="modal-header-sub">'+escHtml(four?.nom||'')+'</div></div>'
     +  '<button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>'
     +'</div>'
     +'<div class="modal-body">'
@@ -19644,7 +19738,7 @@ async function openEditFacLignes(facId){
     +    '<div class="form-group"><label class="field-label">Chantier *</label>'
     +      '<select id="efac-chantier" onchange="majInterventionAchat(\'efac\',\'factures\')">'
     +        '<option value="">— Sélectionner —</option>'
-    +        chantiers.map(c=>'<option value="'+c.id+'"'+(chantierIdActuel===c.id?' selected':'')+'>'+(c.numero||'')+' — '+c.nom+'</option>').join('')
+    +        chantiers.map(c=>'<option value="'+c.id+'"'+(chantierIdActuel===c.id?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>').join('')
     +      '</select>'
     +    '</div>'
     +    htmlChampIntervention('efac')
@@ -19678,7 +19772,7 @@ async function openEditFacLignes(facId){
     +    '</table>'
     +  '</div>'
     +  '<div class="totaux"><div class="totaux-box" id="efac-totaux"></div></div>'
-    +  '<div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="efac-obs">'+(fac.observations||'')+'</textarea></div>'
+    +  '<div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="efac-obs">'+escHtml(fac.observations||'')+'</textarea></div>'
     +  '<div class="form-actions">'
     +    '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
     +    '<button class="btn btn-primary" id="btn-save-edit-fac"><i class="ti ti-check"></i> Enregistrer</button>'
@@ -19696,9 +19790,9 @@ function renderEfacLignes(){
   const body = el('efac-lignes-body');
   if(!body) return;
   body.innerHTML = _efacLignes.map((l,i)=>`<tr>
-    <td><input value="${l.description}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
+    <td><input value="${escHtml(l.description)}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
     ${crTd(l.code_ressource_id, "updEfacLigne("+i+",'code_ressource_id',this.value)", '')}
-    <td><input value="${l.reference_article}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
+    <td><input value="${escHtml(l.reference_article)}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updEfacLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
