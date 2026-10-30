@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-10-30-a728012"/>
+<meta name="lyneo-build" content="BUILD:2026-10-30-409e562"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2662,7 +2662,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-10-30-a728012';
+const APP_BUILD = 'BUILD:2026-10-30-409e562';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3769,6 +3769,8 @@ async function renderChantiers(search=''){
   const q = String(search||'').toLowerCase();
   const correspond = i => (String(i.nom||'')+String(i.client||'')+String(i.numero||'')).toLowerCase().includes(q);
   let items = search ? baseChantiers.filter(correspond) : baseChantiers;
+  baseChantiers.forEach(r=>{ const v = String(nomChef(r,_chEmpNoms)||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+    Object.defineProperty(r, '_chefTri', {value: v || '\uffff', enumerable:false, writable:true, configurable:true}); });   // clé de tri (non énumérable : n'entre pas dans les JSON des boutons)
   items = sortItems(items, 'chantiers');
   // Recherche dans la liste principale : on signale les chantiers archivés qui correspondent aussi (comme le filtre « Archivé » d'Odoo)
   const trouvesArchives = (search && _chVue!=='archives') ? archives.filter(correspond).length : 0;
@@ -3799,7 +3801,7 @@ async function renderChantiers(search=''){
             ${sortableTh('Numéro','chantiers','numero',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Nom','chantiers','nom',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Client','chantiers','client',"renderChantiers(_chantiersSearchAtual)")}
-            ${sortableTh('Chef chantier','chantiers','chef_chantier',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Chef chantier','chantiers','_chefTri',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Début','chantiers','date_debut',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Statut','chantiers','statut',"renderChantiers(_chantiersSearchAtual)")}
             <th>Facturation</th>
@@ -4244,7 +4246,7 @@ async function openChantierDetail(chantierId, tab){
       + fmt(facsFourn.reduce((a,f)=>a+(f.montant_ttc||0),0))+'</div>';
 
   // Tab: Factures clients
-  const tabFacVenteHeader = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();openGenerateFactureVente('${chantierId}')"><i class="ti ti-plus"></i> Générer facture</button></div>`;
+  const tabFacVenteHeader = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();openGenerateFactureVente('${chantierId}',undefined,'libre')"><i class="ti ti-plus"></i> Générer facture</button></div>`;
   const tabFacVente = tabFacVenteHeader + (facsVente.length===0
     ? '<div class="empty"><div class="empty-icon"><i class="ti ti-receipt"></i></div><p>Aucune facture client pour ce chantier</p></div>'
     : '<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:500px">'
@@ -12716,7 +12718,8 @@ function majEcheanceEdit(){
   infoEcheance('efv');
 }
 
-async function openGenerateFactureVente(chantierId, devisIdChoisi){
+async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
+  const typeIni = ['acompte','situation','solde','libre'].includes(typeInitial) ? typeInitial : 'situation';   // depuis la fiche du chantier : « Libre »
   const {data:chantier} = await sb.from('chantiers_lyneo').select('*').eq('id',chantierId).single();
   if(!chantier){ showToast("Chantier introuvable", 'error'); return; }
   if(!chantier.client_id){ showToast("Ce chantier n'a pas de client lié", 'error'); return; }
@@ -12748,10 +12751,10 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi){
         ${devisListe.length>1 ? `<div class="form-group full">${devisSelectFvHTML(devisListe, devisInfo?devisInfo.id:'', 'changerDevisFv(this.value)')}</div>` : ''}
         <div class="form-group"><label class="field-label">Type de facture</label>
           <select id="fv-type" onchange="toggleFvAcompteMode()">
-            <option value="acompte">Acompte</option>
-            <option value="situation" selected>Situation de travaux</option>
-            <option value="solde">Solde</option>
-            <option value="libre">Libre</option>
+            <option value="acompte"${typeIni==='acompte'?' selected':''}>Acompte</option>
+            <option value="situation"${typeIni==='situation'?' selected':''}>Situation de travaux</option>
+            <option value="solde"${typeIni==='solde'?' selected':''}>Solde</option>
+            <option value="libre"${typeIni==='libre'?' selected':''}>Libre</option>
           </select>
         </div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
@@ -12801,7 +12804,7 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi){
   </div></div>`);
   renderVenteLignes();
   majEcheanceAuto();
-  majBlocAvancement();
+  if(typeIni!=='situation') toggleFvAcompteMode(); else majBlocAvancement();
 }
 
 // Conditions de paiement à appliquer : celles de la FICHE CLIENT (ex: « 30 jours »), à défaut celles du devis lié
