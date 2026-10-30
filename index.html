@@ -1263,9 +1263,9 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
         `${E.nom} — ${E.adresse}, ${E.cp_ville} — TVA : ${E.tva} — Matricule : ${E.matricule} — RC : ${E.rc}`,
         `Tél. : ${E.tel} — ${E.site} — ${E.mail} — Autorisation d'établissement : ${E.autorisation}`
       ],
-      bandeau: [                                                                         // bandeau bleu du devis (PDF et Excel) : 2 lignes seulement, comme le modèle Excel de Lyneo
+      bandeau: [                                                                         // bandeau bleu du devis (PDF et Excel) : 2 lignes seulement ; le téléphone est en tête de la ligne 2
         `${E.nom}   Adresse : ${E.adresse} ${E.cp_ville}   TVA : ${E.tva}   Matricule : ${E.matricule}   RC : ${E.rc}`,
-        `Site : ${E.site}   Mail : ${E.mail}   Autorisation d'établissement : ${E.autorisation}`
+        `Tél. : ${E.tel}   Site : ${E.site}   Mail : ${E.mail}   Autorisation d'établissement : ${E.autorisation}`
       ],
       pied_excel: E.nom + ' — ' + E.site,                                                  // pied d'impression des classeurs Excel
       site_url: 'https://' + E.site
@@ -13698,7 +13698,7 @@ const OU_ENTREPRISE = {
   matricule:'Pied des PDF · bandeau du devis',
   rc:'Pied des PDF · bandeau du devis',
   autorisation:'Pied des PDF · bandeau du devis',
-  tel:'Pied des PDF (bons de commande, factures, avoirs) · non imprimé sur le devis',
+  tel:'Pied des PDF (bons de commande, factures, avoirs) · bandeau du devis',
   mail:'Pied des PDF · bandeau du devis · texte « à retourner signée à… » du devis',
   site:'Pied des PDF (lien cliquable) · bandeau du devis · pied Excel',
   nom_doc:'Bloc Émetteur des bons de commande et factures',
