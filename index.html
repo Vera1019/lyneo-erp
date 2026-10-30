@@ -3730,7 +3730,7 @@ async function renderChantiers(search=''){
               <td onclick="event.stopPropagation()"><div class="td-actions">
                 <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')" title="Consulter"><i class="ti ti-eye"></i></button>
                 ${arch ? `<button class="btn btn-primary btn-sm" data-chantier-desarchiver="${r.id}" title="Désarchiver" onclick="event.stopPropagation();desarchiverChantier('${r.id}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : `
-                <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${JSON.stringify(r).replace(/'/g,"\\'").replace(/"/g,'&quot;')})'><i class="ti ti-edit"></i></button>
+                <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${attrJson(r)})'><i class="ti ti-edit"></i></button>
                 ${(r.statut==='termine' && estChantier) ? `<button class="btn btn-secondary btn-sm" data-chantier-archiver="${r.id}" title="Archiver" onclick="event.stopPropagation();archiverChantier('${r.id}')"><i class="ti ti-archive"></i></button>` : ''}
                 <button class="btn btn-danger btn-sm" data-chantier-suppr="${r.id}" title="Supprimer" onclick="event.stopPropagation();supprimerChantier('${r.id}')"><i class="ti ti-trash"></i></button>`}
               </div></td>
@@ -4335,7 +4335,7 @@ async function openChantierDetail(chantierId, tab){
         ${estChantierType && chantier.statut==='actif' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-terminer" onclick="terminerChantier('${chantierId}')"><i class="ti ti-circle-check"></i> Marquer terminé</button>` : ''}
         ${estChantierType && chantier.statut==='termine' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-archiver" onclick="archiverChantier('${chantierId}')"><i class="ti ti-archive"></i> Archiver</button>` : ''}
         ${chEstArchive(chantier) ? `<button class="btn btn-primary btn-sm" id="ch-btn-desarchiver" onclick="desarchiverChantier('${chantierId}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : ''}
-        <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${JSON.stringify(chantier).replace(/'/g,"\'").replace(/"/g,"&quot;")})'><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-secondary btn-sm" onclick='closeModal();openChantierModal(${attrJson(chantier)})'><i class="ti ti-edit"></i> Modifier</button>
         <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
       </div>
     </div>
@@ -4857,7 +4857,7 @@ async function openChantierModal(r=null){
     sb.from('employes_rh').select('id,nom,prenom,actif').order('nom')
   ]);
   const clients = clientsData||[];
-  const clientOpts = clients.map(c=>`<option value="${c.id}" ${r?.client_id===c.id?'selected':''}>${c.nom}</option>`).join('');
+  const clientOpts = clients.map(c=>`<option value="${escHtml(c.id)}" ${r?.client_id===c.id?'selected':''}>${escHtml(c.nom)}</option>`).join('');
   // Chef de chantier : liste des employés actifs (+ celui déjà lié, même s'il est parti). Si la liste est illisible, on garde le champ texte en secours.
   const empOk = !empR.error;
   const empsTous = empOk ? (empR.data||[]) : [];
@@ -4895,7 +4895,7 @@ async function openChantierModal(r=null){
     <div class="modal-header"><h3>${isEdit?(r.type_centre==='sav'?'Modifier le centre SAV':'Modifier chantier'):(r&&r.type_centre==='sav'?'Nouveau centre SAV':'Nouveau chantier')}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${r?.nom||''}" placeholder="${r&&r.type_centre==='sav'?'Ex: Dépannage Delhaize':'Ex: Rénovation Bâtiment A'}"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="ch-nom" value="${escHtml(r?.nom||'')}" placeholder="${r&&r.type_centre==='sav'?'Ex: Dépannage Delhaize':'Ex: Rénovation Bâtiment A'}"/></div>
         <div class="form-group"><label class="field-label">Client <span style="font-weight:400;text-transform:none">(facultatif pour un centre SAV « clients divers » ou interne)</span></label>
           <div style="display:flex;gap:6px">
             <select id="ch-client-id" style="flex:1">
@@ -4905,10 +4905,10 @@ async function openChantierModal(r=null){
             ${boutonsClientRapide('ch-client-id')}
           </div>
         </div>
-        <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${r?.adresse||''}" placeholder="Adresse du chantier"/></div>
-        <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${r?.site_intervention||''}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
+        <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Adresse du chantier"/></div>
+        <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${escHtml(r?.site_intervention||'')}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
         <div class="form-group"><label class="field-label">Chef de chantier</label>${champChef}</div>
-        <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide : numéro automatique)'}</label><input id="ch-numero" value="${r?.numero||''}" placeholder="Ex: P00001, SAV 2, FG"/>${isEdit?'':'<span id="ch-numero-hint" style="font-size:12px;color:var(--gray-5)"></span>'}</div>
+        <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide : numéro automatique)'}</label><input id="ch-numero" value="${escHtml(r?.numero||'')}" placeholder="Ex: P00001, SAV 2, FG"/>${isEdit?'':'<span id="ch-numero-hint" style="font-size:12px;color:var(--gray-5)"></span>'}</div>
         <div class="form-group"><label class="field-label">Type de centre de coûts</label>
           <select id="ch-type" onchange="majNumeroAutoChantier()" data-had="${r&&r.type_centre!==undefined?'1':''}">
             <option value="chantier" ${(r?.type_centre||'chantier')==='chantier'?'selected':''}>Chantier</option>
@@ -4929,7 +4929,7 @@ async function openChantierModal(r=null){
           <span style="font-size:12px;color:var(--gray-5)">Facultatif. Tant qu'un montant est indiqué, le chantier terminé affiche « Retenue ».</span></div>
         <div class="form-group"><label class="field-label" for="ch-retenue-date">Libération de la retenue prévue le</label>
           <input type="date" id="ch-retenue-date" data-had="${r && r.retenue_garantie_date!==undefined?'1':''}" value="${escHtml(r?.retenue_garantie_date||'')}"/></div>
-        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${r?.code_pointages||''}" placeholder="Code dans le système de pointages"/>
+        <div class="form-group"><label class="field-label">Code pointages</label><input id="ch-code-pt-modal" value="${escHtml(r?.code_pointages||'')}" placeholder="Code dans le système de pointages"/>
           <span style="font-size:12px;color:var(--gray-5)">Centre SAV : plusieurs codes possibles, séparés par une virgule (ex: DPSINTER, NASSO).</span></div>
         <div class="form-group"><label class="field-label" for="ch-heures-prevues">Heures prévues (devis)</label>
           <div style="display:flex;gap:6px"><input type="number" step="0.5" min="0" id="ch-heures-prevues" style="flex:1;min-width:0" data-had="${r && r.heures_prevues!==undefined?'1':''}" value="${escHtml(r?.heures_prevues??'')}" placeholder="Ex: 800"/>
@@ -11833,6 +11833,8 @@ let _fvCtx = {devis:{}, interv:{}};
 let _fvAvoirs = {};
 
 function escHtml(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Objet JSON à coller dans un attribut onclick='…' : & < > " ' sont écrits en entités (le navigateur les décode avant d'exécuter le code), donc un nom avec apostrophe ou guillemets ne coupe plus l'attribut
+function attrJson(o){ return escHtml(JSON.stringify(o)).replace(/'/g,'&#39;'); }
 // Nom d'une personne affiché « NOM Prénom » (usage administratif FR/LU) : seulement à l'écran, la fiche garde nom et prénom séparés.
 // Renvoie du texte brut : l'appelant applique escHtml quand il l'insère dans du HTML.
 function nomPers(p){
@@ -18371,7 +18373,7 @@ async function renderUtilisateurs(){
               <td><span class="badge badge-envoyee">${ROLES[r.role]||r.role}</span></td>
               <td>${r.role==='admin' ? '<span class="text-muted text-sm">toujours</span>' : (r.acces_salaires===true ? '<span class="badge badge-oui">Autorisé</span>' : '<span class="text-muted text-sm">—</span>')}</td>
               <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Actif':'Inactif'}</span></td>
-              <td><button class="btn btn-secondary btn-sm" onclick='openUserModal(${JSON.stringify(r).replace(/'/g,"\\'")})'><i class="ti ti-edit"></i></button></td>
+              <td><button class="btn btn-secondary btn-sm" onclick='openUserModal(${attrJson(r)})'><i class="ti ti-edit"></i></button></td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -18384,9 +18386,9 @@ function openUserModal(r=null){
     <div class="modal-header"><h3>${r?'Modifier utilisateur':'Nouvel utilisateur'}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Prénom *</label><input id="u-prenom" value="${r?.prenom||''}" placeholder="Prénom"/></div>
-        <div class="form-group"><label class="field-label">Nom *</label><input id="u-nom" value="${r?.nom||''}" placeholder="Nom"/></div>
-        <div class="form-group"><label class="field-label">Email * <span style="font-weight:400;text-transform:none">(identique au compte de connexion)</span></label><input type="email" id="u-email" value="${r?.email||''}" placeholder="prenom.nom@lyneo.lu"/></div>
+        <div class="form-group"><label class="field-label">Prénom *</label><input id="u-prenom" value="${escHtml(r?.prenom||'')}" placeholder="Prénom"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="u-nom" value="${escHtml(r?.nom||'')}" placeholder="Nom"/></div>
+        <div class="form-group"><label class="field-label">Email * <span style="font-weight:400;text-transform:none">(identique au compte de connexion)</span></label><input type="email" id="u-email" value="${escHtml(r?.email||'')}" placeholder="prenom.nom@lyneo.lu"/></div>
         <div class="form-group"><label class="field-label">Rôle</label>
           <select id="u-role">
             <option value="admin" ${r?.role==='admin'?'selected':''}>Administrateur</option>
