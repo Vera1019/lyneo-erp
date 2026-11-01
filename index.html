@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-10-30-409e562"/>
+<meta name="lyneo-build" content="BUILD:2026-11-01-fb6a64b"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -378,6 +378,14 @@ tbody tr:hover td{background:var(--blue-light)}
 #fac-liste tr.fac-filtres input,#fac-liste tr.fac-filtres select{padding:5px 7px;font-size:12px;border-width:1px;border-radius:6px;min-width:0}
 #fac-liste .fac-range{display:grid;grid-template-columns:auto minmax(104px,1fr);gap:3px 6px;align-items:center;font-size:10.5px;font-weight:600;color:var(--gray-5)}
 .td-primary{font-weight:600;color:var(--blue);font-size:13px}
+.envfv-pj{display:flex;gap:8px;align-items:center;padding:3px 6px 3px 10px;border:1px solid var(--gray-3);border-radius:6px;margin-bottom:5px;font-size:13px;background:#fff}
+.envfv-pj .envfv-nom{flex:1;overflow-wrap:anywhere}
+.af-barre{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px}
+.af-champ{display:flex;flex-direction:column;gap:3px;font-size:10.5px;font-weight:600;color:var(--gray-5)}
+.af-champ select,.af-champ input{padding:6px 8px;font-size:12.5px;border:1px solid var(--gray-3);border-radius:6px;min-width:0;background:#fff;color:var(--gray-7,inherit)}
+.af-champ .af-date{width:136px}.af-champ .af-mont{width:96px}
+.af-compte{font-size:12.5px;color:var(--gray-5);align-self:center;margin-left:auto}
+@media (max-width:600px){.af-champ{flex:1 1 44%}.af-champ select,.af-champ input,.af-champ .af-date,.af-champ .af-mont{width:100%}.af-compte{margin-left:0;flex-basis:100%}}
 .dbl-item{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--gray-3);border-radius:var(--radius-sm);margin-bottom:8px;background:#fff}
 .dbl-groupe{border:1px solid var(--gray-3);background:var(--gray-1);border-radius:var(--radius);padding:12px;margin-bottom:14px}
 .dbl-raison{display:inline-block;font-size:11px;font-weight:700;background:var(--orange-light);color:#92400E;border:1px solid #FDE68A;border-radius:999px;padding:2px 9px;margin:0 6px 4px 0}
@@ -2550,7 +2558,7 @@ function showModal(html) {
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; }
+function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; const gv = el('envoi-fv-container'); if(gv && gv.innerHTML){ gv.innerHTML = ''; _envFV = null; } }
 // ── Fond sombre des fenêtres : ne se ferme que sur un VRAI clic (appui ET relâchement sur le fond) ──────────────
 // Quand on sélectionne du texte dans un champ en glissant la souris puis qu'on relâche hors de la fenêtre, le navigateur
 // envoie un « clic » au fond sombre (ancêtre commun) : toutes les fenêtres se fermaient en perdant la saisie.
@@ -2662,7 +2670,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-10-30-409e562';
+const APP_BUILD = 'BUILD:2026-11-01-fb6a64b';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -4760,7 +4768,7 @@ async function renderHeuresSemaine(){
   const monday = getMonday(_heuresWeekOffset);
   const days = Array.from({length:7}, (_,i)=>{ const d = new Date(monday); d.setDate(d.getDate()+i); return d; });
   const sunday = days[6];
-  const isoDay = d => d.toISOString().slice(0,10);
+  const isoDay = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');   // date LOCALE (toISOString donnait la veille)
 
   const {data:picages} = await sbPT.from('picages')
     .select('*,employes(nom)')
@@ -6044,48 +6052,72 @@ async function saveFourCore(id, selectId=null){
 let _pos = [], _chantiersActive = [], _foursActive = [], _poRefs = {};
 let poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
 
-async function renderPOS(search='', filterStatut=''){
-  const [posR, chantsR, foursR] = await Promise.all([
-    sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom,client,numero),fournisseurs!fournisseur_id(nom,email)').order('created_at',{ascending:false}),
-    sb.from('chantiers_lyneo').select('*').eq('statut','actif'),
-    sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
-  ]);
-  _pos = posR.data||[]; _chantiersActive = chantsR.data||[]; _foursActive = foursR.data||[];
-  _poRefs = await chargerRefsInterventions(_pos.map(p=>p.intervention_id));
-  await tracChargerUtilisateurs();
-  const q = search.toLowerCase();
-  const items = _pos.filter(i=>{
-    const match = !q || [i.numero, i.chantiers_lyneo?.numero, i.chantiers_lyneo?.nom, i.fournisseurs?.nom].join(' ').toLowerCase().includes(q);
-    const st = !filterStatut || i.statut===filterStatut;
-    return match && st;
+// ── FILTRES DES LISTES D'ACHATS : Bons de commande et Réceptions (01/11/2026) ──
+// Filtres combinables (ET), appliqués dans le navigateur sur la liste COMPLÈTE (lue par paquets de 1000 : pas de limite silencieuse).
+// Les champs ne sont pas reconstruits à chaque lettre : seule la table est réécrite (le curseur reste dans le champ).
+const _afNorm = t => String(t==null?'':t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim();
+const _afJour = v => String(v||'').slice(0,10);
+const _afNombre = v => { const t = String(v==null?'':v).trim().replace(/\s/g,'').replace(',','.'); if(t==='') return null; const n = Number(t); return isNaN(n) ? null : n; };
+const _afPeriode = (jour, de, a) => { if(!de && !a) return true; const j = _afJour(jour); if(!j) return false; return (!de || j>=de) && (!a || j<=a); };
+const _afBornes = (x, y) => (x && y && x>y) ? [y, x] : [x, y];          // bornes inversées par erreur : on les remet dans l'ordre
+const _afCmpTexte = (a, b) => String(a[1]).localeCompare(String(b[1]), 'fr', {sensitivity:'base', numeric:true});
+async function lireListeAchats(table, cols, cmp){
+  try{ const l = await lirePagine(table, cols); return l.sort(cmp); }
+  catch(e){ const r = await sb.from(table).select(cols); return (r.data||[]).sort(cmp); }
+}
+const afChamp = (lib, html) => `<label class="af-champ"><span>${lib}</span>${html}</label>`;
+const afOptions = (liste, courant, tous) => `<option value="">${tous}</option>` + liste.map(([v,t])=>`<option value="${escHtml(v)}"${String(v)===String(courant)?' selected':''}>${escHtml(t)}</option>`).join('');
+const afFiltreActif = F => Object.values(F).some(v => String(v||'')!=='');
+function afRemettreChamps(ids){ ids.forEach(id=>{ const e = el(id); if(e) e.value = ''; }); }
+
+// ── Bons de commande ──
+const filtresPOVides = () => ({search:'', statut:'', four:'', chantier:'', de:'', a:'', min:'', max:'', par:''});
+let _poF = filtresPOVides(), _poListe = [];
+function barreFiltresPO(){
+  const F = _poF, fours = new Map(), chs = new Map(), pars = new Map();
+  _poListe.forEach(i=>{
+    if(i.fournisseur_id) fours.set(String(i.fournisseur_id), i.fournisseurs?.nom||'—');
+    if(i.chantier_id) chs.set(String(i.chantier_id), [i.chantiers_lyneo?.numero, i.chantiers_lyneo?.nom].filter(Boolean).join(' — ')||'—');
+    if(i.cree_par) pars.set(String(i.cree_par), tracNomAuteur(i.cree_par)||'—');
   });
-  const statusOpts = Object.entries(STATUT_PO).map(([k,v])=>`<option value="${k}" ${filterStatut===k?'selected':''}>${v}</option>`).join('');
-  el('page-content').innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left"><h1>Bons de commande</h1><p>Achats et commandes fournisseurs</p></div>
-      <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="N° PO, chantier, fournisseur..." oninput="renderPOS(this.value,document.getElementById('po-filter-statut').value)" value="${escHtml(search)}"/></div>
-        <select id="po-filter-statut" onchange="renderPOS(document.querySelector('.search-wrap input').value,this.value)" style="padding:7px 10px;border-radius:var(--radius);border:1px solid var(--gray-3);font-size:13px">
-          <option value="">Tous les statuts</option>${statusOpts}
-        </select>
-        ${btnExport('pos')}
-        <button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Nouvelle commande</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui" data-export="pos">
-          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Créé par</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${items.length===0 ? '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>' :
-            items.map(r=>{
+  const tri = m => [...m.entries()].sort(_afCmpTexte);
+  return `<div class="af-barre" id="po-filtres">
+    ${afChamp('Statut', `<select id="po-filter-statut" onchange="majFiltrePO('statut',this.value)">${afOptions(Object.entries(STATUT_PO), F.statut, 'Tous les statuts')}</select>`)}
+    ${afChamp('Fournisseur', `<select id="po-f-four" onchange="majFiltrePO('four',this.value)">${afOptions(tri(fours), F.four, 'Tous')}</select>`)}
+    ${afChamp('Chantier / centre de coûts', `<select id="po-f-chantier" onchange="majFiltrePO('chantier',this.value)">${afOptions([['sans','Sans chantier'], ...tri(chs)], F.chantier, 'Tous')}</select>`)}
+    ${afChamp('Date du', `<input type="date" id="po-f-de" class="af-date" value="${escHtml(F.de)}" onchange="majFiltrePO('de',this.value)"/>`)}
+    ${afChamp('au', `<input type="date" id="po-f-a" class="af-date" value="${escHtml(F.a)}" onchange="majFiltrePO('a',this.value)"/>`)}
+    ${afChamp('Total HT min.', `<input type="number" step="0.01" id="po-f-min" class="af-mont" placeholder="€" value="${escHtml(F.min)}" oninput="majFiltrePO('min',this.value)"/>`)}
+    ${afChamp('Total HT max.', `<input type="number" step="0.01" id="po-f-max" class="af-mont" placeholder="€" value="${escHtml(F.max)}" oninput="majFiltrePO('max',this.value)"/>`)}
+    ${afChamp('Créé par', `<select id="po-f-par" onchange="majFiltrePO('par',this.value)">${afOptions(tri(pars), F.par, 'Tous')}</select>`)}
+    <button class="btn btn-ghost btn-sm" id="po-f-reset" onclick="reinitialiserFiltresPO()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
+    <span class="af-compte" id="po-compte"></span>
+  </div>`;
+}
+function poFiltrees(){
+  const F = _poF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a);
+  let [mn, mx] = [_afNombre(F.min), _afNombre(F.max)]; if(mn!==null && mx!==null && mn>mx) [mn, mx] = [mx, mn];
+  return _poListe.filter(i=>{
+    if(F.statut && i.statut!==F.statut) return false;
+    if(F.four && String(i.fournisseur_id)!==F.four) return false;
+    if(F.chantier==='sans'){ if(i.chantier_id) return false; } else if(F.chantier && String(i.chantier_id)!==F.chantier) return false;
+    if(F.par && String(i.cree_par||'')!==F.par) return false;
+    if(!_afPeriode(i.date_creation, de, a)) return false;
+    const ht = Math.round((parseFloat(i.total_ht)||0)*100)/100;
+    if(mn!==null && ht<mn) return false;
+    if(mx!==null && ht>mx) return false;
+    if(q && !_afNorm([i.numero, i.chantiers_lyneo?.numero, i.chantiers_lyneo?.nom, i.fournisseurs?.nom, _poRefs[i.intervention_id], tracNomAuteur(i.cree_par)].join(' ')).includes(q)) return false;
+    return true;
+  });
+}
+function lignePO(r){
               const centreHtml = htmlCentreCout(r.chantiers_lyneo) || htmlCentreCout(_chantiersActive.find(c=>c.id===r.chantier_id)) || '—';
               const pct = ['rec_totale','facturee','payee'].includes(r.statut) ? 100
                 : r.statut==='rec_partielle' ? 50
                 : r.statut==='envoyee' ? 10 : 0;
               const pctColor = pct===100?'var(--green)':pct>0?'var(--blue)':'var(--gray-3)';
               return `<tr data-sel-id="${r.id}"${r.statut==='annulee'?' data-som-off="1"':''} style="cursor:pointer" onclick="openPODetail('${r.id}')">
-              <td><span class="td-primary">${r.numero}</span></td>
+              <td><span class="td-primary">${escHtml(r.numero)}</span></td>
               <td>${escHtml(r.fournisseurs?.nom||'—')}</td>
               <td>${centreHtml}${_poRefs[r.intervention_id] ? `<div style="font-size:11px;font-weight:600;color:var(--blue)" title="Imputée à cette intervention SAV">${escHtml(_poRefs[r.intervention_id])}</div>` : ''}</td>
               <td>${fmtDate(r.date_creation)}</td>
@@ -6107,11 +6139,121 @@ async function renderPOS(search='', filterStatut=''){
                 ${poPeutEtreFacturee(r) ? `<button class="btn btn-secondary btn-sm" data-po-facturer="${r.id}" onclick="openFacFromPO('${r.id}')" title="Générer la facture du fournisseur"><i class="ti ti-file-invoice"></i></button>` : ''}
                 ${r.statut==='brouillon' ? '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();annulerPO(\'' + r.id + '\')" title="Annuler"><i class="ti ti-x"></i></button>' : ''}
               </div></td>
-            </tr>`;}).join('')}
-          </tbody>
+            </tr>`;
+}
+function afficherPOS(){
+  const tb = el('po-tbody'); if(!tb) return;
+  const items = poFiltrees(), filtre = afFiltreActif(_poF);
+  tb.innerHTML = items.length===0
+    ? (filtre ? '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-filter-off"></i></div><p>Aucune commande ne correspond aux filtres</p><button class="btn btn-secondary" onclick="reinitialiserFiltresPO()">Réinitialiser les filtres</button></div></td></tr>'
+              : '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>')
+    : items.map(lignePO).join('');
+  const ht = items.filter(r=>r.statut!=='annulee').reduce((t,r)=>t+(parseFloat(r.total_ht)||0), 0);
+  const c = el('po-compte');
+  if(c) c.textContent = items.length + ' commande' + (items.length>1?'s':'') + (filtre ? ' sur ' + _poListe.length : '') + (items.length ? ' · Total HT (hors annulées) : ' + fmt(ht) : '');
+  const b = el('po-f-reset'); if(b) b.style.display = filtre ? '' : 'none';
+}
+function majFiltrePO(k, v){ _poF[k] = v; selExpVider('pos'); afficherPOS(); }
+function reinitialiserFiltresPO(){ _poF = filtresPOVides(); afRemettreChamps(['po-f-search','po-filter-statut','po-f-four','po-f-chantier','po-f-de','po-f-a','po-f-min','po-f-max','po-f-par']); selExpVider('pos'); afficherPOS(); }
+
+// ── Réceptions (BL) ──
+const filtresBLVides = () => ({search:'', four:'', chantier:'', etat:'', de:'', a:'', par:''});
+let _blF = filtresBLVides(), _blListe = [], _nbDocsBL = {};
+const blFournisseur = b => b.purchase_orders_lyneo?.fournisseurs?.nom || '';
+const blChantierLib = b => { const c = b.purchase_orders_lyneo?.chantiers_lyneo; return c ? [c.numero, c.nom].filter(Boolean).join(' — ') : ''; };
+function barreFiltresBL(){
+  const F = _blF, fours = new Map(), chs = new Map(), pars = new Map();
+  _blListe.forEach(b=>{
+    const f = blFournisseur(b), c = blChantierLib(b), p = nomPers(b.utilisateurs);
+    if(f) fours.set(f, f); if(c) chs.set(c, c); if(p) pars.set(p, p);
+  });
+  const tri = m => [...m.entries()].sort(_afCmpTexte);
+  return `<div class="af-barre" id="bl-filtres">
+    <div class="search-wrap"><i class="ti ti-search"></i><input id="bl-f-search" placeholder="N° BL, commande, fournisseur, chantier..." oninput="majFiltreBL('search',this.value)" value="${escHtml(F.search)}"/></div>
+    ${afChamp('Fournisseur', `<select id="bl-f-four" onchange="majFiltreBL('four',this.value)">${afOptions(tri(fours), F.four, 'Tous')}</select>`)}
+    ${afChamp('Chantier / centre de coûts', `<select id="bl-f-chantier" onchange="majFiltreBL('chantier',this.value)">${afOptions([['sans','Sans chantier'], ...tri(chs)], F.chantier, 'Tous')}</select>`)}
+    ${afChamp('Réception', `<select id="bl-f-etat" onchange="majFiltreBL('etat',this.value)">${afOptions([['complet','Réception complète'],['partiel','Réception partielle']], F.etat, 'Toutes')}</select>`)}
+    ${afChamp('Date du', `<input type="date" id="bl-f-de" class="af-date" value="${escHtml(F.de)}" onchange="majFiltreBL('de',this.value)"/>`)}
+    ${afChamp('au', `<input type="date" id="bl-f-a" class="af-date" value="${escHtml(F.a)}" onchange="majFiltreBL('a',this.value)"/>`)}
+    ${afChamp('Reçu par', `<select id="bl-f-par" onchange="majFiltreBL('par',this.value)">${afOptions(tri(pars), F.par, 'Tous')}</select>`)}
+    <button class="btn btn-ghost btn-sm" id="bl-f-reset" onclick="reinitialiserFiltresBL()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
+    <span class="af-compte" id="bl-compte"></span>
+  </div>`;
+}
+function blFiltres(){
+  const F = _blF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a);
+  return _blListe.filter(b=>{
+    const four = blFournisseur(b), ch = blChantierLib(b), par = nomPers(b.utilisateurs);
+    if(F.four && four!==F.four) return false;
+    if(F.chantier==='sans'){ if(ch) return false; } else if(F.chantier && ch!==F.chantier) return false;
+    if(F.etat==='complet' && b.statut_reception!=='complet') return false;
+    if(F.etat==='partiel' && b.statut_reception==='complet') return false;
+    if(F.par && par!==F.par) return false;
+    if(!_afPeriode(b.date_reception, de, a)) return false;
+    if(q && !_afNorm([b.numero_bl, b.purchase_orders_lyneo?.numero, four, ch, par].join(' ')).includes(q)) return false;
+    return true;
+  });
+}
+function ligneBL(b){
+              const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
+              const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
+              return '<tr data-sel-id="'+b.id+'" style="cursor:pointer" onclick="openBLDetail(\''+b.id+'\')">'
+                +'<td><strong class="text-blue">'+escHtml(b.numero_bl)+'</strong></td>'
+                +'<td>'+escHtml(b.purchase_orders_lyneo?.numero||'—')+'</td>'
+                +'<td>'+escHtml(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
+                +'<td>'+(htmlCentreCout(b.purchase_orders_lyneo?.chantiers_lyneo)||'—')+'</td>'
+                +'<td>'+fmtDate(b.date_reception)+'</td>'
+                +'<td>'+escHtml(nomPers(b.utilisateurs))+'</td>'
+                +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
+                +'<td onclick="event.stopPropagation()"><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="openBLDetail(\''+b.id+'\')"><i class="ti ti-eye"></i></button>'
+                +  (_nbDocsBL[String(b.id)] ? '<button class="btn btn-secondary btn-sm" data-bl-docs="'+escHtml(b.id)+'" onclick="apercuBLListe(\''+escHtml(b.id)+'\')" title="'+_nbDocsBL[String(b.id)]+' document(s) joint(s) — aperçu"><i class="ti ti-paperclip"></i> '+_nbDocsBL[String(b.id)]+'</button>' : '')
+                +'</div></td>'
+                +'</tr>';
+            
+}
+function afficherReceptions(){
+  const tb = el('bl-tbody'); if(!tb) return;
+  const items = blFiltres(), filtre = afFiltreActif(_blF);
+  tb.innerHTML = items.length===0
+    ? (filtre ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-filter-off"></i></div><p>Aucune réception ne correspond aux filtres</p><button class="btn btn-secondary" onclick="reinitialiserFiltresBL()">Réinitialiser les filtres</button></div></td></tr>'
+              : '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>')
+    : items.map(ligneBL).join('');
+  const c = el('bl-compte');
+  if(c) c.textContent = items.length + ' réception' + (items.length>1?'s':'') + (filtre ? ' sur ' + _blListe.length : '');
+  const b = el('bl-f-reset'); if(b) b.style.display = filtre ? '' : 'none';
+}
+function majFiltreBL(k, v){ _blF[k] = v; selExpVider('receptions'); afficherReceptions(); }
+function reinitialiserFiltresBL(){ _blF = filtresBLVides(); afRemettreChamps(['bl-f-search','bl-f-four','bl-f-chantier','bl-f-etat','bl-f-de','bl-f-a','bl-f-par']); selExpVider('receptions'); afficherReceptions(); }
+
+async function renderPOS(search='', filterStatut=''){
+  const [pos, chantsR, foursR] = await Promise.all([
+    lireListeAchats('purchase_orders_lyneo', '*,chantiers_lyneo!chantier_id(nom,client,numero),fournisseurs!fournisseur_id(nom,email)', (x,y)=>String(y.created_at||'').localeCompare(String(x.created_at||''))),
+    sb.from('chantiers_lyneo').select('*').eq('statut','actif'),
+    sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
+  ]);
+  _pos = pos; _poListe = pos; _chantiersActive = chantsR.data||[]; _foursActive = foursR.data||[];
+  _poRefs = await chargerRefsInterventions(_pos.map(p=>p.intervention_id));
+  await tracChargerUtilisateurs();
+  _poF = filtresPOVides(); _poF.search = String(search||''); _poF.statut = String(filterStatut||'');
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Bons de commande</h1><p>Achats et commandes fournisseurs</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input id="po-f-search" placeholder="N° PO, chantier, fournisseur..." oninput="majFiltrePO('search',this.value)" value="${escHtml(_poF.search)}"/></div>
+        ${btnExport('pos')}
+        <button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Nouvelle commande</button>
+      </div>
+    </div>
+    ${barreFiltresPO()}
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table data-tri="oui" data-export="pos">
+          <thead><tr><th>N° Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date</th><th>Avancement</th><th>Total HT</th><th>Total TTC</th><th>Statut</th><th>Créé par</th><th>Actions</th></tr></thead>
+          <tbody id="po-tbody"></tbody>
         </table>
       </div>
     </div>`;
+  afficherPOS();
 }
 
 function openNewPO(){
@@ -6366,18 +6508,29 @@ function emlEnTeteTexte(t){
   if(cur) mots.push(cur);
   return mots.map(m=>'=?UTF-8?B?'+emlBase64(emlUtf8(m))+'?=').join('\r\n ');
 }
-// Message complet (RFC 5322 / MIME) : texte + PDF en pièce jointe. « X-Unsent: 1 » = brouillon : Outlook / Thunderbird l'ouvrent en rédaction, prêt à envoyer.
-function construireEml({destinataires, sujet, corps, nomPdf, pdf}){
+// Nom de pièce jointe sûr : sans accents ni caractères spéciaux (aucune injection d'en-tête)
+const nomPieceJointe = n => String(n||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[._]+/, '') || 'piece-jointe';
+const typeMimeSur = t => /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(String(t||'')) ? String(t).toLowerCase() : 'application/octet-stream';
+// Message complet (RFC 5322 / MIME) : texte + pièces jointes [{nom, type, octets}]. « X-Unsent: 1 » = brouillon : Outlook / Thunderbird l'ouvrent en rédaction, prêt à envoyer.
+function construireEmlPJ({destinataires, cc, sujet, corps, pieces}){
   const bord = '----=_Lyneo_' + Date.now().toString(36) + Math.random().toString(36).slice(2,10);
-  const nom = String(nomPdf).replace(/[^A-Za-z0-9._-]+/g, '_');
-  const adr = (destinataires||[]).filter(a=>EMAIL_RE.test(a));
+  const adr = (destinataires||[]).filter(a=>EMAIL_RE.test(a)), adrCc = (cc||[]).filter(a=>EMAIL_RE.test(a));
   const texte = String(corps).replace(/\r?\n/g, '\r\n');
+  const pris = new Set(), parts = [];
+  (pieces||[]).forEach(p=>{
+    let nom = nomPieceJointe(p.nom); const m = nom.match(/^(.*?)(\.[A-Za-z0-9]+)?$/); let k = 1;
+    while(pris.has(nom.toLowerCase())){ k++; nom = (m[1]||'piece-jointe') + '_' + k + (m[2]||''); }
+    pris.add(nom.toLowerCase());
+    parts.push('--'+bord, 'Content-Type: '+typeMimeSur(p.type)+'; name="'+nom+'"', 'Content-Transfer-Encoding: base64', 'Content-Disposition: attachment; filename="'+nom+'"', '', emlBase64(new Uint8Array(p.octets)));
+  });
   return emlUtf8([
-    'X-Unsent: 1', 'To: '+adr.join(', '), 'Subject: '+emlEnTeteTexte(sujet), 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="'+bord+'"', '',
-    '--'+bord, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', emlBase64(emlUtf8(texte)),
-    '--'+bord, 'Content-Type: application/pdf; name="'+nom+'"', 'Content-Transfer-Encoding: base64', 'Content-Disposition: attachment; filename="'+nom+'"', '', emlBase64(new Uint8Array(pdf)),
-    '--'+bord+'--', ''
-  ].join('\r\n'));
+    'X-Unsent: 1', 'To: '+adr.join(', ')].concat(adrCc.length ? ['Cc: '+adrCc.join(', ')] : []).concat([
+    'Subject: '+emlEnTeteTexte(sujet), 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="'+bord+'"', '',
+    '--'+bord, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', emlBase64(emlUtf8(texte))]).concat(parts).concat([
+    '--'+bord+'--', '']).join('\r\n'));
+}
+function construireEml({destinataires, sujet, corps, nomPdf, pdf}){
+  return construireEmlPJ({destinataires, sujet, corps, pieces:[{nom:nomPdf, type:'application/pdf', octets:pdf}]});
 }
 function ouvrirLienMailto(url){ window.location.href = url; }
 let _envPO = null;
@@ -7269,15 +7422,16 @@ async function downloadPDF_PO(poId){
 // ── RECEPTIONS ───────────────────────────────────────────────
 let _posAttente = [], _lignesRec = [];
 async function renderReceptions(){
-  const [posR, blsR] = await Promise.all([
+  const [posR, bls] = await Promise.all([
     sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(numero,nom),fournisseurs!fournisseur_id(nom)').in('statut',['envoyee','rec_partielle']).order('created_at',{ascending:false}),
-    sb.from('bons_livraison').select('*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(numero,nom)),utilisateurs(nom,prenom)').order('date_reception',{ascending:false})
+    lireListeAchats('bons_livraison', '*,purchase_orders_lyneo(numero,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(numero,nom)),utilisateurs(nom,prenom)',
+      (x,y)=>String(y.date_reception||'').localeCompare(String(x.date_reception||'')) || String(y.created_at||'').localeCompare(String(x.created_at||'')))
   ]);
   _posAttente = posR.data||[];
-  const bls = blsR.data||[];
+  _blListe = bls; _blF = filtresBLVides();
   // Nombre de documents joints par réception (le script SQL peut manquer : on n'affiche alors simplement pas de trombone)
-  const nbDocsBL = {};
-  try{ const rd = await sb.from('anexos_bl').select('id,bl_id'); if(!rd.error) (rd.data||[]).forEach(d=>{ nbDocsBL[String(d.bl_id)] = (nbDocsBL[String(d.bl_id)]||0)+1; }); }catch(e){}
+  _nbDocsBL = {};
+  try{ const rd = await sb.from('anexos_bl').select('id,bl_id'); if(!rd.error) (rd.data||[]).forEach(d=>{ _nbDocsBL[String(d.bl_id)] = (_nbDocsBL[String(d.bl_id)]||0)+1; }); }catch(e){}
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Réceptions</h1><p>Bons de livraison et contrôle des marchandises</p></div>
@@ -7290,33 +7444,17 @@ async function renderReceptions(){
         <div style="font-size:12px;margin-top:2px;opacity:.8">${_posAttente.map(p=>escHtml(p.numero)+' — '+escHtml(p.fournisseurs?.nom||'')).join(' · ')}</div>
       </div>
     </div>`:''}
+    ${barreFiltresBL()}
     <div class="card">
       <div class="card-header"><h2>Historique des réceptions</h2>${btnExport('receptions')}</div>
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="receptions">
           <thead><tr><th>N° BL</th><th>Commande</th><th>Fournisseur</th><th>Centre de coûts</th><th>Date réception</th><th>Reçu par</th><th>Réception</th><th></th></tr></thead>
-          <tbody>
-            ${bls.length===0?'<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-truck-delivery"></i></div><p>Aucune réception enregistrée</p></div></td></tr>':
-            bls.map(b=>{
-              const statut = b.statut_reception==='complet' ? 'rec_totale' : 'rec_partielle';
-              const statutLabel = b.statut_reception==='complet' ? 'Réception complète' : 'Réception partielle';
-              return '<tr data-sel-id="'+b.id+'" style="cursor:pointer" onclick="openBLDetail(\''+b.id+'\')">'
-                +'<td><strong class="text-blue">'+escHtml(b.numero_bl)+'</strong></td>'
-                +'<td>'+escHtml(b.purchase_orders_lyneo?.numero||'—')+'</td>'
-                +'<td>'+escHtml(b.purchase_orders_lyneo?.fournisseurs?.nom||'—')+'</td>'
-                +'<td>'+(htmlCentreCout(b.purchase_orders_lyneo?.chantiers_lyneo)||'—')+'</td>'
-                +'<td>'+fmtDate(b.date_reception)+'</td>'
-                +'<td>'+escHtml(nomPers(b.utilisateurs))+'</td>'
-                +'<td><span class="badge badge-'+statut+'">'+statutLabel+'</span></td>'
-                +'<td onclick="event.stopPropagation()"><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="openBLDetail(\''+b.id+'\')"><i class="ti ti-eye"></i></button>'
-                +  (nbDocsBL[String(b.id)] ? '<button class="btn btn-secondary btn-sm" data-bl-docs="'+escHtml(b.id)+'" onclick="apercuBLListe(\''+escHtml(b.id)+'\')" title="'+nbDocsBL[String(b.id)]+' document(s) joint(s) — aperçu"><i class="ti ti-paperclip"></i> '+nbDocsBL[String(b.id)]+'</button>' : '')
-                +'</div></td>'
-                +'</tr>';
-            }).join('')}
-          </tbody>
+          <tbody id="bl-tbody"></tbody>
         </table>
       </div>
     </div>`;
+  afficherReceptions();
 }
 
 // ── DOCUMENTS JOINTS DES BONS DE LIVRAISON (PDF du BL du fournisseur, photo du bon signé…) ─────────────────
@@ -12079,7 +12217,7 @@ function afficherFacturesVente(){
     const montant = (v,k)=>`<td data-som="${k}" data-v="${num(v)}" style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;${annulee?'text-decoration:line-through;color:var(--gray-5)':(avoir?'color:var(--red)':'')}">${fmt(v)}</td>`;
     const lienOrig = avoir ? `<div style="${sub}">Sur ${orig?`<a href="#" class="text-blue" onclick="event.stopPropagation();openFactureVenteDetail('${orig.id}');return false">${escHtml(orig.numero)}</a>`:'—'}</div>` : '';
     return `<tr data-sel-id="${f.id}"${annulee?' data-som-off="1"':''} style="cursor:pointer" onclick="openFactureVenteDetail('${f.id}')">
-      <td style="white-space:nowrap"><strong class="text-blue">${escHtml(f.numero)}</strong>${(()=>{ const e = annulee ? null : ecartTotauxFV(f); return (e && !e.ok) ? ` <i class="ti ti-alert-triangle" data-ecart-fv="1" title="HT + TVA = ${escHtml(fmt(e.attendu))} mais TTC = ${escHtml(fmt(f.total_ttc))} (écart ${escHtml(fmt(Math.abs(e.ecart)))})" style="color:var(--red)"></i>` : ''; })()}${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
+      <td style="white-space:nowrap"><strong class="text-blue"${estRefProvisoire(f.numero)?' data-brouillon-fv="1" style="color:var(--gray-5);font-style:italic"':''}>${escHtml(f.numero)}</strong>${(()=>{ const e = annulee ? null : ecartTotauxFV(f); return (e && !e.ok) ? ` <i class="ti ti-alert-triangle" data-ecart-fv="1" title="HT + TVA = ${escHtml(fmt(e.attendu))} mais TTC = ${escHtml(fmt(f.total_ttc))} (écart ${escHtml(fmt(Math.abs(e.ecart)))})" style="color:var(--red)"></i>` : ''; })()}${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
       <td style="white-space:nowrap">${fmtDate(f.date_creation)}</td>
       <td style="white-space:nowrap;${jr?'color:var(--red);font-weight:600':''}">${f.date_echeance?fmtDate(f.date_echeance):'—'}${jr?`<div style="font-size:11.5px;font-weight:500">+${jr} j</div>`:''}</td>
       <td>${escHtml(f.clients?.nom||'—')}</td>
@@ -12161,7 +12299,7 @@ async function openNewFactureVenteLibre(opts){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="fv-reference" placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
-        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre, attribué à la validation si la facture reste en brouillon)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
       <div id="fvl-acompte-block" style="display:none;background:var(--blue-light);border-radius:var(--radius);padding:16px;margin-bottom:16px"></div>
@@ -12401,6 +12539,41 @@ function renderVenteLignesLibre(){
 }
 function delVenteLigneLibre(i){ _venteLignes.splice(i,1); renderVenteLignesLibre(); }
 
+// ── BROUILLON SANS NUMÉRO DÉFINITIF (01/11/2026) ───────────────────────────────────────────────────────────────
+// Comme dans Odoo : une facture (ou note de crédit) en BROUILLON n'a pas de numéro de facture. Elle porte une référence provisoire
+// « BROUILLON-XXXXXX » (colonne numero : obligatoire et unique) qui ne consomme AUCUN numéro de la séquence FA… / AV… : supprimer un
+// brouillon ne laisse donc plus de trou dans la numérotation. Le numéro officiel (FA + année + mois + n° d'ordre, selon la DATE DE LA
+// FACTURE) est attribué à la validation (bouton « Valider », ou statut Envoyée / Payée…). Aucun script SQL : on réutilise les fonctions
+// de numérotation existantes ; l'unicité de numero (contrainte de la base) protège de deux validations simultanées (nouvel essai).
+// Le PDF d'un brouillon est une PROFORMA (sans numéro de facture, rien n'est archivé dans « Documents joints »).
+const PREFIXE_BROUILLON_FV = 'BROUILLON-';
+const estRefProvisoire = n => /^BROUILLON-[A-Z0-9]{4,12}$/.test(String(n==null?'':n));
+const MSG_BROUILLON_FV = 'Brouillon enregistré — le numéro de facture sera attribué à la validation';
+function referenceProvisoireFV(){
+  const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';           // sans I, O, 0, 1 : lisible à voix haute
+  let r = '';
+  try{ const t = new Uint8Array(6); crypto.getRandomValues(t); t.forEach(v=>{ r += ALPHA[v % ALPHA.length]; }); }
+  catch(e){ for(let i=0;i<6;i++) r += ALPHA[Math.floor(Math.random()*ALPHA.length)]; }
+  return PREFIXE_BROUILLON_FV + r;
+}
+const erreurNumeroDejaPris = e => !!e && (e.code==='23505' || /duplicate key|unique constraint/i.test(e.message||''));
+// Donne son numéro officiel à un brouillon ET change son statut en une seule écriture (la condition sur l'ancienne référence évite
+// d'écraser un numéro attribué entre-temps par quelqu'un d'autre). extra : autres champs à enregistrer en même temps.
+async function attribuerNumeroEtStatutFV(f, statut, extra){
+  const date = (extra && extra.date_creation) || f.date_creation;
+  for(let essai=0; essai<5; essai++){
+    const num = f.type_facture==='avoir' ? await prochainNumeroAvoirVente(date) : await prochainNumeroFactureVente(date);
+    if(!num) return {erreur:"Impossible de générer le numéro de la facture"};
+    const r = await sb.from('factures_vente').update(Object.assign({}, extra||{}, {numero:num, statut})).eq('id',f.id).eq('numero',f.numero).select('id');
+    if(!r.error){
+      if(!r.data || !r.data.length) return {erreur:"Cette facture a été modifiée entre-temps : rouvrez-la puis réessayez"};
+      return {num};
+    }
+    if(!erreurNumeroDejaPris(r.error)) return {erreur:'Erreur: '+r.error.message};
+  }
+  return {erreur:"Ce numéro vient d'être pris par une autre validation : réessayez"};
+}
+
 // Prochain numéro automatique : FA + AAAA + MM + n° d'ordre dans le mois (ex. FA20260801),
 // selon la DATE DE LA FACTURE. Calculé par la fonction SQL (voir numeracao-facturas-clientes.sql).
 // Si la fonction n'a pas encore été mise à jour dans Supabase, on retombe sur l'ancienne (sans date).
@@ -12414,6 +12587,7 @@ async function prochainNumeroFactureVente(dateFacture){
 async function numeroFactureVenteChoisi(){
   const manuel = (el('fv-numero')?.value||'').trim();
   if(!manuel){
+    if((el('fv-statut')?.value||'brouillon')==='brouillon') return {num: referenceProvisoireFV()};
     return {num: await prochainNumeroFactureVente(el('fv-date')?.value)};
   }
   const {data:dup} = await sb.from('factures_vente').select('id').eq('numero',manuel).limit(1);
@@ -12459,7 +12633,7 @@ async function saveFactureVenteLibre(){
 
   const acc = await accepterDevisFacture(devisLie);          // devis facturé ⇒ « Accepté »
   const maj = ivId ? await synchroniserStatutFacturationIntervention(ivId) : null;
-  showToast('Facture client créée — '+num);
+  showToast(estRefProvisoire(num) ? MSG_BROUILLON_FV : 'Facture client créée — '+num);
   signalerMajStatutIntervention(maj);
   signalerAcceptationDevis(acc);
   closeModal();
@@ -12760,7 +12934,7 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="fv-reference" placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
-        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre, attribué à la validation si la facture reste en brouillon)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
 
@@ -12943,7 +13117,7 @@ async function saveFactureVente(chantierId, clientId, devisId){
 
   const acc = await accepterDevisFacture(devisId);           // devis facturé ⇒ « Accepté »
   const maj = ivId ? await synchroniserStatutFacturationIntervention(ivId) : null;
-  showToast('Facture client créée — '+num);
+  showToast(estRefProvisoire(num) ? MSG_BROUILLON_FV : 'Facture client créée — '+num);
   signalerMajStatutIntervention(maj);
   signalerAcceptationDevis(acc);
   closeModal();
@@ -13051,7 +13225,7 @@ async function openNewAvoirVente(facId){
           <select id="av-motif" onchange="majRemetAvoir()">${AVOIR_MOTIFS.map(m=>`<option value="${m.k}">${m.l}</option>`).join('')}</select></div>
         <div class="form-group"><label class="field-label">Précision <span style="font-weight:400;text-transform:none">(apparaît sur la note de crédit)</span></label><input id="av-motif-txt" placeholder="Ex : prix du devis mal repris, quantité livrée inférieure..."/></div>
         <div class="form-group"><label class="field-label">Date de la note de crédit</label><input type="date" id="av-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">N° <span style="font-weight:400;text-transform:none">(vide = automatique : AV + année + mois + n° d'ordre)</span></label><input id="av-numero" placeholder="Ex : AV20261001"/></div>
+        <div class="form-group"><label class="field-label">N° <span style="font-weight:400;text-transform:none">(vide = automatique : AV + année + mois + n° d'ordre, attribué à la validation si la note reste en brouillon)</span></label><input id="av-numero" placeholder="Ex : AV20261001"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="av-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Émise</option></select></div>
         ${f.devis_id?`<div class="form-group"><label class="field-label">Devis</label>
           <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:400;cursor:pointer"><input type="checkbox" id="av-remet" style="margin-top:3px;width:auto;flex-shrink:0" ${motifDef.remet?'checked':''} onchange="this.dataset.touche='1'"/> <span>Remettre les quantités créditées « à facturer » sur le devis <span style="color:var(--gray-5)">(erreur à refacturer : oui — remise commerciale : non)</span></span></label></div>`:''}
@@ -13153,6 +13327,8 @@ async function saveAvoirVente(){
   if(manuel){
     const {data:dup} = await sb.from('factures_vente').select('id').eq('numero',manuel).limit(1);
     if(dup && dup.length){ showToast('Le numéro '+manuel+' existe déjà — choisissez-en un autre','error'); reactiver(); return; }
+  } else if((el('av-statut').value||'brouillon')==='brouillon'){
+    num = referenceProvisoireFV();
   } else {
     num = await prochainNumeroAvoirVente(dateAv);
     if(!num){ showToast("Impossible de générer le numéro de la note de crédit",'error'); reactiver(); return; }
@@ -13184,7 +13360,7 @@ async function saveAvoirVente(){
     await sb.from('factures_vente').delete().eq('id',av.id);      // pas de note de crédit sans lignes
     showToast('Erreur lignes: '+errL.message,'error'); reactiver(); return; }
 
-  showToast('Note de crédit créée — '+num);
+  showToast(estRefProvisoire(num) ? 'Brouillon de note de crédit enregistré — le numéro sera attribué à la validation' : 'Note de crédit créée — '+num);
   closeModal();
   rafraichirPage();
   openFactureVenteDetail(av.id);
@@ -13197,6 +13373,7 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
   const estAvoir = f.type_facture==='avoir';
   const DOC_TITRE_FV = {acompte:"FACTURE D'ACOMPTE", situation:'FACTURE DE SITUATION', solde:'FACTURE DE SOLDE', avoir:'NOTE DE CRÉDIT'};
   const devisNum = f.devis?.numero || '';
+  const prov = estRefProvisoire(f.numero);                 // brouillon : proforma, sans numéro de facture
   const lieuLibelle = f.intervention_id ? "Lieu d'intervention" : 'Chantier';
   // Quatre cases fixes : RÉFÉRENCE (n° de devis) · N° COMMANDE (référence du client) · CHANTIER · MODALITÉ
   // (si la référence saisie est déjà le n° du devis, elle n'est pas répétée dans N° COMMANDE)
@@ -13206,13 +13383,13 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
   const nature = estAvoir && origine ? (Math.abs(Math.abs(parseFloat(f.total_ht)||0) - (parseFloat(origine.total_ht)||0)) < 0.005 ? 'Totale' : 'Partielle') : '';
 
   const config = {
-    docType: DOC_TITRE_FV[f.type_facture] || 'FACTURE',
+    docType: prov ? (estAvoir ? 'PROJET — NOTE DE CRÉDIT' : 'PROFORMA — ' + (DOC_TITRE_FV[f.type_facture] || 'FACTURE')) : (DOC_TITRE_FV[f.type_facture] || 'FACTURE'),
     dates: estAvoir ? [
-      {label:'N° Note de crédit', value: f.numero},
+      {label:'N° Note de crédit', value: prov ? 'Projet (non numérotée)' : f.numero},
       {label:'Date émission', value: fmtDate(f.date_creation)},
       {label:"Facture d'origine", value: origine ? origine.numero+' du '+fmtDate(origine.date_creation) : '—'}
     ] : [
-      {label:'N° Facture', value: f.numero},
+      {label:'N° Facture', value: prov ? 'Proforma (non numérotée)' : f.numero},
       {label:'Date émission', value: fmtDate(f.date_creation)},
       {label:'Date échéance', value: fmtDate(f.date_echeance)||'—'}
     ],
@@ -13245,10 +13422,10 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
     notesBlock: f.observations ? {title:'Observations', text: f.observations} : null,
     paymentBlock: estAvoir ? {
       title:'Note de crédit',
-      lines: [origine ? `Cette note de crédit rectifie la facture N° ${origine.numero} du ${fmtDate(origine.date_creation)}.` : 'Note de crédit.', `Montant à votre crédit : ${fmt(-(parseFloat(f.total_ttc)||0))} TTC.`]
+      lines: [origine ? `Cette note de crédit rectifie la facture N° ${origine.numero} du ${fmtDate(origine.date_creation)}.` : 'Note de crédit.', `Montant à votre crédit : ${fmt(-(parseFloat(f.total_ttc)||0))} TTC.`].concat(prov ? ["Projet : ce document est provisoire et ne constitue pas une note de crédit."] : [])
     } : {
       title:'Informations de règlement',
-      lines: [`Banque : ${LyneoPDF.ENTREPRISE.iban}  |  BIC : ${LyneoPDF.ENTREPRISE.bic}`, `Référence à indiquer : N° Facture ${f.numero}`]
+      lines: [`Banque : ${LyneoPDF.ENTREPRISE.iban}  |  BIC : ${LyneoPDF.ENTREPRISE.bic}`, prov ? "Proforma : ce document ne constitue pas une facture. Le numéro de facture sera attribué à l'émission." : `Référence à indiquer : N° Facture ${f.numero}`]
     },
     extraPages: (estAvoir || !CGV_JOINDRE_AUX_FACTURES) ? [] : [
       {title:'CONDITIONS GÉNÉRALES DE VENTE — '+LyneoPDF.ENTREPRISE.nom, articles: CGV_ARTICLES}
@@ -13375,6 +13552,7 @@ async function deleteAnnexeFV(id, facId){
 // Ordre voulu : 1) envoi du nouveau fichier, 2) ligne en base, 3) seulement ensuite suppression des anciennes copies :
 // si une étape échoue, l'ancienne copie reste intacte.
 function archiverPdfFactureVente(f, bytes){
+  if(estRefProvisoire(f.numero)) return Promise.resolve({ok:true, proforma:true});         // une proforma n'est pas un document de facturation : rien à archiver
   if(_anexosFV.enCours.has(f.id)) return _anexosFV.enCours.get(f.id);          // double clic : une seule copie
   const p = (async()=>{
     await chargerCloture();
@@ -13417,13 +13595,14 @@ function archiverPdfFactureVente(f, bytes){
   return p;
 }
 
-async function downloadPDF_FactureVente(facId){
+// Charge la facture et fabrique son PDF (utilisé par « PDF » et par l'envoi par e-mail). Renvoie {erreur} si la facture n'existe plus.
+async function pdfBytesFactureVente(facId, avantGeneration){
   await entrepriseChargee();
   const {data:f} = await sb.from('factures_vente').select('*,clients(nom,email,adresse,adresse_livraison,code_postal,ville,conditions_paiement,numero_tva),chantiers_lyneo!chantier_id(nom,numero,adresse,site_intervention),devis(numero)').eq('id',facId).single();
-  if(!f){ showToast("Facture introuvable", 'error'); return; }
+  if(!f) return {erreur:'Facture introuvable'};
   const {data:lignes} = await sb.from('lignes_facture_vente').select('*').eq('facture_vente_id',facId).order('ordre');
   const client = f.clients||{};
-  showToast('Génération du PDF...');
+  if(avantGeneration) avantGeneration();
 
   // Facture SAV : le lieu d'intervention est le site de l'intervention (le chantier éventuel
   // n'est ici qu'un centre de coûts interne, il ne doit pas apparaître sur la facture du client).
@@ -13441,17 +13620,168 @@ async function downloadPDF_FactureVente(facId){
     origine = r.data||null;
   }
   const config = configPdfFactureVente(f, lignes, client, lieuIntervention, origine);
-
+  const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, config);
+  return {f, client, bytes, nom: estRefProvisoire(f.numero) ? 'PROFORMA-'+String(f.numero).slice(PREFIXE_BROUILLON_FV.length)+'.pdf' : `${f.numero}.pdf`};
+}
+async function downloadPDF_FactureVente(facId){
+  let r;
+  try{ r = await pdfBytesFactureVente(facId, ()=>showToast('Génération du PDF...')); }
+  catch(e){ showToast('Erreur génération PDF: '+e.message, 'error'); return; }
+  if(r.erreur){ showToast(r.erreur, 'error'); return; }
   try{
-    const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, config);
-    await baixarPdfBytes(bytes, `${f.numero}.pdf`);
+    await baixarPdfBytes(r.bytes, r.nom);
     // Copie archivée dans « Documents joints » de la facture (n'empêche jamais le téléchargement déjà fait)
-    try{ await archiverPdfFactureVente(f, bytes); }
+    try{ await archiverPdfFactureVente(r.f, r.bytes); }
     catch(e){ showToast("PDF téléchargé, mais la copie n'a pas pu être archivée : "+escHtml((e&&e.message)||String(e)), 'error'); }
   }catch(e){
     showToast('Erreur génération PDF: '+e.message, 'error');
   }
 }
+
+// ── ENVOI D'UNE FACTURE CLIENT PAR E-MAIL : le PDF de la facture est toujours joint, on peut ajouter d'autres fichiers (01/11/2026) ──
+// Même principe que le bon de commande : un lien mailto: ne peut joindre aucun fichier, on fabrique donc un .eml (brouillon prêt à envoyer)
+// que la messagerie ouvre avec destinataire, objet, texte et pièces jointes. Rien n'est envoyé automatiquement : l'utilisateur clique sur « Envoyer » dans sa messagerie.
+const ENV_FV_MAX_TOTAL = 15*1024*1024;      // PDF + pièces : au-delà, beaucoup de messageries refusent le message (≈ 20 Mo une fois encodé)
+const ENV_FV_MAX_FICHIERS = 20;
+let _envFV = null;
+const envfvTaille = o => o >= 1048576 ? (o/1048576).toFixed(1).replace('.',',')+' Mo' : Math.max(1,Math.round(o/1024))+' Ko';
+const envfvSansEspaceInsecable = t => String(t).replace(/[  ]/g,' ');
+function envfvSujet(f){ if(estRefProvisoire(f.numero)) return (f.type_facture==='avoir' ? 'Projet de note de crédit' : 'Facture proforma') + ' — LYNEO'; return (f.type_facture==='avoir' ? 'Note de crédit ' : 'Facture ') + f.numero + ' — LYNEO'; }
+function envfvMessage(f){
+  const avoir = f.type_facture==='avoir', ttc = envfvSansEspaceInsecable(fmt(Math.abs(parseFloat(f.total_ttc)||0)));
+  const ech = (!avoir && f.date_echeance) ? ', à régler pour le ' + fmtDate(f.date_echeance) : '';
+  if(estRefProvisoire(f.numero)) return avoir
+    ? `Bonjour,\n\nVeuillez trouver ci-joint un projet de note de crédit du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nCe document est provisoire : il ne constitue pas une note de crédit définitive.\n\nCordialement,\nLYNEO`
+    : `Bonjour,\n\nVeuillez trouver ci-joint notre facture proforma du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nCe document est établi à titre d'information : il ne constitue pas une facture. La facture définitive vous sera adressée ultérieurement.\n\nCordialement,\nLYNEO`;
+  return avoir
+    ? `Bonjour,\n\nVeuillez trouver ci-joint notre note de crédit n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nNous restons à votre disposition pour toute question.\n\nCordialement,\nLYNEO`
+    : `Bonjour,\n\nVeuillez trouver ci-joint notre facture n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC${ech}.\n\nNous restons à votre disposition pour toute question.\n\nCordialement,\nLYNEO`;
+}
+async function envoyerFactureParEmail(facId){
+  const r = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email)').eq('id', facId).single();
+  const f = r.data;
+  if(!f){ showToast('Facture introuvable', 'error'); return; }
+  const dest = (f.clients && f.clients.email) || '', avoir = f.type_facture==='avoir';
+  const mon = _envFV = {facId, f, pdf:null, erreur:null, extras:[], suiv:1, pret:null};
+  // le PDF est préparé dès l'ouverture : les boutons répondent tout de suite (le partage exige un clic « récent »)
+  mon.pret = pdfBytesFactureVente(facId).then(x=>{
+      if(x.erreur) throw new Error(x.erreur);
+      mon.pdf = {bytes:x.bytes, nom:x.nom}; const e = el('envfv-pj');
+      if(_envFV===mon && e) e.innerHTML = '<i class="ti ti-paperclip"></i> <strong>'+escHtml(x.nom)+'</strong> — '+envfvTaille(x.bytes.length)+' — joint automatiquement';
+      envfvRendre();
+    }).catch(err=>{ mon.erreur = err; const e = el('envfv-pj'); if(_envFV===mon && e) e.innerHTML = '<span style="color:var(--red)"><i class="ti ti-alert-circle"></i> Le PDF n\'a pas pu être généré : '+escHtml(err.message||err)+'</span>'; });
+  let c = el('envoi-fv-container');
+  if(!c){ c = document.createElement('div'); c.id = 'envoi-fv-container'; document.body.appendChild(c); }
+  const partage = typeof navigator!=='undefined' && typeof navigator.share==='function' && typeof navigator.canShare==='function';
+  const bouton = (id, cls, icone, titre, aide, clic) => `<div style="margin-bottom:10px"><button type="button" class="btn ${cls}" id="${id}" onclick="${clic}" style="width:100%;justify-content:center"><i class="ti ${icone}"></i> ${titre}</button><div style="font-size:12px;color:var(--gray-6);margin-top:3px">${aide}</div></div>`;
+  c.innerHTML = `<div class="modal-overlay" style="z-index:300" onclick="if(event.target===this)fermerEnvoiFV()"><div class="modal" style="max-width:680px">
+    <div class="modal-header"><h3><i class="ti ti-mail"></i> Envoyer ${estRefProvisoire(f.numero) ? (avoir?'le projet de note de crédit':'la facture proforma') : (avoir?'la note de crédit':'la facture')+' '+escHtml(f.numero)}</h3><button class="modal-close" onclick="fermerEnvoiFV()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="field-label" for="envfv-a">À (e-mail du client${f.clients&&f.clients.nom ? ' — '+escHtml(f.clients.nom) : ''})</label>
+        <input id="envfv-a" type="text" value="${escHtml(dest)}" placeholder="comptabilite@client.lu" autocomplete="off"/>
+        ${dest ? '' : '<div id="envfv-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce client : saisissez-la ici (et ajoutez-la dans Clients pour la prochaine fois).</div>'}</div>
+      <div class="form-group"><label class="field-label" for="envfv-cc">Cc (facultatif — plusieurs adresses séparées par « ; » ou une virgule)</label><input id="envfv-cc" type="text" value="" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="envfv-sujet">Objet</label><input id="envfv-sujet" value="${escHtml(envfvSujet(f))}" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="envfv-corps">Message</label><textarea id="envfv-corps" rows="8">${escHtml(envfvMessage(f))}</textarea></div>
+      <div id="envfv-pj" style="font-size:13px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:10px"><i class="ti ti-loader"></i> Préparation du PDF…</div>
+      <div style="margin-bottom:6px"><strong style="font-size:13px">Autres pièces jointes</strong> <span style="font-size:12px;color:var(--gray-5)">(bon de commande du client, plan, photos… — facultatif)</span></div>
+      <div id="envfv-liste"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <label class="btn btn-secondary btn-sm" for="envfv-fichiers" style="cursor:pointer"><i class="ti ti-paperclip"></i> Ajouter des fichiers…</label>
+        <input id="envfv-fichiers" type="file" multiple onchange="envfvAjouter(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"/>
+        <span id="envfv-total" style="font-size:12px;color:var(--gray-5)"></span>
+      </div>
+      ${estRefProvisoire(f.numero) ? `<div class="alert alert-info" id="envfv-proforma-info" style="margin:10px 0 14px"><i class="ti ti-info-circle"></i> <span>Brouillon sans numéro définitif : le PDF joint est une <strong>proforma</strong>. Pour envoyer la facture définitive, validez-la d'abord (bouton « Valider » de la fiche).</span></div>` : f.statut==='brouillon' ? `<label id="envfv-marquer-lib" style="display:flex;gap:8px;align-items:center;font-size:13px;margin:10px 0 14px"><input type="checkbox" id="envfv-marquer"/> ${avoir?'Marquer la note de crédit comme émise':'Marquer la facture comme envoyée (statut « Envoyée »)'} une fois l'e-mail créé</label>` : '<div style="height:10px"></div>'}
+      ${bouton('envfv-eml','btn-primary','ti-mail-forward','E-mail prêt à envoyer (PDF + pièces jointes)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et toutes les pièces jointes déjà en place.",'envfvEml()')}
+      ${partage ? bouton('envfv-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF et les pièces jointes.",'envfvPartager()') : ''}
+      ${bouton('envfv-mailto','btn-ghost','ti-external-link','Ouvrir ma messagerie (sans pièces jointes)',"Comme avant : le PDF est téléchargé et le message ouvert ; il faut glisser le PDF et les autres fichiers dedans (un navigateur ne peut pas les joindre tout seul).",'envfvMailto()')}
+      <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiFV()">Fermer</button></div>
+    </div></div></div>`;
+  envfvRendre();
+  const a = el('envfv-a'); if(a && !dest) a.focus();
+}
+function fermerEnvoiFV(){ const c = el('envoi-fv-container'); if(c) c.innerHTML = ''; _envFV = null; }
+const envfvTotal = () => _envFV ? (_envFV.pdf ? _envFV.pdf.bytes.length : 0) + _envFV.extras.reduce((t,x)=>t+x.file.size, 0) : 0;
+function envfvRendre(){
+  const mon = _envFV; if(!mon) return;
+  const l = el('envfv-liste'); if(l) l.innerHTML = mon.extras.map(x=>`<div class="envfv-pj" data-envfv-pj="${x.id}"><i class="ti ti-paperclip"></i> <span class="envfv-nom">${escHtml(x.file.name)}</span> <small>${envfvTaille(x.file.size)}</small><button type="button" class="btn btn-ghost btn-sm" data-envfv-retirer="${x.id}" onclick="envfvRetirer(${x.id})" title="Retirer ce fichier" aria-label="Retirer ${escHtml(x.file.name)}"><i class="ti ti-x"></i></button></div>`).join('');
+  const t = el('envfv-total'); if(t) t.textContent = 'Pièces jointes : '+envfvTaille(envfvTotal())+' sur '+envfvTaille(ENV_FV_MAX_TOTAL)+' maximum';
+}
+function envfvAjouter(input){
+  const mon = _envFV; if(!mon) return;
+  const fichiers = Array.from((input && input.files) || []); if(input) input.value = '';
+  const refus = [];
+  fichiers.forEach(file=>{
+    if(mon.extras.length >= ENV_FV_MAX_FICHIERS){ refus.push(file.name+' (maximum '+ENV_FV_MAX_FICHIERS+' fichiers)'); return; }
+    if(!file.size){ refus.push(file.name+' (fichier vide)'); return; }
+    if(envfvTotal() + file.size > ENV_FV_MAX_TOTAL){ refus.push(file.name+' ('+envfvTaille(file.size)+' : dépasserait '+envfvTaille(ENV_FV_MAX_TOTAL)+' au total)'); return; }
+    mon.extras.push({id:mon.suiv++, file});
+  });
+  if(refus.length) showToast('Non ajouté : '+refus.join(' ; '), 'error');
+  envfvRendre();
+}
+function envfvRetirer(id){ const mon = _envFV; if(!mon) return; mon.extras = mon.extras.filter(x=>x.id!==id); envfvRendre(); }
+// Lit et vérifie le formulaire (renvoie null + message si quelque chose ne va pas)
+function envfvLire(exigerAdresse){
+  const a = adressesEmail((el('envfv-a')||{}).value), cc = adressesEmail((el('envfv-cc')||{}).value);
+  if(exigerAdresse && !a.length){ showToast("Saisissez l'adresse e-mail du client", 'error'); const i = el('envfv-a'); if(i) i.focus(); return null; }
+  const mauvaise = a.find(x=>!EMAIL_RE.test(x));
+  if(mauvaise){ showToast('Adresse e-mail invalide : '+mauvaise, 'error'); const i = el('envfv-a'); if(i) i.focus(); return null; }
+  const mauvaiseCc = cc.find(x=>!EMAIL_RE.test(x));
+  if(mauvaiseCc){ showToast('Adresse e-mail invalide (Cc) : '+mauvaiseCc, 'error'); const i = el('envfv-cc'); if(i) i.focus(); return null; }
+  const f = _envFV.f;
+  return {a, cc, sujet: ((el('envfv-sujet')||{}).value||'').replace(/[\r\n]+/g,' ').trim() || envfvSujet(f), corps: (el('envfv-corps')||{}).value||''};
+}
+// Attend le PDF puis lit les fichiers ajoutés ; vérifie la taille totale
+async function envfvPieces(){
+  const mon = _envFV; if(!mon) return null;
+  await mon.pret.catch(()=>{});
+  if(mon.erreur || !mon.pdf){ showToast('Erreur génération PDF: '+((mon.erreur&&mon.erreur.message)||'inconnue'), 'error'); return null; }
+  if(envfvTotal() > ENV_FV_MAX_TOTAL){ showToast('Les pièces jointes dépassent '+envfvTaille(ENV_FV_MAX_TOTAL)+' : retirez un fichier', 'error'); return null; }
+  const pieces = [{nom:mon.pdf.nom, type:'application/pdf', octets:mon.pdf.bytes}];
+  for(const x of mon.extras) pieces.push({nom:x.file.name, type:x.file.type, octets:new Uint8Array(await x.file.arrayBuffer())});
+  return pieces;
+}
+// Après l'envoi du fichier .eml / du partage : passe la facture brouillon à « Envoyée » si la case est cochée
+async function envfvApres(){
+  const mon = _envFV; const cb = el('envfv-marquer');
+  if(mon && cb && cb.checked) await changerStatutFactureVente(mon.facId, 'envoyee');
+}
+async function envfvEml(){
+  const d = envfvLire(true); if(!d) return;
+  const b = el('envfv-eml'); if(b) b.disabled = true;
+  try{
+    const pieces = await envfvPieces(); if(!pieces) return;
+    const nomEml = pieces[0].nom.replace(/\.pdf$/i,'') + '-email.eml';
+    await baixarBytes(construireEmlPJ({destinataires:d.a, cc:d.cc, sujet:d.sujet, corps:d.corps, pieces}), nomEml, 'message/rfc822');
+    showToast('E-mail créé : ouvrez le fichier « '+nomEml+' » (double-clic) — '+pieces.length+' pièce'+(pieces.length>1?'s':'')+' jointe'+(pieces.length>1?'s':'')+', il ne reste qu\'à envoyer');
+    await envfvApres();
+  }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
+  finally{ const b2 = el('envfv-eml'); if(b2) b2.disabled = false; }
+}
+async function envfvPartager(){
+  const d = envfvLire(false); if(!d) return;
+  try{
+    const pieces = await envfvPieces(); if(!pieces) return;
+    const fichiers = pieces.map(p=>new File([p.octets], p.nom, {type:typeMimeSur(p.type)}));
+    if(!navigator.canShare({files:fichiers})){ showToast("Ce navigateur ne peut pas partager ces fichiers : utilisez « E-mail prêt à envoyer »", 'error'); return; }
+    await navigator.share({files:fichiers, title:d.sujet, text:d.corps});
+    await envfvApres();
+  }catch(e){ if(!(e && e.name==='AbortError')) showToast('Partage impossible : '+(e.message||e), 'error'); }
+}
+async function envfvMailto(){
+  const d = envfvLire(true); if(!d) return;
+  try{
+    const mon = _envFV; await mon.pret.catch(()=>{});
+    if(mon.erreur || !mon.pdf){ showToast('Erreur génération PDF: '+((mon.erreur&&mon.erreur.message)||'inconnue'), 'error'); return; }
+    await baixarPdfBytes(mon.pdf.bytes, mon.pdf.nom);
+    setTimeout(()=>{
+      ouvrirLienMailto(`mailto:${d.a.join(',')}?${d.cc.length ? 'cc='+encodeURIComponent(d.cc.join(','))+'&' : ''}subject=${encodeURIComponent(d.sujet)}&body=${encodeURIComponent(d.corps)}`);
+      showToast("Joignez le PDF téléchargé « "+mon.pdf.nom+" »"+(mon.extras.length ? " et vos autres fichiers" : "")+" au message (glissez-les dedans)");
+    }, 300);
+  }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
+}
+
 
 // Une facture ne se supprime que si elle est en BROUILLON, sans note de crédit liée, et si son numéro
 // ne laisse pas de trou dans la séquence (FA/AV + AAAAMM + n°). Sinon : « Annuler » (le numéro reste au registre)
@@ -13560,6 +13890,7 @@ async function openFactureVenteDetail(facId){
     </div>
     <div class="modal-body">
       ${clos?`<div class="alert alert-info" id="fv-cloture" style="margin-bottom:14px"><i class="ti ti-lock"></i> <span>Période clôturée jusqu'au <strong>${fmtDate(_clotureVentes)}</strong> — ce document est <strong>inaltérable</strong>. Pour corriger : note de crédit, puis nouvelle facture.</span></div>`:''}
+      ${estRefProvisoire(f.numero)?`<div class="alert alert-info" id="fv-brouillon-info" style="margin-bottom:14px"><i class="ti ti-file-pencil"></i> <span><strong>Brouillon sans numéro définitif.</strong> Le numéro ${avoir?'AV':'FA'}… est attribué à la validation (bouton « Valider »). Le PDF est une <strong>proforma</strong> : il ne constitue pas ${avoir?'une note de crédit':'une facture'}.</span></div>`:''}
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Type</label><span>${escHtml(TYPE_FV[f.type_facture]||f.type_facture||'—')}</span></div>
         ${avoir?`<div class="info-item"><label>Facture d'origine</label><span>${origine?`<a href="#" class="text-blue" style="font-weight:600" onclick="closeModal();openFactureVenteDetail('${origine.id}');return false">${escHtml(origine.numero)}</a> du ${fmtDate(origine.date_creation)}`:'—'}</span></div>`:''}
@@ -13606,12 +13937,15 @@ async function openFactureVenteDetail(facId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_FactureVente('${f.id}')"><i class="ti ti-file-download"></i> PDF</button>
+        ${f.statut==='annulee' ? '' : `<button class="btn btn-secondary" id="btn-envoi-fv" onclick="envoyerFactureParEmail('${f.id}')" title="Envoyer par e-mail avec le PDF et d'autres pièces jointes"><i class="ti ti-mail"></i> Envoyer</button>`}
         ${avoir?'':`<button class="btn btn-ghost" id="btn-cgv-fv" onclick="openCGV(&quot;openFactureVenteDetail('${f.id}')&quot;)" title="${CGV_JOINDRE_AUX_FACTURES ? 'Conditions générales de vente jointes à cette facture' : 'Conditions générales de vente (en cours de validation — non jointes à cette facture)'}"><i class="ti ti-scale"></i> CGV</button>`}
         ${suppr.ok?`<button class="btn btn-danger" id="btn-suppr-fv" onclick="deleteFactureVente('${f.id}','${escHtml(f.numero)}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
         <button class="btn btn-secondary" onclick="openEditFactureVente('${f.id}')"><i class="ti ti-edit"></i> Modifier</button>
         ${peutCredit?`<button class="btn btn-secondary" id="btn-avoir-fv" onclick="openNewAvoirVente('${f.id}')"><i class="ti ti-receipt-refund"></i> Note de crédit</button>`:''}
         ${(['payee','annulee'].includes(f.statut) && !(clos && f.statut==='annulee'))?`<button class="btn btn-secondary" onclick="changerStatutFactureVente('${f.id}','envoyee')"><i class="ti ti-arrow-back-up"></i> Rouvrir (${avoir?'émise':'envoyée'})</button>`:''}
-        ${f.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutFactureVente('${f.id}','envoyee')"><i class="ti ti-send"></i> ${avoir?'Émettre':'Marquer envoyée'}</button>`:''}
+        ${f.statut==='brouillon'?(estRefProvisoire(f.numero)
+          ? `<button class="btn btn-primary" id="btn-valider-fv" onclick="changerStatutFactureVente('${f.id}','envoyee')" title="Attribue le numéro définitif et passe ${avoir?'la note':'la facture'} à « ${avoir?'Émise':'Envoyée'} »"><i class="ti ti-circle-check"></i> Valider</button>`
+          : `<button class="btn btn-primary" onclick="changerStatutFactureVente('${f.id}','envoyee')"><i class="ti ti-send"></i> ${avoir?'Émettre':'Marquer envoyée'}</button>`):''}
         ${['envoyee','payee_partiel'].includes(f.statut)?`<button class="btn btn-success" onclick="changerStatutFactureVente('${f.id}','payee')"><i class="ti ti-check"></i> ${avoir?'Marquer soldée (imputée / remboursée)':'Marquer payée'}</button>`:''}
         ${(f.statut==='envoyee' && !avoir)?`<button class="btn btn-secondary" onclick="changerStatutFactureVente('${f.id}','payee_partiel')"><i class="ti ti-cash"></i> Paiement partiel</button>`:''}
         ${(['brouillon','envoyee'].includes(f.statut) && !clos)?`<button class="btn btn-danger" onclick="changerStatutFactureVente('${f.id}','annulee')"><i class="ti ti-ban"></i> Annuler</button>`:''}
@@ -13645,7 +13979,7 @@ async function openEditFactureVente(facId){
     <div class="modal-header"><div><h3>Modifier ${f.type_facture==='avoir'?'la note de crédit':'la facture'}</h3><span style="font-size:12px;color:var(--gray-5)">${a(f.numero)} — ${a(f.clients?.nom||'')} — ${fmt(f.total_ttc)} TTC</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">${f.type_facture==='avoir'?'N° de note de crédit':'N° de facture'} *</label><input id="efv-numero" value="${a(f.numero)}"${dis} placeholder="${f.type_facture==='avoir'?'Ex: AV20261001':'Ex: FA20260801'}"/></div>
+        <div class="form-group"><label class="field-label">${f.type_facture==='avoir'?'N° de note de crédit':'N° de facture'} *</label><input id="efv-numero" value="${a(f.numero)}"${dis} placeholder="${f.type_facture==='avoir'?'Ex: AV20261001':'Ex: FA20260801'}"/>${estRefProvisoire(f.numero)?'<div id="efv-prov-info" style="font-size:11.5px;color:var(--gray-5);margin-top:4px">Référence provisoire : le numéro définitif est attribué à la validation. Laissez-la telle quelle, ou saisissez un numéro déjà émis ailleurs.</div>':''}</div>
         <div class="form-group"><label class="field-label">Statut</label>
           <select id="efv-statut">${Object.entries(f.type_facture==='avoir'?STATUT_AVOIR:STATUT_FV).filter(([k])=>!clos || (k!=='brouillon' && k!=='annulee') || k===f.statut).map(([k,v])=>`<option value="${k}"${f.statut===k?' selected':''}>${v}</option>`).join('')}</select></div>
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="efv-date" value="${a((f.date_creation||'').slice(0,10))}"${dis} onchange="majEcheanceEdit()"/></div>
@@ -13689,12 +14023,21 @@ async function saveEditFactureVente(facId){
   const refus = await refusChangementStatutFV(avant, maj.statut);
   if(refus){ showToast(refus, 'error'); if(b) b.disabled=false; return; }
   if(estClotureFV(avant)){ delete maj.numero; delete maj.date_creation; delete maj.date_echeance; delete maj.reference_client; }
-  const {error} = await sb.from('factures_vente').update(maj).eq('id',facId);
-  if(error){ showToast('Erreur: '+error.message, 'error'); if(b) b.disabled=false; return; }
+  let valide = null;
+  if(avant && estRefProvisoire(avant.numero) && numero===avant.numero && !['brouillon','annulee'].includes(maj.statut)){
+    // la référence provisoire n'a pas été remplacée à la main : on passe à « Envoyée / Payée » ⇒ numéro officiel (selon la date saisie ici)
+    const reste = Object.assign({}, maj); delete reste.numero; delete reste.statut;
+    const v = await attribuerNumeroEtStatutFV(Object.assign({}, avant, {date_creation: date}), maj.statut, reste);
+    if(v.erreur){ showToast(v.erreur, 'error'); if(b) b.disabled=false; return; }
+    valide = v.num;
+  } else {
+    const {error} = await sb.from('factures_vente').update(maj).eq('id',facId);
+    if(error){ showToast('Erreur: '+error.message, 'error'); if(b) b.disabled=false; return; }
+  }
   // les notes de crédit de cette facture suivent son devis
   if(el('efv-devis')){ try{ await sb.from('factures_vente').update({devis_id: maj.devis_id}).eq('facture_origine_id',facId); }catch(e){} }
   lancerMajPointagesFacturation({factureId:facId});
-  showToast('Facture modifiée — '+numero);
+  showToast(valide ? (avant.type_facture==='avoir'?'Note de crédit validée':'Facture validée')+' — numéro '+valide : 'Facture modifiée — '+numero);
   rafraichirPage();
   openFactureVenteDetail(facId);
 }
@@ -13720,11 +14063,22 @@ async function refusChangementStatutFV(f, statut){
 }
 
 async function changerStatutFactureVente(facId, statut){
+  let f = null;
   {
-    const {data:f} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation').eq('id',facId).single();
+    const r0 = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation').eq('id',facId).single(); f = r0.data;
     await chargerCloture();
     const refus = await refusChangementStatutFV(f, statut);
     if(refus){ showToast(refus, 'error'); return; }
+  }
+  // Brouillon sans numéro définitif : la validation lui attribue son numéro officiel (FA / AV + année + mois + n° d'ordre)
+  if(f && estRefProvisoire(f.numero) && !['brouillon','annulee'].includes(statut)){
+    const v = await attribuerNumeroEtStatutFV(f, statut);
+    if(v.erreur){ showToast(v.erreur, 'error'); return; }
+    lancerMajPointagesFacturation({factureId:facId});
+    showToast((f.type_facture==='avoir'?'Note de crédit validée':'Facture validée')+' — numéro '+v.num);
+    closeModal();
+    rafraichirPage();
+    return;
   }
   const {error} = await sb.from('factures_vente').update({statut}).eq('id',facId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
@@ -18329,7 +18683,7 @@ async function openFactureSAVModal(interventionId){
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
         <div class="form-group"><label class="field-label">N° de commande du client <span style="font-weight:400;text-transform:none">(imprimé dans la case « N° commande » de la facture)</span></label><input id="fv-reference" placeholder="Ex : PO6200472741 — laisser vide s'il n'y en a pas"/></div>
-        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
+        <div class="form-group"><label class="field-label">N° de facture <span style="font-weight:400;text-transform:none">(vide = automatique : FA + année + mois + n° d'ordre, attribué à la validation si la facture reste en brouillon)</span></label><input id="fv-numero" placeholder="Ex: FA20260701 (facture déjà émise)"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="fv-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Envoyée</option><option value="payee">Payée</option></select></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -18442,7 +18796,7 @@ async function saveFactureSAV(interventionId, clientId){
   lancerMajPointagesIntervention(interventionId);
 
   if(fac && fac.statut && fac.statut!=='brouillon') lancerMajPointagesFacturation({factureId:fac.id, interventionId});
-  showToast('Facture créée — '+num);
+  showToast(estRefProvisoire(num) ? MSG_BROUILLON_FV : 'Facture créée — '+num);
   signalerMajStatutIntervention(maj);
   signalerAcceptationDevis(acc);
   closeModal();
