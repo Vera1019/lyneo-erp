@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-01-fb6a64b"/>
+<meta name="lyneo-build" content="BUILD:2026-11-02-66bb3cd"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -455,7 +455,7 @@ select{cursor:pointer}
 .modal-close{background:var(--gray-1);border:1px solid var(--gray-3);cursor:pointer;color:var(--gray-5);padding:6px;border-radius:8px;display:flex;line-height:1;transition:all .15s}
 .modal-close:hover{background:var(--gray-2);color:var(--gray-8)}
 .modal-close i{font-size:18px}
-.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid var(--gray-3)}
+.form-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid var(--gray-3)}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes modalSecoue{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
 .modal.modal-secoue{animation:modalSecoue .38s ease}
@@ -2558,7 +2558,7 @@ function showModal(html) {
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; const gv = el('envoi-fv-container'); if(gv && gv.innerHTML){ gv.innerHTML = ''; _envFV = null; } }
+function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; const gv = el('envoi-fv-container'); if(gv && gv.innerHTML){ gv.innerHTML = ''; _envFV = null; } const gr = el('relance-container'); if(gr && gr.innerHTML){ gr.innerHTML = ''; _relance = null; } }
 // ── Fond sombre des fenêtres : ne se ferme que sur un VRAI clic (appui ET relâchement sur le fond) ──────────────
 // Quand on sélectionne du texte dans un champ en glissant la souris puis qu'on relâche hors de la fenêtre, le navigateur
 // envoie un « clic » au fond sombre (ancêtre commun) : toutes les fenêtres se fermaient en perdant la saisie.
@@ -2670,7 +2670,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-01-fb6a64b';
+const APP_BUILD = 'BUILD:2026-11-02-66bb3cd';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -2948,7 +2948,7 @@ function navLien(e, page){
   return false;
 }
 function fenetreOuverte(){
-  return ['modal-container','envoi-po-container','code-res-container','client-rapide-container','four-rapide-container'].some(id=>{ const c = el(id); return !!(c && c.innerHTML.trim()); });
+  return ['modal-container','envoi-po-container','code-res-container','client-rapide-container','four-rapide-container','relance-container'].some(id=>{ const c = el(id); return !!(c && c.innerHTML.trim()); });
 }
 window.addEventListener('popstate', ()=>{
   if(!currentUser) return;
@@ -2970,7 +2970,7 @@ function navigate(page, depuisAdresse){
   if(page==='interventions_sav') _savCentreFiltre = '';   // on arrive toujours sur la vue complète
   if(page==='factures_vente') _fvFiltres = {search:'', mois:'', statut:'', centre:''};
   if(page==='devis') _dvFiltres = dvFiltresVides();
-  if(page==='chantiers') _chVue = 'actifs';   // on arrive toujours sur la liste principale (les archivés : onglet « Chantiers archivés »)
+  if(page==='chantiers'){ _chVue = 'actifs'; _chF = filtresChVides(); }   // on arrive toujours sur la liste principale (les archivés : onglet « Chantiers archivés »)
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const nav = el('nav-'+page);
   if(nav) nav.classList.add('active');
@@ -3751,8 +3751,103 @@ let _chEmpNoms = {};          // id employé → nom (chef de chantier affiché 
 let _chFacturation = null;    // id chantier → état de facturation (Non facturé / Partiel / Facturé) ; null = lecture impossible
 let _chSituations = {};       // id chantier terminé → situation financière (à encaisser / retenue / soldé) ; null = lecture impossible
 function chChangerVue(v){ _chVue = (v==='archives') ? 'archives' : 'actifs'; renderChantiers(_chantiersSearchAtual); }
+// ── FILTRES DE LA LISTE DES CHANTIERS (02/11/2026) : même principe que les listes d'Achats ──
+// Filtres combinables (ET) appliqués dans le navigateur ; seule la table est réécrite (le curseur reste dans le champ de recherche).
+const filtresChVides = () => ({search:'', client:'', resp:'', statut:'', fact:'', de:'', a:''});
+let _chF = filtresChVides(), _chBase = [], _chArch = [];
+const CH_SANS = '__sans__';
+const CH_FACT_LIB = [['non','Non facturé'], ['partiel','Partiellement facturé'], ['total','Facturé'], ['sur','Sur-facturé']];
+const chFactEtat = r => ((r.type_centre||'chantier')==='chantier' && _chFacturation && _chFacturation[r.id]) ? (_chFacturation[r.id].etat||'inconnu') : 'inconnu';
+const chTexte = r => _afNorm([r.numero, r.nom, r.client, nomChef(r,_chEmpNoms), r.code_pointages].join(' '));
+function chCorrespond(r, q){ if(!q) return true; const t = chTexte(r); return q.split(' ').every(m=>t.includes(m)); }
+function chFiltrees(){
+  const F = _chF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a);
+  return _chBase.filter(r=>{
+    if(F.client){ const c = String(r.client||'').trim(); if(F.client===CH_SANS ? c!=='' : c!==F.client) return false; }
+    if(F.resp){ const n = String(nomChef(r,_chEmpNoms)||'').trim(); if(F.resp===CH_SANS ? n!=='' : n!==F.resp) return false; }
+    if(F.statut && r.statut!==F.statut) return false;
+    if(F.fact && _chFacturation && chFactEtat(r)!==F.fact) return false;
+    if(!_afPeriode(r.date_debut, de, a)) return false;
+    return chCorrespond(r, q);
+  });
+}
+function barreFiltresCh(){
+  const F = _chF, clients = new Set(), resps = new Set();
+  let sansClient = false, sansResp = false;
+  _chBase.forEach(r=>{
+    const c = String(r.client||'').trim(); if(c) clients.add(c); else sansClient = true;
+    const n = String(nomChef(r,_chEmpNoms)||'').trim(); if(n) resps.add(n); else sansResp = true;
+  });
+  const tri = set => [...set].sort((x,y)=>x.localeCompare(y,'fr',{sensitivity:'base',numeric:true})).map(v=>[v,v]);
+  const lClients = [...(sansClient ? [[CH_SANS,'Sans client']] : []), ...tri(clients)];
+  const lResps = [...(sansResp ? [[CH_SANS,'Sans responsable']] : []), ...tri(resps)];
+  const lStatuts = Object.entries(STATUT_CH).filter(([k])=>_chBase.some(r=>r.statut===k));
+  const ok = (liste, v) => !v || liste.some(([x])=>String(x)===String(v));
+  // un filtre dont la valeur n'existe plus dans la liste (changement d'onglet, chantier modifié) est retiré : jamais de filtre invisible
+  if(!ok(lClients, F.client)) F.client = '';
+  if(!ok(lResps, F.resp)) F.resp = '';
+  if(_chVue==='archives' || !ok(lStatuts, F.statut)) F.statut = '';
+  if(!_chFacturation) F.fact = '';
+  return `<div class="af-barre" id="ch-filtres">
+    ${afChamp('Client', `<select id="ch-f-client" onchange="majFiltreCh('client',this.value)">${afOptions(lClients, F.client, 'Tous')}</select>`)}
+    ${afChamp('Responsable', `<select id="ch-f-resp" onchange="majFiltreCh('resp',this.value)">${afOptions(lResps, F.resp, 'Tous')}</select>`)}
+    ${_chVue==='archives' ? '' : afChamp('Statut', `<select id="ch-f-statut" onchange="majFiltreCh('statut',this.value)">${afOptions(lStatuts, F.statut, 'Tous les statuts')}</select>`)}
+    ${_chFacturation ? afChamp('Facturation', `<select id="ch-f-fact" onchange="majFiltreCh('fact',this.value)">${afOptions(CH_FACT_LIB, F.fact, 'Toutes')}</select>`) : ''}
+    ${afChamp('Début du', `<input type="date" id="ch-f-de" class="af-date" value="${escHtml(F.de)}" onchange="majFiltreCh('de',this.value)"/>`)}
+    ${afChamp('au', `<input type="date" id="ch-f-a" class="af-date" value="${escHtml(F.a)}" onchange="majFiltreCh('a',this.value)"/>`)}
+    <button class="btn btn-ghost btn-sm" id="ch-f-reset" onclick="reinitialiserFiltresCh()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
+    <span class="af-compte" id="ch-compte"></span>
+  </div>`;
+}
+// Recherche dans la liste principale : on signale les chantiers archivés qui correspondent aussi (comme le filtre « Archivé » d'Odoo)
+function htmlHintArchivesCh(){
+  const q = _afNorm(_chF.search);
+  const n = (q && _chVue!=='archives') ? _chArch.filter(r=>chCorrespond(r,q)).length : 0;
+  return n ? `<div class="alert alert-info" id="ch-hint-archives" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>${n} chantier${n>1?'s':''} archivé${n>1?'s':''} correspond${n>1?'ent':''} aussi — <a href="#" onclick="chChangerVue('archives');return false" style="color:var(--blue);font-weight:600">voir dans les archives</a></span></div>` : '';
+}
+function afficherChantiers(){
+  const tb = el('ch-tbody'); if(!tb) return;
+  const items = sortItems(chFiltrees(), 'chantiers'), filtre = afFiltreActif(_chF);
+  tb.innerHTML = items.length===0
+    ? (filtre ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-filter-off"></i></div><p>Aucun chantier ne correspond aux filtres</p><button class="btn btn-secondary" onclick="reinitialiserFiltresCh()">Réinitialiser les filtres</button></div></td></tr>'
+        : _chVue==='archives'
+          ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-archive"></i></div><p>Aucun chantier archivé</p><p style="font-size:12px;color:var(--gray-5)">Un chantier terminé et soldé s\'archive depuis la liste (bouton « Archiver »).</p></div></td></tr>'
+          : '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>')
+    : items.map(ligneChantier).join('');
+  const z = el('ch-hint-zone'); if(z) z.innerHTML = htmlHintArchivesCh();
+  const c = el('ch-compte'); if(c) c.textContent = items.length + ' chantier' + (items.length>1?'s':'') + (filtre ? ' sur ' + _chBase.length : '');
+  const b = el('ch-f-reset'); if(b) b.style.display = filtre ? '' : 'none';
+}
+function majFiltreCh(k, v){ _chF[k] = v; if(k==='search') _chantiersSearchAtual = v; selExpVider('chantiers'); afficherChantiers(); }
+function reinitialiserFiltresCh(){
+  _chF = filtresChVides(); _chantiersSearchAtual = '';
+  afRemettreChamps(['ch-f-search','ch-f-client','ch-f-resp','ch-f-statut','ch-f-fact','ch-f-de','ch-f-a']);
+  selExpVider('chantiers'); afficherChantiers();
+}
+function ligneChantier(r){
+              const arch = chEstArchive(r);
+              const sit = (r.statut==='termine' && _chSituations) ? _chSituations[r.id] : null;
+              const estChantier = (r.type_centre||'chantier')==='chantier';
+              return `<tr data-sel-id="${r.id}" style="cursor:pointer" onclick="openChantierDetail('${r.id}')">
+              <td><span class="td-primary">${escHtml(r.numero)}</span></td>
+              <td><strong>${escHtml(r.nom)}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}</td>
+              <td>${escHtml(r.client)}</td>
+              <td>${escHtml(nomChef(r,_chEmpNoms))||'—'}${chefNonLie(r,_chEmpNoms) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</td>
+              <td>${fmtDate(r.date_debut)}</td>
+              <td>${bCH(r.statut)}${sit ? ' '+pastillesSituationChantier(sit) : ''}</td>
+              ${estChantier ? cellFacturation(_chFacturation ? _chFacturation[r.id] : null, {genre:'m'}) : '<td class="td-fact" data-fact="na">—</td>'}
+              <td onclick="event.stopPropagation()"><div class="td-actions">
+                <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')" title="Consulter"><i class="ti ti-eye"></i></button>
+                ${arch ? `<button class="btn btn-primary btn-sm" data-chantier-desarchiver="${r.id}" title="Désarchiver" onclick="event.stopPropagation();desarchiverChantier('${r.id}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : `
+                <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${attrJson(r)})'><i class="ti ti-edit"></i></button>
+                ${(r.statut==='termine' && estChantier) ? `<button class="btn btn-secondary btn-sm" data-chantier-archiver="${r.id}" title="Archiver" onclick="event.stopPropagation();archiverChantier('${r.id}')"><i class="ti ti-archive"></i></button>` : ''}
+                <button class="btn btn-danger btn-sm" data-chantier-suppr="${r.id}" title="Supprimer" onclick="event.stopPropagation();supprimerChantier('${r.id}')"><i class="ti ti-trash"></i></button>`}
+              </div></td>
+            </tr>`;
+}
 async function renderChantiers(search=''){
   _chantiersSearchAtual = search;
+  _chF.search = String(search||'');
   if(!search) {
     const {data} = await sb.from('chantiers_lyneo').select('*').order('created_at',{ascending:false});
     _chantiers = data||[];
@@ -3774,20 +3869,15 @@ async function renderChantiers(search=''){
   const archives = baseTous.filter(chEstArchive);
   const actifs = baseTous.filter(c=>!chEstArchive(c));
   const baseChantiers = _chVue==='archives' ? archives : actifs;
-  const q = String(search||'').toLowerCase();
-  const correspond = i => (String(i.nom||'')+String(i.client||'')+String(i.numero||'')).toLowerCase().includes(q);
-  let items = search ? baseChantiers.filter(correspond) : baseChantiers;
   baseChantiers.forEach(r=>{ const v = String(nomChef(r,_chEmpNoms)||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
     Object.defineProperty(r, '_chefTri', {value: v || '\uffff', enumerable:false, writable:true, configurable:true}); });   // clé de tri (non énumérable : n'entre pas dans les JSON des boutons)
-  items = sortItems(items, 'chantiers');
-  // Recherche dans la liste principale : on signale les chantiers archivés qui correspondent aussi (comme le filtre « Archivé » d'Odoo)
-  const trouvesArchives = (search && _chVue!=='archives') ? archives.filter(correspond).length : 0;
+  _chBase = baseChantiers; _chArch = archives;
   const ongletCh = (id, libelle, n) => `<div class="tab-btn" id="ch-vue-${id}" onclick="chChangerVue('${id}')" style="cursor:pointer;border-bottom:2px solid ${_chVue===id?'var(--blue)':'transparent'};color:${_chVue===id?'var(--blue)':'var(--gray-5)'};display:flex;align-items:center;gap:6px;margin-bottom:-1px">${libelle} <span class="badge badge-termine" style="font-size:10px">${n}</span></div>`;
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Chantiers</h1><p>Gestion des projets et chantiers</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderChantiers(this.value)" value="${escHtml(search)}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input id="ch-f-search" placeholder="N°, nom, client, responsable..." oninput="majFiltreCh('search',this.value)" value="${escHtml(_chF.search)}"/></div>
         ${btnExport('chantiers')}
         ${btnDoublons('chantiers', _chantiers)}
         ${currentUser && currentUser.role==='admin' ? `<button class="btn btn-secondary" id="btn-sync-pt" onclick="ouvrirSynchroPointages()" title="Seuls les chantiers « En cours » sont proposés aux salariés dans l'application des pointages"><i class="ti ti-refresh"></i> Synchroniser les pointages</button>` : ''}
@@ -3800,8 +3890,9 @@ async function renderChantiers(search=''){
       ${ongletCh('archives', '<i class="ti ti-archive"></i> Chantiers archivés', archives.length)}
     </div>
     ${_chVue==='archives' ? `<div class="alert alert-info" id="ch-info-archives" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>Les chantiers archivés n'apparaissent plus dans la liste principale ni dans les listes de choix (devis, factures, commandes). Ouvrez-en un pour le consulter ; <strong>Désarchiver</strong> le remet en « Terminé ».</span></div>` : ''}
-    ${trouvesArchives ? `<div class="alert alert-info" id="ch-hint-archives" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>${trouvesArchives} chantier${trouvesArchives>1?'s':''} archivé${trouvesArchives>1?'s':''} correspond${trouvesArchives>1?'ent':''} aussi — <a href="#" onclick="chChangerVue('archives');return false" style="color:var(--blue);font-weight:600">voir dans les archives</a></span></div>` : ''}
+    <div id="ch-hint-zone"></div>
     ${(_chSituations===null && _chVue!=='archives' && actifs.some(c=>c.statut==='termine')) ? `<div class="alert alert-warning" id="ch-sit-indispo" style="margin-bottom:16px"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les factures clients : le solde à encaisser des chantiers terminés n'est pas affiché.</span></div>` : ''}
+    ${barreFiltresCh()}
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-export="chantiers">
@@ -3809,40 +3900,17 @@ async function renderChantiers(search=''){
             ${sortableTh('Numéro','chantiers','numero',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Nom','chantiers','nom',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Client','chantiers','client',"renderChantiers(_chantiersSearchAtual)")}
-            ${sortableTh('Chef chantier','chantiers','_chefTri',"renderChantiers(_chantiersSearchAtual)")}
+            ${sortableTh('Responsable','chantiers','_chefTri',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Début','chantiers','date_debut',"renderChantiers(_chantiersSearchAtual)")}
             ${sortableTh('Statut','chantiers','statut',"renderChantiers(_chantiersSearchAtual)")}
             <th>Facturation</th>
             <th>Actions</th>
           </tr></thead>
-          <tbody>
-            ${items.length===0 ? (_chVue==='archives'
-              ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-archive"></i></div><p>Aucun chantier archivé</p><p style="font-size:12px;color:var(--gray-5)">Un chantier terminé et soldé s\'archive depuis la liste (bouton « Archiver »).</p></div></td></tr>'
-              : '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-factory-2"></i></div><p>Aucun chantier trouvé</p><button class="btn btn-primary" onclick="openChantierModal()"><i class="ti ti-plus"></i> Nouveau chantier</button></div></td></tr>') :
-            items.map(r=>{
-              const arch = chEstArchive(r);
-              const sit = (r.statut==='termine' && _chSituations) ? _chSituations[r.id] : null;
-              const estChantier = (r.type_centre||'chantier')==='chantier';
-              return `<tr data-sel-id="${r.id}" style="cursor:pointer" onclick="openChantierDetail('${r.id}')">
-              <td><span class="td-primary">${escHtml(r.numero)}</span></td>
-              <td><strong>${escHtml(r.nom)}</strong>${r.type_centre&&r.type_centre!=='chantier'?`<span class="badge" style="margin-left:6px;font-size:10px;background:var(--gray-2);color:var(--gray-6)">${r.type_centre==='sav'?'SAV':'Interne'}</span>`:''}</td>
-              <td>${escHtml(r.client)}</td>
-              <td>${escHtml(nomChef(r,_chEmpNoms))||'—'}${chefNonLie(r,_chEmpNoms) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</td>
-              <td>${fmtDate(r.date_debut)}</td>
-              <td>${bCH(r.statut)}${sit ? ' '+pastillesSituationChantier(sit) : ''}</td>
-              ${estChantier ? cellFacturation(_chFacturation ? _chFacturation[r.id] : null, {genre:'m'}) : '<td class="td-fact" data-fact="na">—</td>'}
-              <td onclick="event.stopPropagation()"><div class="td-actions">
-                <button class="btn btn-secondary btn-sm" onclick="openChantierDetail('${r.id}')" title="Consulter"><i class="ti ti-eye"></i></button>
-                ${arch ? `<button class="btn btn-primary btn-sm" data-chantier-desarchiver="${r.id}" title="Désarchiver" onclick="event.stopPropagation();desarchiverChantier('${r.id}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : `
-                <button class="btn btn-secondary btn-sm" onclick='event.stopPropagation();openChantierModal(${attrJson(r)})'><i class="ti ti-edit"></i></button>
-                ${(r.statut==='termine' && estChantier) ? `<button class="btn btn-secondary btn-sm" data-chantier-archiver="${r.id}" title="Archiver" onclick="event.stopPropagation();archiverChantier('${r.id}')"><i class="ti ti-archive"></i></button>` : ''}
-                <button class="btn btn-danger btn-sm" data-chantier-suppr="${r.id}" title="Supprimer" onclick="event.stopPropagation();supprimerChantier('${r.id}')"><i class="ti ti-trash"></i></button>`}
-              </div></td>
-            </tr>`;}).join('')}
-          </tbody>
+          <tbody id="ch-tbody"></tbody>
         </table>
       </div>
     </div>`;
+  afficherChantiers();
 }
 
 // sbPT moved to top
@@ -4140,7 +4208,7 @@ async function openChantierDetail(chantierId, tab){
     ${chEstArchive(chantier) ? `<div class="alert alert-info" id="ch-archive-info" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>Chantier <strong>archivé</strong> : il n'apparaît plus dans les listes ni dans les choix de chantier des documents. Vous le consultez ici ; <strong>Désarchiver</strong> le remet en « Terminé ».</span></div>` : ''}
     ${blocSituation}
     <div class="info-grid" style="margin-bottom:16px;max-width:100%">
-      <div class="info-item"><label>Chef de chantier</label><span>${escHtml(nomChef(chantier, nomsEmp))||'—'}${chefNonLie(chantier, nomsEmp) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</span></div>
+      <div class="info-item"><label>Responsable</label><span>${escHtml(nomChef(chantier, nomsEmp))||'—'}${chefNonLie(chantier, nomsEmp) ? ' <span class="ch-chef-nonlie" title="Responsable saisi à la main : pas encore relié à un employé. Modifier le chantier pour le choisir dans la liste." style="color:var(--orange);cursor:help">⚠</span>' : ''}</span></div>
       <div class="info-item"><label>Adresse</label><span>${escHtml(chantier.adresse||'—')}</span></div>
       <div class="info-item"><label>Statut</label><span>${bCH(chantier.statut)}</span></div>
       <div class="info-item"><label>Date début</label><span>${fmtDate(chantier.date_debut)}</span></div>
@@ -5011,7 +5079,7 @@ async function openChantierModal(r=null){
         </div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="ch-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Adresse du chantier"/></div>
         <div class="form-group full"><label class="field-label">Lieu d'intervention (visible sur les factures client)</label><input id="ch-site-intervention" value="${escHtml(r?.site_intervention||'')}" placeholder="Ex: Delhaize Belval — nom que verra le client, différent de la référence interne"/></div>
-        <div class="form-group"><label class="field-label">Chef de chantier</label>${champChef}</div>
+        <div class="form-group"><label class="field-label">Responsable</label>${champChef}</div>
         <div class="form-group"><label class="field-label">Numéro ${isEdit?'':'(laisser vide : numéro automatique)'}</label><input id="ch-numero" value="${escHtml(r?.numero||'')}" placeholder="Ex: P00001, SAV 2, FG"/>${isEdit?'':'<span id="ch-numero-hint" style="font-size:12px;color:var(--gray-5)"></span>'}</div>
         <div class="form-group"><label class="field-label">Type de centre de coûts</label>
           <select id="ch-type" onchange="majNumeroAutoChantier()" data-had="${r&&r.type_centre!==undefined?'1':''}">
@@ -12088,14 +12156,15 @@ async function chargerParIds(table, colonnes, ids){
 
 // Une facture est « en retard » si elle est envoyée (ou partiellement payée) et que son échéance est dépassée.
 // Jamais pour un brouillon, une facture payée ou annulée, ni sans date d'échéance.
-function joursRetardFv(f){
+function joursRetardAvec(f, av, t){
   if(f.type_facture==='avoir') return 0;                       // une note de crédit n'est jamais « en retard »
   if(!['envoyee','payee_partiel'].includes(f.statut) || !f.date_echeance) return 0;
-  if(soldeFv(f,_fvAvoirs) <= 0.005) return 0;                  // facture entièrement créditée : plus rien à encaisser
-  const e = String(f.date_echeance).slice(0,10), t = today();
+  if(soldeFv(f,av) <= 0.005) return 0;                         // facture entièrement créditée : plus rien à encaisser
+  const e = String(f.date_echeance).slice(0,10);
   if(e >= t) return 0;
   return Math.round((new Date(t) - new Date(e)) / 86400000);
 }
+function joursRetardFv(f){ return joursRetardAvec(f, _fvAvoirs, today()); }
 
 async function renderFacturesVente(){
   await tracChargerUtilisateurs();
@@ -12105,6 +12174,7 @@ async function renderFacturesVente(){
     || String(b.numero||'').localeCompare(String(a.numero||''), undefined, {numeric:true}));
 
   _fvAvoirs = avoirsParFacture(_facturesVente);
+  await chargerRelancesFV();      // historique des relances (sans le script SQL : rien à afficher, la liste fonctionne comme avant)
   // Devis d'origine et interventions SAV : requêtes séparées, la liste s'affiche même si elles échouent
   _fvCtx = {devis:{}, interv:{}};
   try{ (await chargerParIds('devis','id,numero,objet',[...new Set(_facturesVente.map(f=>f.devis_id).filter(Boolean))])).forEach(x=>{ _fvCtx.devis[x.id]=x; }); }catch(e){}
@@ -12125,6 +12195,7 @@ async function renderFacturesVente(){
       <div class="page-actions">
         <div class="search-wrap"><i class="ti ti-search"></i><input id="fv-recherche" placeholder="N°, client, devis, PO, centre, SAV..." oninput="_fvFiltres.search=this.value;afficherFacturesVente()" value="${escHtml(F.search)}"/></div>
         ${btnExport('factures_vente')}
+        <button class="btn btn-secondary" id="btn-relances" onclick="openRelances()" title="Relancer les clients dont des factures sont échues"><i class="ti ti-bell-ringing"></i> Relances${(()=>{ const n = new Set(_facturesVente.filter(f=>joursRetardFv(f)>0).map(f=>String(f.client_id||''))).size; return n ? ` <span class="badge badge-litige" id="fv-rel-badge">${n}</span>` : ''; })()}</button>
         <button class="btn btn-secondary" id="btn-cgv-liste" onclick="openCGV(&quot;navigate('factures_vente')&quot;)" title="${CGV_JOINDRE_AUX_FACTURES ? 'Conditions générales de vente jointes aux factures' : 'Conditions générales de vente (en cours de validation — non jointes aux factures)'}"><i class="ti ti-scale"></i> CGV</button>
         <button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button>
       </div>
@@ -12226,7 +12297,7 @@ function afficherFacturesVente(){
       <td>${escHtml(TYPE_FV[f.type_facture]||f.type_facture||'—')}</td>
       ${montant(f.total_ht,'ht')}${montant(tvaDe(f),'tva')}
       <td data-som="ttc" data-v="${num(f.total_ttc)}" style="text-align:right;white-space:nowrap;font-weight:700;font-variant-numeric:tabular-nums;${annulee?'text-decoration:line-through;color:var(--gray-5)':(avoir?'color:var(--red)':'')}">${fmt(f.total_ttc)}</td>
-      <td style="white-space:nowrap">${jr?`<span class="badge badge-litige">En retard</span>${f.statut==='payee_partiel'?`<div style="${sub}">Part. payée</div>`:''}`:bFV(f.statut, avoir)}${av?`<div style="${sub}">${soldeFv(f,_fvAvoirs)<=0.005?'Crédité en totalité':'Avoir '+fmt(av.ttc)}</div>`:''}</td>
+      <td style="white-space:nowrap">${jr?`<span class="badge badge-litige">En retard</span>${relLibFV(f.id,sub)}${f.statut==='payee_partiel'?`<div style="${sub}">Part. payée</div>`:''}`:bFV(f.statut, avoir)}${av?`<div style="${sub}">${soldeFv(f,_fvAvoirs)<=0.005?'Crédité en totalité':'Avoir '+fmt(av.ttc)}</div>`:''}</td>
       <td>${tracCell(f.cree_par)}</td>
     </tr>`;
   };
@@ -13783,6 +13854,414 @@ async function envfvMailto(){
 }
 
 
+// ── RELANCES DES FACTURES CLIENTS (02/11/2026) ──────────────────────────────────────────────────────────────────────
+// Une facture ÉMISE dont l'échéance est dépassée et qui n'est pas soldée (joursRetardAvec > 0) peut être relancée par niveaux :
+//   1 = rappel de paiement · 2 = deuxième rappel · 3 = mise en demeure de payer.
+// Une relance = UNE lettre (PDF, identité Lyneo) + UN e-mail par CLIENT, avec toutes ses factures échues (comme Odoo).
+// L'historique (table relances_facture, script « migration-relances.sql ») sert à proposer le niveau suivant et à ne pas relancer deux fois
+// de suite ; sans le script tout fonctionne mais rien n'est mémorisé (avertissement affiché dans la fenêtre).
+// Rien n'est envoyé automatiquement : même mécanisme que l'envoi des factures (.eml prêt à envoyer, partage, messagerie).
+const SQL_RELANCES = 'migration-relances.sql';
+const RELANCE_REGLES = {jours1:7, intervalle:15};      // 1er rappel dès 7 j de retard ; niveau suivant au moins 15 j après la relance précédente
+const RELANCE_NIVEAUX = {
+  1:{titre:'RAPPEL DE PAIEMENT', court:'Rappel', objet:'Rappel de paiement'},
+  2:{titre:'DEUXIÈME RAPPEL DE PAIEMENT', court:'2e rappel', objet:'Deuxième rappel de paiement'},
+  3:{titre:'MISE EN DEMEURE DE PAYER', court:'Mise en demeure', objet:'Mise en demeure de payer'}
+};
+const RELANCE_CANAUX = {eml:'E-mail (.eml)', partage:'Partage', mailto:'Messagerie', pdf:'Lettre PDF'};
+const RELANCE_TOKEN = '[LISTE DES FACTURES]';
+let _relFV = {sqlOk:null, parFacture:{}, erreur:null};    // historique lu : sqlOk false = script SQL pas encore exécuté, null = erreur technique / pas lu
+let _relance = null, _relListe = null;
+const relArr = n => Math.round(((parseFloat(n)||0) + Number.EPSILON) * 100) / 100;
+const erreurTableRelances = err => !!err && (['PGRST205','42P01'].includes(err.code)
+  || /Could not find the table|relation "?(public\.)?relances_facture"? does not exist|Could not find the '[a-z_]+' column of 'relances_facture'/i.test(err.message||''));
+function relUuid(){
+  const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = (b[6]&0x0f)|0x40; b[8] = (b[8]&0x3f)|0x80;
+  const h = Array.from(b, x=>x.toString(16).padStart(2,'0')).join('');
+  return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
+}
+async function chargerRelancesFV(){
+  try{
+    const rows = await lirePagine('relances_facture', 'id,facture_vente_id,niveau,date_relance,montant_du,canal,lot,cree_par,created_at');
+    const m = {};
+    rows.forEach(r=>{ (m[r.facture_vente_id] = m[r.facture_vente_id] || []).push(r); });
+    Object.values(m).forEach(l=>l.sort((a,b)=>String(a.date_relance).localeCompare(String(b.date_relance)) || ((a.niveau||0)-(b.niveau||0))));
+    _relFV = {sqlOk:true, parFacture:m, erreur:null};
+  }catch(e){
+    const manque = erreurTableRelances(e);
+    _relFV = {sqlOk: manque ? false : null, parFacture:{}, erreur: manque ? null : ((e&&e.message)||String(e))};
+  }
+}
+// Dernière situation d'une facture : niveau le plus élevé déjà envoyé + date de la relance la plus récente (null = jamais relancée)
+function derniereRelanceFV(id){
+  const l = _relFV.parFacture[id]; if(!l || !l.length) return null;
+  return {niveau: Math.max(...l.map(x=>x.niveau||1)), date_relance: l[l.length-1].date_relance, n: l.length};
+}
+const relNomNiveau = n => (RELANCE_NIVEAUX[n] || {court:'Relance '+n}).court;
+function relLibFV(id, sub){
+  const d = derniereRelanceFV(id); if(!d) return '';
+  return `<div style="${sub}" data-rel-lib="${escHtml(String(id))}">${escHtml(relNomNiveau(d.niveau))} · ${fmtDate(d.date_relance)}</div>`;
+}
+// Niveau conseillé pour UNE facture en retard.  etat : a_faire · trop_tot (retard < 7 j) · attendre (relancée il y a moins de 15 j) · contentieux (mise en demeure déjà envoyée)
+function niveauRelanceConseille(retard, derniere, jourIso){
+  if(!(retard > 0)) return null;
+  if(!derniere) return {niveau:1, etat: retard >= RELANCE_REGLES.jours1 ? 'a_faire' : 'trop_tot'};
+  const depuis = nbJoursEntre(String(derniere.date_relance).slice(0,10), jourIso);
+  const suivant = Math.min(3, (derniere.niveau||1) + 1);
+  if(depuis !== null && depuis < RELANCE_REGLES.intervalle) return {niveau:suivant, etat:'attendre', depuis};
+  if((derniere.niveau||1) >= 3) return {niveau:3, etat:'contentieux', depuis};
+  return {niveau:suivant, etat:'a_faire', depuis};
+}
+// Factures ÉMISES et non soldées, lues dans la base (indépendant de la liste affichée) + notes de crédit émises ; ne garde que celles en retard
+async function chargerEchuesFV(jourIso){
+  const fact = await lirePagine('factures_vente', 'id,numero,client_id,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email)', q=>q.in('statut', ['envoyee','payee_partiel']));
+  const avRows = await lirePagine('factures_vente', 'id,facture_origine_id,total_ht,total_ttc,statut,type_facture', q=>q.eq('type_facture', 'avoir'));
+  const av = avoirsParFacture(avRows);
+  return {factures: fact.filter(f=>joursRetardAvec(f, av, jourIso) > 0), av};
+}
+// Regroupe par client : une ligne par client avec ses factures échues, le total dû, le niveau conseillé et l'état
+function lignesRelanceClients(factures, av, jourIso){
+  const par = {};
+  (factures || []).forEach(f=>{
+    const retard = joursRetardAvec(f, av, jourIso); if(!(retard > 0)) return;
+    const cid = f.client_id || '__sans_client';
+    const g = par[cid] = par[cid] || {clientId: f.client_id || null, nom: (f.clients && f.clients.nom) || '—', email: (f.clients && f.clients.email) || '', factures: [], total: 0};
+    const solde = relArr(soldeFv(f, av)), derniere = derniereRelanceFV(f.id);
+    g.factures.push({f, retard, solde, derniere, conseil: niveauRelanceConseille(retard, derniere, jourIso)});
+    g.total += solde;
+  });
+  const liste = Object.values(par);
+  liste.forEach(g=>{
+    g.total = relArr(g.total);
+    g.factures.sort((a,b)=>b.retard - a.retard || String(a.f.numero).localeCompare(String(b.f.numero)));
+    g.retardMax = g.factures[0].retard;
+    const afaire = g.factures.filter(x=>x.conseil.etat === 'a_faire');
+    g.etat = afaire.length ? 'a_faire' : (g.factures.every(x=>x.conseil.etat === 'trop_tot') ? 'trop_tot' : (g.factures.some(x=>x.conseil.etat === 'contentieux') ? 'contentieux' : 'attendre'));
+    g.niveau = Math.max(...(afaire.length ? afaire : g.factures).map(x=>x.conseil.niveau));
+    g.derniere = g.factures.map(x=>x.derniere).filter(Boolean).sort((a,b)=>String(b.date_relance).localeCompare(String(a.date_relance)))[0] || null;
+  });
+  const ordre = {a_faire:0, contentieux:1, attendre:2, trop_tot:3};
+  return liste.sort((a,b)=>ordre[a.etat] - ordre[b.etat] || b.total - a.total || String(a.nom).localeCompare(String(b.nom)));
+}
+function relConseilHtml(g){
+  if(g.etat === 'a_faire') return `<span class="badge badge-litige" data-rel-conseil="a_faire">${escHtml(relNomNiveau(g.niveau))}</span>`;
+  if(g.etat === 'trop_tot') return `<span style="color:var(--gray-5);font-size:12.5px" data-rel-conseil="trop_tot">Trop tôt (moins de ${RELANCE_REGLES.jours1} j de retard)</span>`;
+  if(g.etat === 'contentieux') return `<span style="color:var(--red);font-size:12.5px;font-weight:600" data-rel-conseil="contentieux">Mise en demeure déjà envoyée — décider de la suite (juriste)</span>`;
+  return `<span style="color:var(--orange);font-size:12.5px" data-rel-conseil="attendre">Relancé récemment — attendre ${RELANCE_REGLES.intervalle} j</span>`;
+}
+function htmlRelancesTable(data, jour){
+  const clients = lignesRelanceClients(data.factures, data.av, jour);
+  if(!clients.length) return `<div class="empty" id="rel-vide"><div class="empty-icon"><i class="ti ti-circle-check"></i></div><p>Aucune facture échue à relancer</p></div>`;
+  const nbF = clients.reduce((a,g)=>a+g.factures.length, 0), tot = relArr(clients.reduce((a,g)=>a+g.total, 0));
+  return `<div id="rel-resume" style="font-size:13px;color:var(--gray-6);margin-bottom:10px">${clients.length} client${clients.length>1?'s':''} · ${nbF} facture${nbF>1?'s':''} échue${nbF>1?'s':''} · <strong>${fmt(tot)} TTC</strong> à encaisser (notes de crédit déduites)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:760px"><thead><tr style="background:var(--gray-1)">
+      ${['Client','Factures échues','Montant dû TTC','Retard max','Dernière relance','Conseil',''].map((t,i)=>`<th style="padding:8px 10px;text-align:${i===2||i===3?'right':'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">${t}</th>`).join('')}
+    </tr></thead><tbody>
+      ${clients.map(g=>`<tr data-rel-client="${escHtml(String(g.clientId||''))}" data-etat="${g.etat}">
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)"><strong>${escHtml(g.nom)}</strong>${g.email?'':' <span title="Pas d\'adresse e-mail sur la fiche du client" style="color:var(--orange)"><i class="ti ti-mail-off"></i></span>'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);font-size:12.5px">${g.factures.map(x=>escHtml(x.f.numero)).join(', ')}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;white-space:nowrap">${fmt(g.total)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--red);font-weight:600;white-space:nowrap">${g.retardMax} j</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);white-space:nowrap">${g.derniere ? escHtml(relNomNiveau(g.derniere.niveau))+' · '+fmtDate(g.derniere.date_relance) : '—'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2)">${relConseilHtml(g)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);text-align:right"><button class="btn btn-sm ${g.etat==='a_faire'?'btn-primary':'btn-secondary'}" data-rel-btn="${escHtml(String(g.clientId||''))}" onclick="openRelanceClient('${escHtml(String(g.clientId||''))}')"><i class="ti ti-bell-ringing"></i> Relancer</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+async function openRelances(){
+  const jour = today();
+  let data;
+  try{ await chargerRelancesFV(); data = await chargerEchuesFV(jour); }
+  catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); return; }
+  _relListe = data;
+  const avisSql = _relFV.sqlOk === false
+    ? `<div class="alert alert-info" id="rel-sql" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> <span>L'historique des relances n'est pas encore activé : exécutez le script <strong>${SQL_RELANCES}</strong> dans Supabase → SQL Editor. Vous pouvez déjà relancer, mais les relances ne seront pas mémorisées (le niveau conseillé ne tient alors compte que du retard).</span></div>`
+    : (_relFV.sqlOk === null ? `<div class="alert alert-info" id="rel-sql-err" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> <span>Historique des relances indisponible : ${escHtml(_relFV.erreur||'erreur inconnue')}</span></div>` : '');
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+    <div class="modal-header"><h3><i class="ti ti-bell-ringing"></i> Relances des factures échues</h3><button class="modal-close" onclick="closeModal()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      ${avisSql}
+      <p style="font-size:12.5px;color:var(--gray-5);margin-bottom:10px">Une lettre (PDF) et un e-mail par client, avec toutes ses factures échues. Niveaux : rappel dès ${RELANCE_REGLES.jours1} jours de retard, puis deuxième rappel et mise en demeure à ${RELANCE_REGLES.intervalle} jours d'intervalle.</p>
+      <div id="rel-liste">${htmlRelancesTable(data, jour)}</div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>
+    </div></div></div>`);
+}
+async function rafraichirListeRelances(){
+  const box = el('rel-liste'); if(!box) return;
+  try{ const jour = today(); _relListe = await chargerEchuesFV(jour); box.innerHTML = htmlRelancesTable(_relListe, jour); }catch(e){}
+}
+// ── textes ──
+const relListeTexte = lignes => lignes.map(x=>`- ${x.numero} du ${fmtDate(x.date)} — échéance ${fmtDate(x.echeance)} (${x.retard} j de retard) : ${envfvSansEspaceInsecable(fmt(x.montant))} TTC`).join('\n')
+  + (lignes.length > 1 ? `\nTotal : ${envfvSansEspaceInsecable(fmt(relArr(lignes.reduce((a,x)=>a+x.montant, 0))))} TTC` : '');
+function relMessage(niveau, g, lignes, jour){
+  const total = envfvSansEspaceInsecable(fmt(relArr(lignes.reduce((a,x)=>a+x.montant, 0))));
+  const prec = g && g.derniere ? fmtDate(g.derniere.date_relance) : '';
+  const debut = niveau === 3 ? 'Madame, Monsieur,' : 'Bonjour,';
+  const fin = niveau === 3 ? 'Veuillez agréer, Madame, Monsieur, nos salutations distinguées.\nLYNEO' : 'Cordialement,\nLYNEO';
+  let corps;
+  if(niveau === 1) corps = `Sauf erreur ou omission de notre part, les factures ci-dessous demeurent impayées à ce jour alors que leur échéance est dépassée.\n\n${RELANCE_TOKEN}\n\nNous vous remercions de bien vouloir procéder à leur règlement dans les meilleurs délais. Si votre paiement a été effectué entre-temps, veuillez ne pas tenir compte de ce message et nous en excuser.`;
+  else if(niveau === 2) corps = `${prec ? 'Malgré notre précédent rappel du '+prec : 'Malgré notre précédent rappel'}, nous n'avons pas reçu le règlement des factures ci-dessous.\n\n${RELANCE_TOKEN}\n\nNous vous prions de bien vouloir régler la somme de ${total} TTC dans un délai de 8 jours. À défaut, des intérêts de retard pourront être appliqués conformément à nos conditions générales de vente et à la loi.\n\nSi le paiement a été effectué entre-temps, merci de nous en transmettre la preuve.`;
+  else corps = `Malgré nos rappels précédents, les factures ci-dessous restent impayées.\n\n${RELANCE_TOKEN}\n\nPar la présente, nous vous mettons en demeure de nous régler la somme de ${total} TTC dans un délai de 8 jours à compter de la réception de ce courrier. À défaut, nous nous réservons le droit d'engager sans autre avis toute procédure de recouvrement, et de réclamer les intérêts de retard et frais prévus par la loi et par nos conditions générales de vente.`;
+  return debut + '\n\n' + corps + '\n\n' + fin;
+}
+const relObjet = (niveau, lignes) => lignes.length === 1
+  ? `${RELANCE_NIVEAUX[niveau].objet} — facture ${lignes[0].numero} — LYNEO` : `${RELANCE_NIVEAUX[niveau].objet} — factures échues — LYNEO`;
+const relCorpsEmail = (corps, lignes) => String(corps).split(RELANCE_TOKEN).join(relListeTexte(lignes));
+const relTextePdf = corps => String(corps).split(RELANCE_TOKEN).join('Le détail des factures concernées figure dans le tableau ci-dessus.');
+function relNomFichier(client, niveau, jour){
+  const n = String(client.nom || 'client').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'client';
+  return `RELANCE-${niveau}-${n}-${jour}.pdf`;
+}
+function configPdfRelance(client, lignes, niveau, corps, jour){
+  const N = RELANCE_NIVEAUX[niveau], total = relArr(lignes.reduce((a,x)=>a+x.montant, 0));
+  return {
+    docType: N.titre,
+    dates: [{label:'Date', value: fmtDate(jour)}, {label:'Niveau', value: niveau+' / 3'}, {label:'Total dû TTC', value: fmt(total)}],
+    boxes: [
+      {label:'Émetteur', lines: LyneoPDF.emetteurLignes()},
+      {label:'Destinataire', lines: [client.nom || '—', client.adresse || '', ((client.code_postal || '')+' '+(client.ville || '')).trim()].concat(tvaClientPdf(client) ? ['TVA : '+tvaClientPdf(client)] : [])}
+    ],
+    sectionTitle: 'Factures échues non réglées',
+    table: {
+      columns: [{header:'N° facture', width:130, align:'left'}, {header:'Date', width:90, align:'left'}, {header:'Échéance', width:90, align:'left'}, {header:'Retard', width:80, align:'right'}, {header:'Montant dû TTC', width:140, align:'right'}],
+      rows: lignes.map(x=>({cells: [x.numero, fmtDate(x.date), fmtDate(x.echeance), x.retard+' j', fmt(x.montant)]}))
+    },
+    totals: [{label:'TOTAL DÛ TTC', value: fmt(total), bold:true}],
+    notesBlock: {title: 'Objet : '+N.objet, text: relTextePdf(corps)},
+    paymentBlock: {title:'Informations de règlement', lines: [`Banque : ${LyneoPDF.ENTREPRISE.iban}  |  BIC : ${LyneoPDF.ENTREPRISE.bic}`, 'Référence à indiquer : '+lignes.map(x=>x.numero).join(', ')]}
+  };
+}
+// ── fenêtre de relance d'un client ──
+async function openRelanceClient(clientId){
+  const jour = today();
+  let data;
+  try{ await chargerRelancesFV(); data = await chargerEchuesFV(jour); }
+  catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); return; }
+  const g = lignesRelanceClients(data.factures, data.av, jour).find(x=>String(x.clientId||'') === String(clientId||''));
+  if(!g){ showToast('Aucune facture échue pour ce client', 'error'); return; }
+  let client = {nom: g.nom, email: g.email};
+  if(g.clientId){
+    const rc = await sb.from('clients').select('id,nom,email,adresse,code_postal,ville,numero_tva').eq('id', g.clientId).single();
+    if(rc.data) client = rc.data;
+  }
+  const mon = _relance = {g, client, jour, niveau: g.niveau, lot: relUuid(), consigne: false, messageModifie: false, objetModifie: false, occupe: false};
+  let c = el('relance-container');
+  if(!c){ c = document.createElement('div'); c.id = 'relance-container'; document.body.appendChild(c); }
+  c.innerHTML = htmlRelanceClient(mon);
+  relRafraichir();
+}
+function htmlRelanceClient(mon){
+  const g = mon.g, c = mon.client, sansSql = _relFV.sqlOk === false;
+  const partage = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function';
+  const bouton = (id, cls, icone, titre, aide, clic) => `<div style="margin-bottom:10px"><button type="button" class="btn ${cls}" id="${id}" onclick="${clic}" style="width:100%;justify-content:center"><i class="ti ${icone}"></i> ${titre}</button><div style="font-size:12px;color:var(--gray-6);margin-top:3px">${aide}</div></div>`;
+  const info = g.etat === 'attendre' ? `Ce client a été relancé le ${fmtDate(g.derniere.date_relance)} (${relNomNiveau(g.derniere.niveau)}) : le niveau suivant est conseillé à partir de ${RELANCE_REGLES.intervalle} jours après cette date.`
+    : g.etat === 'contentieux' ? `Une mise en demeure a déjà été envoyée le ${fmtDate(g.derniere.date_relance)} : la suite (juriste, huissier) se décide en dehors de l'ERP.`
+    : g.etat === 'trop_tot' ? `Échéance dépassée depuis moins de ${RELANCE_REGLES.jours1} jours : vous pouvez relancer, mais ce n'est pas encore conseillé.` : '';
+  return `<div class="modal-overlay" style="z-index:300" onclick="if(event.target===this)fermerRelance()"><div class="modal" style="max-width:820px">
+    <div class="modal-header"><h3><i class="ti ti-bell-ringing"></i> Relancer — ${escHtml(g.nom)}</h3><button class="modal-close" onclick="fermerRelance()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      ${info ? `<div class="alert alert-info" id="rel-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> <span>${escHtml(info)}</span></div>` : ''}
+      ${sansSql ? `<div class="alert alert-info" id="rel-sql-fen" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> <span>Historique non activé : exécutez <strong>${SQL_RELANCES}</strong> pour mémoriser les relances. Cette relance ne sera pas enregistrée.</span></div>` : ''}
+      <div class="form-group"><label class="field-label" for="rel-niveau">Niveau de la relance</label>
+        <select id="rel-niveau" onchange="relChangerNiveau(this.value)">${[1,2,3].map(n=>`<option value="${n}"${n===mon.niveau?' selected':''}>${n} — ${RELANCE_NIVEAUX[n].court}</option>`).join('')}</select></div>
+      <div class="alert alert-info" id="rel-n3" style="margin-bottom:12px;display:none"><i class="ti ti-gavel"></i> <span>Une mise en demeure s'envoie normalement par <strong>courrier recommandé</strong> : téléchargez la lettre PDF et postez-la ; l'e-mail peut servir de copie. Faites valider le texte par votre juriste.</span></div>
+      <div style="overflow-x:auto;margin-bottom:10px"><table style="width:100%;border-collapse:collapse;min-width:640px"><thead><tr style="background:var(--gray-1)">
+        ${['','Facture','Date','Échéance','Retard','Dernière relance','Montant dû TTC'].map((t,i)=>`<th style="padding:6px 8px;text-align:${i===4||i===6?'right':'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">${t}</th>`).join('')}</tr></thead>
+        <tbody>${g.factures.map(x=>{ const id = escHtml(String(x.f.id)); return `<tr data-rel-fac="${id}">
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)"><input type="checkbox" id="rel-cb-${id}" checked onchange="relRafraichir()" aria-label="Inclure ${escHtml(x.f.numero)}"/></td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)"><strong>${escHtml(x.f.numero)}</strong></td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${fmtDate(x.f.date_creation)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${fmtDate(x.f.date_echeance)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--red);font-weight:600">${x.retard} j</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${x.derniere ? escHtml(relNomNiveau(x.derniere.niveau))+' · '+fmtDate(x.derniere.date_relance) : '—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right"><input type="text" inputmode="decimal" id="rel-mt-${id}" value="${x.solde.toFixed(2).replace('.', ',')}" style="width:110px;text-align:right" oninput="relRafraichir()" aria-label="Montant dû ${escHtml(x.f.numero)}"/>${x.f.statut==='payee_partiel' ? '<div style="font-size:11px;color:var(--orange)">part. payée : vérifiez le montant</div>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
+      <div id="rel-total" style="font-size:13px;font-weight:700;text-align:right;margin-bottom:12px"></div>
+      <div class="form-group"><label class="field-label" for="rel-a">À (e-mail du client — ${escHtml(g.nom)})</label>
+        <input id="rel-a" type="text" value="${escHtml(c.email || '')}" placeholder="comptabilite@client.lu" autocomplete="off"/>
+        ${c.email ? '' : '<div id="rel-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce client : saisissez-la ici (ou téléchargez la lettre PDF pour un envoi postal).</div>'}</div>
+      <div class="form-group"><label class="field-label" for="rel-cc">Cc (facultatif — plusieurs adresses séparées par « ; » ou une virgule)</label><input id="rel-cc" type="text" value="" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="rel-sujet">Objet</label><input id="rel-sujet" value="" oninput="_relance.objetModifie=true" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="rel-corps">Message (e-mail et lettre PDF) — « ${RELANCE_TOKEN} » est remplacé par la liste des factures</label><textarea id="rel-corps" rows="11" oninput="_relance.messageModifie=true"></textarea></div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px">
+        <label><input type="checkbox" id="rel-joindre" checked/> Joindre le PDF de chaque facture concernée (en plus de la lettre de relance)</label>
+        <label><input type="checkbox" id="rel-consigner"${sansSql ? ' disabled' : ' checked'}/> Enregistrer cette relance dans l'historique (après l'envoi ou le téléchargement)</label>
+        <div id="rel-consigne-ok" style="display:none;color:var(--green);font-size:12.5px"><i class="ti ti-circle-check"></i> Relance enregistrée dans l'historique.</div>
+      </div>
+      ${bouton('rel-eml', 'btn-primary', 'ti-mail-forward', 'E-mail prêt à envoyer (lettre PDF + factures)', "Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie l'ouvre avec le destinataire, l'objet, le texte et les pièces jointes ; il ne reste qu'à envoyer.", 'relEml()')}
+      ${partage ? bouton('rel-partage', 'btn-secondary', 'ti-share', 'Partager… (Mail, Outlook, Teams)', "Ouvre le menu de partage de votre appareil avec les PDF.", 'relPartager()') : ''}
+      ${bouton('rel-mailto', 'btn-ghost', 'ti-external-link', 'Ouvrir ma messagerie (sans pièces jointes)', "Le message s'ouvre dans votre messagerie ; la lettre PDF est téléchargée pour que vous la glissiez dedans.", 'relMailto()')}
+      ${bouton('rel-pdf', 'btn-ghost', 'ti-file-download', 'Télécharger la lettre (PDF)', "Pour un envoi par courrier (recommandé pour une mise en demeure).", 'relPdf()')}
+      <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerRelance()">Fermer</button></div>
+    </div></div></div>`;
+}
+function fermerRelance(){
+  const c = el('relance-container'); if(c) c.innerHTML = '';
+  _relance = null;
+  rafraichirListeRelances();
+}
+// Lignes cochées avec leur montant (silencieux = aperçu : on ignore les montants invalides sans message)
+function relChoix(silencieux){
+  const mon = _relance; if(!mon) return null;
+  const lignes = [];
+  for(const x of mon.g.factures){
+    const id = String(x.f.id), cb = el('rel-cb-'+id), inp = el('rel-mt-'+id);
+    if(!cb || !cb.checked) continue;
+    const m = parseFloat(String(inp ? inp.value : '').replace(/\s/g, '').replace(',', '.'));
+    if(!(m > 0)){ if(silencieux) continue; showToast('Montant dû invalide pour '+x.f.numero, 'error'); if(inp) inp.focus(); return null; }
+    lignes.push({id: x.f.id, numero: x.f.numero, date: x.f.date_creation, echeance: x.f.date_echeance, retard: x.retard, montant: relArr(m)});
+  }
+  if(!lignes.length && !silencieux){ showToast('Sélectionnez au moins une facture', 'error'); return null; }
+  return lignes;
+}
+function relRafraichir(){
+  const mon = _relance; if(!mon) return;
+  const lignes = relChoix(true) || [];
+  const t = el('rel-total'); if(t) t.textContent = 'Total de la relance : '+fmt(relArr(lignes.reduce((a,x)=>a+x.montant, 0)))+' TTC — '+lignes.length+' facture'+(lignes.length>1?'s':'');
+  if(!mon.objetModifie){ const o = el('rel-sujet'); if(o) o.value = lignes.length ? relObjet(mon.niveau, lignes) : RELANCE_NIVEAUX[mon.niveau].objet+' — LYNEO'; }
+  if(!mon.messageModifie){ const m = el('rel-corps'); if(m) m.value = relMessage(mon.niveau, mon.g, lignes, mon.jour); }
+  const w = el('rel-n3'); if(w) w.style.display = mon.niveau === 3 ? '' : 'none';
+}
+function relChangerNiveau(v){
+  const mon = _relance; if(!mon) return;
+  const n = parseInt(v, 10); if(![1,2,3].includes(n)) return;
+  if(mon.messageModifie && !confirm('Remplacer le message par le modèle « '+RELANCE_NIVEAUX[n].court+' » ? Vos modifications seront perdues.')){ const s = el('rel-niveau'); if(s) s.value = String(mon.niveau); return; }
+  mon.niveau = n; mon.messageModifie = false;
+  relRafraichir();
+}
+// Lit et vérifie le formulaire (null + message si quelque chose ne va pas)
+function relLire(exigerAdresse){
+  const mon = _relance; if(!mon) return null;
+  const lignes = relChoix(false); if(!lignes) return null;
+  const a = adressesEmail((el('rel-a')||{}).value), cc = adressesEmail((el('rel-cc')||{}).value);
+  if(exigerAdresse && !a.length){ showToast("Saisissez l'adresse e-mail du client", 'error'); const i = el('rel-a'); if(i) i.focus(); return null; }
+  const mauvaise = a.find(x=>!EMAIL_RE.test(x));
+  if(mauvaise){ showToast('Adresse e-mail invalide : '+mauvaise, 'error'); const i = el('rel-a'); if(i) i.focus(); return null; }
+  const mauvaiseCc = cc.find(x=>!EMAIL_RE.test(x));
+  if(mauvaiseCc){ showToast('Adresse e-mail invalide (Cc) : '+mauvaiseCc, 'error'); const i = el('rel-cc'); if(i) i.focus(); return null; }
+  const cons = el('rel-consigner'), joindre = el('rel-joindre');
+  return {a, cc, lignes, niveau: mon.niveau,
+    sujet: ((el('rel-sujet')||{}).value || '').replace(/[\r\n]+/g, ' ').trim() || relObjet(mon.niveau, lignes),
+    corps: (el('rel-corps')||{}).value || '', joindre: !!(joindre && joindre.checked), consigner: !!(cons && cons.checked && !cons.disabled)};
+}
+async function relLettre(d){
+  await entrepriseChargee();
+  const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, configPdfRelance(_relance.client, d.lignes, d.niveau, d.corps, _relance.jour));
+  return {bytes, nom: relNomFichier(_relance.client, d.niveau, _relance.jour)};
+}
+async function relPieces(d){
+  const l = await relLettre(d);
+  const pieces = [{nom: l.nom, type:'application/pdf', octets: l.bytes}];
+  if(d.joindre){
+    for(const x of d.lignes){
+      const r = await pdfBytesFactureVente(x.id);
+      if(r.erreur) throw new Error(r.erreur);
+      pieces.push({nom: r.nom, type:'application/pdf', octets: r.bytes});
+    }
+  }
+  const total = pieces.reduce((a,p)=>a+p.octets.length, 0);
+  if(total > ENV_FV_MAX_TOTAL) throw new Error('Les pièces jointes dépassent '+envfvTaille(ENV_FV_MAX_TOTAL)+' : décochez « Joindre le PDF de chaque facture » ou réduisez la sélection');
+  return pieces;
+}
+async function relAgir(btnId, fn){
+  const mon = _relance; if(!mon || mon.occupe) return;
+  mon.occupe = true; const b = el(btnId); if(b) b.disabled = true;
+  try{ await fn(); }
+  catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); }
+  finally{ mon.occupe = false; const b2 = el(btnId); if(b2) b2.disabled = false; }
+}
+async function insererRelancesFV(rows){
+  const r = await sb.from('relances_facture').insert(rows).select('id');
+  if(!r.error) return {nb: rows.length, error: null};
+  if(!erreurNumeroDejaPris(r.error)) return {nb: 0, error: r.error};
+  let nb = 0;                                    // une relance du même niveau existe déjà aujourd'hui pour certaines factures : on enregistre les autres une par une
+  for(const x of rows){
+    const r1 = await sb.from('relances_facture').insert(x).select('id');
+    if(!r1.error) nb++; else if(!erreurNumeroDejaPris(r1.error)) return {nb, error: r1.error};
+  }
+  return {nb, error: null};
+}
+// Après un envoi / téléchargement réussi : mémorise la relance (une seule fois par fenêtre)
+async function relApres(d, canal){
+  const mon = _relance; if(!mon || !d.consigner || mon.consigne) return;
+  const rows = d.lignes.map(x=>({facture_vente_id: x.id, client_id: mon.g.clientId, niveau: d.niveau, date_relance: mon.jour, montant_du: x.montant, jours_retard: x.retard, canal, lot: mon.lot, objet: d.sujet, cree_par: (currentUser && currentUser.id) || null}));
+  const r = await insererRelancesFV(rows);
+  if(r.error){
+    if(erreurTableRelances(r.error)){ _relFV.sqlOk = false; showToast("Relance faite, mais non mémorisée : exécutez le script "+SQL_RELANCES, 'error'); }
+    else showToast("Relance faite, mais non enregistrée dans l'historique : "+(r.error.message||r.error), 'error');
+    return;
+  }
+  mon.consigne = true;
+  const ok = el('rel-consigne-ok'); if(ok) ok.style.display = '';
+  const cons = el('rel-consigner'); if(cons) cons.disabled = true;
+  showToast('Relance enregistrée dans l\'historique ('+d.lignes.length+' facture'+(d.lignes.length>1?'s':'')+')');
+  await chargerRelancesFV();
+  if(currentPage === 'factures_vente' && typeof afficherFacturesVente === 'function') afficherFacturesVente();
+}
+async function relEml(){
+  const d = relLire(true); if(!d) return;
+  await relAgir('rel-eml', async()=>{
+    const pieces = await relPieces(d);
+    const nomEml = pieces[0].nom.replace(/\.pdf$/i, '') + '-email.eml';
+    await baixarBytes(construireEmlPJ({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: relCorpsEmail(d.corps, d.lignes), pieces}), nomEml, 'message/rfc822');
+    showToast('E-mail créé : ouvrez le fichier « '+nomEml+' » (double-clic) — '+pieces.length+' pièce'+(pieces.length>1?'s':'')+' jointe'+(pieces.length>1?'s':'')+', il ne reste qu\'à envoyer');
+    await relApres(d, 'eml');
+  });
+}
+async function relPartager(){
+  const d = relLire(false); if(!d) return;
+  await relAgir('rel-partage', async()=>{
+    const pieces = await relPieces(d);
+    const fichiers = pieces.map(p=>new File([p.octets], p.nom, {type: typeMimeSur(p.type)}));
+    if(!navigator.canShare({files: fichiers})){ showToast("Ce navigateur ne peut pas partager ces fichiers : utilisez « E-mail prêt à envoyer »", 'error'); return; }
+    try{ await navigator.share({files: fichiers, title: d.sujet, text: relCorpsEmail(d.corps, d.lignes)}); }
+    catch(e){ if(e && e.name === 'AbortError') return; throw e; }
+    await relApres(d, 'partage');
+  });
+}
+async function relMailto(){
+  const d = relLire(true); if(!d) return;
+  await relAgir('rel-mailto', async()=>{
+    const l = await relLettre(d);
+    await baixarPdfBytes(l.bytes, l.nom);
+    setTimeout(()=>{
+      ouvrirLienMailto(`mailto:${d.a.join(',')}?${d.cc.length ? 'cc='+encodeURIComponent(d.cc.join(','))+'&' : ''}subject=${encodeURIComponent(d.sujet)}&body=${encodeURIComponent(relCorpsEmail(d.corps, d.lignes))}`);
+      showToast('Joignez la lettre PDF téléchargée « '+l.nom+' » au message (glissez-la dedans)');
+    }, 300);
+    await relApres(d, 'mailto');
+  });
+}
+async function relPdf(){
+  const d = relLire(false); if(!d) return;
+  await relAgir('rel-pdf', async()=>{
+    const l = await relLettre(d);
+    await baixarPdfBytes(l.bytes, l.nom);
+    showToast('Lettre de relance téléchargée : '+l.nom);
+    await relApres(d, 'pdf');
+  });
+}
+// ── fiche d'une facture : historique des relances + bouton « Relancer » ──
+async function htmlRelancesFiche(f){
+  if(f.type_facture === 'avoir' || f.statut === 'brouillon') return '';
+  try{
+    const r = await sb.from('relances_facture').select('*').eq('facture_vente_id', f.id).order('date_relance', {ascending:false});
+    if(r.error || !r.data || !r.data.length) return '';
+    await tracChargerUtilisateurs();
+    return `<div id="fv-relances" style="margin-top:16px;border:1px solid var(--gray-3);border-radius:var(--radius);padding:12px 14px">
+      <strong style="font-size:13px"><i class="ti ti-bell-ringing"></i> Relances envoyées</strong>
+      <table style="width:100%;border-collapse:collapse;margin-top:6px"><tbody>${r.data.map(x=>`<tr data-rel-hist="${escHtml(String(x.id))}">
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)"><strong>${escHtml(relNomNiveau(x.niveau))}</strong></td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${fmtDate(x.date_relance)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right">${x.montant_du != null ? fmt(x.montant_du) : '—'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${escHtml(RELANCE_CANAUX[x.canal] || x.canal || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${tracCell(x.cree_par)}</td></tr>`).join('')}</tbody></table></div>`;
+  }catch(e){ return ''; }
+}
+function relBoutonFiche(f, netTtc){
+  if(f.type_facture === 'avoir' || !['envoyee','payee_partiel'].includes(f.statut) || !f.client_id) return '';
+  if(!f.date_echeance || String(f.date_echeance).slice(0,10) >= today() || !(netTtc > 0.005)) return '';
+  return `<button class="btn btn-secondary" id="btn-relancer-fv" onclick="closeModal();openRelanceClient('${escHtml(String(f.client_id))}')" title="Relancer ce client pour ses factures échues"><i class="ti ti-bell-ringing"></i> Relancer</button>`;
+}
+
 // Une facture ne se supprime que si elle est en BROUILLON, sans note de crédit liée, et si son numéro
 // ne laisse pas de trou dans la séquence (FA/AV + AAAAMM + n°). Sinon : « Annuler » (le numéro reste au registre)
 // ou, pour une facture émise, une note de crédit.
@@ -13861,6 +14340,7 @@ async function openFactureVenteDetail(facId){
   await chargerCloture();
   const clos = estClotureFV(f);
   const anexosR = await chargerAnexesFV(facId);
+  const blocRelancesFV = await htmlRelancesFiche(f);
   const blocAnexesFV = `<div id="fv-annexes" style="margin-top:18px">
       <strong style="font-size:13px"><i class="ti ti-paperclip"></i> Documents joints</strong>
       ${anexosR.manque
@@ -13932,12 +14412,14 @@ async function openFactureVenteDetail(facId){
         <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px"><span>Net après notes de crédit émises</span><strong>${fmt(netTtc)} TTC</strong></div>
       </div>`:''}
       ${f.observations?`<div style="margin-top:16px"><strong style="font-size:13px">${avoir?'Motif / observations':'Observations'}</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(f.observations)}</p></div>`:''}
+      ${blocRelancesFV}
       ${blocAnexesFV}
       ${suppr.ok?'':`<p id="fv-suppr-info" style="font-size:11.5px;color:var(--gray-5);margin-top:14px"><i class="ti ti-lock"></i> ${escHtml(clos ? "Un document émis dans une période clôturée ne se supprime pas et ne s'annule pas : émettez une note de crédit." : suppr.raison)}</p>`}
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_FactureVente('${f.id}')"><i class="ti ti-file-download"></i> PDF</button>
         ${f.statut==='annulee' ? '' : `<button class="btn btn-secondary" id="btn-envoi-fv" onclick="envoyerFactureParEmail('${f.id}')" title="Envoyer par e-mail avec le PDF et d'autres pièces jointes"><i class="ti ti-mail"></i> Envoyer</button>`}
+        ${relBoutonFiche(f, netTtc)}
         ${avoir?'':`<button class="btn btn-ghost" id="btn-cgv-fv" onclick="openCGV(&quot;openFactureVenteDetail('${f.id}')&quot;)" title="${CGV_JOINDRE_AUX_FACTURES ? 'Conditions générales de vente jointes à cette facture' : 'Conditions générales de vente (en cours de validation — non jointes à cette facture)'}"><i class="ti ti-scale"></i> CGV</button>`}
         ${suppr.ok?`<button class="btn btn-danger" id="btn-suppr-fv" onclick="deleteFactureVente('${f.id}','${escHtml(f.numero)}')"><i class="ti ti-trash"></i> Supprimer</button>`:''}
         <button class="btn btn-secondary" onclick="openEditFactureVente('${f.id}')"><i class="ti ti-edit"></i> Modifier</button>
@@ -14513,7 +14995,7 @@ const JOURNAL_TABLES = {factures_vente:'Factures clients', lignes_facture_vente:
   lignes_facture:'Lignes fact. fournisseurs', purchase_orders_lyneo:'Bons de commande', lignes_po:'Lignes de BC', paiements:'Paiements',
   utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés', formations_types:'Types de formation', formations_employes:'Formations du personnel',
   habilitations_fonctions:'Habilitations (liste)', habilitations_designations:'Habilitations du personnel'};
-const JOURNAL_CHAMPS = {valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
+const JOURNAL_CHAMPS = {niveau:'Niveau de relance', date_relance:'Date de relance', montant_du:'Montant dû', canal:'Canal', valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
   reference_client:'N° commande client', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
   quantite:'Qté', prix_unitaire_ht:'P.U. HT', description:'Description', valeur_date:'Date de clôture', role:'Rôle', actif:'Actif', email:'E-mail',
   nom:'Nom', prenom:'Prénom', objet:'Objet', montant_ht:'Montant HT', taux_tva:'TVA %', facture_origine_id:'Facture d\'origine',
@@ -14622,7 +15104,7 @@ const TRAC_FICHES = {                 // fenêtre « fiche » → table
   openBLDetail:'bons_livraison', openEmployeDetail:'employes_rh'
 };
 Object.assign(JOURNAL_TABLES, {bons_livraison:'Réceptions (BL)', lignes_bl:'Lignes de réception', remarques_intervention:'Remarques SAV', codes_ressource:'Codes ressource',
-  anexos:'Documents (factures fournisseurs)', anexos_chantier:'Documents (chantiers)', anexos_devis:'Documents (devis)', anexos_facture_vente:'Documents (factures clients)', anexos_bl:'Documents (réceptions)',
+  anexos:'Documents (factures fournisseurs)', anexos_chantier:'Documents (chantiers)', anexos_devis:'Documents (devis)', anexos_facture_vente:'Documents (factures clients)', anexos_bl:'Documents (réceptions)', relances_facture:'Relances (factures clients)',
   anexos_intervention:'Documents (SAV)', anexos_employe:'Documents (employés)'});
 const TRAC_SYSTEME = /^(postgres|service_role|supabase_admin|authenticator|anon)$/i;      // opérations faites depuis le SQL Editor / un script (imports…)
 const TRAC_CACHE_MS = 10*60*1000;
@@ -14832,7 +15314,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','codes_ressource','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','anexos_bl','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','relances_facture','anexos_bl','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
