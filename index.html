@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-03-7f7aed0"/>
+<meta name="lyneo-build" content="BUILD:2026-11-03-4dba194"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2688,7 +2688,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-03-7f7aed0';
+const APP_BUILD = 'BUILD:2026-11-03-4dba194';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3963,25 +3963,93 @@ function trouverChantierPointages(ptRows, code){
     || null;
 }
 
+// ── SEMAINES VALIDÉES (03/11/2026) ─────────────────────────────────────────────────────────────────────
+// Règle (Vera, 03/11/2026) : seules les heures des semaines VALIDÉES (statut « approuve » dans le système de pointages) comptent dans les
+// totaux d'un chantier (heures, coût de main-d'œuvre, répartition, mois, semaine, interventions SAV, fiche client). Brouillon et semaines
+// soumises ne comptent pas encore ; les semaines rejetées ne comptent jamais. Onglet Heures : interrupteur « Inclure les semaines non
+// validées » (= brouillon + soumises, hors rejetées). Si le statut des semaines ne peut pas être lu, on ne filtre rien et on le dit.
+let _heuresMode = 'valide';            // 'valide' (par défaut) ou 'tout'
+let _semStatCache = null;              // {t, map} — statuts de toutes les semaines, gardés 60 s
+async function lireStatutsSemainesPT(){
+  if(_semStatCache && Date.now()-_semStatCache.t < 60000) return _semStatCache.map;
+  try{
+    const lignes = await lirePT('semaines','id,statut');
+    const map = {}; lignes.forEach(s=>{ map[String(s.id)] = String(s.statut||''); });
+    _semStatCache = {t:Date.now(), map};
+    return map;
+  }catch(e){ return null; }            // illisible : on ne filtre rien (voir appliquerStatutsPicages)
+}
+// Pointage sans semaine, ou dont la semaine est inconnue = brouillon
+function statutPicage(p, statuts){
+  const s = p.semaine_id==null ? '' : (statuts[String(p.semaine_id)]||'');
+  return (s==='approuve' || s==='soumis' || s==='rejete') ? s : 'brouillon';
+}
+function appliquerStatutsPicages(pics, statuts, mode){
+  const exclues = {brouillon:0, soumis:0, rejete:0};
+  if(!statuts || (!Object.keys(statuts).length && pics.length)) return {gardes: pics.slice(), exclues, indispo: pics.length>0};
+  const gardes = [];
+  pics.forEach(p=>{
+    const s = statutPicage(p, statuts);
+    if(s==='approuve' || (mode==='tout' && s!=='rejete')) gardes.push(p);
+    else exclues[s] += parseFloat(p.heures)||0;
+  });
+  return {gardes, exclues, indispo:false};
+}
+// Tableau des pointages comptés, avec .exclues (heures non comptées par statut), .indispo et .mode
+async function filtrerPicagesParStatut(pics, mode){
+  const m = mode || _heuresMode;
+  const r = pics.length ? appliquerStatutsPicages(pics, await lireStatutsSemainesPT(), m) : {gardes:[], exclues:{brouillon:0,soumis:0,rejete:0}, indispo:false};
+  r.gardes.exclues = r.exclues; r.gardes.indispo = r.indispo; r.gardes.mode = m;
+  return r.gardes;
+}
+// Bandeau « heures non comptées » (portée 'chantier' : avec l'interrupteur ; 'periode' : simple rappel sous le mois / la semaine)
+function htmlNoteNonValidees(ex, indispo, mode, portee){
+  const chantier = portee==='chantier';
+  if(indispo) return chantier ? `<div class="alert alert-warning" id="heures-nonvalidees" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> Statut de validation des semaines indisponible — toutes les heures sont comptées.</div>` : '';
+  const e = ex || {brouillon:0, soumis:0, rejete:0};
+  const inclus = mode==='tout';
+  const morceaux = [];
+  if(e.brouillon>0) morceaux.push(fmtHeures(e.brouillon)+' h en brouillon');
+  if(e.soumis>0) morceaux.push(fmtHeures(e.soumis)+' h soumises (en attente de validation)');
+  if(e.rejete>0) morceaux.push(fmtHeures(e.rejete)+' h rejetées');
+  if(!morceaux.length && !(chantier && inclus)) return '';
+  const texte = (inclus && chantier ? 'Les semaines en brouillon et soumises sont incluses dans ces totaux. ' : '') + (morceaux.length ? 'Non comptées : '+morceaux.join(' · ')+'.' : '')
+    + (!inclus && chantier ? ' Elles le seront dès la validation de la semaine.' : '');
+  const bouton = chantier ? ` <button class="btn btn-secondary btn-sm" id="heures-mode-btn" style="margin-left:8px" onclick="changerModeHeures()">${inclus ? 'Compter seulement les semaines validées' : 'Inclure les semaines non validées'}</button>` : '';
+  return `<div class="alert alert-info" id="${chantier ? 'heures-nonvalidees' : 'heures-nonvalidees-periode'}" style="margin-bottom:14px"><i class="ti ti-info-circle"></i> ${escHtml(texte)}${bouton}</div>`;
+}
+async function changerModeHeures(){
+  if(!_heuresChantierCache) return;
+  if(_saisie && _saisie.actif){ showToast("Terminez d'abord la saisie des heures (Enregistrer ou Annuler).", 'error'); return; }
+  const {chantier, stats} = _heuresChantierCache;
+  const avant = _heuresMode;
+  _heuresMode = avant==='tout' ? 'valide' : 'tout';
+  let neuf = null;
+  try{ neuf = await calculerStatsHeures(chantier, (stats && stats.refs) || []); }catch(e){ neuf = null; }
+  if(!neuf){ _heuresMode = avant; showToast('Impossible de relire les pointages.', 'error'); return; }
+  _heuresChantierCache.stats = neuf;
+  await renderHeuresVue();
+}
+
 // Pointages d'un chantier du système de pointages (employé, date, heures). Lus par pages de 1000 lignes
 // (limite de Supabase par requête) pour que les totaux restent exacts quand les pointages s'accumulent.
-async function lirePicagesChantier(ptChantierIds){
+async function lirePicagesChantier(ptChantierIds, mode){
   const ids = Array.isArray(ptChantierIds) ? ptChantierIds : [ptChantierIds];
   const out = [];
   for(let debut=0; ; debut+=1000){
-    const {data,error} = await sbPT.from('picages').select('chantier_id,employe_id,date,heures').in('chantier_id', ids).order('id',{ascending:true}).range(debut, debut+999);
+    const {data,error} = await sbPT.from('picages').select('chantier_id,employe_id,date,heures,semaine_id').in('chantier_id', ids).order('id',{ascending:true}).range(debut, debut+999);
     if(error) throw error;
     const lignes = data||[];
     out.push(...lignes);
     if(lignes.length<1000) break;
   }
-  return out;
+  return await filtrerPicagesParStatut(out, mode);
 }
 async function sommeHeuresPointages(ptChantierId){
   return (await lirePicagesChantier(ptChantierId)).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
 }
 // Pointages d'une période (avec le nom de l'employé), pour la vue « Mois »
-async function lirePicagesPeriode(ptChantierIds, debut, fin){
+async function lirePicagesPeriode(ptChantierIds, debut, fin, mode){
   const ids = Array.isArray(ptChantierIds) ? ptChantierIds : [ptChantierIds];
   const out = [];
   for(let d0=0; ; d0+=1000){
@@ -3991,7 +4059,7 @@ async function lirePicagesPeriode(ptChantierIds, debut, fin){
     out.push(...lignes);
     if(lignes.length<1000) break;
   }
-  return out;
+  return await filtrerPicagesParStatut(out, mode);
 }
 
 // Coût employeur par heure de chaque employé du système de pointages (clé = id de l'employé dans les pointages).
@@ -4054,7 +4122,7 @@ async function calculerStatsHeures(chantier, refsInterventions){
   const picages = await lirePicagesChantier(ids);
   const cumul = picages.reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
   const couts = await chargerCoutsHoraires();
-  const stats = {ptChantier, ptIds:ids, picages, cumul, coutEtat:couts.etat, parPt:couts.parPt, cout:null, heuresSansCout:0, nbSansCout:0};
+  const stats = {ptChantier, ptIds:ids, picages, cumul, coutEtat:couts.etat, parPt:couts.parPt, cout:null, heuresSansCout:0, nbSansCout:0, refs:[...refs], exclues:picages.exclues, indispo:picages.indispo, mode:picages.mode};
   if(couts.etat==='ok') Object.assign(stats, coutDesPicages(picages, couts.parPt));
   // Heures de chaque chantier du système de pointages (code du centre ou intervention)
   const lignesParPt = {};
@@ -4077,6 +4145,7 @@ const fmtHeures = h => (Math.round((parseFloat(h)||0)*10)/10).toLocaleString('fr
 
 async function openChantierDetail(chantierId, tab){
   tab = tab || 'info';
+  _heuresMode = 'valide';
   let chantier = _chantiers.find(c=>c.id===chantierId);
   if(!chantier){
     // Pas encore chargé en mémoire (ex: on arrive depuis un autre module) — on va le chercher directement
@@ -4421,7 +4490,7 @@ async function openChantierDetail(chantierId, tab){
       ${statCard('CA Facturé', fmt(caFacture), 'var(--blue)', avancementPct!==null?avancementPct.toFixed(0)+'% du prévu':'—')}
       ${statCard('CA Encaissé', fmt(caEncaisse), 'var(--green)', nbFacturesPartielles>0?nbFacturesPartielles+' facture(s) partiellement payée(s) — non comptée(s) ici':'Factures marquées "Payée" uniquement')}
       ${statCard('Coûts (achats/fournisseurs)', fmt(coutsAchats), 'var(--orange)', facsFournValides.length+' facture(s) fournisseur')}
-      ${coutMO!==null ? statCard("Main-d'œuvre", fmt(coutMO), 'var(--orange)', fmtHeures(heuresCumul)+' h pointées × coût horaire'+(statsHeures.heuresSansCout>0 ? ' — ⚠ '+fmtHeures(statsHeures.heuresSansCout)+' h sans coût horaire non comptées' : '')) : ''}
+      ${coutMO!==null ? statCard("Main-d'œuvre", fmt(coutMO), 'var(--orange)', fmtHeures(heuresCumul)+(statsHeures.mode==='valide' && !statsHeures.indispo ? ' h validées' : ' h pointées')+' × coût horaire'+(statsHeures.heuresSansCout>0 ? ' — ⚠ '+fmtHeures(statsHeures.heuresSansCout)+' h sans coût horaire non comptées' : '')) : ''}
     </div>
 
     ${avancementPct!==null?`
@@ -4675,7 +4744,7 @@ function htmlIndicateursHeures(chantier, stats){
   const aPrevues = !isNaN(prevues) && prevues>0;
   const pct = aPrevues ? stats.cumul/prevues*100 : null;
   const coul = pct===null ? 'var(--blue)' : pct>100 ? 'var(--red)' : pct>=80 ? 'var(--orange)' : 'var(--green)';
-  let cartes = carteIndicateur('Heures pointées', fmtHeures(stats.cumul)+' h', 'var(--blue)', 'depuis le début');
+  let cartes = carteIndicateur(stats.mode==='valide' && !stats.indispo ? 'Heures validées' : 'Heures pointées', fmtHeures(stats.cumul)+' h', 'var(--blue)', 'depuis le début');
   cartes += aPrevues
     ? carteIndicateur('Heures prévues', fmtHeures(prevues)+' h', coul, pct.toFixed(0)+' % consommé'+(pct>100 ? ' — dépassement de '+fmtHeures(stats.cumul-prevues)+' h' : ' — reste '+fmtHeures(prevues-stats.cumul)+' h'))
     : carteIndicateur('Heures prévues', '—', 'var(--gray-4)', 'Non renseignées : bouton « Modifier » du chantier');
@@ -4688,7 +4757,7 @@ function htmlIndicateursHeures(chantier, stats){
   const alerte = !aPrevues ? '' : pct>100
     ? `<div class="alert alert-error" id="heures-alerte" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> Heures prévues dépassées de ${fmtHeures(stats.cumul-prevues)} h (${pct.toFixed(0)} % de ${fmtHeures(prevues)} h).</div>`
     : pct>=80 ? `<div class="alert alert-warning" id="heures-alerte" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> ${pct.toFixed(0)} % des heures prévues sont déjà consommées — il reste ${fmtHeures(prevues-stats.cumul)} h.</div>` : '';
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">${cartes}</div>${barre}${alerte}${htmlRepartitionCodes(stats)}`;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">${cartes}</div>${barre}${alerte}${htmlNoteNonValidees(stats.exclues, stats.indispo, stats.mode, 'chantier')}${htmlRepartitionCodes(stats)}`;
 }
 
 function htmlBasculeHeures(){
@@ -4730,6 +4799,7 @@ async function loadHeuresChantier(chantier, stats){
   if(stats===undefined){ try{ stats = await calculerStatsHeures(chantier); }catch(e){ stats = null; } }
   _heuresChantierCache = {chantier, ptIds, stats: stats||null};
   _heuresWeekOffset = 0;
+  _saisie = null;
   // Mois affiché au départ : le dernier mois où des heures ont été pointées (sinon le mois en cours)
   const dates = ((stats&&stats.picages)||[]).map(p=>String(p.date||'').slice(0,7)).filter(d=>/^\d{4}-\d{2}$/.test(d));
   _heuresMois = dates.length ? dates.reduce((a,b)=>a>b?a:b) : new Date().toISOString().slice(0,7);
@@ -4746,6 +4816,11 @@ async function renderHeuresVue(){
 
 async function changerVueHeures(vue){
   if(vue!=='mois' && vue!=='semaine') return;
+  if(_saisie){                         // saisie en cours : « Semaine » ne fait rien, « Mois » quitte la saisie (confirmation si des heures ne sont pas enregistrées)
+    if(vue==='semaine') return;
+    if(saisieModifs().length && !confirm('Des heures modifiées ne sont pas enregistrées. Quitter la saisie et les perdre ?')) return;
+    _saisie = null;
+  }
   _heuresVue = vue;
   await renderHeuresVue();
 }
@@ -4806,6 +4881,7 @@ async function renderHeuresMois(){
       <button class="btn btn-secondary btn-sm" onclick="changerMoisHeures(1)">Mois suiv. <i class="ti ti-chevron-right"></i></button>
     </div>
     ${pastilles?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;justify-content:center" id="heures-pastilles">${pastilles}</div>`:''}
+    ${erreur ? '' : htmlNoteNonValidees(pics.exclues, pics.indispo, pics.mode, 'periode')}
     ${erreur ? '<div class="alert alert-error"><i class="ti ti-alert-circle"></i> Impossible de lire les pointages pour le moment.</div>'
     : lignes.length===0 ? '<div style="text-align:center;padding:32px;color:var(--gray-4)"><i class="ti ti-clock" style="font-size:32px;display:block;margin-bottom:8px"></i><p>Aucune heure encodée pour ce mois.</p></div>' : `
     <div style="overflow-x:auto">
@@ -4841,7 +4917,476 @@ async function renderHeuresMois(){
     </div>`;
 }
 
+// ── SAISIE DES HEURES PAR L'ADMINISTRATEUR (03/11/2026) ──────────────────────────────────────────────
+// Fiche chantier / centre SAV → Heures → Semaine → « Saisir les heures » : l'administrateur de l'ERP encode, corrige ou supprime les
+// heures de chaque personne, jour par jour, sur chacun des codes du chantier (centre SAV : un code par client / intervention).
+// Écrit dans la base des POINTAGES (tables picages / semaines), comme l'application des pointages. Chaque modification est ensuite
+// inscrite dans le registre inaltérable « heures_saisie_admin » (base de l'ERP, script migration-heures-saisie-admin.sql) : sans ce script
+// la grille reste fermée et AUCUNE heure n'est modifiée.
+const MSG_SQL_SAISIE_HEURES = "Saisie des heures indisponible : le script « migration-heures-saisie-admin.sql » n'a pas encore été exécuté dans Supabase (registre des saisies), ou votre rôle ne permet pas de l'utiliser. Aucune heure n'est modifiée tant que ce registre n'existe pas.";
+const peutSaisirHeures = () => !!(currentUser && currentUser.role === 'admin');
+let _saisie = null;      // état de la grille éditable (null = affichage en lecture)
+const SAISIE_JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+const SAISIE_STATUTS = {nouvelle:'Nouvelle semaine (brouillon)', brouillon:'Brouillon', soumis:'Soumise', approuve:'Approuvée', rejete:'Rejetée'};
+const saisieIsoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');   // date LOCALE (jamais toISOString)
+const saisieCents = h => Math.round((parseFloat(h)||0)*100);
+const saisieFmt = h => String(Math.round(h*100)/100).replace('.',',');
+const saisieJJMM = iso => iso.slice(8,10)+'/'+iso.slice(5,7);
+function saisieParse(txt){   // '' ou 0 → null (pas d'heures) ; 0–24 avec 2 décimales au plus → nombre ; sinon NaN (invalide)
+  const s = String(txt==null?'':txt).trim().replace(',','.');
+  if(s==='') return null;
+  if(!/^\d{1,2}(\.\d{1,2})?$/.test(s)) return NaN;
+  const n = parseFloat(s);
+  if(n>24) return NaN;
+  return n===0 ? null : n;
+}
+function nouveauLotSaisie(){
+  try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{ const r = Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); });
+}
+// Lecture paginée (1000 lignes par requête : limite de Supabase) d'une table des pointages
+async function lirePT(table, cols, appliquer){
+  const out = [];
+  for(let d0=0; ; d0+=1000){
+    let q = sbPT.from(table).select(cols);
+    if(appliquer) q = appliquer(q);
+    const {data,error} = await q.order('id',{ascending:true}).range(d0, d0+999);
+    if(error) throw error;
+    const l = data||[];
+    out.push(...l);
+    if(l.length<1000) break;
+  }
+  return out;
+}
+function saisieNomEmp(id){ const e = (_saisie.emps||[]).find(x=>String(x.id)===String(id)); return e && e.nom ? e.nom : 'Employé #'+id; }
+function saisieCode(ptId){ return (_saisie.codes||[]).find(c=>String(c.id)===String(ptId)) || null; }
+function saisieEtiqCode(c){
+  if(!c) return '?';
+  const code = String(c.code||''), nom = String(c.nom||'');
+  const base = !nom || nom.toLowerCase()===code.toLowerCase() ? code : (nom.toLowerCase().startsWith(code.toLowerCase()) ? nom : code+' — '+nom);
+  return base + (c.actif===false ? ' (fermé)' : '');
+}
+function saisieMsg(type, lignes){   // zone de messages (toujours échappée)
+  const z = el('saisie-msg'); if(!z) return;
+  const l = [].concat(lignes||[]).filter(Boolean);
+  z.innerHTML = l.length ? `<div class="alert alert-${type}" style="margin-bottom:12px;display:block">${l.map(x=>escHtml(x)).join('<br>')}</div>` : '';
+}
+
+// Contexte des personnes de la grille : statut de leur semaine, heures sur d'autres codes (total/jour), absences
+async function saisieChargerContexte(empIds){
+  const S = _saisie, {ptIds} = _heuresChantierCache;
+  const nouveaux = [...new Set((empIds||[]).map(String))].filter(id=>!S.contexte[id]);
+  if(!nouveaux.length) return;
+  const brut = nouveaux.map(id=>{ const e = S.emps.find(x=>String(x.id)===id); return e ? e.id : id; });   // garde le type d'origine (nombre)
+  const [sem, pic] = await Promise.all([
+    lirePT('semaines','id,employe_id,semaine_debut,statut', q=>q.eq('semaine_debut', S.lundi).in('employe_id', brut)),
+    lirePT('picages','id,employe_id,chantier_id,date,heures', q=>q.in('employe_id', brut).gte('date', S.lundi).lte('date', S.dim))
+  ]);
+  let abs = [];
+  try{ abs = await lirePT('absences','*', q=>q.in('employe_id', brut).gte('date', S.lundi).lte('date', S.dim)); }catch(e){ S.avertIndispos = true; }
+  const centre = new Set((ptIds||[]).map(String));
+  nouveaux.forEach(id=>{ S.contexte[id] = true; S.autres[id] = {}; S.absences[id] = {}; });
+  sem.forEach(s=>{ const k = String(s.employe_id); if(!S.semaines[k] || (parseFloat(s.id)||0) > (parseFloat(S.semaines[k].id)||0)) S.semaines[k] = {id:s.id, statut:s.statut}; });
+  pic.forEach(p=>{ if(centre.has(String(p.chantier_id))) return; const k = String(p.employe_id); (S.autres[k] = S.autres[k]||{})[p.date] = ((S.autres[k]||{})[p.date]||0) + (parseFloat(p.heures)||0); });
+  abs.forEach(a=>{ const k = String(a.employe_id); if(a.date) (S.absences[k] = S.absences[k]||{})[String(a.date).slice(0,10)] = true; });
+}
+
+// Charge la semaine affichée (_heuresWeekOffset) : codes du chantier, personnes, heures existantes
+async function chargerSaisieSemaine(){
+  const S = _saisie, {ptIds} = _heuresChantierCache;
+  const lundiD = getMonday(_heuresWeekOffset);
+  S.jours = Array.from({length:7}, (_,i)=>{ const d = new Date(lundiD); d.setDate(d.getDate()+i); return saisieIsoLocal(d); });
+  S.lundi = S.jours[0]; S.dim = S.jours[6];
+  const [codes, pics, emps] = await Promise.all([
+    lirePT('chantiers','id,code,nom,actif', q=>q.in('id', ptIds)),
+    lirePT('picages','id,employe_id,chantier_id,date,heures,semaine_id', q=>q.in('chantier_id', ptIds).gte('date', S.lundi).lte('date', S.dim)),
+    lirePT('employes','id,nom')
+  ]);
+  const nat = (a,b)=>String(a).localeCompare(String(b),'fr',{numeric:true,sensitivity:'base'});
+  S.codes = codes.slice().sort((a,b)=>((a.actif===false)-(b.actif===false)) || nat(a.code,b.code));
+  S.emps = emps.slice().sort((a,b)=>nat(a.nom,b.nom));
+  S.contexte = {}; S.autres = {}; S.absences = {}; S.semaines = {}; S.feries = {}; S.avertIndispos = false;
+  await saisieChargerContexte(pics.map(p=>p.employe_id));
+  try{
+    (await lirePT('feries','*', q=>q.gte('date', S.lundi).lte('date', S.dim))).forEach(f=>{ if(f.date) S.feries[String(f.date).slice(0,10)] = f.nom || f.libelle || 'Jour férié'; });
+  }catch(e){ S.avertIndispos = true; }
+  const m = {};
+  pics.forEach(p=>{
+    const k = String(p.employe_id)+'|'+String(p.chantier_id);
+    const l = m[k] = m[k] || {empId:p.employe_id, ptId:p.chantier_id, cells:{}};
+    const h = parseFloat(p.heures)||0, c = l.cells[p.date];
+    if(c){ c.dup = true; c.orig += h; c.ids.push(p.id); }                       // doublon dans les pointages : cellule verrouillée
+    else l.cells[p.date] = {hasRow:true, id:p.id, raw:p.heures, orig:h, semId:p.semaine_id, dup:false, ids:[p.id]};
+  });
+  S.lignes = Object.values(m).sort((a,b)=>nat(saisieNomEmp(a.empId), saisieNomEmp(b.empId)) || nat((saisieCode(a.ptId)||{}).code, (saisieCode(b.ptId)||{}).code));
+  S.lignes.forEach(saisieInitLigne);
+}
+function saisieInitLigne(l){
+  _saisie.jours.forEach(iso=>{
+    const c = l.cells[iso] = l.cells[iso] || {hasRow:false, id:null, raw:null, orig:null, semId:null, dup:false, ids:[]};
+    c.val = c.hasRow && c.orig>0 ? saisieFmt(c.orig) : '';
+  });
+}
+
+// Modifications en attente : [{l,i,iso,c,avant,apres,action}]
+function saisieModifs(){
+  const S = _saisie, out = [];
+  if(!S) return out;
+  S.lignes.forEach((l,i)=>S.jours.forEach(iso=>{
+    const c = l.cells[iso];
+    if(!c || c.dup) return;
+    const apres = saisieParse(c.val);
+    if(Number.isNaN(apres)) return;
+    const avantEff = c.hasRow && c.orig>0 ? c.orig : null;
+    let action = null;
+    if(!c.hasRow){ if(apres!=null) action = 'ajout'; }
+    else if(avantEff!=null && apres==null) action = 'suppression';
+    else if(apres!=null && saisieCents(apres)!==saisieCents(avantEff||0)) action = 'modification';
+    if(action) out.push({l, i, iso, c, avant: c.hasRow ? c.orig : null, apres, action});
+  }));
+  return out;
+}
+function saisieInvalides(){
+  const S = _saisie, out = [];
+  S.lignes.forEach((l,i)=>S.jours.forEach(iso=>{ const c = l.cells[iso]; if(c && !c.dup && Number.isNaN(saisieParse(c.val))) out.push({l,i,iso}); }));
+  return out;
+}
+
+// Total du jour pour une personne : codes de ce chantier (valeurs saisies) + autres codes (lus dans les pointages)
+function saisieTotalJour(empId, iso){
+  const S = _saisie; let t = (S.autres[String(empId)]||{})[iso]||0;
+  S.lignes.forEach(l=>{ if(String(l.empId)!==String(empId)) return; const c = l.cells[iso]; if(!c) return;
+    if(c.dup) t += c.orig; else { const v = saisieParse(c.val); if(v) t += v; } });
+  return t;
+}
+function saisieAvertissements(){
+  const S = _saisie, w = [], vus = new Set();
+  S.lignes.forEach(l=>S.jours.forEach((iso,d)=>{
+    const c = l.cells[iso], v = c && !c.dup ? saisieParse(c.val) : null;
+    if(!v || Number.isNaN(v)) return;
+    const nom = saisieNomEmp(l.empId), cle = String(l.empId)+'|'+iso;
+    if(d>=5 && !vus.has('w'+cle)){ vus.add('w'+cle); w.push({t:'info', m:`${nom} — ${SAISIE_JOURS[d]} ${saisieJJMM(iso)} : week-end`}); }
+    if(S.feries[iso] && !vus.has('f'+cle)){ vus.add('f'+cle); w.push({t:'info', m:`${nom} — ${saisieJJMM(iso)} : jour férié (${S.feries[iso]})`}); }
+    if((S.absences[String(l.empId)]||{})[iso] && !vus.has('a'+cle)){ vus.add('a'+cle); w.push({t:'warning', m:`${nom} — ${saisieJJMM(iso)} : une absence est enregistrée ce jour-là`}); }
+    if(!vus.has('t'+cle)){ vus.add('t'+cle); const t = saisieTotalJour(l.empId, iso);
+      if(t>24) w.push({t:'error', m:`${nom} — ${saisieJJMM(iso)} : ${saisieFmt(t)} h au total (maximum 24 h, tous codes confondus)`});
+      else if(t>10) w.push({t:'warning', m:`${nom} — ${saisieJJMM(iso)} : ${saisieFmt(t)} h au total ce jour (tous codes confondus)`}); }
+    const code = saisieCode(l.ptId);
+    if(code && code.actif===false && !vus.has('c'+l.ptId)){ vus.add('c'+l.ptId); w.push({t:'warning', m:`Le code ${code.code} est fermé dans les pointages (les salariés ne peuvent plus y pointer).`}); }
+  }));
+  return w;
+}
+
+function saisieStatutHtml(empId){
+  const s = (_saisie.semaines[String(empId)]||{}).statut || 'nouvelle';
+  const coul = s==='approuve' ? ['#D1FAE5','#064E3B'] : s==='soumis' ? ['#DBEAFE','#1E40AF'] : s==='rejete' ? ['#FEE2E2','#991B1B'] : ['#F3E8FF','#6D28D9'];
+  return `<span class="saisie-statut" data-statut="${escHtml(s)}" style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${coul[0]};color:${coul[1]}">${escHtml(SAISIE_STATUTS[s]||s)}</span>`;
+}
+
+function saisieMajTotaux(){
+  const S = _saisie; if(!S) return;
+  const tCol = S.jours.map(()=>0); let tout = 0;
+  const mods = saisieModifs(), modSet = new Set(mods.map(x=>x.c));
+  S.lignes.forEach((l,i)=>{
+    let tl = 0;
+    S.jours.forEach((iso,d)=>{
+      const c = l.cells[iso], v = c.dup ? c.orig : saisieParse(c.val), ok = !Number.isNaN(v);
+      if(ok && v){ tl += v; tCol[d] += v; }
+      const inp = el('si-'+i+'-'+d);
+      if(inp){
+        const modif = !c.dup && modSet.has(c);
+        inp.style.borderColor = !ok ? 'var(--red)' : modif ? 'var(--blue)' : '';
+        inp.style.background = !ok ? 'var(--red-light)' : modif ? 'var(--blue-light)' : '';
+        inp.dataset.modif = modif ? '1' : '0';
+        inp.dataset.invalide = ok ? '0' : '1';
+      }
+    });
+    tout += tl;
+    const e = el('st-l-'+i); if(e) e.textContent = saisieFmt(tl)+'h';
+  });
+  S.jours.forEach((iso,d)=>{ const e = el('st-c-'+d); if(e) e.textContent = tCol[d] ? saisieFmt(tCol[d]) : '—'; });
+  const g = el('st-all'); if(g) g.textContent = saisieFmt(tout)+'h';
+  const n = mods.length, inv = saisieInvalides().length;
+  const nb = el('saisie-nb'); if(nb) nb.textContent = (n ? n+' modification(s) non enregistrée(s)' : 'Aucune modification') + (inv ? ' · '+inv+' valeur(s) invalide(s)' : '');
+  const av = el('saisie-avert');
+  if(av){ const w = saisieAvertissements(); av.innerHTML = w.length ? w.map(x=>`<div class="saisie-avert saisie-avert-${x.t}" style="font-size:12px;margin:2px 0;color:${x.t==='error'?'var(--red)':x.t==='warning'?'var(--orange)':'var(--gray-5)'}">${x.t==='error'?'⛔':x.t==='warning'?'⚠':'ℹ'} ${escHtml(x.m)}</div>`).join('') : ''; }
+}
+
+function saisieModifier(i, d, v){
+  const S = _saisie; if(!S || !S.actif) return;
+  const l = S.lignes[i], iso = S.jours[d];
+  if(!l || !iso || l.cells[iso].dup) return;
+  l.cells[iso].val = String(v==null?'':v);
+  saisieMajTotaux();
+}
+
+function renderSaisieHeures(){
+  const S = _saisie, container = el('heures-vue');
+  if(!container || !S) return;
+  const premier = new Date(S.lundi+'T12:00:00'), dernier = new Date(S.dim+'T12:00:00');
+  const semaineLabel = `${premier.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})} — ${dernier.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})}`;
+  const multi = (S.codes||[]).length>1;
+  const optsEmp = S.emps.map(e=>`<option value="${escHtml(e.id)}">${escHtml(e.nom)}</option>`).join('');
+  const optsCode = S.codes.map(c=>`<option value="${escHtml(c.id)}">${escHtml(saisieEtiqCode(c))}</option>`).join('');
+  container.innerHTML = `
+    <style>.saisie-in{width:60px;text-align:center;padding:6px 4px;border:1px solid var(--gray-3);border-radius:6px;font-size:13px}.saisie-in:disabled{background:var(--gray-2);color:var(--gray-5)}</style>
+    <div class="alert alert-info" id="saisie-bandeau" style="margin-bottom:12px;display:block"><i class="ti ti-pencil"></i> <strong>Saisie des heures</strong> — réservée aux administrateurs. Les heures sont écrites dans le système de pointages ; chaque ajout, modification ou suppression est inscrit dans le registre (journal) avec votre nom. Une semaine encodée sans fiche existante est créée en brouillon : le salarié la voit et la soumet comme d'habitude.${S.avertIndispos?'<br><i class="ti ti-alert-triangle"></i> Absences ou jours fériés illisibles dans les pointages : les avertissements correspondants sont désactivés.':''}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(-1)"><i class="ti ti-chevron-left"></i> Semaine préc.</button>
+      <div style="text-align:center"><div style="font-weight:700;font-size:14px" id="saisie-semaine">${escHtml(semaineLabel)}</div><div style="font-size:12px;color:var(--gray-5)" id="saisie-nb"></div></div>
+      <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(1)">Semaine suiv. <i class="ti ti-chevron-right"></i></button>
+    </div>
+    <div id="saisie-msg"></div>
+    <div style="overflow-x:auto">
+      <table id="saisie-table" style="width:100%;border-collapse:collapse;min-width:640px">
+        <thead><tr>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3);text-transform:uppercase">Employé${multi?' / code':''}</th>
+          ${S.jours.map((iso,d)=>`<th style="padding:8px 4px;text-align:center;font-size:11px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3)">${SAISIE_JOURS[d]}<br><span style="font-weight:400">${saisieJJMM(iso)}</span>${S.feries[iso]?'<br><span style="font-weight:400;color:var(--orange)" title="'+escHtml(S.feries[iso])+'">férié</span>':''}</th>`).join('')}
+          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);background:var(--gray-1);border-bottom:1px solid var(--gray-3);text-transform:uppercase">Total</th>
+        </tr></thead>
+        <tbody id="saisie-corps">
+          ${S.lignes.length ? S.lignes.map((l,i)=>{
+            const code = saisieCode(l.ptId), neuve = !S.jours.some(iso=>l.cells[iso].hasRow);
+            return `<tr class="saisie-ligne" data-ligne="${i}">
+              <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);font-weight:600">${escHtml(saisieNomEmp(l.empId))} ${saisieStatutHtml(l.empId)}${multi?`<div style="font-size:11px;font-weight:400;color:var(--gray-5)">${escHtml(saisieEtiqCode(code))}</div>`:''}${neuve?` <button class="btn btn-sm" style="padding:0 6px" title="Retirer cette ligne" onclick="saisieRetirerLigne(${i})">×</button>`:''}</td>
+              ${S.jours.map((iso,d)=>{ const c = l.cells[iso], we = d>=5;
+                return `<td style="padding:4px 2px;border-bottom:1px solid var(--gray-2);text-align:center;${we||S.feries[iso]?'background:var(--gray-1)':''}"><input class="saisie-in" id="si-${i}-${d}" type="text" inputmode="decimal" autocomplete="off" value="${c.dup?escHtml(saisieFmt(c.orig)):escHtml(c.val)}" ${c.dup?'disabled title="Doublon dans les pointages (plusieurs lignes ce jour-là) : à corriger dans l\'application des pointages"':''} oninput="saisieModifier(${i},${d},this.value)" aria-label="${escHtml(saisieNomEmp(l.empId)+' '+SAISIE_JOURS[d]+' '+saisieJJMM(iso))}"/></td>`; }).join('')}
+              <td id="st-l-${i}" style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">0h</td>
+            </tr>`; }).join('') : `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--gray-4)">Aucune heure encodée cette semaine : ajoutez une personne ci-dessous.</td></tr>`}
+          <tr style="background:var(--gray-1)"><td style="padding:8px 10px;font-weight:700">Total jour</td>
+            ${S.jours.map((iso,d)=>`<td id="st-c-${d}" style="padding:8px 4px;text-align:center;font-weight:700">—</td>`).join('')}
+            <td id="st-all" style="padding:8px 10px;text-align:right;font-weight:700;color:var(--blue)">0h</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="saisie-avert" style="margin:10px 0"></div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:12px 0;padding:12px;background:var(--gray-1);border-radius:8px">
+      <div class="form-group" style="margin:0"><label class="field-label">Ajouter une personne</label>
+        <select id="saisie-emp" style="min-width:200px"><option value="">— choisir —</option>${optsEmp}</select></div>
+      ${multi?`<div class="form-group" style="margin:0"><label class="field-label">Code (client / intervention)</label><select id="saisie-code" style="min-width:200px">${optsCode}</select></div>`:''}
+      <button class="btn btn-secondary btn-sm" id="saisie-ajouter" onclick="saisieAjouterLigne()"><i class="ti ti-plus"></i> Ajouter</button>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-secondary" id="saisie-recharger" onclick="saisieRecharger(true)"><i class="ti ti-refresh"></i> Recharger</button>
+      <button class="btn btn-secondary" id="saisie-quitter" onclick="saisieQuitter()"><i class="ti ti-x"></i> Terminer</button>
+      <button class="btn btn-primary" id="saisie-enregistrer" onclick="saisieEnregistrer()"><i class="ti ti-device-floppy"></i> Enregistrer</button>
+    </div>
+    <details id="saisie-histo" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;font-weight:600"><i class="ti ti-history"></i> Historique des saisies d'heures de ce chantier</summary><div id="saisie-histo-corps" style="margin-top:8px;font-size:12px"></div></details>`;
+  saisieMajTotaux();
+  chargerHistoSaisie();
+}
+
+async function chargerHistoSaisie(){
+  const z = el('saisie-histo-corps'); if(!z || !_heuresChantierCache) return;
+  try{
+    const {chantier} = _heuresChantierCache;
+    const r = await sb.from('heures_saisie_admin').select('*').eq('chantier_id', chantier.id).order('created_at',{ascending:false}).limit(30);
+    if(r.error) throw r.error;
+    const lignes = r.data||[];
+    let noms = {};
+    try{ const u = await sb.from('utilisateurs').select('id,prenom,nom'); (u.data||[]).forEach(x=>{ noms[String(x.id)] = ((x.prenom||'')+' '+(x.nom||'')).trim(); }); }catch(e){}
+    if(!el('saisie-histo-corps')) return;
+    z.innerHTML = lignes.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--gray-5)"><th style="padding:4px 6px">Quand</th><th style="padding:4px 6px">Qui</th><th style="padding:4px 6px">Employé</th><th style="padding:4px 6px">Code</th><th style="padding:4px 6px">Jour</th><th style="padding:4px 6px">Avant → après</th><th style="padding:4px 6px">Semaine</th></tr></thead><tbody>${lignes.map(h=>`<tr class="saisie-histo-ligne" style="border-top:1px solid var(--gray-2)"><td style="padding:4px 6px">${escHtml(new Date(h.created_at).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}))}</td><td style="padding:4px 6px">${escHtml(noms[String(h.cree_par)]||'—')}</td><td style="padding:4px 6px">${escHtml(h.employe_nom||'')}</td><td style="padding:4px 6px">${escHtml(h.pt_code||'')}</td><td style="padding:4px 6px">${escHtml(String(h.jour||'').split('-').reverse().join('/'))}</td><td style="padding:4px 6px">${h.heures_avant==null?'—':escHtml(saisieFmt(h.heures_avant))} → ${h.heures_apres==null?'—':escHtml(saisieFmt(h.heures_apres))} h</td><td style="padding:4px 6px">${escHtml(SAISIE_STATUTS[h.semaine_statut]||h.semaine_statut||'')}</td></tr>`).join('')}</tbody></table>` : '<p style="color:var(--gray-5)">Aucune saisie enregistrée pour ce chantier.</p>';
+  }catch(e){ z.innerHTML = `<p style="color:var(--gray-5)"><i class="ti ti-info-circle"></i> ${escHtml(MSG_SQL_SAISIE_HEURES)}</p>`; }
+}
+
+async function saisieDemarrer(){
+  if(!peutSaisirHeures()){ showToast('Réservé aux administrateurs.','error'); return; }
+  if(!_heuresChantierCache) return;
+  const j = await sb.from('heures_saisie_admin').select('id').limit(1);
+  if(j.error){
+    const z = el('heures-vue');
+    if(z && !el('saisie-sql-alerte')) z.insertAdjacentHTML('afterbegin', `<div class="alert alert-warning" id="saisie-sql-alerte" style="margin-bottom:12px;display:block"><i class="ti ti-alert-triangle"></i> ${escHtml(MSG_SQL_SAISIE_HEURES)}</div>`);
+    return;
+  }
+  _saisie = {actif:true, contexte:{}, autres:{}, absences:{}, semaines:{}, feries:{}, lignes:[], emps:[], codes:[], jours:[], sauvegarde:false};
+  try{ await chargerSaisieSemaine(); }
+  catch(e){ _saisie = null; showToast('Lecture des pointages impossible : '+escHtml((e&&e.message)||e),'error'); return; }
+  await renderHeuresVue();
+}
+
+// Recharge la grille depuis la base (les saisies non enregistrées sont perdues : confirmation si nécessaire)
+async function saisieRecharger(demander){
+  if(!_saisie) return;
+  if(demander && saisieModifs().length && !confirm('Des heures modifiées ne sont pas enregistrées. Recharger la grille et les perdre ?')) return;
+  try{ await chargerSaisieSemaine(); }
+  catch(e){ showToast('Lecture des pointages impossible : '+escHtml((e&&e.message)||e),'error'); return; }
+  await renderHeuresVue();
+}
+async function saisieQuitter(){
+  if(!_saisie) return;
+  if(saisieModifs().length && !confirm('Des heures modifiées ne sont pas enregistrées. Quitter la saisie et les perdre ?')) return;
+  _saisie = null;
+  await renderHeuresVue();
+}
+function saisieRetirerLigne(i){
+  const S = _saisie; if(!S) return;
+  const l = S.lignes[i];
+  if(!l || S.jours.some(iso=>l.cells[iso].hasRow)) return;      // une ligne qui a des heures en base ne se retire pas : on vide ses cellules
+  S.lignes.splice(i,1);
+  renderSaisieHeures();      // les valeurs saisies sont gardées dans l'état (cells[].val) et redessinées
+}
+async function saisieAjouterLigne(){
+  const S = _saisie; if(!S) return;
+  const empSel = el('saisie-emp'), codeSel = el('saisie-code');
+  const empId = empSel ? empSel.value : '';
+  if(!empId){ saisieMsg('warning', 'Choisissez une personne.'); return; }
+  const emp = S.emps.find(e=>String(e.id)===String(empId));
+  const ptIdVal = codeSel ? codeSel.value : (S.codes[0] ? String(S.codes[0].id) : '');
+  const code = S.codes.find(c=>String(c.id)===String(ptIdVal));
+  if(!emp || !code){ saisieMsg('warning', 'Personne ou code introuvable.'); return; }
+  if(S.lignes.some(l=>String(l.empId)===String(emp.id) && String(l.ptId)===String(code.id))){ saisieMsg('warning', saisieNomEmp(emp.id)+' figure déjà dans la grille pour ce code.'); return; }
+  try{ await saisieChargerContexte([emp.id]); }
+  catch(e){ saisieMsg('error', 'Lecture des pointages impossible : '+((e&&e.message)||e)); return; }
+  const l = {empId:emp.id, ptId:code.id, cells:{}};
+  saisieInitLigne(l);
+  S.lignes.push(l);
+  renderSaisieHeures();
+  const prem = el('si-'+(S.lignes.length-1)+'-0'); if(prem) prem.focus();
+}
+
+// Enregistrement : contrôles → semaine(s) → heures → registre. Rien n'est écrit si un contrôle échoue.
+async function saisieEnregistrer(){
+  const S = _saisie;
+  if(!S || !S.actif || S.sauvegarde) return;
+  if(!peutSaisirHeures()){ showToast('Réservé aux administrateurs.','error'); return; }
+  const inv = saisieInvalides();
+  if(inv.length){ saisieMsg('error', 'Valeur invalide : '+inv.slice(0,3).map(x=>saisieNomEmp(x.l.empId)+' '+saisieJJMM(x.iso)).join(', ')+'. Saisissez un nombre de 0 à 24 (ex. 7,5).'); return; }
+  const chg = saisieModifs();
+  if(!chg.length){ saisieMsg('info', 'Aucune modification à enregistrer.'); return; }
+  S.sauvegarde = true;
+  const btn = el('saisie-enregistrer'); if(btn) btn.disabled = true;
+  try{
+    saisieMsg('info', 'Enregistrement en cours…');
+    const {chantier, ptIds} = _heuresChantierCache;
+    // 1. le registre doit exister (sinon on n'écrit rien)
+    const j = await sb.from('heures_saisie_admin').select('id').limit(1);
+    if(j.error){ saisieMsg('error', MSG_SQL_SAISIE_HEURES); return; }
+    // 2. état actuel des pointages de ces personnes cette semaine (tous codes)
+    const empIds = [...new Set(chg.map(x=>String(x.l.empId)))];
+    const empBrut = empIds.map(id=>chg.find(x=>String(x.l.empId)===id).l.empId);
+    const frais = await lirePT('picages','id,employe_id,chantier_id,date,heures,semaine_id', q=>q.in('employe_id', empBrut).gte('date', S.lundi).lte('date', S.dim));
+    const parCle = {};
+    frais.forEach(p=>{ const k = String(p.employe_id)+'|'+String(p.chantier_id)+'|'+p.date; (parCle[k] = parCle[k]||[]).push(p); });
+    // 3. conflits : quelqu'un a modifié la même cellule depuis l'ouverture de la grille
+    const conflits = [];
+    chg.forEach(x=>{
+      const rows = parCle[String(x.l.empId)+'|'+String(x.l.ptId)+'|'+x.iso]||[];
+      const qui = saisieNomEmp(x.l.empId)+' '+saisieJJMM(x.iso);
+      if(!x.c.hasRow){ if(rows.length) conflits.push(qui+' : '+saisieFmt(parseFloat(rows[0].heures)||0)+' h ont été saisies entre-temps'); }
+      else if(!(rows.length===1 && String(rows[0].id)===String(x.c.id) && saisieCents(rows[0].heures)===saisieCents(x.c.orig))){
+        conflits.push(qui+' : '+(rows.length ? saisieFmt(rows.reduce((a,p)=>a+(parseFloat(p.heures)||0),0))+' h au lieu de '+saisieFmt(x.c.orig)+' h' : 'la ligne a été supprimée entre-temps'));
+      }
+    });
+    if(conflits.length){ saisieMsg('error', ['Enregistrement annulé : les pointages ont changé depuis l\'ouverture de la grille (rien n\'a été écrit).'].concat(conflits.slice(0,6), ['Cliquez sur « Recharger » puis recommencez.'])); return; }
+    // 4. maximum 24 h par personne et par jour, tous codes confondus (heures des autres codes lues à l'instant)
+    const centre = new Set((ptIds||[]).map(String));
+    const depasse = [];
+    new Set(chg.map(x=>String(x.l.empId)+'|'+x.iso)).forEach(k=>{
+      const [emp, iso] = k.split('|');
+      let total = 0;
+      frais.forEach(p=>{ if(String(p.employe_id)===emp && p.date===iso && !centre.has(String(p.chantier_id))) total += parseFloat(p.heures)||0; });
+      S.lignes.forEach(l=>{ if(String(l.empId)!==emp) return; const c = l.cells[iso]; if(c.dup) total += c.orig; else { const v = saisieParse(c.val); if(v) total += v; } });
+      if(total>24.0001) depasse.push(saisieNomEmp(emp)+' — '+saisieJJMM(iso)+' : '+saisieFmt(total)+' h');
+    });
+    if(depasse.length){ saisieMsg('error', ['Enregistrement annulé : plus de 24 h par jour (tous codes confondus).'].concat(depasse.slice(0,6))); return; }
+    // 5. semaines des personnes concernées (état actuel)
+    const semsFrais = await lirePT('semaines','id,employe_id,semaine_debut,statut', q=>q.eq('semaine_debut', S.lundi).in('employe_id', empBrut));
+    const semParEmp = {};
+    semsFrais.forEach(s=>{ const k = String(s.employe_id); if(!semParEmp[k] || (parseFloat(s.id)||0) > (parseFloat(semParEmp[k].id)||0)) semParEmp[k] = s; });
+    const verrouillees = empIds.filter(id=>semParEmp[id] && (semParEmp[id].statut==='approuve' || semParEmp[id].statut==='rejete'));
+    if(verrouillees.length){
+      const lib = verrouillees.map(id=>saisieNomEmp(chg.find(x=>String(x.l.empId)===id).l.empId)+' ('+(semParEmp[id].statut==='approuve'?'approuvée':'rejetée')+')').join(', ');
+      if(!confirm('Semaine déjà traitée : '+lib+'.\n\nModifier directement ces heures ? La semaine garde son statut ; la modification est inscrite dans le registre à votre nom.')){ saisieMsg('info', 'Enregistrement annulé.'); return; }
+    }
+    // 6. fiches de semaine manquantes (brouillon, comme l'application des pointages)
+    const manquantes = empIds.filter(id=>!semParEmp[id]);
+    const statutAvant = {};
+    empIds.forEach(id=>{ statutAvant[id] = semParEmp[id] ? semParEmp[id].statut : 'nouvelle'; });
+    if(manquantes.length){
+      let rs;
+      try{ rs = await sbPT.from('semaines').insert(manquantes.map(id=>({employe_id: chg.find(x=>String(x.l.empId)===id).l.empId, semaine_debut: S.lundi, statut:'brouillon'}))).select('id,employe_id'); }
+      catch(e){ rs = {error:e}; }
+      if(rs.error || !rs.data || rs.data.length!==manquantes.length){ saisieMsg('error', 'Création de la semaine impossible : '+((rs.error&&rs.error.message)||'réponse incomplète')+' (rien n\'a été écrit).'); return; }
+      rs.data.forEach(s=>{ semParEmp[String(s.employe_id)] = s; });
+    }
+    // 7. écriture des heures : suppressions, modifications, ajouts
+    const lot = nouveauLotSaisie(), faits = [];
+    const journal = x=>{
+      const code = saisieCode(x.l.ptId), nom = saisieNomEmp(x.l.empId), sem = semParEmp[String(x.l.empId)];
+      return {chantier_id: chantier.id, pt_chantier_id: String(x.l.ptId), pt_code: code ? code.code : null, pt_employe_id: String(x.l.empId), employe_nom: nom,
+        semaine_debut: S.lundi, jour: x.iso, action: x.action, heures_avant: x.action==='ajout' ? null : x.avant, heures_apres: x.action==='suppression' ? null : x.apres,
+        semaine_id: sem ? String(sem.id) : null, semaine_statut: statutAvant[String(x.l.empId)], lot, cree_par: currentUser.id,
+        description: (nom+' · '+(code?code.code:'?')+' · '+saisieJJMM(x.iso)+' · '+(x.avant==null?'—':saisieFmt(x.avant))+' → '+(x.apres==null?'—':saisieFmt(x.apres))+' h').slice(0,200)};
+    };
+    let erreur = null;
+    const sup = chg.filter(x=>x.action==='suppression'), mod = chg.filter(x=>x.action==='modification'), aj = chg.filter(x=>x.action==='ajout');
+    try{
+    if(sup.length){
+      const ids = sup.map(x=>x.c.id);
+      const r = await sbPT.from('picages').delete().in('id', ids).select('id');
+      if(r.error){ erreur = r.error; }
+      else {
+        const ok = new Set((r.data||[]).map(p=>String(p.id)));
+        sup.forEach(x=>{ if(ok.has(String(x.c.id))) faits.push(x); });
+        if(ok.size!==ids.length) erreur = new Error('suppression refusée ou partielle ('+ok.size+'/'+ids.length+')');
+      }
+    }
+    for(const x of mod){
+      if(erreur) break;
+      const sem = semParEmp[String(x.l.empId)];
+      const patch = {heures: x.apres};
+      if(sem && String(x.c.semId)!==String(sem.id)) patch.semaine_id = sem.id;
+      const r = await sbPT.from('picages').update(patch).eq('id', x.c.id).eq('heures', x.c.raw).select('id');
+      if(r.error){ erreur = r.error; break; }
+      if(!r.data || r.data.length!==1){ erreur = new Error('modification refusée ou déjà modifiée par quelqu\'un d\'autre ('+saisieNomEmp(x.l.empId)+' '+saisieJJMM(x.iso)+')'); break; }
+      faits.push(x);
+    }
+    if(!erreur && aj.length){
+      const r = await sbPT.from('picages').insert(aj.map(x=>({employe_id: x.l.empId, chantier_id: x.l.ptId, date: x.iso, heures: x.apres, semaine_id: (semParEmp[String(x.l.empId)]||{}).id}))).select('id');
+      if(r.error){ erreur = r.error; }
+      else if(!r.data || r.data.length!==aj.length){ erreur = new Error('ajout non confirmé par la base ('+((r.data||[]).length)+'/'+aj.length+') : vérifiez les pointages'); }
+      else aj.forEach(x=>faits.push(x));
+    }
+    }catch(e){ erreur = e; }      // une exception réseau ne doit jamais empêcher d'inscrire au registre ce qui a déjà été écrit
+    // 8. registre (même en cas d'erreur partielle : on inscrit ce qui a réellement été écrit)
+    let registreOk = true, msgRegistre = null;
+    if(faits.length){
+      try{ const rj = await sb.from('heures_saisie_admin').insert(faits.map(journal)); if(rj.error) registreOk = false; }
+      catch(e){ registreOk = false; }
+    }
+    if(!registreOk){
+      msgRegistre = ['ATTENTION : '+faits.length+' modification(s) enregistrée(s) dans les pointages, mais le registre n\'a pas pu être écrit. Notez-les :'].concat(faits.map(x=>journal(x).description));
+    }
+    // 9. rafraîchir les chiffres du chantier et la grille
+    if(faits.length){ _semStatCache = null; try{ _heuresChantierCache.stats = await calculerStatsHeures(chantier, ((_heuresChantierCache.stats||{}).refs)||[]); }catch(e){} }
+    if(erreur){
+      const msg = (msgRegistre||[]).concat(['Enregistrement interrompu : '+((erreur&&erreur.message)||erreur)+'. '+faits.length+' modification(s) déjà enregistrée(s)'+(faits.length?' (inscrites dans le registre)':'')+'.']);
+      await saisieRecharger(false);
+      saisieMsg('error', msg);
+      return;
+    }
+    if(!registreOk){ await saisieRecharger(false); saisieMsg('error', msgRegistre); return; }
+    showToast(faits.length+' modification(s) enregistrée(s)');
+    await saisieRecharger(false);
+    const nonComptees = [], vus = new Set();
+    faits.forEach(x=>{ const id = String(x.l.empId), s = statutAvant[id]; if(s!=='approuve' && !vus.has(id)){ vus.add(id); nonComptees.push(saisieNomEmp(x.l.empId)+' ('+(s==='nouvelle'||s==='brouillon' ? 'brouillon' : s==='soumis' ? 'soumise' : 'rejetée')+')'); } });
+    saisieMsg('success', [faits.length+' modification(s) enregistrée(s) et inscrite(s) dans le registre.'].concat(nonComptees.length ? ['Pas encore comptées dans les totaux du chantier (semaine non validée) : '+nonComptees.join(', ')+'.'] : []));
+  }catch(e){
+    saisieMsg('error', 'Enregistrement impossible : '+((e&&e.message)||e));
+  }finally{
+    S.sauvegarde = false;
+    const b = el('saisie-enregistrer'); if(b) b.disabled = false;
+  }
+}
+
 async function changerSemaineHeures(delta){
+  if(_saisie && _saisie.actif){      // mode saisie : on ne perd pas des heures non enregistrées sans confirmation
+    if(saisieModifs().length && !confirm('Des heures modifiées ne sont pas enregistrées. Changer de semaine et les perdre ?')) return;
+    _heuresWeekOffset += delta;
+    await saisieRecharger(false);
+    return;
+  }
   _heuresWeekOffset += delta;
   await renderHeuresSemaine();
 }
@@ -4850,6 +5395,7 @@ async function renderHeuresSemaine(){
   const container = el('heures-vue');
   if(!container || !_heuresChantierCache) return;
   const {ptIds} = _heuresChantierCache;
+  if(_saisie && _saisie.actif && peutSaisirHeures()){ renderSaisieHeures(); return; }
 
   const monday = getMonday(_heuresWeekOffset);
   const days = Array.from({length:7}, (_,i)=>{ const d = new Date(monday); d.setDate(d.getDate()+i); return d; });
@@ -4862,7 +5408,7 @@ async function renderHeuresSemaine(){
     .gte('date', isoDay(monday))
     .lte('date', isoDay(sunday))
     .order('date',{ascending:true});
-  const pics = picages||[];
+  const pics = await filtrerPicagesParStatut(picages||[]);
 
   // Grille employé x jour
   const parEmploye = {};
@@ -4886,6 +5432,7 @@ async function renderHeuresSemaine(){
       <button class="btn btn-secondary btn-sm" onclick="changerSemaineHeures(1)">Semaine suiv. <i class="ti ti-chevron-right"></i></button>
     </div>
 
+    ${htmlNoteNonValidees(pics.exclues, pics.indispo, pics.mode, 'periode')}
     ${employes.length===0 ? '<div style="text-align:center;padding:32px;color:var(--gray-4)"><i class="ti ti-clock" style="font-size:32px;display:block;margin-bottom:8px"></i><p>Aucune heure encodée pour cette semaine.</p></div>' : `
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;min-width:560px">
@@ -4898,7 +5445,7 @@ async function renderHeuresSemaine(){
           ${employes.map(nom=>{
             const rowTotal = days.reduce((a,d)=>a+(parEmploye[nom][isoDay(d)]||0),0);
             return `<tr>
-              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);font-weight:600">${nom}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid var(--gray-2);font-weight:600">${escHtml(nom)}</td>
               ${days.map(d=>{
                 const h = parEmploye[nom][isoDay(d)];
                 return `<td style="padding:8px 6px;border-bottom:1px solid var(--gray-2);text-align:center;${h?'font-weight:600;color:var(--blue)':'color:var(--gray-3)'}">${h?h.toFixed(1):'—'}</td>`;
@@ -4918,6 +5465,7 @@ async function renderHeuresSemaine(){
       </table>
     </div>`}
 
+    ${peutSaisirHeures() ? `<div style="margin-top:16px;text-align:center"><button class="btn btn-primary btn-sm" id="btn-saisie-heures" onclick="saisieDemarrer()"><i class="ti ti-pencil"></i> Saisir les heures</button></div>` : ''}
     <div style="margin-top:20px;text-align:center">
       <a href="#" onclick="window.open('https://lyneo-pointages.netlify.app','_blank');return false" class="btn btn-secondary btn-sm"><i class="ti ti-external-link"></i> Ouvrir le système de pointages (modifier/ajouter)</a>
     </div>`;
@@ -6662,8 +7210,10 @@ LYNEO`;
       ${htmlBrouillonStatut('envpo')}
       ${bouton('envpo-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF joint)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et le PDF déjà joints." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).",'envpoEml()')}
       ${partage ? bouton('envpo-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF.",'envpoPartager()') : ''}
+      <details id="envpo-autres" style="margin:0 0 10px"><summary style="cursor:pointer;font-size:12.5px;color:var(--gray-6);margin-bottom:8px">Autres options — le PDF n'est pas joint automatiquement</summary>
       ${bouton('envpo-outlook','btn-secondary','ti-world','Outlook web / nouvel Outlook (sans PDF joint)',"Ouvre un message Outlook dans un nouvel onglet avec le destinataire, l'objet et le texte déjà remplis. Le PDF est téléchargé : glissez-le dans le message.",'envpoOutlook()')}
       ${bouton('envpo-mailto','btn-ghost','ti-external-link','Ouvrir ma messagerie (sans PDF joint)',"Comme avant : le PDF est téléchargé et le message ouvert ; il faut glisser le PDF dedans (un navigateur ne peut pas le joindre tout seul).",'envpoMailto()')}
+      </details>
       <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiPO()">Fermer</button></div>
     </div></div></div>`;
   const a = el('envpo-a'); if(a && !dest) a.focus();
@@ -11132,7 +11682,7 @@ async function openClientDetail(clientId){
       const ptIdsC = codesPointagesDe(c).map(code=>trouverChantierPointages(ptChantiers, code)).filter(Boolean).map(pc=>pc.id);
       if(!ptIdsC.length) continue;
       let total = 0;
-      try{ total = (await lirePicagesChantier(ptIdsC)).reduce((a,p)=>a+(parseFloat(p.heures)||0),0); }catch(e){ continue; }
+      try{ total = (await lirePicagesChantier(ptIdsC, 'valide')).reduce((a,p)=>a+(parseFloat(p.heures)||0),0); }catch(e){ continue; }
       if(total>0) heuresParChantier.push({chantier:c, heures:total});
     }
   }
@@ -14018,7 +14568,9 @@ async function envoyerFactureParEmail(facId){
       ${htmlBrouillonStatut('envfv')}
       ${bouton('envfv-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF + pièces jointes)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et toutes les pièces jointes déjà en place." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).",'envfvEml()')}
       ${partage ? bouton('envfv-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF et les pièces jointes.",'envfvPartager()') : ''}
+      <details id="envfv-autres" style="margin:0 0 10px"><summary style="cursor:pointer;font-size:12.5px;color:var(--gray-6);margin-bottom:8px">Autres options — le PDF n'est pas joint automatiquement</summary>
       ${bouton('envfv-mailto','btn-ghost','ti-external-link','Ouvrir ma messagerie (sans pièces jointes)',"Comme avant : le PDF est téléchargé et le message ouvert ; il faut glisser le PDF et les autres fichiers dedans (un navigateur ne peut pas les joindre tout seul).",'envfvMailto()')}
+      </details>
       <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiFV()">Fermer</button></div>
     </div></div></div>`;
   envfvRendre();
@@ -14344,7 +14896,9 @@ function htmlRelanceClient(mon){
       ${htmlBrouillonStatut('rel')}
       ${bouton('rel-eml', 'btn-secondary', 'ti-mail-forward', 'E-mail prêt à envoyer (lettre PDF + factures)', "Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie l'ouvre avec le destinataire, l'objet, le texte et les pièces jointes ; il ne reste qu'à envoyer." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).", 'relEml()')}
       ${partage ? bouton('rel-partage', 'btn-secondary', 'ti-share', 'Partager… (Mail, Outlook, Teams)', "Ouvre le menu de partage de votre appareil avec les PDF.", 'relPartager()') : ''}
+      <details id="rel-autres" style="margin:0 0 10px"><summary style="cursor:pointer;font-size:12.5px;color:var(--gray-6);margin-bottom:8px">Autres options — le PDF n'est pas joint automatiquement</summary>
       ${bouton('rel-mailto', 'btn-ghost', 'ti-external-link', 'Ouvrir ma messagerie (sans pièces jointes)', "Le message s'ouvre dans votre messagerie ; la lettre PDF est téléchargée pour que vous la glissiez dedans.", 'relMailto()')}
+      </details>
       ${bouton('rel-pdf', 'btn-ghost', 'ti-file-download', 'Télécharger la lettre (PDF)', "Pour un envoi par courrier (recommandé pour une mise en demeure).", 'relPdf()')}
       <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerRelance()">Fermer</button></div>
     </div></div></div>`;
@@ -15277,7 +15831,7 @@ const JOURNAL_TABLES = {factures_vente:'Factures clients', lignes_facture_vente:
   clients:'Clients', fournisseurs:'Fournisseurs', chantiers_lyneo:'Chantiers', interventions_sav:'Interventions SAV', factures:'Factures fournisseurs',
   lignes_facture:'Lignes fact. fournisseurs', purchase_orders_lyneo:'Bons de commande', lignes_po:'Lignes de BC', paiements:'Paiements',
   utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés', formations_types:'Types de formation', formations_employes:'Formations du personnel',
-  habilitations_fonctions:'Habilitations (liste)', habilitations_designations:'Habilitations du personnel'};
+  habilitations_fonctions:'Habilitations (liste)', habilitations_designations:'Habilitations du personnel', heures_saisie_admin:"Saisies d'heures (admin)"};
 const JOURNAL_CHAMPS = {niveau:'Niveau de relance', date_relance:'Date de relance', montant_du:'Montant dû', canal:'Canal', valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
   reference_client:'N° commande client', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
   quantite:'Qté', prix_unitaire_ht:'P.U. HT', description:'Description', valeur_date:'Date de clôture', role:'Rôle', actif:'Actif', email:'E-mail',
@@ -15285,7 +15839,7 @@ const JOURNAL_CHAMPS = {niveau:'Niveau de relance', date_relance:'Date de relanc
   employe_id:'Employé', type_id:'Formation', date_formation:'Date de la formation', date_expiration:"Valide jusqu'au", organisme:'Organisme', numero_attestation:"N° d'attestation",
   validite_mois:'Validité (mois)', alerte_jours:'Alerte (jours)', duree_heures:'Durée (h)', cout_ht:'Coût HT',
   symbole:'Symbole', qualification:'Qualification', fonction:'Fonction', travaux:'Travaux autorisés', ouvrages:'Ouvrages', indications:'Indications', date_fin:'Date limite', fonction_id:'Habilitation',
-  carte_zone:'Zone de la carte', carte_libelle:'Texte de la carte', carte_description:'Explication (carte)'};
+  jour:'Jour', heures_avant:'Heures avant', heures_apres:'Heures après', employe_nom:'Employé (pointages)', pt_code:'Code pointages', semaine_statut:'Statut de la semaine', semaine_debut:'Semaine du', carte_zone:'Zone de la carte', carte_libelle:'Texte de la carte', carte_description:'Explication (carte)'};
 // Champs du journal qui contiennent l'identifiant d'une autre fiche : on les remplace par un libellé lisible (« P00001 - NOM »).
 const JOURNAL_REFS = {
   chantier_id:{table:'chantiers_lyneo', cols:'id,numero,nom', lib:libChantierAchat},
@@ -19287,7 +19841,7 @@ async function openInterventionDetail(interventionId){
   }
   // Devis d'origine, centre de coûts et heures pointées. Requêtes séparées : elles ne cassent
   // rien si les colonnes n'existent pas encore ou si le système de pointages est indisponible.
-  let devisLie = null, centreSav = null, heuresPointees = null, coutMOInterv = null, heuresSansCoutInterv = 0;
+  let devisLie = null, centreSav = null, heuresPointees = null, coutMOInterv = null, heuresSansCoutInterv = 0, heuresNonValidees = 0;
   if(i.devis_id){
     const {data:dv} = await sb.from('devis').select('id,numero,objet,statut,montant_ht').eq('id',i.devis_id).single();
     devisLie = dv||null;
@@ -19301,7 +19855,9 @@ async function openInterventionDetail(interventionId){
     const {data:ptRows} = await sbPT.from('chantiers').select('id').eq('code',i.ref).limit(1);
     const ptCh = ptRows && ptRows[0];
     if(ptCh){
-      const {data:pics} = await sbPT.from('picages').select('employe_id,heures').eq('chantier_id',ptCh.id);
+      const {data:picsBrut} = await sbPT.from('picages').select('employe_id,heures,semaine_id').eq('chantier_id',ptCh.id);
+      const pics = await filtrerPicagesParStatut(picsBrut||[], 'valide');
+      heuresNonValidees = pics.exclues.brouillon + pics.exclues.soumis;
       heuresPointees = (pics||[]).reduce((a,p)=>a+(parseFloat(p.heures)||0),0);
       const couts = await chargerCoutsHoraires();      // seulement pour qui voit les salaires
       if(couts.etat==='ok'){ const r = coutDesPicages(pics||[], couts.parPt); coutMOInterv = r.cout; heuresSansCoutInterv = r.heuresSansCout; }
@@ -19337,7 +19893,7 @@ async function openInterventionDetail(interventionId){
         <div class="info-item"><label>Notifications</label><span>${i.notif_client?'✓ Client notifié':'○ Client non notifié'} · ${i.notif_technicien?'✓ Technicien notifié':'○ Technicien non notifié'}</span></div>
         <div class="info-item"><label>Devis</label><span>${devisLie?`<a href="#" onclick="closeModal();openDevisDetail('${devisLie.id}');return false" style="color:var(--blue);font-weight:600">${devisLie.numero}</a> — ${fmt(devisLie.montant_ht)} HT ${bDV(devisLie.statut)}`:'—'}</span></div>
         <div class="info-item"><label>Centre de coûts</label><span>${centreSav?(centreSav.numero||'')+' — '+centreSav.nom:'—'}</span></div>
-        <div class="info-item"><label>Heures pointées</label><span>${heuresPointees!==null?heuresPointees.toFixed(1)+' h':'—'}</span></div>
+        <div class="info-item"><label>Heures pointées</label><span>${heuresPointees!==null?heuresPointees.toFixed(1)+' h':'—'}${heuresPointees!==null && heuresNonValidees>0 ? ' <small style="color:var(--gray-5)" id="interv-h-nonvalidees">(+ '+fmtHeures(heuresNonValidees)+' h non validées)</small>' : ''}</span></div>
       </div>
       ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(i.description)}</p></div>`:''}
 
