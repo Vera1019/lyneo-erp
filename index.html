@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-02-66bb3cd"/>
+<meta name="lyneo-build" content="BUILD:2026-11-03-7f7aed0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -15,6 +15,24 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"/>
 <link rel="icon" href="favicon.ico" sizes="any"/>
 <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<script>
+/* Fenêtre de connexion Microsoft (brouillons Outlook) : Microsoft renvoie ici « ?code=…&state=lyneo-ms.… ».
+   On transmet le résultat à l'ERP (fenêtre principale) puis on se ferme, SANS démarrer l'application. */
+(function(){
+  try{
+    var q = location.search;
+    if(/[?&]state=lyneo-ms\./.test(q) && /[?&](code|error)=/.test(q)){
+      var m = {type:'lyneo-ms-retour', search:q};
+      try{ if(window.opener) window.opener.postMessage(m, location.origin); }catch(e){}
+      try{ var bc = new BroadcastChannel('lyneo-ms'); bc.postMessage(m); bc.close(); }catch(e){}
+      window.__lyneoMsFenetre = true;
+      document.write('<p style="font-family:sans-serif;padding:24px">Connexion Microsoft terminée. Vous pouvez fermer cette fenêtre.</p>');
+      window.stop();
+      setTimeout(function(){ try{ window.close(); }catch(e){} }, 200);
+    }
+  }catch(e){}
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -2670,7 +2688,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-02-66bb3cd';
+const APP_BUILD = 'BUILD:2026-11-03-7f7aed0';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -6601,6 +6619,14 @@ function construireEml({destinataires, sujet, corps, nomPdf, pdf}){
   return construireEmlPJ({destinataires, sujet, corps, pieces:[{nom:nomPdf, type:'application/pdf', octets:pdf}]});
 }
 function ouvrirLienMailto(url){ window.location.href = url; }
+// Outlook sur le web / « nouvel Outlook » n'ouvrent pas un .eml comme brouillon (destinataire et objet restent vides) : on leur donne un lien de rédaction.
+// Comme un mailto, un lien ne peut pas joindre de fichier : le PDF est téléchargé et il faut le glisser dans le message.
+const OUTLOOK_WEB_COMPOSE = 'https://outlook.office.com/mail/deeplink/compose';
+const OUTLOOK_WEB_MAX = 2000;
+function lienOutlookWeb({destinataires, sujet, corps}){
+  return OUTLOOK_WEB_COMPOSE + '?to=' + encodeURIComponent((destinataires||[]).join(',')) + '&subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps);
+}
+function ouvrirLienWeb(url){ window.open(url, '_blank', 'noopener'); }
 let _envPO = null;
 function envoyerPOParEmail(poId){
   if(!window._detailPO) return;
@@ -6632,8 +6658,11 @@ LYNEO`;
       <div class="form-group"><label class="field-label" for="envpo-sujet">Objet</label><input id="envpo-sujet" value="${escHtml(sujet)}" autocomplete="off"/></div>
       <div class="form-group"><label class="field-label" for="envpo-corps">Message</label><textarea id="envpo-corps" rows="8">${escHtml(corps)}</textarea></div>
       <div id="envpo-pj" style="font-size:13px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px"><i class="ti ti-loader"></i> Préparation du PDF…</div>
-      ${bouton('envpo-eml','btn-primary','ti-mail-forward','E-mail prêt à envoyer (PDF joint)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et le PDF déjà joints.",'envpoEml()')}
+      ${bouton('envpo-brouillon','btn-primary','ti-mail-opened','Créer le brouillon Outlook (PDF joint)',brouillonAide(),'envpoBrouillon()')}
+      ${htmlBrouillonStatut('envpo')}
+      ${bouton('envpo-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF joint)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et le PDF déjà joints." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).",'envpoEml()')}
       ${partage ? bouton('envpo-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF.",'envpoPartager()') : ''}
+      ${bouton('envpo-outlook','btn-secondary','ti-world','Outlook web / nouvel Outlook (sans PDF joint)',"Ouvre un message Outlook dans un nouvel onglet avec le destinataire, l'objet et le texte déjà remplis. Le PDF est téléchargé : glissez-le dans le message.",'envpoOutlook()')}
       ${bouton('envpo-mailto','btn-ghost','ti-external-link','Ouvrir ma messagerie (sans PDF joint)',"Comme avant : le PDF est téléchargé et le message ouvert ; il faut glisser le PDF dedans (un navigateur ne peut pas le joindre tout seul).",'envpoMailto()')}
       <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiPO()">Fermer</button></div>
     </div></div></div>`;
@@ -6676,6 +6705,17 @@ async function envpoPartager(){
     await navigator.share({files:[f], title:d.sujet, text:d.corps});
   }catch(e){ if(!(e && e.name==='AbortError')) showToast('Partage impossible : '+(e.message||e), 'error'); }
 }
+async function envpoOutlook(){
+  const d = envpoLire(true); if(!d) return;
+  const url = lienOutlookWeb({destinataires:d.a, sujet:d.sujet, corps:d.corps});
+  if(url.length > OUTLOOK_WEB_MAX){ showToast("Message trop long pour ce lien : raccourcissez le texte ou utilisez « E-mail prêt à envoyer »", 'error'); return; }
+  try{
+    const pdf = await envpoPdf(); if(!pdf) return;
+    ouvrirLienWeb(url);
+    await baixarPdfBytes(pdf.bytes, pdf.nom);
+    showToast("Joignez le PDF téléchargé « "+pdf.nom+" » au message Outlook (glissez-le dedans)");
+  }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
+}
 async function envpoMailto(){
   const d = envpoLire(true); if(!d) return;
   try{
@@ -6686,6 +6726,217 @@ async function envpoMailto(){
       showToast("Joignez le PDF téléchargé « "+pdf.nom+" » au message (glissez-le dedans)");
     }, 300);
   }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
+}
+
+// ── BROUILLON OUTLOOK (Microsoft Graph) — 03/11/2026 ─────────────────────────────────────────────────────────────
+// Crée le message dans les « Brouillons » de la PERSONNE CONNECTÉE (visible dans Outlook classique, nouveau, web et mobile) : destinataire, Cc, objet, texte,
+// pièces jointes, expéditeur = e-mail de l'entreprise (Administration → Documents, par défaut l'adresse de facturation). Aucun secret : connexion Microsoft dans une fenêtre (OAuth 2.0 « code + PKCE », application monopage
+// « ERP LYNEO — brouillons Outlook » enregistrée dans Entra ID, permission déléguée Mail.ReadWrite). Le jeton reste EN MÉMOIRE (jamais écrit sur le disque,
+// jamais envoyé à Supabase) et dure environ 1 h. Rien n'est envoyé : la personne vérifie et clique sur « Envoyer » dans Outlook.
+const MS_CONF = {
+  clientId: '0d28e91d-6653-4aa6-bdbb-a4c1a9547861', tenantId: '6f806b12-a5ae-4bb7-b17d-ba96ec9ed92e',
+  portee: 'https://graph.microsoft.com/Mail.ReadWrite', graph: 'https://graph.microsoft.com/v1.0',
+  delai: 300000, graceFermeture: 1500
+};
+const MS_AUTORITE = 'https://login.microsoftonline.com/' + MS_CONF.tenantId + '/oauth2/v2.0';
+const MS_GROS_FICHIER = 3000000, MS_MORCEAU = 3276800;                       // au-delà de 3 Mo : session d'envoi par morceaux (multiples de 320 Kio)
+const MS_HOTES_LIEN = /(^|\.)(office\.com|office365\.com|outlook\.com|live\.com)$/i;
+const MS_HOTES_ENVOI = /(^|\.)(office\.com|office365\.com|outlook\.com|microsoft\.com)$/i;
+let _msJeton = null, _msConnexion = null;
+// Expéditeur des brouillons = l'e-mail de l'entreprise (source unique : Administration → Documents) ; vide si absent ou invalide → le brouillon part de l'adresse de la personne
+const msExpediteur = () => { const m = String((window.LyneoPDF && LyneoPDF.ENTREPRISE && LyneoPDF.ENTREPRISE.mail) || '').trim(); return EMAIL_RE.test(m) ? m : ''; };
+function msRedirectUri(){ return location.origin + location.pathname.replace(/index\.html$/i, ''); }
+const msHoteSur = (u, re) => { try{ const x = new URL(String(u)); return x.protocol === 'https:' && re.test(x.hostname); }catch(e){ return false; } };
+const msJetonValide = () => !!(_msJeton && _msJeton.expire > Date.now() + 60000);
+const msBase64Url = o => btoa(String.fromCharCode.apply(null, o)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const msAleatoire = n => { const a = new Uint8Array(n); crypto.getRandomValues(a); return msBase64Url(a); };
+async function msChallenge(verifier){ return msBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))); }
+function msBase64(octets){ let bin = ''; for(let k=0; k<octets.length; k+=0x8000) bin += String.fromCharCode.apply(null, octets.subarray(k, k+0x8000)); return btoa(bin); }
+function msMessageAuth(code, desc, redirect){
+  const t = String(desc||'').split(/\r?\n/)[0].trim(), tout = String(code||'') + ' ' + t;
+  if(/AADSTS65001|consent_required/i.test(tout)) return "Microsoft demande le consentement de l'administrateur pour l'application « ERP LYNEO — brouillons Outlook » (Entra ID → API autorisées → Accorder un consentement d'administrateur)";
+  if(/AADSTS50011|redirect_uri/i.test(tout)) return "L'adresse de redirection n'est pas enregistrée dans Entra ID : ajoutez « "+redirect+" » (plateforme « Application monopage ») dans Authentication";
+  if(/AADSTS9002326/i.test(tout)) return "Dans Entra ID, l'adresse de redirection doit être de type « Application monopage » (SPA)";
+  if(/access_denied/i.test(code)) return 'Connexion Microsoft refusée ou annulée';
+  return 'Connexion Microsoft impossible : ' + (t || code || 'erreur inconnue');
+}
+function msMessageGraph(statut, code, texte){
+  if(statut === 401) return 'La session Microsoft a expiré : recommencez (la fenêtre de connexion se rouvrira)';
+  if(statut === 403) return "Microsoft refuse l'accès à la boîte aux lettres (permission Mail.ReadWrite non accordée par l'administrateur, ou boîte indisponible)"+(code ? ' — '+code : '');
+  if(statut === 429) return 'Microsoft est occupé : réessayez dans une minute';
+  return 'Microsoft a refusé la demande ('+statut+(code ? ' '+code : '')+')'+(texte ? ' : '+texte : '');
+}
+// Ouvre la fenêtre de connexion TOUT DE SUITE (dans le clic de la personne : sinon le navigateur la bloque) ; null si déjà connecté
+function msOuvrirFenetre(){
+  if(msJetonValide()) return null;
+  const fen = window.open('about:blank', 'lyneo-ms-connexion', 'popup,width=520,height=700');
+  if(!fen) throw new Error("Le navigateur a bloqué la fenêtre de connexion Microsoft : autorisez les fenêtres pop-up pour l'ERP, puis recommencez");
+  return fen;
+}
+// Attend le retour de la fenêtre (message de la page de retour, ou canal du navigateur) ; l'état « state » secret doit correspondre
+function msAttendreRetour(fen, state){
+  return new Promise((resolve, reject)=>{
+    let fini = false, canal = null, minuteur = null, veille = null, fermeLe = 0;
+    const terminer = (fn, v) => {
+      if(fini) return; fini = true;
+      window.removeEventListener('message', surMessage); clearInterval(veille); clearTimeout(minuteur);
+      try{ if(canal) canal.close(); }catch(e){}
+      try{ if(fen && !fen.closed) fen.close(); }catch(e){}
+      fn(v);
+    };
+    const traiter = d => {
+      if(!d || d.type !== 'lyneo-ms-retour' || typeof d.search !== 'string') return;
+      const p = new URLSearchParams(d.search);
+      if(p.get('state') === state) terminer(resolve, p);
+    };
+    const surMessage = e => { if(e.origin === location.origin) traiter(e.data); };
+    window.addEventListener('message', surMessage);
+    try{ canal = new BroadcastChannel('lyneo-ms'); canal.onmessage = e => traiter(e.data); }catch(e){}
+    minuteur = setTimeout(()=>terminer(reject, new Error('La connexion Microsoft a pris trop de temps : recommencez')), MS_CONF.delai);
+    veille = setInterval(()=>{
+      try{
+        if(fen && fen.closed){
+          if(!fermeLe) fermeLe = Date.now();
+          else if(Date.now() - fermeLe > MS_CONF.graceFermeture) terminer(reject, new Error("Connexion Microsoft annulée. Si Microsoft a affiché une erreur d'adresse de redirection, enregistrez « "+msRedirectUri()+" » (plateforme « Application monopage ») dans Entra ID → Authentication"));
+        }
+      }catch(e){}
+    }, 300);
+  });
+}
+async function msConnecter(fen){
+  if(msJetonValide()) return _msJeton.token;
+  if(_msConnexion) return _msConnexion;
+  _msConnexion = (async()=>{
+    try{
+      fen = fen || msOuvrirFenetre();
+      if(!(window.crypto && crypto.subtle)) throw new Error('Ce navigateur ne permet pas la connexion Microsoft (page non sécurisée)');
+      const verifier = msAleatoire(48), state = 'lyneo-ms.' + msAleatoire(16), redirect = msRedirectUri();
+      const challenge = await msChallenge(verifier);
+      const retour = msAttendreRetour(fen, state); retour.catch(()=>{});
+      fen.location.href = MS_AUTORITE + '/authorize?' + new URLSearchParams({client_id: MS_CONF.clientId, response_type: 'code', redirect_uri: redirect, response_mode: 'query', scope: MS_CONF.portee, state, code_challenge: challenge, code_challenge_method: 'S256'}).toString();
+      const p = await retour;
+      if(p.get('error')) throw new Error(msMessageAuth(p.get('error'), p.get('error_description'), redirect));
+      const code = p.get('code'); if(!code) throw new Error('Réponse Microsoft incomplète : recommencez');
+      let rep;
+      try{ rep = await fetch(MS_AUTORITE + '/token', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({client_id: MS_CONF.clientId, grant_type: 'authorization_code', code, redirect_uri: redirect, code_verifier: verifier, scope: MS_CONF.portee}).toString()}); }
+      catch(e){ throw new Error('Impossible de joindre Microsoft (réseau ou bloqueur de publicité) : '+((e&&e.message)||e)); }
+      const j = await rep.json().catch(()=>({}));
+      if(!rep.ok || !j.access_token) throw new Error(msMessageAuth(j.error, j.error_description, redirect));
+      _msJeton = {token: j.access_token, expire: Date.now() + (parseInt(j.expires_in, 10) || 3600) * 1000};
+      return _msJeton.token;
+    } finally { _msConnexion = null; }
+  })();
+  return _msConnexion;
+}
+async function msGraph(methode, chemin, corps){
+  let rep;
+  try{ rep = await fetch(MS_CONF.graph + chemin, {method: methode, headers: Object.assign({Authorization: 'Bearer ' + _msJeton.token}, corps ? {'Content-Type': 'application/json'} : {}), body: corps ? JSON.stringify(corps) : undefined}); }
+  catch(e){ throw new Error('Impossible de joindre Microsoft (réseau ou bloqueur de publicité) : '+((e&&e.message)||e)); }
+  if(rep.status === 204) return null;
+  let j = null; try{ j = await rep.json(); }catch(e){}
+  if(rep.ok) return j;
+  const code = (j && j.error && j.error.code) || '', texte = (j && j.error && j.error.message) || '';
+  const err = new Error(msMessageGraph(rep.status, code, texte)); err.code = code; err.status = rep.status;
+  if(rep.status === 401) _msJeton = null;
+  throw err;
+}
+function msNomsUniques(pieces){
+  const pris = new Set();
+  return (pieces||[]).map(p=>{
+    let nom = nomPieceJointe(p.nom); const m = nom.match(/^(.*?)(\.[A-Za-z0-9]+)?$/); let k = 1;
+    while(pris.has(nom.toLowerCase())){ k++; nom = (m[1]||'piece-jointe') + '_' + k + (m[2]||''); }
+    pris.add(nom.toLowerCase());
+    return {nom, type: typeMimeSur(p.type), octets: new Uint8Array(p.octets)};
+  });
+}
+const msDest = liste => (liste||[]).filter(a=>EMAIL_RE.test(a)).map(a=>({emailAddress: {address: a}}));
+async function msAttacher(id, p){
+  const chemin = '/me/messages/' + encodeURIComponent(id) + '/attachments';
+  if(p.octets.length <= MS_GROS_FICHIER){
+    await msGraph('POST', chemin, {'@odata.type': '#microsoft.graph.fileAttachment', name: p.nom, contentType: p.type, contentBytes: msBase64(p.octets)});
+    return;
+  }
+  const s = await msGraph('POST', chemin + '/createUploadSession', {AttachmentItem: {attachmentType: 'file', name: p.nom, size: p.octets.length, contentType: p.type}});
+  if(!s || !msHoteSur(s.uploadUrl, MS_HOTES_ENVOI)) throw new Error("Microsoft n'a pas ouvert de session d'envoi pour « "+p.nom+" »");
+  for(let a = 0; a < p.octets.length; a += MS_MORCEAU){
+    const b = Math.min(a + MS_MORCEAU, p.octets.length);
+    let rep;
+    try{ rep = await fetch(s.uploadUrl, {method: 'PUT', headers: {'Content-Type': 'application/octet-stream', 'Content-Range': 'bytes '+a+'-'+(b-1)+'/'+p.octets.length}, body: p.octets.subarray(a, b)}); }
+    catch(e){ throw new Error("Envoi de « "+p.nom+" » interrompu : "+((e&&e.message)||e)); }
+    if(!rep.ok) throw new Error("Microsoft a refusé « "+p.nom+" » ("+rep.status+")");
+  }
+}
+// Crée le brouillon complet. Si l'envoi d'une pièce jointe échoue, le brouillon incomplet est supprimé (pas de demi-message dans les Brouillons).
+async function msCreerBrouillon({destinataires, cc, sujet, corps, pieces}){
+  const liste = msNomsUniques(pieces);
+  const base = {subject: sujet, body: {contentType: 'Text', content: corps}, toRecipients: msDest(destinataires), ccRecipients: msDest(cc)};
+  const exp = msExpediteur();
+  let avertissement = '', brouillon;
+  try{ brouillon = await msGraph('POST', '/me/messages', exp ? Object.assign({}, base, {from: {emailAddress: {address: exp}}}) : base); }
+  catch(e){
+    if(!exp || !(e && e.code === 'ErrorSendAsDenied')) throw e;
+    avertissement = "Vous n'avez pas le droit « Envoyer en tant que » sur "+exp+" : le brouillon part de votre propre adresse (demandez ce droit à l'administrateur).";
+    brouillon = await msGraph('POST', '/me/messages', base);
+  }
+  if(!brouillon || !brouillon.id) throw new Error("Microsoft n'a pas renvoyé le brouillon créé : recommencez");
+  try{ for(const p of liste) await msAttacher(brouillon.id, p); }
+  catch(e){ try{ await msGraph('DELETE', '/me/messages/' + encodeURIComponent(brouillon.id)); }catch(e2){} throw e; }
+  return {id: brouillon.id, lien: msHoteSur(brouillon.webLink, MS_HOTES_LIEN) ? String(brouillon.webLink) : '', expediteur: avertissement ? '' : exp, avertissement};
+}
+// Point d'entrée des fenêtres d'envoi. À appeler DIRECTEMENT depuis le clic (la fenêtre de connexion est ouverte avant tout « await »).
+// pieces : fonction asynchrone → [{nom, type, octets}] (ou null si elle a déjà affiché une erreur).
+async function brouillonOutlook({destinataires, cc, sujet, corps, pieces}){
+  let fen = msOuvrirFenetre();
+  try{
+    const liste = await pieces();
+    if(!liste){ if(fen) try{ fen.close(); }catch(e){} return null; }
+    await msConnecter(fen); fen = null;
+    return await msCreerBrouillon({destinataires, cc, sujet, corps, pieces: liste});
+  }catch(e){ if(fen) try{ if(!fen.closed) fen.close(); }catch(e2){} throw e; }
+}
+const brouillonAide = () => "<strong>Recommandé.</strong> Crée le message dans vos « Brouillons » Outlook (classique, nouveau ou web) avec le destinataire, l'objet, le texte et les pièces jointes"+(msExpediteur() ? ", expéditeur <strong>"+escHtml(msExpediteur())+"</strong>" : "")+" : il ne reste qu'à vérifier et envoyer. La première fois, une fenêtre de connexion Microsoft s'ouvre.";
+const htmlBrouillonStatut = p => `<div id="${p}-brouillon-statut" style="display:none;margin:-4px 0 10px;font-size:13px;color:var(--green)"></div>`;
+function afficherBrouillonStatut(p, r){
+  const e = el(p + '-brouillon-statut'); if(!e) return;
+  e.style.display = '';
+  e.innerHTML = '<i class="ti ti-circle-check"></i> Brouillon créé dans vos « Brouillons » Outlook'+(r.expediteur ? ' (expéditeur '+escHtml(r.expediteur)+')' : '')+'. '
+    + (r.lien ? `<a href="${escHtml(r.lien)}" target="_blank" rel="noopener" data-brouillon-lien style="color:var(--blue);font-weight:600">Ouvrir le brouillon dans Outlook web</a>` : '')
+    + (r.avertissement ? `<div style="color:var(--orange);margin-top:3px"><i class="ti ti-alert-triangle"></i> ${escHtml(r.avertissement)}</div>` : '');
+}
+const msgBrouillon = r => 'Brouillon créé dans vos « Brouillons » Outlook : il ne reste qu\'à vérifier et envoyer' + (r.avertissement ? ' — '+r.avertissement : '');
+function ouvrirBrouillonWeb(r){ if(r && r.lien){ try{ ouvrirLienWeb(r.lien); }catch(e){} } }
+async function envpoBrouillon(){
+  const d = envpoLire(true); if(!d) return;
+  const b = el('envpo-brouillon'); if(b) b.disabled = true;
+  try{
+    const r = await brouillonOutlook({destinataires: d.a, cc: [], sujet: d.sujet, corps: d.corps,
+      pieces: async()=>{ const pdf = await envpoPdf(); return pdf ? [{nom: pdf.nom, type: 'application/pdf', octets: pdf.bytes}] : null; }});
+    if(!r) return;
+    afficherBrouillonStatut('envpo', r); showToast(msgBrouillon(r)); ouvrirBrouillonWeb(r);
+  }catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); }
+  finally{ const b2 = el('envpo-brouillon'); if(b2) b2.disabled = false; }
+}
+async function envfvBrouillon(){
+  const d = envfvLire(true); if(!d) return;
+  const b = el('envfv-brouillon'); if(b) b.disabled = true;
+  try{
+    const r = await brouillonOutlook({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: d.corps, pieces: envfvPieces});
+    if(!r) return;
+    afficherBrouillonStatut('envfv', r); showToast(msgBrouillon(r)); ouvrirBrouillonWeb(r);
+    await envfvApres();
+  }catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); }
+  finally{ const b2 = el('envfv-brouillon'); if(b2) b2.disabled = false; }
+}
+async function relBrouillon(){
+  const d = relLire(true); if(!d) return;
+  await relAgir('rel-brouillon', async()=>{
+    let pieces = null;
+    const r = await brouillonOutlook({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: relCorpsEmail(d.corps, d.lignes),
+      pieces: async()=>{ pieces = await relPieces(d); return pieces; }});
+    if(!r) return;
+    afficherBrouillonStatut('rel', r); showToast(msgBrouillon(r)); ouvrirBrouillonWeb(r);
+    await relApres(d, 'eml', {bytes: pieces[0].octets, nom: pieces[0].nom});
+  });
 }
 
 // ── MODÈLE DE DEVIS LYNEO (PDF et Excel) ─────────────────────────────────────────────────
@@ -13763,7 +14014,9 @@ async function envoyerFactureParEmail(facId){
         <span id="envfv-total" style="font-size:12px;color:var(--gray-5)"></span>
       </div>
       ${estRefProvisoire(f.numero) ? `<div class="alert alert-info" id="envfv-proforma-info" style="margin:10px 0 14px"><i class="ti ti-info-circle"></i> <span>Brouillon sans numéro définitif : le PDF joint est une <strong>proforma</strong>. Pour envoyer la facture définitive, validez-la d'abord (bouton « Valider » de la fiche).</span></div>` : f.statut==='brouillon' ? `<label id="envfv-marquer-lib" style="display:flex;gap:8px;align-items:center;font-size:13px;margin:10px 0 14px"><input type="checkbox" id="envfv-marquer"/> ${avoir?'Marquer la note de crédit comme émise':'Marquer la facture comme envoyée (statut « Envoyée »)'} une fois l'e-mail créé</label>` : '<div style="height:10px"></div>'}
-      ${bouton('envfv-eml','btn-primary','ti-mail-forward','E-mail prêt à envoyer (PDF + pièces jointes)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et toutes les pièces jointes déjà en place.",'envfvEml()')}
+      ${bouton('envfv-brouillon','btn-primary','ti-mail-opened','Créer le brouillon Outlook (PDF + pièces jointes)',brouillonAide(),'envfvBrouillon()')}
+      ${htmlBrouillonStatut('envfv')}
+      ${bouton('envfv-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF + pièces jointes)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et toutes les pièces jointes déjà en place." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).",'envfvEml()')}
       ${partage ? bouton('envfv-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF et les pièces jointes.",'envfvPartager()') : ''}
       ${bouton('envfv-mailto','btn-ghost','ti-external-link','Ouvrir ma messagerie (sans pièces jointes)',"Comme avant : le PDF est téléchargé et le message ouvert ; il faut glisser le PDF et les autres fichiers dedans (un navigateur ne peut pas les joindre tout seul).",'envfvMailto()')}
       <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiFV()">Fermer</button></div>
@@ -14087,7 +14340,9 @@ function htmlRelanceClient(mon){
         <label><input type="checkbox" id="rel-consigner"${sansSql ? ' disabled' : ' checked'}/> Enregistrer cette relance dans l'historique (après l'envoi ou le téléchargement)</label>
         <div id="rel-consigne-ok" style="display:none;color:var(--green);font-size:12.5px"><i class="ti ti-circle-check"></i> Relance enregistrée dans l'historique.</div>
       </div>
-      ${bouton('rel-eml', 'btn-primary', 'ti-mail-forward', 'E-mail prêt à envoyer (lettre PDF + factures)', "Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie l'ouvre avec le destinataire, l'objet, le texte et les pièces jointes ; il ne reste qu'à envoyer.", 'relEml()')}
+      ${bouton('rel-brouillon', 'btn-primary', 'ti-mail-opened', 'Créer le brouillon Outlook (lettre PDF + factures)', brouillonAide(), 'relBrouillon()')}
+      ${htmlBrouillonStatut('rel')}
+      ${bouton('rel-eml', 'btn-secondary', 'ti-mail-forward', 'E-mail prêt à envoyer (lettre PDF + factures)', "Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie l'ouvre avec le destinataire, l'objet, le texte et les pièces jointes ; il ne reste qu'à envoyer." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).", 'relEml()')}
       ${partage ? bouton('rel-partage', 'btn-secondary', 'ti-share', 'Partager… (Mail, Outlook, Teams)', "Ouvre le menu de partage de votre appareil avec les PDF.", 'relPartager()') : ''}
       ${bouton('rel-mailto', 'btn-ghost', 'ti-external-link', 'Ouvrir ma messagerie (sans pièces jointes)', "Le message s'ouvre dans votre messagerie ; la lettre PDF est téléchargée pour que vous la glissiez dedans.", 'relMailto()')}
       ${bouton('rel-pdf', 'btn-ghost', 'ti-file-download', 'Télécharger la lettre (PDF)', "Pour un envoi par courrier (recommandé pour une mise en demeure).", 'relPdf()')}
@@ -14180,20 +14435,47 @@ async function insererRelancesFV(rows){
   }
   return {nb, error: null};
 }
-// Après un envoi / téléchargement réussi : mémorise la relance (une seule fois par fenêtre)
-async function relApres(d, canal){
+// ── Lettre PDF de la relance : conservée dans le stockage « Documents » (un seul fichier par fenêtre, partagé par toutes les factures relancées) ──
+// Colonnes relances_facture.lettre_url / lettre_nom (migration-relances.sql mis à jour). Sans elles : la relance est mémorisée comme avant, sans la lettre.
+const erreurColonneLettre = err => !!err && /lettre_(url|nom)/i.test(err.message||'');
+async function archiverLettreRelance(lettre, lot){
+  if(!lettre || !lettre.bytes || !lettre.bytes.length) return null;
+  try{
+    const path = `relances/${lot}/${nomSurStockage(lettre.nom)}`;
+    const up = await sb.storage.from('Documents').upload(path, new Blob([lettre.bytes], {type:'application/pdf'}), {contentType:'application/pdf', upsert:false});
+    if(up.error) return {erreur: up.error.message || String(up.error)};
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    return {path, url: urlData.publicUrl, nom: lettre.nom};
+  }catch(e){ return {erreur: (e && e.message) || String(e)}; }
+}
+// Lien « Voir la lettre » : uniquement vers un fichier du stockage « Documents » (jamais un autre schéma d'adresse, ex. javascript:)
+function relLienLettre(x){
+  const u = String((x && x.lettre_url) || '');
+  if(!u || cheminDepuisUrl(u) === null) return '';
+  return `<a href="${escHtml(u)}" target="_blank" rel="noopener" data-rel-lettre="${escHtml(String(x.id))}" style="color:var(--blue);font-weight:600" title="${escHtml(x.lettre_nom || 'Lettre de relance')}"><i class="ti ti-file-type-pdf"></i> Voir la lettre</a>`;
+}
+// Après un envoi / téléchargement réussi : mémorise la relance (une seule fois par fenêtre) et conserve la lettre
+async function relApres(d, canal, lettre){
   const mon = _relance; if(!mon || !d.consigner || mon.consigne) return;
   const rows = d.lignes.map(x=>({facture_vente_id: x.id, client_id: mon.g.clientId, niveau: d.niveau, date_relance: mon.jour, montant_du: x.montant, jours_retard: x.retard, canal, lot: mon.lot, objet: d.sujet, cree_par: (currentUser && currentUser.id) || null}));
-  const r = await insererRelancesFV(rows);
+  const arch = await archiverLettreRelance(lettre, mon.lot), gardee = !!(arch && !arch.erreur);
+  const retirer = async()=>{ if(gardee){ try{ await sb.storage.from('Documents').remove([arch.path]); }catch(e){} } };       // pas de fichier orphelin
+  let r = await insererRelancesFV(gardee ? rows.map(x=>({...x, lettre_url: arch.url, lettre_nom: arch.nom})) : rows), colonneAbsente = false;
+  if(r.error && gardee && erreurColonneLettre(r.error)){ colonneAbsente = true; r = await insererRelancesFV(rows); }          // script SQL pas encore mis à jour : on mémorise la relance sans la lettre
   if(r.error){
+    await retirer();
     if(erreurTableRelances(r.error)){ _relFV.sqlOk = false; showToast("Relance faite, mais non mémorisée : exécutez le script "+SQL_RELANCES, 'error'); }
     else showToast("Relance faite, mais non enregistrée dans l'historique : "+(r.error.message||r.error), 'error');
     return;
   }
+  const conservee = gardee && !colonneAbsente && r.nb > 0;
+  if(gardee && !conservee) await retirer();
   mon.consigne = true;
   const ok = el('rel-consigne-ok'); if(ok) ok.style.display = '';
   const cons = el('rel-consigner'); if(cons) cons.disabled = true;
-  showToast('Relance enregistrée dans l\'historique ('+d.lignes.length+' facture'+(d.lignes.length>1?'s':'')+')');
+  showToast('Relance enregistrée dans l\'historique ('+d.lignes.length+' facture'+(d.lignes.length>1?'s':'')+')'+(conservee ? ' — lettre PDF conservée' : ''));
+  if(arch && arch.erreur) showToast("La lettre PDF n'a pas pu être conservée : "+arch.erreur, 'error');
+  else if(colonneAbsente) showToast("Lettre PDF non conservée : exécutez la mise à jour du script "+SQL_RELANCES, 'error');
   await chargerRelancesFV();
   if(currentPage === 'factures_vente' && typeof afficherFacturesVente === 'function') afficherFacturesVente();
 }
@@ -14204,7 +14486,7 @@ async function relEml(){
     const nomEml = pieces[0].nom.replace(/\.pdf$/i, '') + '-email.eml';
     await baixarBytes(construireEmlPJ({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: relCorpsEmail(d.corps, d.lignes), pieces}), nomEml, 'message/rfc822');
     showToast('E-mail créé : ouvrez le fichier « '+nomEml+' » (double-clic) — '+pieces.length+' pièce'+(pieces.length>1?'s':'')+' jointe'+(pieces.length>1?'s':'')+', il ne reste qu\'à envoyer');
-    await relApres(d, 'eml');
+    await relApres(d, 'eml', {bytes: pieces[0].octets, nom: pieces[0].nom});
   });
 }
 async function relPartager(){
@@ -14215,7 +14497,7 @@ async function relPartager(){
     if(!navigator.canShare({files: fichiers})){ showToast("Ce navigateur ne peut pas partager ces fichiers : utilisez « E-mail prêt à envoyer »", 'error'); return; }
     try{ await navigator.share({files: fichiers, title: d.sujet, text: relCorpsEmail(d.corps, d.lignes)}); }
     catch(e){ if(e && e.name === 'AbortError') return; throw e; }
-    await relApres(d, 'partage');
+    await relApres(d, 'partage', {bytes: pieces[0].octets, nom: pieces[0].nom});
   });
 }
 async function relMailto(){
@@ -14227,7 +14509,7 @@ async function relMailto(){
       ouvrirLienMailto(`mailto:${d.a.join(',')}?${d.cc.length ? 'cc='+encodeURIComponent(d.cc.join(','))+'&' : ''}subject=${encodeURIComponent(d.sujet)}&body=${encodeURIComponent(relCorpsEmail(d.corps, d.lignes))}`);
       showToast('Joignez la lettre PDF téléchargée « '+l.nom+' » au message (glissez-la dedans)');
     }, 300);
-    await relApres(d, 'mailto');
+    await relApres(d, 'mailto', l);
   });
 }
 async function relPdf(){
@@ -14236,7 +14518,7 @@ async function relPdf(){
     const l = await relLettre(d);
     await baixarPdfBytes(l.bytes, l.nom);
     showToast('Lettre de relance téléchargée : '+l.nom);
-    await relApres(d, 'pdf');
+    await relApres(d, 'pdf', l);
   });
 }
 // ── fiche d'une facture : historique des relances + bouton « Relancer » ──
@@ -14253,7 +14535,8 @@ async function htmlRelancesFiche(f){
         <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${fmtDate(x.date_relance)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right">${x.montant_du != null ? fmt(x.montant_du) : '—'}</td>
         <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${escHtml(RELANCE_CANAUX[x.canal] || x.canal || '')}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${tracCell(x.cree_par)}</td></tr>`).join('')}</tbody></table></div>`;
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${tracCell(x.cree_par)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);white-space:nowrap">${relLienLettre(x)}</td></tr>`).join('')}</tbody></table></div>`;
   }catch(e){ return ''; }
 }
 function relBoutonFiche(f, netTtc){
@@ -14634,7 +14917,7 @@ const OU_ENTREPRISE = {
   rc:'Pied des PDF · bandeau du devis',
   autorisation:'Pied des PDF · bandeau du devis',
   tel:'Pied des PDF (bons de commande, factures, avoirs) · bandeau du devis',
-  mail:'Pied des PDF · bandeau du devis · texte « à retourner signée à… » du devis',
+  mail:'Pied des PDF · bandeau du devis · texte « à retourner signée à… » du devis · expéditeur des brouillons Outlook',
   site:'Pied des PDF (lien cliquable) · bandeau du devis · pied Excel',
   nom_doc:'Bloc Émetteur des bons de commande et factures',
   rue_doc:'Bloc Émetteur des bons de commande et factures',
