@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-03-ef0dea0"/>
+<meta name="lyneo-build" content="BUILD:2026-11-03-5dacd12"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2688,7 +2688,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-03-ef0dea0';
+const APP_BUILD = 'BUILD:2026-11-03-5dacd12';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -4792,6 +4792,7 @@ async function loadHeuresChantier(chantier, stats){
       <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:12px;color:var(--orange)"></i>
       <p>Code "<strong>${escHtml(chantier.code_pointages)}</strong>" introuvable dans le système de pointages.</p>
       <p style="font-size:12px;margin-top:8px">Vérifiez le code dans l'onglet Informations.</p>
+      ${currentUser && currentUser.role==='admin' ? `<p style="font-size:12px;margin-top:4px" id="heures-hint-sync">Si la ligne n'existe pas encore dans les pointages : page Chantiers → « Synchroniser les pointages » la crée pour les chantiers « En cours ».</p>` : ''}
     </div>`;
     return;
   }
@@ -5812,7 +5813,8 @@ function etatsCodesChantier(c, ptRows){
 // Pour chaque centre de l'ERP : code des pointages = Numéro du centre ; nom = « Numéro — nom ». Une ligne des pointages n'est jamais fusionnée ni supprimée :
 // ses heures (liées à l'identifiant de la ligne, pas au texte du code) sont conservées. Renvoie :
 //  maj      [{c, row, de, vers, codeChange, nomChange, liste, listeChange}]  ligne existante à renommer / relier
-//  creer    [{c, vers, liste}]                                               code de centre SAV à créer dans les pointages
+//  creer    [{c, vers, liste, listeChange, ordinaire, remplace}]             ligne à créer dans les pointages : code du centre SAV, ou (ordinaire:true) chantier « En cours » dont
+//                                                                            les codes enregistrés n'existent pas dans les pointages (remplace = ces codes introuvables)
 //  creerErp [{numero, nom, row, vers, nomChange, codeChange}]                 centre SAV manquant dans l'ERP (SAV 1/2/3)
 //  bloques  [{c, titre, motif}]  conflits à traiter à la main   ·   multi [{c, codes}]  plusieurs codes sur un chantier ordinaire
 function planAlignementPointages(chs, ptRows){
@@ -5831,7 +5833,7 @@ function planAlignementPointages(chs, ptRows){
     const lignes = codes.map(code=>({code, row:trouverChantierPointages(rows, code)}));
     const memes = rows.filter(r=>cleCodePt(r.code)===cle);                      // lignes des pointages qui ont déjà ce code
     const existantes = lignes.filter(l=>l.row);
-    let row = (lignes.find(l=>l.row && cleCodePt(l.row.code)===cle)||{}).row || null, creer = false;
+    let row = (lignes.find(l=>l.row && cleCodePt(l.row.code)===cle)||{}).row || null, creer = false, ordinaire = false;
     if(!row){
       if(memes.length){
         const libre = memes.find(r=>!reclame.has(String(r.id)) || reclame.get(String(r.id))===c);
@@ -5840,24 +5842,30 @@ function planAlignementPointages(chs, ptRows){
         row = libre;
       } else if(existantes.length===1 && codes.length===1){ row = existantes[0].row; }             // un seul code → on le renomme (heures conservées)
       else if(sav) creer = true;                                                                    // plusieurs codes de clients (ou aucun) → nouveau code du centre
-      else if(!codes.length || !existantes.length) continue;                                         // non lié / introuvable : voir « codes introuvables »
+      else if(!codes.length) continue;                                                               // non lié : l'ERP n'invente pas de code (voir « sans lien »)
+      else if(!existantes.length){                                                                   // codes enregistrés dont AUCUN n'existe dans les pointages
+        if(c.statut!=='actif' || motifFermetureChantier(c)!=='') continue;                           // seulement « En cours » (ni pause, terminé, archivé, ni centre interne) : voir « codes introuvables »
+        creer = true; ordinaire = true;                                                              // ligne créée avec le NUMÉRO comme code ; les codes introuvables sont remplacés (aucune heure à déplacer)
+      }
       else { al.multi.push({c, codes}); continue; }                                                  // plusieurs codes sur un chantier ordinaire : à la main
     }
     const nomVoulu = nomPointagesVoulu(c);
-    const autres = codes.filter(x=>cleCodePt(x)!==cle && !(row && trouverChantierPointages(rows, x)===row));
+    // Chantier ordinaire dont AUCUN code enregistré n'existe dans les pointages : ces codes morts sont remplacés par le numéro (ligne créée ou reliée) ; sinon les autres codes sont conservés
+    const toutesMortes = !sav && codes.length>0 && !existantes.length, remplace = toutesMortes ? codes.filter(x=>cleCodePt(x)!==cle) : [];
+    const autres = toutesMortes ? [] : codes.filter(x=>cleCodePt(x)!==cle && !(row && trouverChantierPointages(rows, x)===row));
     // Chantier ordinaire dont un AUTRE code existe aussi dans les pointages : on ne le retire pas du lien en silence (ses heures
     // disparaîtraient du chantier) ⇒ à traiter à la main. Un code qui n'existe pas dans les pointages est simplement conservé dans la liste.
     if(!sav && autres.some(x=>trouverChantierPointages(rows, x))){ al.multi.push({c, codes}); continue; }
     const liste = [cible, ...autres].join(', ');
     const listeChange = liste !== codes.join(', ');
-    if(creer){ al.creer.push({c, vers:{code:cible, nom:nomVoulu}, liste}); continue; }
+    if(creer){ al.creer.push({c, vers:{code:cible, nom:nomVoulu}, liste, listeChange, ordinaire, remplace}); continue; }
     const codeChange = row.code!==cible;
     if(codeChange && memes.some(r=>String(r.id)!==String(row.id))){ al.bloques.push({c, motif:"le code « "+cible+" » existe déjà dans les pointages sur une autre ligne"}); continue; }
     // nom : on compare sans le code (« P00001 — Belval » = « Belval ») ; si le code change, le nom est réécrit (il commençait par l'ancien code)
     let libVoulu = sansAccentsPt(libellePointagesDe(c)); if(libVoulu===sansAccentsPt(cible)) libVoulu = '';
     const nomEcrit = codeChange || sansAccentsPt(nomSansCodePt(row))!==libVoulu;
     if(!nomEcrit && !listeChange) continue;
-    al.maj.push({c, row, de:{code:row.code, nom:row.nom||''}, vers:{code:cible, nom:nomEcrit?nomVoulu:(row.nom||'')}, codeChange, nomChange:nomEcrit, liste, listeChange});
+    al.maj.push({c, row, de:{code:row.code, nom:row.nom||''}, vers:{code:cible, nom:nomEcrit?nomVoulu:(row.nom||'')}, codeChange, nomChange:nomEcrit, liste, listeChange, remplace});
   }
   // Centres SAV 1 / 2 / 3 absents de l'ERP : créés (comme « Heures improductives »), reliés à la ligne des pointages si elle existe déjà
   Object.keys(SAV_LIBELLES).forEach(key=>{
@@ -5931,9 +5939,11 @@ async function appliquerAlignementPointages(al){
         if(error) throw error;
         if(!data || !data.length){ echec(o.vers.code, 'droits'); continue; }
         res.crees.push(o.vers.code);
-      } else res.liens.push(o.vers.code);
-      const r2 = await ecrireListeCodesErp(o.c.id, o.liste);
-      if(r2!=='ok') res.erreurs.push(o.vers.code+" : créé dans les pointages, mais le lien dans l'ERP n'a pas pu être enregistré ("+MSG_ECRITURE(r2)+")");
+      } else if(o.listeChange!==false) res.liens.push(o.vers.code);
+      if(o.listeChange!==false){
+        const r2 = await ecrireListeCodesErp(o.c.id, o.liste);
+        if(r2!=='ok') res.erreurs.push(o.vers.code+" : créé dans les pointages, mais le lien dans l'ERP n'a pas pu être enregistré ("+MSG_ECRITURE(r2)+") — il sera rétabli à la prochaine synchronisation");
+      }
     }catch(e){ res.erreurs.push(o.vers.code+' : '+((e&&e.message)||e)); }
   }
   for(const o of al.creerErp){
@@ -6286,8 +6296,8 @@ function htmlPlanSynchroPointages(plan, apresApplication){
   if(plan.pt.colonne && plan.financeErreur) h += `<div class="alert alert-warning" id="sync-pt-finance" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span>La facturation SAV n'a pas pu être lue (${escHtml(plan.financeErreur)}) : les codes d'interventions déjà masqués ne sont pas rouverts et aucune intervention n'est masquée à cause d'une facture émise. Réessayez.</span></div>`;
   const al = plan.alignement || {maj:[], creer:[], creerErp:[], bloques:[], multi:[]};
   const titreSection = (txt, couleur) => `<div style="font-size:12px;font-weight:700;color:${couleur||'var(--gray-6)'};margin-bottom:4px">${txt}</div>`;
-  if(al.maj.length) h += `<div id="sync-pt-aligner" style="margin-bottom:12px">${titreSection(`Codes à aligner sur l'ERP (${al.maj.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.maj.map(o=>`<li>${o.codeChange?`<strong>${escHtml(o.de.code)}</strong> → `:''}<strong>${escHtml(o.vers.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.vers.nom)}</span>${o.codeChange?'':` <span class="badge badge-termine" style="font-size:10px">${o.nomChange?'nom mis à jour':'lien ERP mis à jour'}</span>`}</li>`).join('')}</ul><p style="font-size:11px;color:var(--gray-4);margin-top:4px">Le code et le nom changent dans les pointages et le champ « Code pointages » du chantier est mis à jour. Les heures déjà pointées sont conservées.</p></div>`;
-  if(al.creer.length) h += `<div id="sync-pt-creer" style="margin-bottom:12px">${titreSection(`À créer dans les pointages (${al.creer.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.creer.map(o=>`<li><strong>${escHtml(o.vers.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.vers.nom)}</span></li>`).join('')}</ul></div>`;
+  if(al.maj.length) h += `<div id="sync-pt-aligner" style="margin-bottom:12px">${titreSection(`Codes à aligner sur l'ERP (${al.maj.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.maj.map(o=>`<li>${o.codeChange?`<strong>${escHtml(o.de.code)}</strong> → `:''}<strong>${escHtml(o.vers.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.vers.nom)}</span>${o.codeChange?'':` <span class="badge badge-termine" style="font-size:10px">${o.nomChange?'nom mis à jour':'lien ERP mis à jour'}</span>`}${o.remplace&&o.remplace.length?` <span class="badge badge-termine" style="font-size:10px">remplace le code introuvable « ${o.remplace.map(escHtml).join(', ')} »</span>`:''}</li>`).join('')}</ul><p style="font-size:11px;color:var(--gray-4);margin-top:4px">Le code et le nom changent dans les pointages et le champ « Code pointages » du chantier est mis à jour. Les heures déjà pointées sont conservées.</p></div>`;
+  if(al.creer.length) h += `<div id="sync-pt-creer" style="margin-bottom:12px">${titreSection(`À créer dans les pointages (${al.creer.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.creer.map(o=>`<li><strong>${escHtml(o.vers.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.vers.nom)}</span>${o.ordinaire?` <span class="badge badge-termine" style="font-size:10px">${o.remplace.length?'remplace le code introuvable « '+o.remplace.map(escHtml).join(', ')+' »':'ligne absente des pointages'}</span>`:''}</li>`).join('')}</ul>${al.creer.some(o=>o.ordinaire)?`<p style="font-size:11px;color:var(--gray-4);margin-top:4px">Chantiers « En cours » dont le code n'existe pas dans les pointages : la ligne est créée avec le numéro du chantier comme code et le champ « Code pointages » est mis à jour. Aucune heure n'est déplacée (il n'y en a aucune sous l'ancien code).</p>`:''}</div>`;
   if(al.creerErp.length) h += `<div id="sync-pt-creer-erp" style="margin-bottom:12px">${titreSection(`Centres SAV à créer dans l'ERP (${al.creerErp.length})`)}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.creerErp.map(o=>`<li><strong>${escHtml(o.numero)}</strong> <span style="color:var(--gray-5)">— ${escHtml(o.nom)}</span>${o.row?` <span class="badge badge-termine" style="font-size:10px">relié au code existant « ${escHtml(o.row.code)} »</span>`:''}</li>`).join('')}</ul></div>`;
   if(al.bloques.length || al.multi.length) h += `<div id="sync-pt-bloques" style="margin-bottom:12px">${titreSection(`<i class="ti ti-alert-circle"></i> Alignement impossible — à traiter à la main (${al.bloques.length+al.multi.length})`, 'var(--orange)')}<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${al.bloques.map(b=>`<li><strong>${escHtml(b.c?b.c.numero:b.titre)}</strong> <span style="color:var(--gray-5)">— ${escHtml(b.motif)}</span></li>`).join('')}${al.multi.map(m=>`<li><strong>${escHtml(m.c.numero)}</strong> <span style="color:var(--gray-5)">— plusieurs codes de pointages (${escHtml(m.codes.join(', '))}) : un chantier ordinaire n'en a qu'un</span></li>`).join('')}</ul></div>`;
   if(plan.ivsSansCentre && plan.ivsSansCentre.length) h += `<div class="alert alert-warning" id="sync-pt-sanscentre" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i><span><strong>${plan.ivsSansCentre.length}</strong> intervention${plan.ivsSansCentre.length>1?'s':''} SAV ouverte${plan.ivsSansCentre.length>1?'s':''} sans centre SAV (${plan.ivsSansCentre.slice(0,8).map(i=>escHtml(i.ref)).join(', ')}${plan.ivsSansCentre.length>8?'…':''}) : ${plan.ivsSansCentre.length>1?'leurs codes restent proposés':'son code reste proposé'} aux salariés. Rattachez-les à SAV 1, SAV 2 ou SAV 3 (Interventions → Modifier → Centre) puis relancez.</span></div>`;
