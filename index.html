@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-05-3eff75a"/>
+<meta name="lyneo-build" content="BUILD:2026-11-05-0d18584"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1090,7 +1090,26 @@ function totauxFacture(lignes){
 function ecartTotauxFV(f){
   if(!f || [f.total_ht, f.total_tva, f.total_ttc].some(v=>v==null || v==='' || !isFinite(Number(v)))) return null;
   const e = centimesDe(f.total_ttc) - (centimesDe(f.total_ht) + centimesDe(f.total_tva));
-  return {ok: e===0, ecart: e/100, attendu: (centimesDe(f.total_ht)+centimesDe(f.total_tva))/100};
+  // regularise : l'écart a déjà été accepté EN INTERNE (colonne ecart_arrondi_ct = cet écart, en centimes) ; si les montants changent, l'écart n'est plus celui qui a été accepté
+  const regularise = e!==0 && f.ecart_arrondi_ct!=null && f.ecart_arrondi_ct!=='' && Number(f.ecart_arrondi_ct)===e;
+  return {ok: e===0, ecart: e/100, ecartCt: e, regularise, attendu: (centimesDe(f.total_ht)+centimesDe(f.total_tva))/100};
+}
+// Petit écart d'arrondi d'une facture ÉMISE : régularisé EN INTERNE (jamais en changeant les montants émis ni par une note de crédit). Plafond : 5 centimes
+// (à garder identique au CHECK de migration-ecart-arrondi-regularise.sql). Au-delà, c'est une vraie erreur : note de crédit puis nouvelle facture.
+const TOLERANCE_REGUL_ARRONDI_CT = 5;
+const peutRegulariserEcartFV = () => !!currentUser && ['admin','comptabilite'].includes(currentUser.role);
+const colEcartRegulPresente = f => !!f && Object.prototype.hasOwnProperty.call(f, 'ecart_arrondi_ct');   // false = migration-ecart-arrondi-regularise.sql pas encore exécuté
+// L'écart À SIGNALER (null si cohérente, annulée, illisible ou déjà régularisée en interne)
+function ecartASignalerFV(f){
+  if(!f || f.statut==='annulee') return null;
+  const e = ecartTotauxFV(f);
+  return (e && !e.ok && !e.regularise) ? e : null;
+}
+// L'écart que l'on peut régulariser en interne : facture émise (ni brouillon ni annulée), à signaler, de 5 centimes au plus
+function ecartRegularisableFV(f){
+  if(!f || f.statut==='brouillon' || f.statut==='annulee') return null;
+  const e = ecartASignalerFV(f);
+  return (e && Math.abs(e.ecartCt) <= TOLERANCE_REGUL_ARRONDI_CT) ? e : null;
 }
 // Les LIGNES redonnent-elles les montants de l'en-tête ? null s'il n'y a pas de lignes ; sinon {ok, calc:{ht,tva,ttc}, diff:{ht,tva,ttc}}.
 // Tolérance de 5 centimes (anciennes factures arrondies autrement, comme pour les factures fournisseurs) : seul HT + TVA = TTC est exigé au centime.
@@ -2688,7 +2707,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-05-3eff75a';
+const APP_BUILD = 'BUILD:2026-11-05-0d18584';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -13012,6 +13031,7 @@ async function renderFacturesVente(){
       </div>
     </div>
     <div id="fv-resume" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px"></div>
+    <div id="fv-regul"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <select id="fvf-mois" style="width:auto;min-width:160px" onchange="_fvFiltres.mois=this.value;afficherFacturesVente()">
         <option value="">Tous les mois</option>${mois.map(m=>`<option value="${m}"${optSel(m,F.mois)}>${moisLabel(m)}</option>`).join('')}
@@ -13045,7 +13065,7 @@ function facturesVenteFiltrees(){
     if(F.centre){ if(F.centre==='__aucun' ? !!f.chantier_id : f.chantier_id!==F.centre) return false; }
     if(F.statut){
       if(F.statut==='retard'){ if(joursRetardFv(f)===0) return false; }
-      else if(F.statut==='ecart'){ const e = ecartTotauxFV(f); if(f.statut==='annulee' || !e || e.ok) return false; }
+      else if(F.statut==='ecart'){ if(!ecartASignalerFV(f)) return false; }
       else if(f.statut!==F.statut) return false;
     }
     if(q){
@@ -13070,7 +13090,7 @@ function afficherFacturesVente(){
   const aEncaisser = items.filter(f=>['envoyee','payee_partiel'].includes(f.statut));
   const enRetard = items.filter(f=>joursRetardFv(f)>0);
   const brouillons = items.filter(f=>f.statut==='brouillon'), annulees = items.filter(f=>f.statut==='annulee');
-  const avecEcart = _facturesVente.filter(f=>{ const e = ecartTotauxFV(f); return f.statut!=='annulee' && e && !e.ok; });   // sur TOUTES les factures, pas seulement les filtrées
+  const avecEcart = _facturesVente.filter(f=>!!ecartASignalerFV(f));   // sur TOUTES les factures, pas seulement les filtrées
 
   // Boutons « Réinitialiser » visibles seulement si un filtre est actif
   const actif = !!(F.search||F.mois||F.statut||F.centre);
@@ -13087,6 +13107,21 @@ function afficherFacturesVente(){
     carte('En retard TTC', fmt(somme(enRetard,f=>soldeFv(f,_fvAvoirs))), enRetard.length ? `${enRetard.length} facture${enRetard.length>1?'s':''} — cliquer pour les voir` : 'Aucune facture en retard', enRetard.length?'var(--red)':'var(--green)', enRetard.length?"_fvFiltres.statut='retard';renderFacturesVente()":'') +
     (avecEcart.length ? carte('⚠ Écart HT + TVA ≠ TTC', String(avecEcart.length), `facture${avecEcart.length>1?'s':''} à vérifier : ${avecEcart.slice(0,3).map(f=>escHtml(f.numero)).join(', ')}${avecEcart.length>3?'…':''} — cliquer pour les voir`, 'var(--red)', "_fvFiltres.statut='ecart';renderFacturesVente()") : '');
 
+  // Petits écarts d'arrondi des factures émises : régularisation interne en un clic (administrateur / comptabilité seulement)
+  const barreRegul = el('fv-regul');
+  if(barreRegul){
+    const regulables = peutRegulariserEcartFV() ? _facturesVente.filter(f=>!!ecartRegularisableFV(f)) : [];
+    if(!regulables.length) barreRegul.innerHTML = '';
+    else {
+      const colOk = _facturesVente.some(colEcartRegulPresente);
+      barreRegul.innerHTML = `<div class="alert alert-info" id="fv-regul-barre" style="margin:-4px 0 16px;flex-wrap:wrap;align-items:center"><i class="ti ti-adjustments"></i>
+        <div style="flex:1;min-width:240px"><strong>${regulables.length} facture${regulables.length>1?'s':''} avec un écart d'arrondi de ${fmt(TOLERANCE_REGUL_ARRONDI_CT/100)} au plus</strong>
+        <span style="color:var(--gray-6)"> — régularisation interne possible : aucun montant émis n'est modifié, l'écart est seulement consigné (nom et date).</span></div>
+        ${colOk ? `<button class="btn btn-primary btn-sm" id="btn-regul-lot" onclick="regulariserEcartsFV()"><i class="ti ti-check"></i> Régulariser en interne</button>`
+                : `<span style="font-size:12.5px">Exécutez <strong>migration-ecart-arrondi-regularise.sql</strong> (Supabase → SQL Editor), puis rechargez.</span>`}</div>`;
+    }
+  }
+
   const sub = 'font-size:11.5px;color:var(--gray-5);line-height:1.3';
   const th = (t,al)=>`<th style="${al?'text-align:'+al+';':''}white-space:nowrap">${t}</th>`;
   const ligne = f=>{
@@ -13099,7 +13134,7 @@ function afficherFacturesVente(){
     const montant = (v,k)=>`<td data-som="${k}" data-v="${num(v)}" style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;${annulee?'text-decoration:line-through;color:var(--gray-5)':(avoir?'color:var(--red)':'')}">${fmt(v)}</td>`;
     const lienOrig = avoir ? `<div style="${sub}">Sur ${orig?`<a href="#" class="text-blue" onclick="event.stopPropagation();openFactureVenteDetail('${orig.id}');return false">${escHtml(orig.numero)}</a>`:'—'}</div>` : '';
     return `<tr data-sel-id="${f.id}"${annulee?' data-som-off="1"':''} style="cursor:pointer" onclick="openFactureVenteDetail('${f.id}')">
-      <td style="white-space:nowrap"><strong class="text-blue"${estRefProvisoire(f.numero)?' data-brouillon-fv="1" style="color:var(--gray-5);font-style:italic"':''}>${escHtml(f.numero)}</strong>${(()=>{ const e = annulee ? null : ecartTotauxFV(f); return (e && !e.ok) ? ` <i class="ti ti-alert-triangle" data-ecart-fv="1" title="HT + TVA = ${escHtml(fmt(e.attendu))} mais TTC = ${escHtml(fmt(f.total_ttc))} (écart ${escHtml(fmt(Math.abs(e.ecart)))})" style="color:var(--red)"></i>` : ''; })()}${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
+      <td style="white-space:nowrap"><strong class="text-blue"${estRefProvisoire(f.numero)?' data-brouillon-fv="1" style="color:var(--gray-5);font-style:italic"':''}>${escHtml(f.numero)}</strong>${(()=>{ const e = annulee ? null : ecartASignalerFV(f); return e ? ` <i class="ti ti-alert-triangle" data-ecart-fv="1" title="HT + TVA = ${escHtml(fmt(e.attendu))} mais TTC = ${escHtml(fmt(f.total_ttc))} (écart ${escHtml(fmt(Math.abs(e.ecart)))})" style="color:var(--red)"></i>` : ''; })()}${po?`<div style="${sub}" title="Référence client">${escHtml(po)}</div>`:''}</td>
       <td style="white-space:nowrap">${fmtDate(f.date_creation)}</td>
       <td style="white-space:nowrap;${jr?'color:var(--red);font-weight:600':''}">${f.date_echeance?fmtDate(f.date_echeance):'—'}${jr?`<div style="font-size:11.5px;font-weight:500">+${jr} j</div>`:''}</td>
       <td>${escHtml(f.clients?.nom||'—')}</td>
@@ -15167,19 +15202,75 @@ async function contexteSuppressionFV(f){
 // Une facture déjà ÉMISE n'est jamais modifiée ici (pièce comptable) : on explique comment la corriger.
 function htmlEcartFV(f, lignes){
   if(!f || f.statut==='annulee') return '';
-  const ec = ecartTotauxFV(f), el2 = ecartLignesFV(f, lignes);
-  const ecartInterne = !!(ec && !ec.ok), ecartLignes = !!(el2 && !el2.ok);
+  const ec = ecartASignalerFV(f), el2 = ecartLignesFV(f, lignes);
+  const ecartInterne = !!ec, ecartLignes = !!(el2 && !el2.ok);
   if(!ecartInterne && !ecartLignes) return '';
   const brouillon = f.statut==='brouillon';
-  let msg = '';
-  if(ecartInterne) msg += `<strong>Montants incohérents :</strong> HT ${fmt(f.total_ht)} + TVA ${fmt(f.total_tva)} = ${fmt(ec.attendu)}, mais le TTC enregistré est ${fmt(f.total_ttc)} (écart de ${fmt(Math.abs(ec.ecart))}).`;
+  const petit = !!ecartRegularisableFV(f);                 // facture émise, écart d'arrondi ≤ 0,05 € : régularisation INTERNE (pas de consigne « note de crédit »)
+  let msg = '', aideReg = '';
+  if(ecartInterne && petit){
+    if(peutRegulariserEcartFV()){                          // les autres profils ne voient aucun message : ils ne peuvent rien en faire
+      msg += `<strong>Écart d'arrondi de ${fmt(Math.abs(ec.ecart))} :</strong> HT ${fmt(f.total_ht)} + TVA ${fmt(f.total_tva)} = ${fmt(ec.attendu)}, TTC enregistré ${fmt(f.total_ttc)}.`;
+      aideReg = colEcartRegulPresente(f)
+        ? `<button class="btn btn-secondary btn-sm" id="btn-regul-fv" onclick="regulariserEcartsFV(['${f.id}'])"><i class="ti ti-adjustments"></i> Régulariser en interne</button> <span style="font-size:12px;color:var(--gray-5)">Aucun montant n'est modifié : l'écart est consigné (nom et date).</span>`
+        : `<span>Régularisation interne indisponible : exécutez <strong>migration-ecart-arrondi-regularise.sql</strong> (Supabase → SQL Editor), puis rechargez.</span>`;
+    }
+  } else if(ecartInterne){
+    msg += `<strong>Montants incohérents :</strong> HT ${fmt(f.total_ht)} + TVA ${fmt(f.total_tva)} = ${fmt(ec.attendu)}, mais le TTC enregistré est ${fmt(f.total_ttc)} (écart de ${fmt(Math.abs(ec.ecart))}).`;
+  }
   if(ecartLignes) msg += `${msg?'<br>':'<strong>Montants différents des lignes :</strong> '}Les lignes totalisent HT ${fmt(el2.calc.ht)} · TVA ${fmt(el2.calc.tva)} · TTC ${fmt(el2.calc.ttc)}${ecartInterne?'.':`, la facture indique HT ${fmt(f.total_ht)} · TVA ${fmt(f.total_tva)} · TTC ${fmt(f.total_ttc)}.`}`;
-  let aide;
-  if(brouillon && lignes && lignes.length)
-    aide = `<button class="btn btn-secondary btn-sm" id="btn-recalc-fv" onclick="recalculerTotauxFV('${f.id}')"><i class="ti ti-calculator"></i> Recalculer les totaux depuis les lignes</button>`;
-  else if(brouillon) aide = `<span>Brouillon sans lignes : supprimez-le et recréez-le.</span>`;
-  else aide = `<span>Facture déjà émise : ne modifiez pas ses montants. Pour la corriger : note de crédit, puis nouvelle facture — à valider avec votre comptable.</span>`;
+  if(!msg) return '';
+  let aide = aideReg;
+  if((ecartInterne && !petit) || ecartLignes){             // vraie erreur (pas un arrondi) : consigne comme avant
+    let a2;
+    if(brouillon && lignes && lignes.length)
+      a2 = `<button class="btn btn-secondary btn-sm" id="btn-recalc-fv" onclick="recalculerTotauxFV('${f.id}')"><i class="ti ti-calculator"></i> Recalculer les totaux depuis les lignes</button>`;
+    else if(brouillon) a2 = `<span>Brouillon sans lignes : supprimez-le et recréez-le.</span>`;
+    else a2 = `<span>Facture déjà émise : ne modifiez pas ses montants. Pour la corriger : note de crédit, puis nouvelle facture — à valider avec votre comptable.</span>`;
+    aide += (aide ? '<div style="margin-top:6px"></div>' : '') + a2;
+  }
   return `<div class="alert alert-warning" id="fv-ecart" style="margin-top:12px;flex-wrap:wrap"><i class="ti ti-alert-triangle"></i><div style="flex:1;min-width:240px">${msg}<div style="margin-top:6px">${aide}</div></div></div>`;
+}
+// Trace discrète (pas une alerte) quand l'écart d'arrondi d'une facture émise a été régularisé en interne
+function htmlEcartRegulFV(f){
+  const e = f && f.statut!=='annulee' ? ecartTotauxFV(f) : null;
+  if(!e || !e.regularise) return '';
+  const qui = f.ecart_arrondi_regularise_par ? ` par ${escHtml(f.ecart_arrondi_regularise_par)}` : '';
+  const quand = f.ecart_arrondi_regularise_le ? ` le ${escHtml(fmtDate(String(f.ecart_arrondi_regularise_le).slice(0,10)))}` : '';
+  return `<div id="fv-ecart-regul" style="margin-top:10px;font-size:12px;color:var(--gray-5)"><i class="ti ti-circle-check"></i> Écart d'arrondi de ${fmt(Math.abs(e.ecart))} régularisé en interne${quand}${qui}.</div>`;
+}
+
+// Régularise EN INTERNE de petits écarts d'arrondi (≤ 5 centimes) de factures déjà émises. Aucun montant n'est modifié (la pièce émise reste telle qu'envoyée) :
+// on consigne l'écart accepté, le nom et la date (colonnes ecart_arrondi_*, reprises par le journal d'audit). ids absent = toutes les factures régularisables.
+async function regulariserEcartsFV(ids){
+  if(!peutRegulariserEcartFV()){ showToast("Réservé à l'administrateur et à la comptabilité",'error'); return; }
+  const cibles = (ids && ids.length) ? ids.map(String) : _facturesVente.filter(f=>!!ecartRegularisableFV(f)).map(f=>String(f.id));
+  if(!cibles.length){ showToast('Aucun écart à régulariser'); return; }
+  ['btn-regul-fv','btn-regul-lot'].forEach(i=>{ const b = el(i); if(b) b.disabled = true; });
+  const reactiver = ()=>['btn-regul-fv','btn-regul-lot'].forEach(i=>{ const b = el(i); if(b) b.disabled = false; });
+  const {data:rows, error:errL} = await sb.from('factures_vente').select('*').in('id', cibles);       // relecture : on ne se fie pas à l'écran
+  if(errL || !rows){ showToast('Erreur: '+(errL ? errL.message : 'lecture impossible'),'error'); reactiver(); return; }
+  if(!rows.some(colEcartRegulPresente)){ showToast('Régularisation impossible : exécutez migration-ecart-arrondi-regularise.sql (Supabase → SQL Editor), puis rechargez','error'); reactiver(); return; }
+  const aFaire = [];
+  rows.forEach(f=>{ const e = ecartRegularisableFV(f); if(e) aFaire.push({f, e}); });
+  if(!aFaire.length){ showToast("Rien à régulariser : écart déjà régularisé, supérieur à "+fmt(TOLERANCE_REGUL_ARRONDI_CT/100)+" ou facture non émise",'error'); reactiver(); return; }
+  const liste = aFaire.slice(0,12).map(({f,e})=>`${f.numero} : ${e.ecart>0?'+':'−'}${fmt(Math.abs(e.ecart))}`).join('\n') + (aFaire.length>12 ? `\n… et ${aFaire.length-12} autre${aFaire.length-12>1?'s':''}` : '');
+  if(!confirm(`Régulariser en interne ${aFaire.length} facture${aFaire.length>1?'s':''} ?\n\n${liste}\n\nAucun montant n'est modifié : HT, TVA, TTC et PDF restent tels qu'émis. L'écart d'arrondi est consigné avec votre nom et la date (à valider avec votre comptable).`)){ reactiver(); return; }
+  const par = [currentUser.prenom, currentUser.nom].filter(Boolean).join(' ') || currentUser.email || '';
+  const le = new Date().toISOString();
+  let ok = 0; const echecs = [];
+  for(const {f, e} of aFaire){
+    const {data, error} = await sb.from('factures_vente')
+      .update({ecart_arrondi_ct:e.ecartCt, ecart_arrondi_regularise_le:le, ecart_arrondi_regularise_par:par})
+      .eq('id', f.id).eq('total_ht', f.total_ht).eq('total_tva', f.total_tva).eq('total_ttc', f.total_ttc).select('id');   // les montants ne doivent pas avoir changé entre-temps
+    if(error) echecs.push(`${f.numero} (${error.message})`);
+    else if(!data || !data.length) echecs.push(`${f.numero} (modifiée entre-temps ou droits insuffisants)`);
+    else ok++;
+  }
+  if(echecs.length) showToast(`${ok} régularisée${ok>1?'s':''}, ${echecs.length} refusée${echecs.length>1?'s':''} : ${echecs.slice(0,3).join(' · ')}`, 'error');
+  else showToast(`${ok} facture${ok>1?'s':''} régularisée${ok>1?'s':''} en interne`);
+  rafraichirPage();
+  if(cibles.length===1 && el('btn-regul-fv')) openFactureVenteDetail(cibles[0]);          // lancé depuis la fiche : on la rouvre à jour
 }
 
 // Recalcule HT / TVA / TTC d'un BROUILLON à partir de ses lignes (même règle que la création). Jamais sur une facture émise.
@@ -15276,7 +15367,7 @@ async function openFactureVenteDetail(facId){
         <div class="totaux-row"><span>TVA</span><span>${fmt(f.total_tva)}</span></div>
         <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(f.total_ttc)}</span></div>
       </div></div>
-      ${htmlEcartFV(f, lignes)}
+      ${htmlEcartFV(f, lignes)}${htmlEcartRegulFV(f)}
       ${avoirsLies.length?`<div id="fv-avoirs-lies" style="margin-top:16px;border:1px solid var(--gray-3);border-radius:var(--radius);padding:12px 14px">
         <strong style="font-size:13px">Notes de crédit sur cette facture</strong>
         <table style="width:100%;border-collapse:collapse;margin-top:6px">
@@ -15872,7 +15963,7 @@ const JOURNAL_TABLES = {factures_vente:'Factures clients', lignes_facture_vente:
   lignes_facture:'Lignes fact. fournisseurs', purchase_orders_lyneo:'Bons de commande', lignes_po:'Lignes de BC', paiements:'Paiements',
   utilisateurs:'Utilisateurs', parametres_app:'Paramètres', employes_rh:'Employés', formations_types:'Types de formation', formations_employes:'Formations du personnel',
   habilitations_fonctions:'Habilitations (liste)', habilitations_designations:'Habilitations du personnel', heures_saisie_admin:"Saisies d'heures (admin)"};
-const JOURNAL_CHAMPS = {niveau:'Niveau de relance', date_relance:'Date de relance', montant_du:'Montant dû', canal:'Canal', valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC',
+const JOURNAL_CHAMPS = {niveau:'Niveau de relance', date_relance:'Date de relance', montant_du:'Montant dû', canal:'Canal', valeur_json:'Données',numero:'N°', statut:'Statut', date_creation:'Date', date_echeance:'Échéance', total_ht:'Total HT', total_tva:'TVA', total_ttc:'Total TTC', ecart_arrondi_ct:'Écart d\'arrondi régularisé (centimes)', ecart_arrondi_regularise_le:'Écart régularisé le', ecart_arrondi_regularise_par:'Écart régularisé par',
   reference_client:'N° commande client', observations:'Observations', client_id:'Client', devis_id:'Devis lié', chantier_id:'Centre de coûts', type_facture:'Type',
   quantite:'Qté', prix_unitaire_ht:'P.U. HT', description:'Description', valeur_date:'Date de clôture', role:'Rôle', actif:'Actif', email:'E-mail',
   nom:'Nom', prenom:'Prénom', objet:'Objet', montant_ht:'Montant HT', taux_tva:'TVA %', facture_origine_id:'Facture d\'origine',
