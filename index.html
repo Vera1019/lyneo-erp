@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-05-0d18584"/>
+<meta name="lyneo-build" content="BUILD:2026-11-05-6a4f892"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1055,6 +1055,45 @@ function tvaDefautPays(pays){
   return /^(lu|lux|luxembourg|luxemburg|luxemburgo|grand[\s-]*duch[ée]\s+de\s+luxembourg)$/i.test(p) ? 17 : 0;
 }
 // <select> de taux (la valeur courante est ajoutée à la liste si elle n'y est pas)
+// ── Tableaux de lignes (devis, commandes, factures, avoirs, SAV) ──────────────────────────────────────────────
+// Avant : à chaque champ quitté, TOUT le tableau était reconstruit (innerHTML). Le champ suivant disparaissait avec lui, le focus tombait sur la page
+// et la touche Tab ne passait jamais à la case suivante (un clic sur un autre champ était lui aussi perdu). Maintenant le tableau est mis à jour
+// SUR PLACE : les champs existants sont gardés (focus, curseur), on ne change que ce qui a changé (valeurs, totaux, boutons, lignes ajoutées/retirées).
+function _morphNoeudLigne(a, b){
+  if(a.nodeType!==b.nodeType || a.nodeName!==b.nodeName) return false;
+  if(a.nodeType!==1){ if(a.nodeValue!==b.nodeValue) a.nodeValue = b.nodeValue; return true; }
+  const actif = document.activeElement===a;
+  Array.from(b.attributes).forEach(at=>{ if(actif && at.name==='value') return; if(a.getAttribute(at.name)!==at.value) a.setAttribute(at.name, at.value); });
+  Array.from(a.attributes).forEach(at=>{ if(b.hasAttribute(at.name) || at.name==='title' || at.name==='data-prev' || (actif && at.name==='value')) return; a.removeAttribute(at.name); });
+  if(a.nodeName==='INPUT' && !actif){
+    if(a.type==='checkbox' || a.type==='radio') a.checked = b.hasAttribute('checked');
+    else { const v = b.getAttribute('value'); const nv = v==null ? '' : v; if(a.value!==nv) a.value = nv; }
+  }
+  const ac = Array.from(a.childNodes), bc = Array.from(b.childNodes), n = Math.min(ac.length, bc.length);
+  for(let i=0;i<n;i++){ if(!_morphNoeudLigne(ac[i], bc[i])) a.replaceChild(bc[i], ac[i]); }
+  for(let i=n;i<ac.length;i++) a.removeChild(ac[i]);
+  for(let i=n;i<bc.length;i++) a.appendChild(bc[i]);
+  if(a.nodeName==='SELECT'){ const ix = Array.from(b.children).findIndex(o=>o.hasAttribute('selected')); a.selectedIndex = ix>=0 ? ix : 0; }
+  return true;
+}
+function morphLignes(cible, html){
+  if(!cible) return;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const nv = Array.from(tpl.content.childNodes), an = Array.from(cible.childNodes), n = Math.min(nv.length, an.length);
+  for(let i=0;i<n;i++){ if(!_morphNoeudLigne(an[i], nv[i])) cible.replaceChild(nv[i], an[i]); }
+  for(let i=n;i<an.length;i++) cible.removeChild(an[i]);
+  for(let i=n;i<nv.length;i++) cible.appendChild(nv[i]);
+  // Tab = de champ en champ : les boutons de ligne (corbeille, flèches de déplacement) restent cliquables mais ne sont plus des arrêts de Tab
+  cible.querySelectorAll('button').forEach(b=>b.setAttribute('tabindex','-1'));
+}
+// Après « Ajouter ligne » : le curseur est déjà dans le premier champ de la nouvelle ligne
+function focusDerniereLigne(idCorps){
+  const b = el(idCorps); if(!b) return;
+  const tr = b.lastElementChild; if(!tr) return;
+  const c = tr.querySelector('input:not([type=hidden]),select,textarea');
+  if(c && typeof c.focus==='function') c.focus();
+}
 function tvaSelectHTML(val, onchangeJs){
   const v = tvaNum(val);
   const liste = TVA_TAUX.includes(v) ? TVA_TAUX : [...TVA_TAUX, v].sort((a,b)=>b-a);
@@ -2580,12 +2619,12 @@ const STATUT_SAV = {nouvelle:'Nouvelle', attribuee:'Attribuée', encours:'En cou
 function bSAV(s){ return `<span class="badge badge-${s}">${STATUT_SAV[s]||s}</span>`; }
 const ARTICLES_SAV = ["Main d'œuvre","Frais de déplacement","Matériel","Astreinte","Sous-traitance","Divers"];
 
-function showToast(msg, type='success') {
+function showToast(msg, type='success', ms=3500) {
   const t = document.createElement('div');
   t.className = `toast toast-${type}`;
   t.innerHTML = `<i class="ti ti-${type==='error'?'alert-circle':'circle-check'}"></i>${msg}`;
   el('toast-container').appendChild(t);
-  setTimeout(()=>t.remove(), 3500);
+  setTimeout(()=>t.remove(), ms);
 }
 
 function showModal(html) {
@@ -2707,7 +2746,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-05-0d18584';
+const APP_BUILD = 'BUILD:2026-11-05-6a4f892';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -6954,7 +6993,7 @@ function openNewPO(){
 function renderPoLignes(){
   const body = el('lignes-body');
   if(!body) return;
-  body.innerHTML = poLignes.map((l,i)=>`<tr>
+  morphLignes(body, poLignes.map((l,i)=>`<tr>
     <td><input value="${escHtml(l.description)}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
     <td><input value="${escHtml(l.reference_article)}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
@@ -6967,7 +7006,7 @@ function renderPoLignes(){
     </select></td>
     <td style="text-align:right;font-weight:600;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td>${poLignes.length>1?`<button onclick="delLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button>`:'&nbsp;'}</td>
-  </tr>`).join('');
+  </tr>`).join(''));
   const totalHT = poLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = poLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   const tot = el('po-totaux');
@@ -6978,7 +7017,7 @@ function renderPoLignes(){
 }
 
 function updLigne(i,k,v){ poLignes[i][k]=v; renderPoLignes(); }
-function addPoLigne(){ poLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderPoLignes(); }
+function addPoLigne(){ poLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderPoLignes(); focusDerniereLigne('lignes-body'); }
 function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
 
 async function savePO(marquerEnvoyee){
@@ -10266,7 +10305,7 @@ async function openFacLibreModal(){
 function renderFacLignesLibre(){
   const body = el('facl-lignes-body');
   if(!body) return;
-  body.innerHTML = _facLignesLibre.map((l,i)=>`<tr>
+  morphLignes(body, _facLignesLibre.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     ${crTd(l.code_ressource_id, "updFacLigneLibre("+i+",'code_ressource_id',this.value)", 'padding:6px 10px;border-bottom:1px solid var(--gray-2)')}
@@ -10275,7 +10314,7 @@ function renderFacLignesLibre(){
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updFacLigneLibre(${i},'taux_tva',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">${[17,14,8,3,0].map(t=>`<option value="${t}" ${l.taux_tva==t?'selected':''}>${t}%</option>`).join('')}</select></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_facLignesLibre.length>1?`<button onclick="delFacLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
-  </tr>`).join('');
+  </tr>`).join(''));
   crMajBarreTous('libre');
   const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
@@ -10285,7 +10324,7 @@ function renderFacLignesLibre(){
     <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
-function addFacLigneLibre(){ _facLignesLibre.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); }
+function addFacLigneLibre(){ _facLignesLibre.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); focusDerniereLigne('facl-lignes-body'); }
 function delFacLigneLibre(i){ _facLignesLibre.splice(i,1); renderFacLignesLibre(); }
 function updFacLigneLibre(i,f,v){ _facLignesLibre[i][f]=v; renderFacLignesLibre(); }
 
@@ -10711,7 +10750,12 @@ async function saveFacCore(){
 }
 
 
-async function litigeFac(id){ await sb.from('factures').update({statut:'litige'}).eq('id',id); showToast('Facture mise en litige'); renderFactures(); }
+async function litigeFac(id){
+  const r = await sb.from('factures').update({statut:'litige'}).eq('id',id).select('id');
+  if(r && r.error){ if(!toastErreurStatutFacture(r.error, 'litige')) showToast('Erreur: '+r.error.message, 'error'); return; }
+  if(!(r && r.data && r.data.length)){ showToast("Aucune facture modifiée (droits insuffisants ?)", 'error'); return; }
+  showToast('Facture mise en litige'); renderFactures();
+}
 
 function openPayModal(facId, poId, montant){
   showModal(`<div class="modal-overlay"><div class="modal">
@@ -10742,7 +10786,7 @@ async function savePay(facId, poId){
   const p = await sb.from('paiements').insert({facture_id:facId,date_paiement:el('pay-date').value,montant:parseFloat(el('pay-montant').value),mode_paiement:el('pay-mode').value,reference_virement:el('pay-ref').value,effectue_par:currentUser.id});
   if(p && p.error){ showToast('Paiement non enregistré : '+p.error.message, 'error'); return; }
   const f = await sb.from('factures').update({statut:'payee'}).eq('id',facId).select('id');
-  if((f && f.error) || !(f && f.data && f.data.length)){ showToast("Le paiement est enregistré mais la facture n'est pas passée à « Payée »"+(f && f.error ? ' : '+f.error.message : ' (droits insuffisants ?)')+'. Vérifiez la facture.', 'error'); renderFactures(); return; }
+  if((f && f.error) || !(f && f.data && f.data.length)){ const ms = f && f.error && erreurStatutFacture(f.error, 'payee'); showToast("Le paiement est enregistré mais la facture n'est pas passée à « Payée »"+(f && f.error ? ' : '+(ms||f.error.message) : ' (droits insuffisants ?)')+'. Vérifiez la facture.', 'error', ms ? 15000 : 3500); renderFactures(); return; }
   if(poId) await sb.from('purchase_orders_lyneo').update({statut:'payee'}).eq('id',poId);
   showToast('Paiement enregistré'); closeModal(); renderFactures();
 }
@@ -10986,6 +11030,13 @@ async function controlerFactureFournisseur(o){
   }
   return true;
 }
+// La base (CHECK factures_statut_check créé à part) refuse un statut du ERP (ex. « avoir » = note de crédit) : message clair + script SQL à exécuter
+const SQL_FACTURES_STATUT = 'migration-factures-statut-avoir.sql';
+const erreurStatutFacture = (e, statut) => {
+  const m = e && /relation "factures" violates check constraint "([^"]*statut[^"]*)"/i.exec(e.message||'');
+  return m ? "Base de données pas à jour : elle refuse le statut « "+escHtml(statut)+" » (contrainte "+escHtml(m[1])+"). Exécutez "+SQL_FACTURES_STATUT+" dans Supabase (SQL Editor), puis réessayez." : null;
+};
+const toastErreurStatutFacture = (e, statut) => { const t = erreurStatutFacture(e, statut); if(t) showToast(t, 'error', 15000); return !!t; };
 // Message clair quand c'est la base qui refuse le doublon
 const erreurDoublonBase = e => (e && /doublon_facture_fournisseur/.test(e.message||'')) ? 'Cette facture existe déjà pour ce fournisseur (même numéro).' : null;
 
@@ -12046,8 +12097,8 @@ async function importDevisExcelDansModal(file){
 
       // Ajoute les lignes importées à la suite de celles déjà présentes dans le formulaire
       const tvaDef = window._tvaDefautDoc??17;
-      _devisLignes.principal = [..._devisLignes.principal, ...parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
-      _devisLignes.option = [..._devisLignes.option, ...parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
+      _devisLignes.principal = [...sansLignesDevisVides(_devisLignes.principal), ...parsed.filter(r=>r.bloc==='principal').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
+      _devisLignes.option = [...sansLignesDevisVides(_devisLignes.option), ...parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
       const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
@@ -12446,7 +12497,7 @@ function renderDevisLignesBloc(bloc){
       <button onclick="moveDevisRow('${bloc}',${i},-1)" ${i===0?'disabled':''} style="background:none;border:none;cursor:${i===0?'default':'pointer'};color:${i===0?'var(--gray-3)':'var(--gray-5)'};padding:1px"><i class="ti ti-chevron-up" style="font-size:13px"></i></button>
       <button onclick="moveDevisRow('${bloc}',${i},1)" ${i===arr.length-1?'disabled':''} style="background:none;border:none;cursor:${i===arr.length-1?'default':'pointer'};color:${i===arr.length-1?'var(--gray-3)':'var(--gray-5)'};padding:1px"><i class="ti ti-chevron-down" style="font-size:13px"></i></button>
     </span>`;
-  body.innerHTML = arr.map((r,i)=>{
+  morphLignes(body, arr.map((r,i)=>{
     if(r.type==='section'){
       const subtotal = devisSectionSubtotal(arr,i);
       return `<tr style="background:var(--gray-1)">
@@ -12468,7 +12519,7 @@ function renderDevisLignesBloc(bloc){
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:600;color:var(--blue)">${fmt(total)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delDevisRow('${bloc}',${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
     </tr>`;
-  }).join('');
+  }).join(''));
   majTvaGlobaleDevis();
   if(bloc==='principal') updateDevisTotaux();
   else {
@@ -12489,10 +12540,16 @@ function moveDevisRow(bloc, i, direction){
 function addDevisSection(bloc){
   _devisLignes[bloc].push({type:'section', description:'', unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:window._tvaDefautDoc??17});
   renderDevisLignesBloc(bloc);
+  focusDerniereLigne('devis-lignes-'+bloc);
 }
+const ligneDevisVide = () => ({type:'ligne', description:'', unite:'FF', quantite:1, prix_unitaire_ht:0, taux_tva:window._tvaDefautDoc??17});
+// Ligne « prête à remplir » jamais touchée : sans désignation et sans prix. Ignorée à l'enregistrement et à l'import (sinon elle bloquerait « Toutes les lignes doivent avoir une désignation »).
+const estLigneDevisVide = r => !!r && r.type==='ligne' && !String(r.description||'').trim() && !(parseFloat(r.prix_unitaire_ht)||0);
+const sansLignesDevisVides = arr => (arr||[]).filter(r=>!estLigneDevisVide(r));
 function addDevisLigne(bloc){
-  _devisLignes[bloc].push({type:'ligne', description:'', unite:'FF', quantite:1, prix_unitaire_ht:0, taux_tva:window._tvaDefautDoc??17});
+  _devisLignes[bloc].push(ligneDevisVide());
   renderDevisLignesBloc(bloc);
+  focusDerniereLigne('devis-lignes-'+bloc);
 }
 function delDevisRow(bloc,i){
   _devisLignes[bloc].splice(i,1);
@@ -12555,7 +12612,7 @@ async function openDevisModal(d=null){
     _devisLignes.principal = (lignes||[]).filter(l=>l.bloc==='principal').map(l=>({_db_id:l.id,type:l.type,description:l.description,unite:l.unite,quantite:l.quantite,prix_unitaire_ht:l.prix_unitaire_ht,taux_tva:l.taux_tva}));
     _devisLignes.option = (lignes||[]).filter(l=>l.bloc==='option').map(l=>({_db_id:l.id,type:l.type,description:l.description,unite:l.unite,quantite:l.quantite,prix_unitaire_ht:l.prix_unitaire_ht,taux_tva:l.taux_tva}));
   } else {
-    _devisLignes.principal = [];
+    _devisLignes.principal = [ligneDevisVide()];   // une ligne vide prête à remplir ; d'autres seulement avec « + Ligne »
     _devisLignes.option = [];
   }
 
@@ -12585,7 +12642,7 @@ async function openDevisModal(d=null){
         <div class="form-group"><label class="field-label">Statut</label>
           <select id="dv-statut">${Object.keys(STATUT_DV).map(s=>`<option value="${s}" ${(d?.statut||'brouillon')===s?'selected':''}>${STATUT_DV[s]}</option>`).join('')}</select>
         </div>
-        <div class="form-group"><label class="field-label">Acompte (%)</label><input type="number" id="dv-acompte" value="${d ? devisAcomptePct(d) : 40}" min="0" max="100" step="any"/></div>
+        <div class="form-group"><label class="field-label">Acompte (%)</label><input type="number" id="dv-acompte" value="${d ? devisAcomptePct(d) : 0}" min="0" max="100" step="any"/></div>
         <div class="form-group"><label class="field-label">Conditions de paiement</label><input id="dv-cond-paiement" value="${escHtml(d?.conditions_paiement||'30 jours')}"/></div>
       </div>
 
@@ -12660,6 +12717,11 @@ async function openDevisModal(d=null){
 async function saveDevis(id){
   const client_id = el('dv-client').value;
   if(!client_id){ showToast("Client obligatoire", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
+  // lignes « prêtes à remplir » restées vides : ignorées (le tableau est redessiné pour que les numéros de ligne restent justes si l'enregistrement s'arrête plus loin)
+  const nbAvant = _devisLignes.principal.length + _devisLignes.option.length;
+  _devisLignes.principal = sansLignesDevisVides(_devisLignes.principal);
+  _devisLignes.option = sansLignesDevisVides(_devisLignes.option);
+  if(_devisLignes.principal.length + _devisLignes.option.length !== nbAvant){ renderDevisLignesBloc('principal'); renderDevisLignesBloc('option'); }
   if(_devisLignes.principal.some(r=>!r.description)){ showToast("Toutes les lignes/sections doivent avoir une désignation", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
   const acompteBrut = el('dv-acompte').value.trim(), acompteSaisi = parseFloat(acompteBrut);
   if(acompteBrut!=='' && (!isFinite(acompteSaisi) || acompteSaisi<0 || acompteSaisi>100)){ showToast("Acompte : entrez un pourcentage entre 0 et 100 (0 = pas d'acompte)", 'error'); const b=el('btn-save-devis'); if(b) b.disabled=false; return; }
@@ -12876,6 +12938,7 @@ async function openDevisDetail(devisId){
         ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
         ${!interventionLiee && d.statut==='accepte' && d.chantier_id?`<button class="btn btn-primary" id="dv-btn-facturer" onclick="closeModal();openGenerateFactureVente('${escHtml(d.chantier_id)}','${escHtml(d.id)}')"><i class="ti ti-receipt"></i> Facturer</button>`:''}
         ${!interventionLiee && d.statut==='accepte' && !d.chantier_id?`<button class="btn btn-primary" id="dv-btn-creer-chantier" onclick="creerChantierDepuisDevis('${escHtml(d.id)}')" title="Ouvre le formulaire Nouveau chantier, rempli et lié à ce devis"><i class="ti ti-building-factory-2"></i> Créer le chantier</button>`:''}
+        ${!interventionLiee && d.statut==='accepte' && !d.chantier_id?`<button class="btn btn-secondary" id="dv-btn-lier-chantier" onclick="ouvrirLierDevisChantier('${escHtml(d.id)}')" title="Rattache ce devis à un chantier qui existe déjà (un chantier peut avoir plusieurs devis)"><i class="ti ti-link"></i> Lier à un chantier existant</button>`:''}
         ${d.statut==='brouillon'?`<button class="btn btn-primary" onclick="changerStatutDevis('${d.id}','envoye')"><i class="ti ti-send"></i> Marquer envoyé</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-success" onclick="changerStatutDevis('${d.id}','accepte')"><i class="ti ti-check"></i> Marquer accepté</button>`:''}
         ${d.statut==='envoye'?`<button class="btn btn-danger" onclick="changerStatutDevis('${d.id}','refuse')"><i class="ti ti-x"></i> Marquer refusé</button>`:''}
@@ -12913,6 +12976,68 @@ function ouvrirChantierDepuisDevis(d){
   navigate('chantiers');
   window._chantierFromDevisId = d.id;
   setTimeout(()=>openChantierModal({nom:d.objet||('Chantier — '+d.numero), client_id:d.client_id, depuisDevis:true}),300);
+}
+// Bouton « Lier à un chantier existant » d'un devis accepté sans chantier : plusieurs devis peuvent partager le MÊME chantier (ex. CF0003 avec 3 devis).
+// « Créer le chantier » ouvre un chantier NEUF : avec un numéro déjà pris (CF0003) l'ERP le refuse ; ici on rattache sans rien créer.
+async function ouvrirLierDevisChantier(devisId){
+  const [rd, rc] = await Promise.all([
+    sb.from('devis').select('id,numero,objet,client_id,chantier_id,statut').eq('id',devisId).single(),
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,client,statut').order('numero')
+  ]);
+  const d = rd.data;
+  if(rd.error || !d){ showToast('Devis introuvable : '+((rd.error&&rd.error.message)||''), 'error'); return; }
+  if(d.chantier_id){ showToast('Ce devis est déjà lié à un chantier : '+d.numero, 'error'); return; }
+  if(rc.error){ showToast('Erreur: '+rc.error.message, 'error'); return; }
+  const liste = chantiersChoix(rc.data||[]);   // les chantiers archivés ne sont pas proposés
+  if(!liste.length){ showToast("Aucun chantier existant à choisir — utilisez « Créer le chantier »", 'error'); return; }
+  const memeClient = c => !!d.client_id && String(c.client_id)===String(d.client_id);
+  const tri = liste.slice().sort((a,b)=> (memeClient(b)?1:0)-(memeClient(a)?1:0) || String(a.numero||'').localeCompare(String(b.numero||''), 'fr', {numeric:true}));
+  const opt = c => `<option value="${escHtml(c.id)}">${escHtml(c.numero||'')} — ${escHtml(c.nom||'')}${c.client?' ('+escHtml(c.client)+')':''}</option>`;
+  const memes = tri.filter(memeClient), autres = tri.filter(c=>!memeClient(c));
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>Lier le devis ${escHtml(d.numero)} à un chantier</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--gray-6);margin:0 0 12px">Un chantier peut avoir plusieurs devis. Choisissez le chantier existant auquel rattacher ce devis : rien n'est créé, les autres devis du chantier ne changent pas.</p>
+      <div class="form-group"><label class="field-label">Chantier</label>
+        <select id="lc-chantier"><option value="">— Sélectionner —</option>
+          ${memes.length?`<optgroup label="Même client">${memes.map(opt).join('')}</optgroup>`:''}
+          ${autres.length?`<optgroup label="${memes.length?'Autres clients':'Tous les chantiers'}">${autres.map(opt).join('')}</optgroup>`:''}
+        </select></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="lc-ok" onclick="lierDevisChantier('${escHtml(d.id)}')"><i class="ti ti-link"></i> Lier</button>
+      </div>
+    </div></div></div>`);
+}
+async function lierDevisChantier(devisId){
+  const bouton = el('lc-ok');
+  if(bouton && bouton.disabled) return;   // double clic
+  if(bouton) bouton.disabled = true;
+  const reactiver = ()=>{ const x = el('lc-ok'); if(x) x.disabled = false; };
+  const chId = el('lc-chantier') ? el('lc-chantier').value : '';
+  if(!chId){ showToast('Choisissez un chantier', 'error'); reactiver(); return; }
+  // on relit la base : le devis a pu être lié entre-temps, le chantier archivé
+  const [rd, rc] = await Promise.all([
+    sb.from('devis').select('id,numero,client_id,chantier_id').eq('id',devisId).single(),
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,client,statut').eq('id',chId).single()
+  ]);
+  const d = rd.data, c = rc.data;
+  if(rd.error || !d){ showToast('Devis introuvable : '+((rd.error&&rd.error.message)||''), 'error'); reactiver(); return; }
+  if(d.chantier_id){ showToast('Ce devis est déjà lié à un chantier : '+d.numero, 'error'); reactiver(); return; }
+  if(rc.error || !c){ showToast('Chantier introuvable : '+((rc.error&&rc.error.message)||''), 'error'); reactiver(); return; }
+  if(chEstArchive(c)){ showToast('Ce chantier est archivé : choisissez un chantier en cours', 'error'); reactiver(); return; }
+  if(d.client_id && c.client_id && String(d.client_id)!==String(c.client_id)){
+    if(!confirm(`Le chantier ${c.numero||''} — ${c.nom||''} appartient à un autre client que ce devis.\n\nLier quand même ?`)){ reactiver(); return; }
+  }
+  const {data:maj, error:e1} = await sb.from('devis').update({chantier_id:chId}).eq('id',devisId).select('id');
+  if(e1){ showToast('Erreur: '+e1.message, 'error'); reactiver(); return; }
+  if(!maj || !maj.length){ showToast("Le devis n'a pas été modifié (droits insuffisants ?)", 'error'); reactiver(); return; }
+  // lien inverse, comme à l'enregistrement d'un devis : le chantier pointe vers son dernier devis lié
+  const {error:e2} = await sb.from('chantiers_lyneo').update({devis_id:devisId}).eq('id',chId);
+  closeModal();
+  showToast(e2 ? 'Devis '+d.numero+' lié au chantier '+(c.numero||'')+' (le lien inverse du chantier n\'a pas pu être enregistré : '+e2.message+')'
+               : 'Devis '+d.numero+' lié au chantier '+(c.numero||'')+(c.nom?' — '+c.nom:''), e2 ? 'error' : undefined);
+  rafraichirPage();
 }
 // Bouton « Créer le chantier » d'un devis accepté qui n'a pas encore de chantier
 async function creerChantierDepuisDevis(devisId){
@@ -13437,7 +13562,7 @@ function filtrerChantiersParClient(){
 function renderVenteLignesLibre(){
   const body = el('vente-lignes-body');
   if(!body) return;
-  body.innerHTML = _venteLignes.map((l,i)=>`<tr>
+  morphLignes(body, _venteLignes.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:90px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updVenteLigne(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
@@ -13445,7 +13570,7 @@ function renderVenteLignesLibre(){
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${_venteLignes.length>1?`<button onclick="delVenteLigneLibre(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
-  </tr>`).join('');
+  </tr>`).join(''));
   const tot = totauxFacture(_venteLignes);
   const box = el('vente-totaux');
   if(box) box.innerHTML = `
@@ -13830,6 +13955,10 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
   window._paysClientFv = (clCond && clCond.pays) || '';
   window._tvaDefautFv = tvaDefautPays(window._paysClientFv);
   window._clientSelFv = true;
+  if(!_venteLignes.length){   // aucune ligne de départ (pas de devis, ou devis sans lignes) : une ligne vide prête à remplir (les lignes viennent du devis quand il y en a)
+    _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautFv??17}];
+    window._venteLignesNormales = _venteLignes.slice();
+  }
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header">
@@ -13954,7 +14083,7 @@ function updateAcompteMontant(){
 function renderVenteLignes(){
   const body = el('vente-lignes-body');
   if(!body) return;
-  body.innerHTML = _venteLignes.map((l,i)=>`<tr>
+  morphLignes(body, _venteLignes.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:130px"><input value="${escHtml(l.reference_article||'')}" onchange="updVenteLigne(${i},'reference_article',this.value)" placeholder="Réf." style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updVenteLigne(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5)">${l.quantite_devis!==undefined?l.quantite_devis+' '+l.unite:'—'}</td>
@@ -13964,7 +14093,7 @@ function renderVenteLignes(){
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updVenteLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delVenteLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
-  </tr>`).join('');
+  </tr>`).join(''));
   const tot = totauxFacture(_venteLignes);
   const box = el('vente-totaux');
   if(box) box.innerHTML = `
@@ -13992,7 +14121,7 @@ function appliquerTvaGlobaleFv(v){
   _venteLignes.forEach(l=>{ l.taux_tva = Number(v); });
   (_venteLigneMode==='libre' ? renderVenteLignesLibre : renderVenteLignes)();
 }
-function addVenteLigne(){ _venteLignes.push({description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautFv??17}); (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
+function addVenteLigne(){ _venteLignes.push({description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautFv??17}); (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); focusDerniereLigne('vente-lignes-body'); }
 function delVenteLigne(i){ _venteLignes.splice(i,1); renderVenteLignes(); }
 function updVenteLigne(i,f,v){ _venteLignes[i][f]=v; (_venteLigneMode==='libre'?renderVenteLignesLibre:renderVenteLignes)(); }
 
@@ -14212,6 +14341,7 @@ function avoirToutZero(){ _avoirLignes.forEach(l=>{ l.quantite = 0; }); renderAv
 function avoirAjouterLigne(){
   _avoirLignes.push({ligne_devis_id:null, reference_article:'', description:'', unite:'u', max:null, quantite:1, prix_unitaire_ht:0, taux_tva:window._avoirTvaDefaut??17, libre:true});
   renderAvoirLignes();
+  focusDerniereLigne('avoir-lignes-body');
 }
 function avoirSupprimerLigne(i){ _avoirLignes.splice(i,1); renderAvoirLignes(); }
 function updAvoirLigne(i, champ, val){
@@ -14228,7 +14358,7 @@ function updAvoirLigne(i, champ, val){
 function renderAvoirLignes(){
   const body = el('avoir-lignes-body'); if(!body) return;
   const inp = 'width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px';
-  body.innerHTML = _avoirLignes.map((l,i)=>`<tr>
+  morphLignes(body, _avoirLignes.map((l,i)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updAvoirLigne(${i},'description',this.value)" style="${inp}"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-5)">${l.libre?'—':l.max+' '+escHtml(l.unite||'')}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input type="text" data-calc="4" autocomplete="off" step="any" min="0" ${l.libre?'':`max="${l.max}"`} value="${l.quantite}" onchange="updAvoirLigne(${i},'quantite',this.value)" style="${inp};text-align:right"/></td>
@@ -14236,7 +14366,7 @@ function renderAvoirLignes(){
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2)">${tvaSelectHTML(l.taux_tva, `updAvoirLigne(${i},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--red)">${fmt(-totalLigneFV(l)||0)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center">${l.libre?`<button onclick="avoirSupprimerLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button>`:''}</td>
-  </tr>`).join('');
+  </tr>`).join(''));
   const tot = totauxFacture(_avoirLignes.filter(l=>(parseFloat(l.quantite)||0)>0));
   const neg = v => v===0 ? 0 : -v;
   const box = el('avoir-totaux');
@@ -20124,6 +20254,9 @@ async function openFactureSAVModal(interventionId){
   if(!devisInfoSav && i.astreinte){
     _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:window._tvaDefautSav??17});
   }
+  if(!_sav_venteLignes.length){   // aucune ligne de départ (ni lignes du devis, ni astreinte) : une ligne vide prête à remplir
+    _sav_venteLignes.push({categorie:ARTICLES_SAV[0], description:'', reference_article:'', unite:'u', quantite:1, prix_unitaire_ht:0, taux_tva:window._tvaDefautSav??17});
+  }
   const toutFacture = devisInfoSav && _sav_venteLignes.length>0 && _sav_venteLignes.every(l=>(parseFloat(l.quantite)||0)===0);
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
@@ -20173,7 +20306,7 @@ function renderSavLignes(tarifs){
   tarifs = tarifs||{};
   const body = el('sav-lignes-body');
   if(!body) return;
-  body.innerHTML = _sav_venteLignes.map((l,idx)=>`<tr>
+  morphLignes(body, _sav_venteLignes.map((l,idx)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updSavLigne(${idx},'categorie',this.value,true)">${ARTICLES_SAV.map(a=>`<option ${l.categorie===a?'selected':''}>${a}</option>`).join('')}</select></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${escHtml(l.unite||'')} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="text" data-calc="4" autocomplete="off" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
@@ -20181,7 +20314,7 @@ function renderSavLignes(tarifs){
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updSavLigne(${idx},'taux_tva',this.value)`)}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center"><button onclick="delSavLigne(${idx})" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
-  </tr>`).join('');
+  </tr>`).join(''));
   const totSav = totauxFacture(_sav_venteLignes);
   const box = el('sav-totaux');
   if(box) box.innerHTML = `
@@ -20190,7 +20323,7 @@ function renderSavLignes(tarifs){
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totSav.ttc)}</span></div>`;
   const g = el('sav-tva-all'); if(g) g.value = tvaCommune(_sav_venteLignes);
 }
-function addSavLigne(){ _sav_venteLignes.push({categorie:ARTICLES_SAV[0],description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautSav??17}); renderSavLignes(); }
+function addSavLigne(){ _sav_venteLignes.push({categorie:ARTICLES_SAV[0],description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautSav??17}); renderSavLignes(); focusDerniereLigne('sav-lignes-body'); }
 function appliquerTvaGlobaleSav(v){
   if(v==='') return;
   _sav_venteLignes.forEach(l=>{ l.taux_tva = Number(v); });
@@ -21307,7 +21440,7 @@ async function openFacFromPO(poId){
     const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
     const tbody = el('fac-po-lines-body');
     if(!tbody) return;
-    tbody.innerHTML = _facFromPoLignes.map((l,i)=>{
+    morphLignes(tbody, _facFromPoLignes.map((l,i)=>{
       const totalLigne = (parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0);
       const bg = i%2===0?'#fff':'var(--gray-1)';
       return '<tr style="background:'+bg+'">'
@@ -21334,7 +21467,7 @@ async function openFacFromPO(poId){
       +  (_facFromPoLignes.length>1?'<button onclick="delFacPoLigne('+i+')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button>':'&nbsp;')
       +'</td>'
       +'</tr>';
-    }).join('');
+    }).join(''));
     const totBox = el('fac-po-totaux');
     if(totBox) totBox.innerHTML =
       '<div class="totaux-row"><span>Total HT</span><span>'+fmt(totalHT)+'</span></div>'
@@ -21414,6 +21547,7 @@ async function openFacFromPO(poId){
 function addFacPoLigne(){
   _facFromPoLignes.push({ligne_po_id:null,description:'',reference_article:'',quantite_commandee:0,quantite_recue:0,quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17,total_ht:0});
   if(window.renderFacPOLines) window.renderFacPOLines();
+  focusDerniereLigne('fac-po-lines-body');
 }
 function delFacPoLigne(i){
   _facFromPoLignes.splice(i,1);
@@ -21598,7 +21732,7 @@ async function openEditFacLignes(facId){
 function renderEfacLignes(){
   const body = el('efac-lignes-body');
   if(!body) return;
-  body.innerHTML = _efacLignes.map((l,i)=>`<tr>
+  morphLignes(body, _efacLignes.map((l,i)=>`<tr>
     <td><input value="${escHtml(l.description)}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
     ${crTd(l.code_ressource_id, "updEfacLigne("+i+",'code_ressource_id',this.value)", '')}
     <td><input value="${escHtml(l.reference_article)}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
@@ -21612,7 +21746,7 @@ function renderEfacLignes(){
     </select></td>
     <td style="text-align:right;font-weight:600;color:var(--blue)">${fmt((parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0))}</td>
     <td><button onclick="delEfacLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button></td>
-  </tr>`).join('');
+  </tr>`).join(''));
   const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   crMajBarreTous('modif');
@@ -21624,7 +21758,7 @@ function renderEfacLignes(){
 }
 
 function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); }
-function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); }
+function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); focusDerniereLigne('efac-lignes-body'); }
 function delEfacLigne(i){ _efacLignes.splice(i,1); renderEfacLignes(); }
 
 function saveEditFac(facId){ return gardeEnvoi('facture-fournisseur', ()=>saveEditFacCore(facId)); }
@@ -21710,7 +21844,7 @@ async function annulerFacture(facId){
   if(!fac) return;
   if(!confirm(`Annuler la facture ${fac.numero_facture_fournisseur} ? Cette action peut être faite si la facture n'a pas encore été payée.`)) return;
   const {error} = await sb.from('factures').update({statut:'annulee'}).eq('id',facId);
-  if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(error){ if(!toastErreurStatutFacture(error, 'annulee')) showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Facture annulée');
   closeModal();
   rafraichirPage();
@@ -21755,7 +21889,7 @@ async function creerNoteCredit(facId){
     if(ni && /numero_interne/i.test(error.message||'')){ ni = null; continue; }
     break;
   }
-  if(error){ showToast(erreurNumeroDejaPris(error) ? "Ce numéro vient d'être pris par une autre saisie : réessayez" : 'Erreur: '+error.message, 'error'); return; }
+  if(error){ if(toastErreurStatutFacture(error, 'avoir')) return; showToast(erreurNumeroDejaPris(error) ? "Ce numéro vient d'être pris par une autre saisie : réessayez" : 'Erreur: '+error.message, 'error'); return; }
 
   if((lignesData||[]).length>0){
     const {error:lignesErr} = await sb.from('lignes_facture').insert(lignesData.map((l,i)=>({
