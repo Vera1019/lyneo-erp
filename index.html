@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-03-5dacd12"/>
+<meta name="lyneo-build" content="BUILD:2026-11-05-3eff75a"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2688,7 +2688,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-03-5dacd12';
+const APP_BUILD = 'BUILD:2026-11-05-3eff75a';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -11028,11 +11028,11 @@ async function numeroChantierLibre(propose){
 
 // ── Numéro automatique d'un nouveau chantier : série P ou CF selon le responsable ──
 // Le préfixe dépend du responsable du devis (champ « Correspondant »), sinon du chef de chantier choisi dans le formulaire, sinon de la personne qui crée le chantier, sinon de la série par défaut.
-// Ajouter une personne ou une série = une ligne ici (largeur = nombre de chiffres : P00012, CF0002). Les noms se comparent sans tenir compte de l'ordre,
+// Série CF = Manuel Barthelemy ET Christopher Heilig (ils travaillent ensemble). Ajouter une personne ou une série = une ligne ici (largeur = nombre de chiffres : P00012, CF0002). Les noms se comparent sans tenir compte de l'ordre,
 // des accents ni de la casse (« Jonathan Girault » = « GIRAULT Jonathan »).
 const SERIES_CHANTIER = [
   {prefixe:'P',  largeur:5, defaut:true, personnes:['Jonathan Girault']},
-  {prefixe:'CF', largeur:4,              personnes:['Manuel Barthelemy']}
+  {prefixe:'CF', largeur:4,              personnes:['Manuel Barthelemy', 'Christopher Heilig']}
 ];
 function serieDePersonne(texte){
   const k = cleNomChef(texte); if(!k) return null;
@@ -14047,7 +14047,7 @@ function openCGV(retour){
 
 // ══ NOTES DE CRÉDIT (AVOIRS) CLIENTS ═══════════════════════════════════════════════
 // Une note de crédit est une ligne de factures_vente (type_facture 'avoir') aux montants NÉGATIFS, liée à la facture
-// d'origine (facture_origine_id), numérotée NC-AAAA-NNN (avant 11/2026 : AV + AAAA + MM + n°). Elle ne modifie jamais la facture d'origine.
+// d'origine (facture_origine_id), numérotée AV + AAAA + MM + n° (les fournisseurs : NC2026-001). Elle ne modifie jamais la facture d'origine.
 // Voir notes-de-credit-clients.sql (colonnes, numérotation, garde-fous).
 const MSG_SQL_AVOIR = "Base de données pas à jour : exécutez d'abord notes-de-credit-clients.sql dans Supabase (SQL Editor), puis réessayez.";
 const AVOIR_MOTIFS = [
@@ -14059,28 +14059,40 @@ const AVOIR_MOTIFS = [
 ];
 let _avoirCtx = null, _avoirLignes = [];
 
-// ── NOTES DE CRÉDIT : série NC-AAAA-NNN (03/11/2026) ──────────────────────────────────────────────────────────────
-// Un compteur par ANNÉE (celle de la date du document), clients et fournisseurs séparés : NC-2026-001, NC-2026-002… Calculé ici, sans SQL :
-// on lit les NC déjà numérotées de l'année (annulées comprises : un numéro n'est jamais réutilisé) et on prend le suivant. L'unicité de la
-// colonne (factures_vente.numero, factures.numero_interne) protège de deux validations simultanées : nouvel essai (erreurNumeroDejaPris).
-// Les anciennes notes de crédit clients (AV20261001…) gardent leur numéro. Un brouillon n'a pas de numéro (BROUILLON-XXXXXX) : pas de trou.
-const formaterNumeroNC = (an, n) => 'NC-' + an + '-' + String(n).padStart(3, '0');
-async function prochainNumeroNC(table, colonne, dateDoc){
-  const d = String(dateDoc || '').slice(0, 10);
-  const an = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.slice(0, 4) : today().slice(0, 4);
-  const re = new RegExp('^NC-' + an + '-(\\d{1,6})$');
-  let max = 0;
+// ── NOTES DE CRÉDIT : deux séries distinctes (03/11/2026) ─────────────────────────────────────────────────────────
+//  · CLIENTS     : AV + AAAA + MM + n° d'ordre du mois de la date de la note (AV20261101 ; comme les factures FA20260801) → factures_vente.numero
+//  · FOURNISSEURS : NC + AAAA + - + n° d'ordre de l'année de la date de la note (NC2026-001) → factures.numero_interne
+// Calculé ici, sans SQL : on lit les numéros déjà pris (annulés compris : un numéro n'est jamais réutilisé) et on prend le maximum + 1 (jamais un
+// comptage). L'unicité de la colonne (factures_vente.numero, factures.numero_interne) protège de deux validations simultanées : nouvel essai
+// (erreurNumeroDejaPris). Les anciens numéros gardent leur forme (AV20261001… ; les NC-2026-001 FOURNISSEUR créées le 03/11 comptent dans le compteur fournisseur).
+// Un brouillon n'a pas de numéro (BROUILLON-XXXXXX) : pas de trou.
+const dateNumerotation = d => { const s = String(d || '').slice(0, 10); return /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(s) ? s : today(); };
+async function lireNumerosExistants(table, colonne, motif){       // toutes les valeurs de la colonne qui correspondent au motif (pages de 1000) ; null si la lecture échoue
+  const out = [];
   for(let d0 = 0; ; d0 += 1000){
-    const {data, error} = await sb.from(table).select(colonne).ilike(colonne, 'NC-' + an + '-%').order('id', {ascending: true}).range(d0, d0 + 999);
+    const {data, error} = await sb.from(table).select(colonne).ilike(colonne, motif).order('id', {ascending: true}).range(d0, d0 + 999);
     if(error) return null;
     const lignes = data || [];
-    lignes.forEach(x => { const m = re.exec(String(x[colonne] || '')); if(m) max = Math.max(max, parseInt(m[1], 10)); });
+    lignes.forEach(x => out.push(String(x[colonne] || '')));
     if(lignes.length < 1000) break;
   }
-  return formaterNumeroNC(an, max + 1);
+  return out;
 }
-async function prochainNumeroAvoirVente(dateAvoir){ return prochainNumeroNC('factures_vente', 'numero', dateAvoir || today()); }
-async function prochainNumeroNCFournisseur(dateFacture){ return prochainNumeroNC('factures', 'numero_interne', dateFacture || today()); }
+const maxNumero = (valeurs, re) => valeurs.reduce((max, v) => { const m = re.exec(v); return m ? Math.max(max, parseInt(m[1], 10)) : max; }, 0);
+const formaterNumeroAV = (ym, n) => 'AV' + ym + String(n).padStart(2, '0');       // 01…99 puis 100, 101… (sans remplissage)
+async function prochainNumeroAvoirVente(dateAvoir){
+  const d = dateNumerotation(dateAvoir), ym = d.slice(0, 4) + d.slice(5, 7);
+  const valeurs = await lireNumerosExistants('factures_vente', 'numero', 'AV%' + ym + '%');
+  if(valeurs === null) return null;
+  return formaterNumeroAV(ym, maxNumero(valeurs, new RegExp('^AV-?' + ym + '(\\d{1,6})$')) + 1);
+}
+const formaterNumeroNCFournisseur = (an, n) => 'NC' + an + '-' + String(n).padStart(3, '0');
+async function prochainNumeroNCFournisseur(dateFacture){
+  const an = dateNumerotation(dateFacture).slice(0, 4);
+  const valeurs = await lireNumerosExistants('factures', 'numero_interne', 'NC%' + an + '-%');
+  if(valeurs === null) return null;
+  return formaterNumeroNCFournisseur(an, maxNumero(valeurs, new RegExp('^NC-?' + an + '-(\\d{1,6})$')) + 1);
+}
 
 async function openNewAvoirVente(facId){
   const {data:f} = await sb.from('factures_vente').select('*,clients(nom)').eq('id',facId).single();
@@ -14117,7 +14129,7 @@ async function openNewAvoirVente(facId){
           <select id="av-motif" onchange="majRemetAvoir()">${AVOIR_MOTIFS.map(m=>`<option value="${m.k}">${m.l}</option>`).join('')}</select></div>
         <div class="form-group"><label class="field-label">Précision <span style="font-weight:400;text-transform:none">(apparaît sur la note de crédit)</span></label><input id="av-motif-txt" placeholder="Ex : prix du devis mal repris, quantité livrée inférieure..."/></div>
         <div class="form-group"><label class="field-label">Date de la note de crédit</label><input type="date" id="av-date" value="${today()}"/></div>
-        <div class="form-group"><label class="field-label">N° <span style="font-weight:400;text-transform:none">(vide = automatique : NC-année-n° d'ordre, attribué à la validation si la note reste en brouillon)</span></label><input id="av-numero" placeholder="Ex : NC-2026-001"/></div>
+        <div class="form-group"><label class="field-label">N° <span style="font-weight:400;text-transform:none">(vide = automatique : AV + année + mois + n° d'ordre, attribué à la validation si la note reste en brouillon)</span></label><input id="av-numero" placeholder="Ex : AV20261101"/></div>
         <div class="form-group"><label class="field-label">Statut</label><select id="av-statut"><option value="brouillon">Brouillon</option><option value="envoyee">Émise</option></select></div>
         ${f.devis_id?`<div class="form-group"><label class="field-label">Devis</label>
           <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:400;cursor:pointer"><input type="checkbox" id="av-remet" style="margin-top:3px;width:auto;flex-shrink:0" ${motifDef.remet?'checked':''} onchange="this.dataset.touche='1'"/> <span>Remettre les quantités créditées « à facturer » sur le devis <span style="color:var(--gray-5)">(erreur à refacturer : oui — remise commerciale : non)</span></span></label></div>`:''}
@@ -14239,7 +14251,7 @@ async function saveAvoirVente(){
     statut:el('av-statut').value||'brouillon', cree_par:currentUser.id,
     observations:'Motif : '+motif.l+(precision?' — '+precision:'')
   });
-  const numeroAuto = !manuel && !estRefProvisoire(num);          // numéro NC-… calculé ici : on réessaie si quelqu'un l'a pris entre-temps
+  const numeroAuto = !manuel && !estRefProvisoire(num);          // numéro AV… calculé ici : on réessaie si quelqu'un l'a pris entre-temps
   let av = null, error = null;
   for(let essai=0; essai<5; essai++){
     ({data:av, error} = await sb.from('factures_vente').insert(charge(num)).select().single());
@@ -15128,7 +15140,7 @@ function relBoutonFiche(f, netTtc){
 }
 
 // Une facture ne se supprime que si elle est en BROUILLON, sans note de crédit liée, et si son numéro
-// ne laisse pas de trou dans la séquence (FA + AAAAMM + n° ; notes de crédit NC-AAAA-NNN). Sinon : « Annuler » (le numéro reste au registre)
+// ne laisse pas de trou dans la séquence (FA/AV + AAAAMM + n°). Sinon : « Annuler » (le numéro reste au registre)
 // ou, pour une facture émise, une note de crédit.
 function analyseSuppressionFV(f, tousNumeros, nbAvoirs){
   const avoir = f.type_facture==='avoir';
@@ -15235,7 +15247,7 @@ async function openFactureVenteDetail(facId){
     </div>
     <div class="modal-body">
       ${clos?`<div class="alert alert-info" id="fv-cloture" style="margin-bottom:14px"><i class="ti ti-lock"></i> <span>Période clôturée jusqu'au <strong>${fmtDate(_clotureVentes)}</strong> — ce document est <strong>inaltérable</strong>. Pour corriger : note de crédit, puis nouvelle facture.</span></div>`:''}
-      ${estRefProvisoire(f.numero)?`<div class="alert alert-info" id="fv-brouillon-info" style="margin-bottom:14px"><i class="ti ti-file-pencil"></i> <span><strong>Brouillon sans numéro définitif.</strong> Le numéro ${avoir?'NC-AAAA-NNN':'FA…'} est attribué à la validation (bouton « Valider »). Le PDF est une <strong>proforma</strong> : il ne constitue pas ${avoir?'une note de crédit':'une facture'}.</span></div>`:''}
+      ${estRefProvisoire(f.numero)?`<div class="alert alert-info" id="fv-brouillon-info" style="margin-bottom:14px"><i class="ti ti-file-pencil"></i> <span><strong>Brouillon sans numéro définitif.</strong> Le numéro ${avoir?'AV':'FA'}… est attribué à la validation (bouton « Valider »). Le PDF est une <strong>proforma</strong> : il ne constitue pas ${avoir?'une note de crédit':'une facture'}.</span></div>`:''}
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Type</label><span>${escHtml(TYPE_FV[f.type_facture]||f.type_facture||'—')}</span></div>
         ${avoir?`<div class="info-item"><label>Facture d'origine</label><span>${origine?`<a href="#" class="text-blue" style="font-weight:600" onclick="closeModal();openFactureVenteDetail('${origine.id}');return false">${escHtml(origine.numero)}</a> du ${fmtDate(origine.date_creation)}`:'—'}</span></div>`:''}
@@ -15417,7 +15429,7 @@ async function changerStatutFactureVente(facId, statut){
     const refus = await refusChangementStatutFV(f, statut);
     if(refus){ showToast(refus, 'error'); return; }
   }
-  // Brouillon sans numéro définitif : la validation lui attribue son numéro officiel (FA + année + mois + n° d'ordre ; note de crédit NC-année-n° d'ordre)
+  // Brouillon sans numéro définitif : la validation lui attribue son numéro officiel (FA / AV + année + mois + n° d'ordre)
   if(f && estRefProvisoire(f.numero) && !['brouillon','annulee'].includes(statut)){
     const v = await attribuerNumeroEtStatutFV(f, statut);
     if(v.erreur){ showToast(v.erreur, 'error'); return; }
@@ -15569,7 +15581,7 @@ function exemplesDocuments(){
   const fvHt = 850+16*65, fvTva = Math.round(fvHt*17)/100;
   const facture = {numero:'FA-EXEMPLE', type_facture:'standard', date_creation:t, date_echeance:plus30, reference_client:'COMMANDE-123', devis:{numero:'DV-EXEMPLE'},
     total_ht:fvHt, total_tva:fvTva, total_ttc:Math.round((fvHt+fvTva)*100)/100, observations:''};
-  const avoir = Object.assign({}, facture, {numero:'NC-EXEMPLE', type_facture:'avoir', total_ht:-850, total_tva:-144.5, total_ttc:-994.5});
+  const avoir = Object.assign({}, facture, {numero:'AV-EXEMPLE', type_facture:'avoir', total_ht:-850, total_tva:-144.5, total_ttc:-994.5});
   const lignesAvoir = [{description:'Fourniture et pose — tableau divisionnaire', reference_article:'', quantite:-1, unite:'u', prix_unitaire_ht:850, taux_tva:17}];
   const origine = {numero:'FA-EXEMPLE', date_creation:t, total_ht:fvHt, total_ttc:facture.total_ttc};
   return {client, devis, lignesDevis, po, lignesPO, fournisseur, chantier, facture, lignesFV, avoir, lignesAvoir, origine};
@@ -21643,7 +21655,7 @@ async function creerNoteCredit(facId){
     saisie_par: currentUser.id,
     observations: `Note de crédit relative à la facture ${fac.numero_facture_fournisseur}`
   });
-  // N° interne NC-AAAA-NNN calculé ici ; si la colonne n'existe pas encore (script de numérotation pas exécuté) : comme avant, sans n° interne
+  // N° interne NC2026-NNN calculé ici ; si la colonne n'existe pas encore (script de numérotation pas exécuté) : comme avant, sans n° interne
   let ni = await prochainNumeroNCFournisseur(today()), newFac = null, error = null;
   for(let essai=0; essai<5; essai++){
     ({data:newFac, error} = await sb.from('factures').insert(chargeNC(ni)).select().single());
