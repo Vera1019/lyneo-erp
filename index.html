@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-05-6a4f892"/>
+<meta name="lyneo-build" content="BUILD:2026-11-05-faf29d7"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2746,7 +2746,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-05-6a4f892';
+const APP_BUILD = 'BUILD:2026-11-05-faf29d7';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -21621,6 +21621,9 @@ async function saveFacFromPOCore(poId){
 
 // ── EDIT FACTURE FOURNISSEUR ──────────────────────────────────
 let _efacLignes = [];
+// Note de crédit (statut « avoir ») : à l'écran les lignes et totaux sont en POSITIF, comme sur la facture d'origine (comme dans Odoo) ;
+// la base les garde en négatif (listes, totaux et marges inchangés). Le signe est inversé à l'ouverture et à l'enregistrement.
+const efacSigne = () => (window._efacOrig && window._efacOrig.statut==='avoir') ? -1 : 1;
 
 async function openEditFacLignes(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
@@ -21639,10 +21642,12 @@ async function openEditFacLignes(facId){
   }
   const chantiers = chantiersChoix(chantiersData||[], chantierIdActuel);   // archivés masqués, sauf celui déjà lié à la facture
 
-  if((lignesData||[]).length===0 && (parseFloat(fac.montant_ht)>0 || parseFloat(fac.montant_ttc)>0)){
+  const sgEfac = efacSigne();
+  if((lignesData||[]).length===0 && (sgEfac*(parseFloat(fac.montant_ht)||0)>0 || sgEfac*(parseFloat(fac.montant_ttc)||0)>0)){
     // Legacy invoice saved without detailed lines: seed one editable line from the existing totals
-    const ht = parseFloat(fac.montant_ht)||0;
-    const tva = parseFloat(fac.montant_tva)||0;
+    // (note de crédit sans lignes : la même ligne que la facture d'origine propose, en positif — sinon l'écran serait vide et enregistrer mettrait la note à 0 €)
+    const ht = sgEfac*(parseFloat(fac.montant_ht)||0);
+    const tva = sgEfac*(parseFloat(fac.montant_tva)||0);
     const tauxApprox = ht>0 ? Math.round((tva/ht)*100) : 17;
     _efacLignes = [{
       _db_id: null,
@@ -21659,7 +21664,7 @@ async function openEditFacLignes(facId){
       _db_id: l.id,
       description: l.description,
       reference_article: l.reference_article||'',
-      quantite: parseFloat(l.quantite)||0,
+      quantite: sgEfac*(parseFloat(l.quantite)||0),
       unite: l.unite||'u',
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
@@ -21697,6 +21702,7 @@ async function openEditFacLignes(facId){
     +    '<span><strong style="font-size:13px">Lignes de la facture</strong>'+crLienGerer('renderEfacLignes')+'</span>'
     +    '<button class="btn btn-secondary btn-sm" onclick="addEfacLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
+    +  (sgEfac<0 ? '<div class="alert alert-info" id="efac-avoir-info" style="margin-bottom:10px"><i class="ti ti-info-circle"></i> <strong>Note de crédit</strong> : les lignes sont celles de la facture d\'origine, en positif (comme dans Odoo). Pour un crédit partiel, réduisez une quantité ou supprimez une ligne. Les montants sont enregistrés en négatif.</div>' : '')
     +  '<div id="cr-tous-zone"></div>'
     +  '<div style="overflow-x:auto;max-width:100%">'
     +    '<table class="lignes-table" id="efac-lignes-table" style="min-width:580px">'
@@ -21767,8 +21773,9 @@ async function saveEditFacCore(facId){
   const chantierId = el('efac-chantier').value;
   if(!chantierId){ showToast("Chantier obligatoire", 'error'); return; }
 
-  const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const sgBase = efacSigne();   // -1 : note de crédit (écran en positif, base en négatif)
+  const totalHT = sgBase*_efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
+  const totalTVA = sgBase*_efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
 
   // si le n° de facture change : il ne doit pas déjà exister chez le même fournisseur
   {
@@ -21797,7 +21804,7 @@ async function saveEditFacCore(facId){
     const {error:updErr} = await sb.from('lignes_facture').update({
       description: l.description,
       reference_article: l.reference_article||'',
-      quantite: parseFloat(l.quantite)||0,
+      quantite: sgBase*(parseFloat(l.quantite)||0),
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
@@ -21812,7 +21819,7 @@ async function saveEditFacCore(facId){
       facture_id: facId, ordre: existingIds.length + i + 1,
       description: l.description,
       reference_article: l.reference_article||'',
-      quantite: parseFloat(l.quantite)||0,
+      quantite: sgBase*(parseFloat(l.quantite)||0),
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
