@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-05-faf29d7"/>
+<meta name="lyneo-build" content="BUILD:2026-11-06-18c8e8a"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -517,6 +517,15 @@ select{cursor:pointer}
 .totaux-box{background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:16px 20px;min-width:280px}
 .totaux-row{display:flex;justify-content:space-between;gap:24px;padding:4px 0;font-size:13px;color:var(--gray-6)}
 .totaux-row.ttc{border-top:2px solid var(--gray-3);margin-top:8px;padding-top:10px;font-weight:800;font-size:17px;color:var(--blue)}
+.tva-crayon{background:none;border:none;cursor:pointer;color:var(--gray-4);padding:1px 5px;border-radius:4px;font-size:14px;vertical-align:middle}
+.tva-crayon:hover{color:var(--blue);background:var(--gray-2)}
+.tva-edition{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+.tva-edition input{width:110px;text-align:right;padding:3px 6px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px}
+.tva-btn{background:none;border:1px solid var(--gray-3);border-radius:4px;cursor:pointer;padding:2px 6px;color:var(--gray-5)}
+.tva-btn.ok{color:var(--green);border-color:var(--green)}
+.tva-corr{font-style:normal;font-size:10.5px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:8px;padding:1px 7px;margin-left:4px}
+.tva-info{font-size:11.5px;color:var(--gray-5);text-align:right;margin:0 0 4px;line-height:1.4}
+.tva-info.warn{color:#b45309}
 
 /* ── TOAST ───────────────────────────────────────────────────── */
 #banniere-version{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:2000;width:max-content;max-width:min(760px,calc(100vw - 24px));background:#0F172A;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:10px;box-shadow:var(--shadow-xl);padding:10px 12px 10px 14px;display:flex;align-items:center;gap:12px;font-size:13px;line-height:1.35}
@@ -2746,7 +2755,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-05-faf29d7';
+const APP_BUILD = 'BUILD:2026-11-06-18c8e8a';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -5531,6 +5540,78 @@ async function renderHeuresSemaine(){
 }
 
 
+// ── Documents joints dès la CRÉATION (ou la modification) d'un chantier / centre SAV ──────────────────────────────────
+// Avant : il fallait créer le chantier, fermer la fenêtre, rouvrir la fiche et aller dans l'onglet Documents. Maintenant la fenêtre « Nouveau chantier »
+// / « Modifier » a sa zone de dépôt ; les fichiers choisis restent dans la liste et sont envoyés À L'ENREGISTREMENT, au même endroit que l'onglet
+// Documents de la fiche (bucket « Documents », table anexos_chantier) : ils y apparaissent, rangés par catégorie. Rien n'est envoyé si on annule.
+window._chFilesNew = [];                                  // [{file, cat}] en attente
+const CH_DOC_CATS = {plan:'📐 Plan',contrat:'📄 Contrat',photo:'📸 Photo',permis:'🏛️ Permis',devis:'📊 Devis',rapport:'📋 Rapport',autre:'📎 Autre'};
+const CH_DOC_MAX = 10*1024*1024, CH_DOC_NB_MAX = 30;
+const chTaille = b => b>=1048576 ? (b/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(b/1024))+' KB';
+function chDocsAjouter(files){
+  const liste = Array.from(files||[]);
+  const catEl = el('ch-docs-cat'), cat = (catEl && CH_DOC_CATS[catEl.value]) ? catEl.value : 'autre';
+  let trop = 0, doublons = 0, plein = 0;
+  liste.forEach(f=>{
+    if(!f || !f.name) return;
+    if(f.size > CH_DOC_MAX){ showToast(escHtml(f.name)+' dépasse 10MB — ignoré', 'error'); return; }
+    if(window._chFilesNew.some(x=>x.file.name===f.name && x.file.size===f.size)){ doublons++; return; }
+    if(window._chFilesNew.length >= CH_DOC_NB_MAX){ plein++; return; }
+    window._chFilesNew.push({file:f, cat});
+  });
+  if(plein) showToast('Maximum '+CH_DOC_NB_MAX+' documents à la fois : '+plein+' fichier(s) ignoré(s)', 'error');
+  chDocsRendre();
+}
+function chDocsRetirer(i){ window._chFilesNew.splice(i,1); chDocsRendre(); }
+function chDocsCategorie(i, cat){ if(window._chFilesNew[i] && CH_DOC_CATS[cat]) window._chFilesNew[i].cat = cat; }
+function chDocsDepot(ev){
+  ev.preventDefault();
+  const z = ev.currentTarget; if(z){ z.style.borderColor='var(--gray-3)'; z.style.background='var(--gray-1)'; }
+  const fs = ev.dataTransfer && ev.dataTransfer.files;
+  if(fs && fs.length) chDocsAjouter(fs);
+}
+function chDocsRendre(){
+  const zone = el('ch-docs-liste'); if(!zone) return;
+  const n = window._chFilesNew.length;
+  zone.innerHTML = n ? window._chFilesNew.map((x,i)=>`<div class="ch-doc-new" style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fff;border:1px solid var(--gray-3);border-radius:4px;margin-top:6px">
+      <i class="ti ti-file" style="font-size:18px;color:var(--blue);flex:none"></i>
+      <span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(x.file.name)}">${escHtml(x.file.name)}</span>
+      <span style="font-size:11px;color:var(--gray-5);white-space:nowrap">${chTaille(x.file.size)}</span>
+      <select onchange="chDocsCategorie(${i},this.value)" style="width:auto;flex:0 0 auto;padding:4px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">${Object.keys(CH_DOC_CATS).map(c=>`<option value="${c}"${c===x.cat?' selected':''}>${CH_DOC_CATS[c]}</option>`).join('')}</select>
+      <button type="button" class="ch-doc-retirer" onclick="chDocsRetirer(${i})" title="Retirer" style="background:none;border:none;cursor:pointer;color:var(--gray-4);font-size:16px">&times;</button>
+    </div>`).join('')
+    + `<div id="ch-docs-info" style="font-size:11.5px;color:var(--gray-5);margin-top:6px">${n} document(s) seront envoyés à l'enregistrement.</div>` : '';
+}
+// Envoie les fichiers en attente vers le chantier ; renvoie {ok, ko, erreurs[]}. Ne lève jamais : le chantier est déjà enregistré.
+async function chDocsEnvoyer(chantierId){
+  const items = window._chFilesNew.slice();
+  window._chFilesNew = [];
+  const res = {ok:0, ko:0, erreurs:[]};
+  const info = el('ch-docs-liste');
+  for(let i=0;i<items.length;i++){
+    const {file, cat} = items[i];
+    if(info) info.innerHTML = '<div style="font-size:12px;color:var(--gray-5);margin-top:6px"><i class="ti ti-loader"></i> Envoi '+(i+1)+'/'+items.length+' : '+escHtml(file.name)+'</div>';
+    try{
+      const path = `chantiers/${chantierId}/${Date.now()}_${i}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const up = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+      if(up && up.error){ res.ko++; res.erreurs.push(escHtml(file.name+' : '+up.error.message)); continue; }
+      const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+      const ins = await sb.from('anexos_chantier').insert({
+        chantier_id:chantierId, nome_ficheiro:file.name, url:urlData.publicUrl,
+        tamanho:file.size, tipo:file.type, categorie:cat, carregado_por:currentUser.id
+      });
+      if(ins && ins.error){ res.ko++; res.erreurs.push(escHtml(file.name+' : '+ins.error.message)); continue; }
+      res.ok++;
+    }catch(e){ res.ko++; res.erreurs.push(escHtml(file.name+' : '+((e&&e.message)||e))); }
+  }
+  return res;
+}
+function chDocsMessage(res){
+  if(!res || (!res.ok && !res.ko)) return;
+  if(!res.ko) { setTimeout(()=>showToast(res.ok>1 ? res.ok+' document(s) joint(s) au chantier' : 'Document joint au chantier'), 500); return; }
+  setTimeout(()=>showToast((res.ok ? res.ok+' document(s) joint(s), mais ' : '')+res.ko+" document(s) n'ont PAS pu être envoyés ("+res.erreurs.slice(0,2).join(' ; ')+") — ajoutez-les dans l'onglet Documents de la fiche", 'error'), 500);
+}
+
 async function handleDropChantier(event, chantierId){
   event.preventDefault();
   event.currentTarget.style.borderColor='var(--gray-3)';
@@ -5647,6 +5728,7 @@ async function desarchiverChantier(id){
 async function openChantierModal(r=null){
   // r peut être un chantier existant (avec id) ou seulement des valeurs de départ (nouveau chantier / nouveau centre SAV)
   const isEdit = !!(r && r.id);
+  window._chFilesNew = [];          // pas de fichiers restés d'une fenêtre fermée sans enregistrer
   // Le devis d'origine ne vaut que pour la création lancée depuis ce devis (sinon un devis resté en mémoire d'une création annulée serait lié à un chantier sans rapport)
   if(!isEdit && !(r && r.depuisDevis)) window._chantierFromDevisId = null;
   const [{data:clientsData}, empR] = await Promise.all([
@@ -5733,6 +5815,20 @@ async function openChantierModal(r=null){
           <button type="button" class="btn btn-secondary btn-sm" id="btn-calc-heures-prevues" onclick="calculerHeuresPrevuesDevis('${r?.id||''}')" title="Additionne les lignes en heures (unité « h ») du devis accepté"><i class="ti ti-calculator"></i> Depuis le devis</button></div>
           <span style="font-size:12px;color:var(--gray-5)">Sert à suivre le % d'heures consommées dans l'onglet Heures.</span></div>
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="ch-obs">${escHtml(r?.observations||'')}</textarea></div>
+        <div class="form-group full" id="ch-docs-zone"><label class="field-label">Documents <span style="font-weight:400;text-transform:none">(facultatif — envoyés à l'enregistrement, visibles ensuite dans l'onglet Documents de la fiche)</span></label>
+          <div id="ch-docs-depot" style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:14px;text-align:center;background:var(--gray-1)"
+            ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+            ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
+            ondrop="chDocsDepot(event)">
+            <span style="color:var(--gray-5);font-size:13px"><i class="ti ti-cloud-upload" style="font-size:20px;vertical-align:middle;margin-right:4px"></i>Glissez vos documents ici ou</span>
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0 6px"><i class="ti ti-paperclip"></i> Choisir fichier(s)
+              <input type="file" id="ch-docs-input" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.dwg" style="display:none" onchange="chDocsAjouter(this.files);this.value=''"/></label>
+            <select id="ch-docs-cat" title="Catégorie des prochains fichiers ajoutés" style="width:auto;padding:5px 8px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:12px">${Object.keys(CH_DOC_CATS).map(c=>`<option value="${c}">${CH_DOC_CATS[c]}</option>`).join('')}</select>
+            <div style="font-size:11px;color:var(--gray-4);margin-top:6px">PDF, images, Word, Excel, DWG — max 10MB par fichier</div>
+          </div>
+          <div id="ch-docs-liste"></div>
+          <div id="ch-docs-existants" style="font-size:12px;color:var(--gray-5);margin-top:6px"></div>
+        </div>
       </div>
       <div class="form-actions">
         ${isEdit ? `<button class="btn btn-danger" id="ch-suppr" onclick="supprimerChantier('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
@@ -5742,6 +5838,14 @@ async function openChantierModal(r=null){
     </div>
   </div></div>`);
   if(!isEdit) await majNumeroAutoChantier();
+  if(isEdit){
+    // documents déjà joints : simple rappel (leur gestion reste dans l'onglet Documents de la fiche)
+    try{
+      const {data:dej} = await sb.from('anexos_chantier').select('id,nome_ficheiro').eq('chantier_id', r.id);
+      const z = el('ch-docs-existants');
+      if(z && dej && dej.length) z.innerHTML = '<i class="ti ti-files"></i> Déjà joint(s) : '+dej.length+' document(s) — à gérer dans l\'onglet Documents de la fiche.';
+    }catch(e){}
+  }
 }
 
 // Additionne les lignes en heures (unité « h ») du devis accepté du chantier — ou du devis d'origine d'un chantier en cours de création
@@ -6438,6 +6542,7 @@ async function saveChantierCore(id){
   // Seuls les chantiers s'archivent (un centre SAV / interne reste toujours disponible)
   if(statutAtual==='archive' && typeChoisi!=='chantier'){ showToast("Seuls les chantiers peuvent être archivés (pas les centres SAV ni internes)",'error'); return; }
   let heuresNonEnregistrees = false, retenueNonEnregistree = false, chefNonEnregistre = false;
+  let idPourDocs = id || null;       // chantier qui recevra les documents joints dans la fenêtre
   const ecrire = async (fn)=>{
     let res = await fn(data);
     if(res.error && 'heures_prevues' in data && /heures_prevues/.test(res.error.message)){
@@ -6459,7 +6564,8 @@ async function saveChantierCore(id){
   };
   if(id){
     if(numeroManuel) data.numero = numeroManuel;
-    await ecrire(d=>sb.from('chantiers_lyneo').update(d).eq('id',id));
+    const resUp = await ecrire(d=>sb.from('chantiers_lyneo').update(d).eq('id',id));
+    if(resUp && resUp.error){ showToast("Le chantier n'a PAS été modifié : "+resUp.error.message+((window._chFilesNew||[]).length ? ' — vos documents restent dans la fenêtre' : ''), 'error'); return; }
     _chantiers = _chantiers.filter(c=>c.id!==id);   // la fiche sera relue à jour à sa prochaine ouverture
     const resultadoSync = await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
     showToast('Chantier mis à jour');
@@ -6474,7 +6580,14 @@ async function saveChantierCore(id){
       } else num = await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);   // centre SAV / interne : numéro à saisir, sinon CH-AAAA-NNN comme avant
     }
     const devisIdOrigine = window._chantierFromDevisId||null;
-    const {data:newChantier} = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
+    const resIns = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
+    const newChantier = resIns && resIns.data;
+    if(!newChantier){
+      // Avant : « Chantier créé » s'affichait quand même et la fenêtre se fermait. Maintenant : l'erreur est dite, la fenêtre (et les fichiers choisis) restent.
+      showToast("Le chantier n'a PAS été créé : "+((resIns && resIns.error && resIns.error.message) || 'réponse vide de la base')+((window._chFilesNew||[]).length ? ' — vos documents restent dans la fenêtre' : ''), 'error');
+      return;
+    }
+    idPourDocs = newChantier.id;
     let resultadoSync = {ok:false, motif:'non_cree'};
     if(newChantier) resultadoSync = await sincronizarChantierPointages(newChantier.id, nom, statutAtual, cpModal?.value);
     if(newChantier) lancerMajPointagesChantier(newChantier.id);
@@ -6489,6 +6602,9 @@ async function saveChantierCore(id){
   }
   if(heuresNonEnregistrees) setTimeout(()=>showToast("⚠ Les heures prévues ne sont pas enregistrées : exécutez d'abord « migration-heures-couts-chantiers.sql » dans Supabase.", 'error'), 600);
   _empNomsCache = {t:0, m:null};
+  if((window._chFilesNew||[]).length){
+    chDocsMessage(await chDocsEnvoyer(idPourDocs));
+  }
   if(chefNonEnregistre) setTimeout(()=>showToast("⚠ Le nom du chef de chantier est enregistré, mais pas son lien avec la fiche de l'employé : exécutez d'abord « migration-responsaveis-employes.sql » dans Supabase.", 'error'), 1200);
   if(retenueNonEnregistree) setTimeout(()=>showToast("⚠ La retenue de garantie n'est pas enregistrée : exécutez d'abord « migration-chantiers-archives.sql » dans Supabase.", 'error'), 900);
   closeModal();
@@ -7051,6 +7167,32 @@ async function savePO(marquerEnvoyee){
 // Quelle étape est possible sur une commande : réceptionner (envoyée ou déjà partiellement reçue) / facturer (au moins une réception) — comme « Recevoir » et « Créer la facture » d'Odoo Achats.
 const poPeutEtreReceptionnee = po => !!po && ['envoyee','rec_partielle'].includes(po.statut);
 const poPeutEtreFacturee = po => !!po && ['rec_partielle','rec_totale'].includes(po.statut);
+// Imputation (chantier / intervention SAV) de chaque facture liée à une commande, comparée à celle de la commande.
+// Une facture sans chantier propre (ancienne) suit celui de la commande, comme dans le formulaire de modification.
+async function imputationsFacturesPO(po, facs, chantierPO){
+  const res = {};
+  const liste = facs || [];
+  if(!liste.length) return res;
+  const autres = [...new Set(liste.map(f=>f.chantier_id).filter(id=>id && String(id)!==String(po.chantier_id)))];
+  const libs = {};
+  if(autres.length){ try{ (await chargerParIds('chantiers_lyneo','id,numero,nom',autres)).forEach(c=>{ libs[String(c.id)] = libChantierAchat(c); }); }catch(e){} }
+  const refs = await chargerRefsInterventions(liste.map(f=>f.intervention_id).concat([po.intervention_id]));
+  liste.forEach(f=>{
+    const chId = f.chantier_id || po.chantier_id;
+    const lib = String(chId)===String(po.chantier_id) ? libChantierAchat(chantierPO) : (libs[String(chId)]||'');
+    const ref = f.intervention_id ? (refs[f.intervention_id]||'') : '';
+    const diff = String(chId||'')!==String(po.chantier_id||'') || String(f.intervention_id||'')!==String(po.intervention_id||'');
+    res[f.id] = {chantier: lib, sav: ref, diff, cmdChantier: libChantierAchat(chantierPO), cmdSav: po.intervention_id ? (refs[po.intervention_id]||'') : ''};
+  });
+  return res;
+}
+function htmlImputationFacPO(x){
+  if(!x) return '';
+  const txt = [x.chantier, x.sav].filter(Boolean).join(' · ') || '—';
+  if(!x.diff) return `<div class="po-fac-imput" style="font-size:11.5px;color:var(--gray-5);font-weight:400;margin-top:2px" title="Même imputation que la commande">Imputée à : ${escHtml(txt)}</div>`;
+  const cmd = [x.cmdChantier, x.cmdSav].filter(Boolean).join(' · ') || '—';
+  return `<div class="po-fac-imput po-fac-imput-diff" style="font-size:11.5px;color:#b45309;font-weight:600;margin-top:2px" title="Cette facture n'est pas imputée au même centre que la commande">⚠ Imputée à : ${escHtml(txt)} <span style="font-weight:400">(commande : ${escHtml(cmd)})</span></div>`;
+}
 async function openPODetail(poId){
   let po = _pos.find(p=>p.id===poId);
   if(!po){
@@ -7080,6 +7222,7 @@ async function openPODetail(poId){
   }
   const chant = _chantiersActive.find(c=>c.id===po.chantier_id) || po.chantiers_lyneo;
   const refIntPO = po.intervention_id ? await refIntervention(po.intervention_id) : '';
+  const imputFacs = await imputationsFacturesPO(po, facs, chant);
 
   // Étapes du flux d'achat (comme les boutons d'étape d'Odoo Achats) : on réceptionne tant qu'il reste de la marchandise, on facture ce qui a été reçu
   const peutRecevoir = poPeutEtreReceptionnee(po);
@@ -7101,7 +7244,7 @@ async function openPODetail(poId){
   const facsHtml = `
     <div class="section-title" style="justify-content:space-between"><span><i class="ti ti-file-invoice"></i> Factures (${facs.length})${facs.length?` — ${fmt(totalFacsPO)} TTC sur ${fmt(po.total_ttc)}`:''}</span>${peutFacturer?`<button class="btn btn-secondary btn-sm" id="po-sec-facturer" onclick="closeModal();openFacFromPO('${poId}')"><i class="ti ti-plus"></i> Générer facture</button>`:''}</div>
     ${facs.length===0 ? '<p class="po-aucune-fac" style="font-size:13px;color:var(--gray-4);margin-bottom:8px">Aucune facture fournisseur liée à cette commande</p>' : facs.map(f=>`<div class="po-ligne-fac" data-fac-id="${escHtml(f.id)}" style="background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="closeModal();openFacDetail('${escHtml(f.id)}')" title="Ouvrir la facture">
-      <div><strong class="text-blue">${escHtml(f.numero_facture_fournisseur)}</strong> — ${fmtDate(f.date_facture)}</div>
+      <div><strong class="text-blue">${escHtml(f.numero_facture_fournisseur)}</strong> — ${fmtDate(f.date_facture)}${htmlImputationFacPO(imputFacs[f.id])}</div>
       <div class="flex gap-8 items-center"><span style="font-weight:600">${fmt(f.montant_ttc)}</span>${bFA(f.statut)}</div>
     </div>`).join('')}`;
 
@@ -10049,6 +10192,7 @@ async function openNoteFraisModal(){
   const chantiers = chantiersChoix(chR.data||[]);   // les chantiers archivés ne sont plus proposés
   await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
+  tvaReset('facl', renderFacLignesLibre);
   _facFilesNew = [];
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
@@ -10198,7 +10342,7 @@ async function saveNoteFraisCore(){
   if(!date){ showToast('Date de la note obligatoire', 'error'); return rendre(); }
   if(_facLignesLibre.some(l=>!String(l.description||'').trim())){ showToast('Toutes les lignes doivent avoir une description', 'error'); return rendre(); }
   const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100,0);
+  const totalTVA = tvaFinale('facl', _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100,0));
   if(!(totalHT>0)){ showToast('Le montant de la note de frais est nul', 'error'); return rendre(); }
   if(!_facFilesNew.length && !confirm("Aucun justificatif (ticket, facture) n'est joint.\n\nSans justificatif, la TVA ne pourra pas être récupérée et la dépense n'est pas prouvée.\nEnregistrer quand même ?")){ return rendre(); }
 
@@ -10255,6 +10399,7 @@ async function openFacLibreModal(){
   const fours = (foursData||[]).filter(f=>!f.employe_id);   // les fournisseurs « salarié » ne servent qu'aux notes de frais
   await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
+  tvaReset('facl', renderFacLignesLibre);
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Facture fournisseur sans commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -10319,10 +10464,7 @@ function renderFacLignesLibre(){
   const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   const box = el('facl-totaux');
-  if(box) box.innerHTML = `
-    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
-    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
-    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+  if(box) box.innerHTML = tvaTotauxHtml('facl', totalHT, totalTVA);
 }
 function addFacLigneLibre(){ _facLignesLibre.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); focusDerniereLigne('facl-lignes-body'); }
 function delFacLigneLibre(i){ _facLignesLibre.splice(i,1); renderFacLignesLibre(); }
@@ -10337,7 +10479,7 @@ async function saveFacLibre(){
   if(_facLignesLibre.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); const b=el('btn-save-facl'); if(b) b.disabled=false; return; }
 
   const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const totalTVA = tvaFinale('facl', _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0));
 
   // la même facture d'un même fournisseur ne s'enregistre pas deux fois
   if(!(await controlerFactureFournisseur({fournisseurId, numero, ttc:totalHT+totalTVA, date:el('facl-date').value}))){ const b=el('btn-save-facl'); if(b) b.disabled=false; return; }
@@ -10366,6 +10508,89 @@ async function saveFacLibre(){
   closeModal();
   await rafraichirPage();
   openFacDetail(fac.id);
+}
+
+// ── CORRECTION MANUELLE DE LA TVA D'UNE FACTURE FOURNISSEUR (crayon ✎ à côté de « TVA », comme dans Odoo) ───────────────
+// Pourquoi : le fournisseur arrondit sa TVA sur le total de la facture, pas ligne par ligne → quelques centimes d'écart avec le calcul des
+// lignes (ou une TVA imprimée différente). Le crayon permet de saisir le montant de TVA de la facture papier ; TOTAL TTC = HT + TVA saisie.
+// Règles : (1) le montant est saisi/affiché toujours positif (une note de crédit est enregistrée en négatif par le formulaire) ;
+// (2) la correction ne vaut que pour les lignes telles qu'elles étaient quand on l'a faite : si les lignes changent (quantité, prix, taux,
+// ajout, suppression) elle tombe, la TVA est recalculée et un message le dit ; (3) un écart > 1 € avec le calcul des lignes donne un
+// avertissement orange, jamais un blocage ; (4) « Recalculer » revient au calcul des lignes ; (5) un montant déjà enregistré qui diffère du
+// calcul est repris tel quel à l'ouverture (sinon enregistrer sans toucher à la TVA l'écraserait en silence). Factures de VENTE : non concernées.
+window._tvaMan = {};       // préfixe → {val, ref} : TVA corrigée + TVA calculée au moment de la correction
+window._tvaEdit = {};      // préfixe → texte en cours de saisie (clé absente = pas en édition)
+window._tvaCalc = {};      // préfixe → dernière TVA calculée affichée
+window._tvaNote = {};      // préfixe → true si une correction vient de tomber parce que les lignes ont changé
+window._tvaRender = {};    // préfixe → fonction qui ré-affiche les totaux du formulaire
+const TVA_ECART_ALERTE = 1;
+function tvaReset(prefix, renderFn){
+  delete window._tvaMan[prefix]; delete window._tvaEdit[prefix]; delete window._tvaNote[prefix]; delete window._tvaCalc[prefix];
+  if(renderFn) window._tvaRender[prefix] = renderFn;
+}
+function tvaInit(prefix, calc, stockee){
+  const v = Number(stockee);
+  if(stockee===null || stockee===undefined || stockee==='' || !isFinite(v) || v<0) return;
+  if(Math.abs(v - calc) > 0.004) window._tvaMan[prefix] = {val: arrondirCalc(v, 2), ref: calc};
+}
+function tvaSync(prefix, calc){
+  window._tvaCalc[prefix] = calc;
+  const m = window._tvaMan[prefix];
+  if(m && Math.abs(m.ref - calc) > 0.004){ delete window._tvaMan[prefix]; window._tvaNote[prefix] = true; }
+}
+function tvaFinale(prefix, calc){
+  const m = window._tvaMan[prefix];
+  return (m && Math.abs(m.ref - calc) <= 0.004) ? m.val : calc;
+}
+function tvaTotauxHtml(prefix, ht, calc){
+  tvaSync(prefix, calc);
+  const m = window._tvaMan[prefix], saisie = window._tvaEdit[prefix], tva = tvaFinale(prefix, calc), P = prefix;
+  let ligneTva;
+  if(saisie!==undefined){
+    ligneTva = '<div class="totaux-row"><span>TVA</span><span class="tva-edition">'
+      +'<input type="text" data-calc="2" autocomplete="off" inputmode="decimal" id="'+P+'-tva-in" value="'+escHtml(saisie)+'" oninput="window._tvaEdit[\''+P+'\']=this.value" onkeydown="tvaTouche(event,\''+P+'\')" title="Montant de TVA de la facture du fournisseur (un calcul est possible : =12,5+3)"/>'
+      +'<button type="button" class="tva-btn ok" id="'+P+'-tva-ok" onclick="tvaValider(\''+P+'\')" title="Valider"><i class="ti ti-check"></i></button>'
+      +'<button type="button" class="tva-btn" id="'+P+'-tva-annuler" onclick="tvaAnnuler(\''+P+'\')" title="Annuler"><i class="ti ti-x"></i></button></span></div>';
+  } else {
+    ligneTva = '<div class="totaux-row"><span>TVA'+(m?'<em class="tva-corr" id="'+P+'-tva-corr">corrigée</em>':'')+'</span><span id="'+P+'-tva-val">'+fmt(tva)
+      +' <button type="button" class="tva-crayon" id="'+P+'-tva-edit" onclick="tvaEditer(\''+P+'\')" title="Corriger le montant de TVA (comme dans Odoo)"><i class="ti ti-pencil"></i></button></span></div>';
+  }
+  let info = '';
+  if(m){
+    const ecart = m.val - calc, grand = Math.abs(ecart) > TVA_ECART_ALERTE;
+    info = '<div class="tva-info'+(grand?' warn':'')+'" id="'+P+'-tva-info">Calculée d\'après les lignes : '+fmt(calc)+' (écart '+(ecart>=0?'+':'−')+fmt(Math.abs(ecart))+')'
+      +(grand?' — ⚠ écart important : vérifiez les taux de TVA des lignes':'')+' · <a href="#" id="'+P+'-tva-recalc" onclick="tvaRecalculer(\''+P+'\');return false">Recalculer</a></div>';
+  } else if(window._tvaNote[prefix]){
+    info = '<div class="tva-info" id="'+P+'-tva-info">TVA recalculée d\'après les lignes (les lignes ont changé).</div>';
+  }
+  return '<div class="totaux-row"><span>Total HT</span><span>'+fmt(ht)+'</span></div>'+ligneTva+info
+    +'<div class="totaux-row ttc"><span>TOTAL TTC</span><span>'+fmt(ht+tva)+'</span></div>';
+}
+function tvaRedessiner(prefix){ const f = window._tvaRender[prefix]; if(f) f(); }
+function tvaEditer(prefix){
+  const calc = window._tvaCalc[prefix] || 0;
+  delete window._tvaNote[prefix];
+  window._tvaEdit[prefix] = String(arrondirCalc(tvaFinale(prefix, calc), 2));
+  tvaRedessiner(prefix);
+  const i = el(prefix+'-tva-in'); if(i){ i.focus(); i.select(); }
+}
+function tvaAnnuler(prefix){ delete window._tvaEdit[prefix]; tvaRedessiner(prefix); }
+function tvaRecalculer(prefix){ delete window._tvaMan[prefix]; delete window._tvaEdit[prefix]; delete window._tvaNote[prefix]; tvaRedessiner(prefix); }
+function tvaValider(prefix){
+  const inp = el(prefix+'-tva-in');
+  const brut = inp ? inp.value : (window._tvaEdit[prefix]||'');
+  const r = evaluerSaisieCalc(brut);
+  if(r===null || r<0){ showToast('Montant de TVA invalide : saisissez un nombre positif ou zéro (un calcul est possible, par ex. =12,5+3)', 'error'); return false; }
+  const calc = window._tvaCalc[prefix] || 0, val = arrondirCalc(r, 2);
+  delete window._tvaEdit[prefix]; delete window._tvaNote[prefix];
+  if(Math.abs(val - arrondirCalc(calc, 2)) < 0.005) delete window._tvaMan[prefix];
+  else window._tvaMan[prefix] = {val, ref: calc};
+  tvaRedessiner(prefix);
+  return true;
+}
+function tvaTouche(ev, prefix){
+  if(ev.key==='Enter'){ ev.preventDefault(); ev.stopPropagation(); tvaValider(prefix); }
+  else if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); tvaAnnuler(prefix); }
 }
 
 // ── Factures fournisseur : échéance proposée = date de facture + conditions de la FICHE FOURNISSEUR ───────────
@@ -10699,7 +10924,8 @@ async function saveFacCore(){
 
   // Use manual values if lignes are empty
   const mHT = parseFloat(el('fac-ht')?.value)||totalHT;
-  const mTVA = parseFloat(el('fac-tva')?.value)||totalTVA;
+  const tvaSaisie = parseFloat(el('fac-tva')?.value);
+  const mTVA = isNaN(tvaSaisie) ? totalTVA : tvaSaisie;
   const mTTC = parseFloat(el('fac-ttc')?.value)||(mHT+mTVA);
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('*').eq('id',po_id).single();
@@ -21330,17 +21556,49 @@ async function openEditPO(poId){
   }, 50);
 }
 
+// Les factures fournisseur liées à une commande SUIVENT l'imputation (chantier / SAV) de la commande quand on la change : sinon la commande
+// serait sur le nouveau centre et ses factures sur l'ancien (coûts faux, sans aucun signe). Seules suivent les factures encore sur
+// l'ancienne imputation de la commande (une facture imputée à la main ailleurs n'est pas touchée) et non annulées. Confirmation demandée.
+async function propagerImputationPO(poId, avant, maj, libelleNouveau){
+  if(!avant) return {n:0, deplace:false};
+  const dCh = String(avant.chantier_id||'')!==String(maj.chantier_id||'');
+  const aInt = Object.prototype.hasOwnProperty.call(maj, 'intervention_id');
+  const dInt = aInt && String(avant.intervention_id||'')!==String(maj.intervention_id||'');
+  if(!dCh && !dInt) return {n:0, deplace:false};
+  const {data:facs, error:fErr} = await sb.from('factures').select('*').eq('po_id', poId);
+  if(fErr) return {n:0, deplace:false, erreur:fErr.message};
+  const suivent = (facs||[]).filter(f=>f.statut!=='annulee'
+    && String(f.chantier_id||avant.chantier_id||'')===String(avant.chantier_id||'')
+    && String(f.intervention_id||'')===String(avant.intervention_id||''));
+  if(!suivent.length) return {n:0, deplace:false};
+  const nums = suivent.map(f=>f.numero_facture_fournisseur||'sans n°').slice(0,5).join(', ')+(suivent.length>5?'…':'');
+  if(!confirm('Cette commande a '+suivent.length+' facture(s) fournisseur ('+nums+').\n\nElles suivent la commande : les imputer aussi à « '+libelleNouveau+' » ?\n\nOK = les déplacer avec la commande\nAnnuler = les laisser sur l\'ancien centre'))
+    return {n:suivent.length, deplace:false};
+  const ids = suivent.map(f=>f.id);
+  const patch = {chantier_id: maj.chantier_id};
+  if(aInt) patch.intervention_id = maj.intervention_id || null;
+  for(let i=0;i<ids.length;i+=50){
+    const {error} = await sb.from('factures').update(patch).in('id', ids.slice(i,i+50));
+    if(error) return {n:suivent.length, deplace:false, erreur:error.message};
+  }
+  return {n:suivent.length, deplace:true};
+}
 async function saveEditPO(poId){
   const chantier_id = el('po-chantier').value;
   const fournisseur_id = el('po-four').value;
   if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires", 'error'); return; }
   if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
 
-  await sb.from('purchase_orders_lyneo').update({
+  const avantImput = window._poEdit ? {chantier_id: window._poEdit.chantier_id, intervention_id: window._poEdit.intervention_id} : null;
+  const majPO = {
     chantier_id, fournisseur_id,
     ...achatIntervPayload('po', window._poEdit||null),
     observations: el('po-obs').value
-  }).eq('id', poId);
+  };
+  const libNouveau = (()=>{ const c = el('po-chantier'), i = el('po-intervention'); const t = x=>x && x.selectedOptions && x.selectedOptions[0] ? x.selectedOptions[0].textContent.trim() : '';
+    return [t(c), (i && !i.disabled && i.value) ? t(i) : ''].filter(Boolean).join(' · '); })();
+  const {error:poErr} = await sb.from('purchase_orders_lyneo').update(majPO).eq('id', poId);
+  if(poErr){ showToast('Erreur: '+poErr.message, 'error'); return; }
 
   // Sync lines without destroying/recreating everything (avoids duplicates
   // if a line already has a reception/BL linked to it and can't be deleted):
@@ -21387,7 +21645,11 @@ async function saveEditPO(poId){
     if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
   }
 
-  showToast("Commande mise à jour");
+  const suivi = await propagerImputationPO(poId, avantImput, majPO, libNouveau);
+  if(suivi.erreur) showToast("Commande mise à jour, mais ses factures n'ont pas pu être déplacées : "+suivi.erreur, 'error');
+  else if(suivi.deplace) showToast("Commande mise à jour — "+suivi.n+" facture(s) liée(s) imputée(s) aussi à « "+libNouveau+" »");
+  else if(suivi.n) showToast("Commande mise à jour — attention : "+suivi.n+" facture(s) liée(s) restent sur l'ancien centre (visible dans la fiche de la commande)");
+  else showToast("Commande mise à jour");
   closeModal();
   await rafraichirPage();
 }
@@ -21469,16 +21731,15 @@ async function openFacFromPO(poId){
       +'</tr>';
     }).join(''));
     const totBox = el('fac-po-totaux');
-    if(totBox) totBox.innerHTML =
-      '<div class="totaux-row"><span>Total HT</span><span>'+fmt(totalHT)+'</span></div>'
-      +'<div class="totaux-row"><span>TVA</span><span>'+fmt(totalTVA)+'</span></div>'
-      +'<div class="totaux-row ttc"><span>TOTAL TTC</span><span>'+fmt(totalHT+totalTVA)+'</span></div>';
+    if(totBox) totBox.innerHTML = tvaTotauxHtml('facgen', totalHT, totalTVA);
     crMajBarreTous('depuisCommande');
+    const tvaF = tvaFinale('facgen', totalTVA);
     if(el('fac-gen-ht')) el('fac-gen-ht').value = totalHT.toFixed(2);
-    if(el('fac-gen-tva')) el('fac-gen-tva').value = totalTVA.toFixed(2);
-    if(el('fac-gen-ttc')) el('fac-gen-ttc').value = (totalHT+totalTVA).toFixed(2);
+    if(el('fac-gen-tva')) el('fac-gen-tva').value = tvaF.toFixed(2);
+    if(el('fac-gen-ttc')) el('fac-gen-ttc').value = (totalHT+tvaF).toFixed(2);
   };
   window.renderFacPOLines = renderFacLines;
+  tvaReset('facgen', renderFacLines);
 
   const totalHT0 = _facFromPoLignes.reduce((a,l)=>a+l.total_ht,0);
   const totalTVA0 = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
@@ -21561,7 +21822,7 @@ async function saveFacFromPOCore(poId){
   if(!num||!date){ showToast("N° facture et date obligatoires", 'error'); return; }
 
   const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0);
+  const totalTVA = tvaFinale('facgen', _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0));
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('*').eq('id',poId).single();
   if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:totalHT+totalTVA, date}))) return;
@@ -21672,6 +21933,8 @@ async function openEditFacLignes(facId){
     }));
   }
   await chargerCodesRessource();
+  tvaReset('efac', renderEfacLignes);
+  tvaInit('efac', efacTvaCalculee(), sgEfac*parseFloat(fac.montant_tva));
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
     +'<div class="modal-header">'
@@ -21754,14 +22017,12 @@ function renderEfacLignes(){
     <td><button onclick="delEfacLigne(${i})" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px"><i class="ti ti-trash"></i></button></td>
   </tr>`).join(''));
   const totalHT = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const totalTVA = efacTvaCalculee();
   crMajBarreTous('modif');
   const tot = el('efac-totaux');
-  if(tot) tot.innerHTML = `
-    <div class="totaux-row"><span>Total HT</span><span>${fmt(totalHT)}</span></div>
-    <div class="totaux-row"><span>TVA</span><span>${fmt(totalTVA)}</span></div>
-    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
+  if(tot) tot.innerHTML = tvaTotauxHtml('efac', totalHT, totalTVA);
 }
+function efacTvaCalculee(){ return _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0); }
 
 function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); }
 function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); focusDerniereLigne('efac-lignes-body'); }
@@ -21775,7 +22036,7 @@ async function saveEditFacCore(facId){
 
   const sgBase = efacSigne();   // -1 : note de crédit (écran en positif, base en négatif)
   const totalHT = sgBase*_efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = sgBase*_efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
+  const totalTVA = sgBase*tvaFinale('efac', efacTvaCalculee());
 
   // si le n° de facture change : il ne doit pas déjà exister chez le même fournisseur
   {
@@ -21918,6 +22179,18 @@ async function creerNoteCredit(facId){
 }
 
 // ── DUPLIQUER UNE FACTURE (comme Odoo) ────────────────────────
+// La copie prend la date d'AUJOURD'HUI : son échéance doit donc être recalculée à partir d'aujourd'hui (avant, l'ancienne échéance était
+// recopiée telle quelle : souvent déjà dépassée, ou incohérente avec la nouvelle date).
+// 1) conditions de paiement de la FICHE FOURNISSEUR (ex. « 30 jours fin de mois ») ; 2) sinon le même délai que la facture d'origine
+// (nombre de jours entre sa date de facture et son échéance) ; 3) sinon vide (à saisir à la main, jamais une date inventée).
+async function echeanceCopieFacture(fac, fournisseurId, dateFacture){
+  const cond = await condFournisseur(fournisseurId);
+  const p = (cond===null || cond===undefined) ? null : delaiEtFdmConditions(cond);
+  if(p) return echeanceDepuisJours(dateFacture, p.jours, p.fdm);
+  const j = nbJoursEntre(String((fac&&fac.date_facture)||'').slice(0,10), String((fac&&fac.date_echeance)||'').slice(0,10));
+  if(j!==null && j>=0) return ajouterJoursISO(dateFacture, j);
+  return null;
+}
 async function duplicateFacture(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
@@ -21931,14 +22204,15 @@ async function duplicateFacture(facId){
     fournisseurId = fournisseurId||poRow?.fournisseur_id||null;
   }
 
+  const dateCopie = today();
   const {data:newFac, error} = await sb.from('factures').insert({
     po_id: fac.po_id,
     chantier_id: chantierId,
     fournisseur_id: fournisseurId,
     ...(fac.intervention_id ? {intervention_id: fac.intervention_id} : {}),
     numero_facture_fournisseur: (fac.numero_facture_fournisseur||'')+' (copie)',
-    date_facture: today(),
-    date_echeance: fac.date_echeance,
+    date_facture: dateCopie,
+    date_echeance: await echeanceCopieFacture(fac, fournisseurId, dateCopie),
     montant_ht: fac.montant_ht,
     montant_tva: fac.montant_tva,
     montant_ttc: fac.montant_ttc,
