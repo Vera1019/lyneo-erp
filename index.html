@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-06-18c8e8a"/>
+<meta name="lyneo-build" content="BUILD:2026-11-08-b723f95"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -330,6 +330,17 @@ tbody tr:hover td{background:var(--blue-light)}
 .cr-tous-lib{font-size:12px;font-weight:700;color:var(--gray-6)}
 .cr-tous-select{min-width:170px;max-width:100%;padding:5px 6px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px;background:#fff}
 .cr-tous-vides{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--gray-6);cursor:pointer}
+.ndf-tout{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--gray-6);cursor:pointer}
+.ndf-tout,.cr-tous-vides{white-space:nowrap;flex:0 0 auto}
+.ndf-tout input,.cr-tous-vides input,input.ndf-coche{width:auto;flex:0 0 auto;padding:0}
+.cr-tous select.cr-tous-select{width:auto;flex:1 1 190px;max-width:300px}
+.ndf-lg-coche td{background:var(--blue-light)}
+.ndf-repart{margin:10px 0 0;padding:10px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);background:var(--gray-1);font-size:12.5px}
+.ndf-repart-titre{font-weight:700;color:var(--gray-6);margin-bottom:6px}
+.ndf-repart table{width:100%;border-collapse:collapse}
+.ndf-repart th{padding:4px 8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray-5)}
+.ndf-repart th:first-child,.ndf-repart td:first-child{text-align:left}
+.ndf-repart td{padding:4px 8px;text-align:right;border-top:1px solid var(--gray-2)}
 .fac-obs-ico{margin-left:5px;font-size:15px;color:var(--gray-5);vertical-align:middle;cursor:help}
 .fac-int.fac-obs-r,strong.fac-obs-r,.fac-obs-ico.fac-obs-r{color:var(--red);font-weight:800}
 .fac-ndf{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:#E0F2FE;color:#075985;border:1px solid #7DD3FC;white-space:nowrap}
@@ -811,6 +822,7 @@ button.frm-pill:hover{filter:brightness(.96)}
         <div class="nav-section">Ressources humaines</div>
         <a class="nav-item" href="#/employes_rh" onclick="return navLien(event,'employes_rh')" id="nav-employes_rh"><i class="ti ti-id-badge-2"></i> Employés</a>
         <a class="nav-item" href="#/formations" onclick="return navLien(event,'formations')" id="nav-formations"><i class="ti ti-certificate"></i> Formations</a>
+        <a class="nav-item" href="#/astreintes" onclick="return navLien(event,'astreintes')" id="nav-astreintes"><i class="ti ti-alarm"></i> Astreintes</a>
         <a class="nav-item" href="https://lyneo-pointages.netlify.app" target="_blank" rel="noopener"><i class="ti ti-clock-hour-4"></i> Pointages <i class="ti ti-external-link" style="font-size:12px;opacity:.6"></i></a>
       </div>
 
@@ -2755,7 +2767,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-06-18c8e8a';
+const APP_BUILD = 'BUILD:2026-11-08-b723f95';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3013,7 +3025,7 @@ new MutationObserver(()=>{
 }).observe(document.body, {childList:true, subtree:true});
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource'};
 
 // ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
 const PAGES_ADMIN = ['utilisateurs','controle','documents'];
@@ -3022,7 +3034,7 @@ function pageAutorisee(p){
   const R = pageRenderers();
   if(!p || !Object.prototype.hasOwnProperty.call(R,p) || typeof R[p]!=='function') return false;   // refuse __proto__, constructor…
   if(PAGES_ADMIN.includes(p)) return !!currentUser && currentUser.role==='admin';
-  if(p==='employes_rh' || p==='formations') return !!currentUser && peutVoirSalaires();
+  if(p==='employes_rh' || p==='formations' || p==='astreintes') return !!currentUser && peutVoirSalaires();
   return true;
 }
 // Clic simple : on reste dans cet onglet. Ctrl/Cmd/Maj + clic (ou clic molette, clic droit) : on laisse le navigateur ouvrir un nouvel onglet.
@@ -3066,7 +3078,7 @@ function navigate(page, depuisAdresse){
 }
 
 function pageRenderers(){
-  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes};
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes};
 }
 
 // Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
@@ -9627,6 +9639,16 @@ function ventilationTvaLignes(lignes){
   return Object.keys(m).map(Number).sort((a,b)=>b-a).map(t=>({taux:t, base:arrondi2(m[t]), tva:arrondi2(m[t]*t/100)}));
 }
 const fmtQteLigne = q => { const n = parseFloat(q); return isNaN(n) ? '' : String(n).replace('.',','); };
+// TVA de la FICHE : si la TVA enregistrée diffère (au centime) du calcul des lignes, c'est une correction faite avec le crayon (TVA de la
+// facture papier) : la fiche l'affiche et TTC = HT + TVA. Pas de correction retenue si le HT enregistré ne colle pas aux lignes (> 0,05 €) :
+// dans ce cas c'est l'avertissement d'écart qui parle et les totaux restent ceux des lignes. Avoir : tout est négatif, la comparaison reste signée.
+function tvaFicheCorrigee(fac, lignes, tot){
+  const st = montantTvaFacture(fac), htFac = montantHtFacture(fac);
+  const brut = (lignes||[]).reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva,0)/100, 0);
+  const htOk = htFac===null || Math.abs(htFac-tot.ht)<=0.05;
+  const corrigee = htOk && st!==null && centimesDe(st)!==centimesDe(brut) && centimesDe(st)!==centimesDe(tot.tva);
+  return {corrigee, htOk, tva: corrigee ? centimesDe(st)/100 : tot.tva, ecart: corrigee ? (centimesDe(st)-centimesDe(tot.tva))/100 : 0};
+}
 function htmlLignesFactureDetail(fac, lignes, ok){
   const boite = (corps)=>`<div id="fac-det-lignes" style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:8px"><i class="ti ti-list-details"></i> Lignes de la facture</div>${corps}</div>`;
   if(!ok) return boite(`<div class="alert alert-warning" id="fac-det-lignes-indispo"><i class="ti ti-alert-triangle"></i> Les lignes n'ont pas pu être lues pour le moment. Fermez et rouvrez la facture.</div>`);
@@ -9651,15 +9673,22 @@ function htmlLignesFactureDetail(fac, lignes, ok){
   }).join('');
   const tot = totauxFacture(lignes), vent = ventilationTvaLignes(lignes);
   const htFac = montantHtFacture(fac), ttcFac = parseFloat(fac.montant_ttc);
-  const ecart = (htFac!==null && Math.abs(htFac-tot.ht)>0.05) || (!isNaN(ttcFac) && Math.abs(ttcFac-tot.ttc)>0.05);
-  const avert = ecart ? `<div class="alert alert-warning" id="fac-det-ecart" style="margin-top:10px"><i class="ti ti-alert-triangle"></i> <span>Les lignes totalisent <strong>${fmt(tot.ht)} HT</strong> / <strong>${fmt(tot.ttc)} TTC</strong>, mais la facture indique <strong>${htFac===null?'—':fmt(htFac)} HT</strong> / <strong>${isNaN(ttcFac)?'—':fmt(ttcFac)} TTC</strong>. Vérifiez avec « Modifier ».</span></div>` : '';
+  const tc = tvaFicheCorrigee(fac, lignes, tot);
+  const ttcAff = (centimesDe(tot.ht)+centimesDe(tc.tva))/100;
+  const ecart = (htFac!==null && Math.abs(htFac-tot.ht)>0.05) || (!isNaN(ttcFac) && Math.abs(ttcFac-ttcAff)>0.05);
+  const seau = '<em class="tva-corr" id="fac-det-tva-corr">corrigée</em>';
+  const unSeulTaux = vent.length===1;
+  const lignesTva = vent.map(v=>`<tr data-tva-taux="${v.taux}"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">TVA ${escHtml(String(v.taux).replace('.',','))} % <span style="font-size:11px">(sur ${fmt(v.base)})</span>${tc.corrigee&&unSeulTaux?seau:''}</td><td style="padding:3px 0;text-align:right"${tc.corrigee&&unSeulTaux?' id="fac-det-tva-val"':''}>${fmt(tc.corrigee&&unSeulTaux ? tc.tva : v.tva)}</td></tr>`).join('')
+    + (tc.corrigee&&!unSeulTaux ? `<tr id="fac-det-tva-delta"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">Correction de TVA${seau}</td><td style="padding:3px 0;text-align:right" id="fac-det-tva-val">${tc.ecart>=0?'+':'−'}${fmt(Math.abs(tc.ecart))}</td></tr>` : '');
+  const infoTva = tc.corrigee ? `<tr><td colspan="2" class="tva-info${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' warn':''}" id="fac-det-tva-info">TVA de la facture : ${fmt(tc.tva)} — calculée d'après les lignes : ${fmt(tot.tva)} (écart ${tc.ecart>=0?'+':'−'}${fmt(Math.abs(tc.ecart))})${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' — ⚠ écart important : vérifiez les taux de TVA des lignes':''}</td></tr>` : '';
+  const avert = ecart ? `<div class="alert alert-warning" id="fac-det-ecart" style="margin-top:10px"><i class="ti ti-alert-triangle"></i> <span>Les lignes totalisent <strong>${fmt(tot.ht)} HT</strong> / <strong>${fmt(ttcAff)} TTC</strong>, mais la facture indique <strong>${htFac===null?'—':fmt(htFac)} HT</strong> / <strong>${isNaN(ttcFac)?'—':fmt(ttcFac)} TTC</strong>. Vérifiez avec « Modifier ».</span></div>` : '';
   return boite(`<div style="overflow-x:auto;max-width:100%"><table id="fac-det-table" style="width:100%;border-collapse:collapse;min-width:620px;font-size:13px">
       <thead><tr style="background:var(--gray-1)">${th('Référence')}${th('Description')}${avecCodes?th('Code ressource'):''}${th('Qté','right')}${th('P.U. HT','right')}${th('TVA','right')}${th('Total HT','right')}</tr></thead>
       <tbody>${lignesHtml}</tbody></table></div>
     <div style="display:flex;justify-content:flex-end;margin-top:10px"><table id="fac-det-totaux" style="font-size:13px;border-collapse:collapse;min-width:260px">
       <tr><td style="padding:3px 12px 3px 0;color:var(--gray-5)">Total HT</td><td style="padding:3px 0;text-align:right" id="fac-det-tot-ht">${fmt(tot.ht)}</td></tr>
-      ${vent.map(v=>`<tr data-tva-taux="${v.taux}"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">TVA ${escHtml(String(v.taux).replace('.',','))} % <span style="font-size:11px">(sur ${fmt(v.base)})</span></td><td style="padding:3px 0;text-align:right">${fmt(v.tva)}</td></tr>`).join('')}
-      <tr><td style="padding:6px 12px 3px 0;font-weight:700;border-top:1px solid var(--gray-3)">Total TTC</td><td style="padding:6px 0 3px;text-align:right;font-weight:700;color:var(--blue);border-top:1px solid var(--gray-3)" id="fac-det-tot-ttc">${fmt(tot.ttc)}</td></tr>
+      ${lignesTva}${infoTva}
+      <tr><td style="padding:6px 12px 3px 0;font-weight:700;border-top:1px solid var(--gray-3)">Total TTC</td><td style="padding:6px 0 3px;text-align:right;font-weight:700;color:var(--blue);border-top:1px solid var(--gray-3)" id="fac-det-tot-ttc">${fmt(ttcAff)}</td></tr>
     </table></div>${avert}`);
 }
 
@@ -10164,11 +10193,88 @@ async function ndfNumeroSuggere(fournisseurId, dateISO){
   if(fournisseurId){
     try{
       const {data} = await sb.from('factures').select('numero_facture_fournisseur').eq('fournisseur_id', fournisseurId).ilike('numero_facture_fournisseur', pref+'%');
-      const re = new RegExp('^'+pref+'(\\d+)$');
+      const re = new RegExp('^'+pref+'(\\d+)(?:-.+)?$');
       (data||[]).forEach(r=>{ const m = re.exec(String(r.numero_facture_fournisseur||'').trim()); if(m) n = Math.max(n, parseInt(m[1],10)); });
     }catch(e){}
   }
   return pref + String(n+1).padStart(2,'0');
+}
+
+// ── NOTE DE FRAIS : chantier et code ressource PAR LIGNE ──────────────────────────────────────────────────────
+// Le chantier du haut est le chantier PAR DÉFAUT : une ligne sans chantier propre le suit. Les coûts d'un chantier se lisent sur
+// factures.chantier_id : si les lignes vont sur plusieurs chantiers, l'enregistrement crée UNE facture fournisseur par chantier
+// (n° de la note + « - » + n° du chantier), avec les mêmes justificatifs ; aucun SQL. La ligne porte un drapeau `_coche` (jamais écrit en base).
+let _ndfChantiers = [];      // chantiers proposés (archivés exclus)
+let _ndfScinde = false;      // une note déjà partiellement enregistrée en plusieurs factures : les n° gardent leur suffixe
+const ndfOuverte = () => !!el('ndf-employe');
+const ndfChantierDefaut = () => String((el('facl-chantier')||{}).value || '');
+const ndfLibChantier = id => { const c = _ndfChantiers.find(x=>String(x.id)===String(id)); return c ? (String(c.numero||'')+' — '+c.nom) : ''; };
+const ndfHT = ls => ls.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0), 0);
+const ndfTVA = ls => ls.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100, 0);
+function ndfOptionsChantier(courant){
+  const def = ndfChantierDefaut();
+  return '<option value=""'+(!courant?' selected':'')+'>↳ '+(def ? escHtml(ndfLibChantier(def)) : 'Chantier de la note')+'</option>'
+    + _ndfChantiers.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(c.id)===String(courant)?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>').join('');
+}
+// Lignes regroupées par chantier effectif ; le groupe du chantier par défaut en premier, les autres dans l'ordre d'apparition
+function ndfGroupes(defaut){
+  const dflt = String(defaut||''), m = new Map();
+  _facLignesLibre.forEach(l=>{ const id = String((l && l.chantier_id) || dflt); if(!m.has(id)) m.set(id, []); m.get(id).push(l); });
+  const g = Array.from(m.entries()).map(([chantierId, lignes])=>({chantierId, lignes}));
+  const d = g.findIndex(x=>x.chantierId===dflt);
+  if(d>0) g.unshift(g.splice(d,1)[0]);
+  return g;
+}
+const ndfCellCoche = (l,i) => '<td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);text-align:center;width:30px"><input type="checkbox" class="ndf-coche" aria-label="Cocher la ligne '+(i+1)+'"'+(l._coche?' checked':'')+' onchange="ndfCocher('+i+',this.checked)"/></td>';
+const ndfCellChantier = (l,i) => '<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select class="ndf-ligne-chantier" aria-label="Chantier de la ligne '+(i+1)+'" onchange="updFacLigneLibre('+i+',\'chantier_id\',this.value)" style="width:100%;min-width:150px;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'+ndfOptionsChantier(l.chantier_id||'')+'</select></td>';
+function ndfCocher(i, v){ if(_facLignesLibre[i]) _facLignesLibre[i]._coche = !!v; renderFacLignesLibre(); }
+function ndfToutCocher(v){ _facLignesLibre.forEach(l=>{ l._coche = !!v; }); renderFacLignesLibre(); }
+function ndfMajDefaut(){ if(ndfOuverte()) renderFacLignesLibre(); }
+const ndfMemoCoches = () => ({code: (el('ndf-coches-code')||{}).value || '', ch: (el('ndf-coches-chantier')||{}).value || ''});
+function ndfBarreCochesHtml(memo){
+  if(_facLignesLibre.length < 2) return '';
+  const m = memo || ndfMemoCoches(), n = _facLignesLibre.filter(l=>l._coche).length, tous = n===_facLignesLibre.length;
+  return '<div class="cr-tous ndf-coches" id="ndf-coches"><label class="ndf-tout"><input type="checkbox" id="ndf-tout"'+(tous?' checked':'')+' onchange="ndfToutCocher(this.checked)"/> Tout cocher</label>'
+    +'<span class="cr-tous-lib" id="ndf-nb-coches">'+(n ? n+' ligne'+(n>1?'s':'')+' cochée'+(n>1?'s':'') : 'Cochez des lignes pour leur attribuer un code ressource et/ou un chantier')+'</span>'
+    +(_codesResDispo ? '<select id="ndf-coches-code" class="cr-tous-select" aria-label="Code ressource à appliquer aux lignes cochées">'+crOptions(m.code)+'</select>' : '')
+    +'<select id="ndf-coches-chantier" class="cr-tous-select" aria-label="Chantier à appliquer aux lignes cochées"><option value="">— Chantier —</option><option value="__def__"'+(m.ch==='__def__'?' selected':'')+'>↳ Chantier de la note</option>'
+    +_ndfChantiers.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(c.id)===String(m.ch)?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>').join('')+'</select>'
+    +'<button type="button" class="btn btn-secondary btn-sm" id="ndf-coches-btn" onclick="ndfAppliquerCoches()"><i class="ti ti-checks"></i> Appliquer aux lignes cochées</button></div>';
+}
+function ndfAppliquerCoches(){
+  const cibles = _facLignesLibre.filter(l=>l._coche);
+  if(!cibles.length){ showToast("Cochez d'abord les lignes à modifier", 'error'); return; }
+  const m = ndfMemoCoches();
+  if(!m.code && !m.ch){ showToast("Choisissez un code ressource et/ou un chantier à appliquer", 'error'); return; }
+  let c = null, ch = null;
+  if(m.code){
+    c = _codesRes.find(x=>String(x.id)===String(m.code));
+    if(!c){ showToast("Code ressource introuvable : choisissez-le à nouveau", 'error'); return; }
+    if(c.actif===false){ showToast('Le code « '+escHtml(c.code)+' » est désactivé : choisissez un code actif', 'error'); return; }
+  }
+  if(m.ch && m.ch!=='__def__'){
+    ch = _ndfChantiers.find(x=>String(x.id)===String(m.ch));
+    if(!ch){ showToast("Chantier introuvable : choisissez-le à nouveau", 'error'); return; }
+  }
+  cibles.forEach(l=>{ if(m.code) l.code_ressource_id = m.code; if(m.ch) l.chantier_id = m.ch==='__def__' ? '' : m.ch; l._coche = false; });
+  renderFacLignesLibre();
+  const que = [c ? 'code « '+escHtml(c.code)+' »' : '', m.ch==='__def__' ? 'chantier de la note' : (ch ? 'chantier « '+escHtml(String(ch.numero||'')+' — '+ch.nom)+' »' : '')].filter(Boolean).join(' et ');
+  showToast(que.charAt(0).toUpperCase()+que.slice(1)+' appliqué'+(m.code&&m.ch?'s':'')+' à '+cibles.length+' ligne'+(cibles.length>1?'s':''));
+}
+function ndfRepartitionHtml(){
+  const g = ndfGroupes(ndfChantierDefaut());
+  if(g.length < 2) return '';
+  const man = window._tvaMan.facl, bloque = !!man && Math.abs(man.ref - ndfTVA(_facLignesLibre)) <= 0.004;
+  const lignes = g.map(x=>{ const ht = ndfHT(x.lignes), tva = ndfTVA(x.lignes);
+    return '<tr data-ndf-chantier="'+escHtml(x.chantierId)+'"><td>'+escHtml(ndfLibChantier(x.chantierId)||'—')+'</td><td>'+x.lignes.length+' ligne'+(x.lignes.length>1?'s':'')+'</td><td>'+fmt(ht)+'</td><td>'+fmt(tva)+'</td><td><strong>'+fmt(ht+tva)+'</strong></td></tr>'; }).join('');
+  return '<div class="ndf-repart" id="ndf-repart"><div class="ndf-repart-titre"><i class="ti ti-arrows-split"></i> '+g.length+' chantiers : une facture fournisseur sera créée par chantier (n° de la note + n° du chantier)</div>'
+    +'<table><thead><tr><th>Chantier</th><th></th><th>HT</th><th>TVA</th><th>TTC</th></tr></thead><tbody>'+lignes+'</tbody></table>'
+    +(bloque ? '<div class="alert alert-warning" id="ndf-repart-tva" style="margin:8px 0 0"><i class="ti ti-alert-triangle"></i><span>La TVA a été corrigée à la main (crayon) : elle ne peut pas être répartie entre plusieurs chantiers. Cliquez sur « Recalculer » dans les totaux.</span></div>' : '')
+    +'</div>';
+}
+function ndfMajBarres(){
+  const z = el('ndf-coches-zone'); if(z) z.innerHTML = ndfBarreCochesHtml();
+  const r = el('ndf-repartition'); if(r) r.innerHTML = ndfRepartitionHtml();
 }
 
 async function openNoteFraisModal(){
@@ -10190,12 +10296,13 @@ async function openNoteFraisModal(){
   _ndfEmployes = (empR.data||[]).filter(e=>e.actif!==false).sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr',{sensitivity:'base'}));
   _ndfFours = fours;
   const chantiers = chantiersChoix(chR.data||[]);   // les chantiers archivés ne sont plus proposés
+  _ndfChantiers = chantiers; _ndfScinde = false;
   await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
   tvaReset('facl', renderFacLignesLibre);
   _facFilesNew = [];
 
-  showModal(`<div class="modal-overlay"><div class="modal modal-lg">
+  showModal(`<div class="modal-overlay"><div class="modal modal-lg" style="max-width:1120px">
     <div class="modal-header"><div><h3>Note de frais</h3><div class="modal-header-sub">Dépense avancée par un salarié : elle s'encode comme une facture fournisseur, le salarié étant le fournisseur</div></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
@@ -10203,8 +10310,9 @@ async function openNoteFraisModal(){
           <select id="ndf-employe" onchange="ndfSurEmploye()"><option value="">— Sélectionner —</option>${_ndfEmployes.map(e=>`<option value="${escHtml(e.id)}">${escHtml(nomPers(e))}</option>`).join('')}</select>
           <div id="ndf-emp-note" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div>
         </div>
-        <div class="form-group"><label class="field-label">Chantier *</label>
-          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${escHtml(c.id)}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
+        <div class="form-group"><label class="field-label">Chantier par défaut *</label>
+          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures');ndfMajDefaut()"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${escHtml(c.id)}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
+          <div style="font-size:12px;margin-top:4px;color:var(--gray-5)">Chaque ligne peut avoir un autre chantier (colonne « Chantier »).</div>
         </div>
         ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">N° de la note *</label><input id="facl-num" oninput="this.dataset.auto='0'" placeholder="NDF-202610-01"/><div style="font-size:12px;margin-top:4px;color:var(--gray-5)">Proposé automatiquement ; vous pouvez y mettre le n° du ticket.</div></div>
@@ -10216,11 +10324,14 @@ async function openNoteFraisModal(){
         <button class="btn btn-secondary btn-sm" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button>
       </div>
       <div id="cr-tous-zone"></div>
+      <div id="ndf-coches-zone"></div>
       <div style="overflow-x:auto;max-width:100%">
-        <table style="width:100%;border-collapse:collapse;min-width:600px">
+        <table style="width:100%;border-collapse:collapse;min-width:980px" id="ndf-table">
           <thead><tr style="background:var(--gray-1)">
+            <th style="width:30px"></th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">N° ticket</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description (fournisseur réel, motif)</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:160px">Chantier</th>
             ${crTh('padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:140px')}
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
@@ -10231,7 +10342,9 @@ async function openNoteFraisModal(){
           <tbody id="facl-lignes-body"></tbody>
         </table>
       </div>
+      <div style="margin:8px 0 0"><button type="button" class="btn btn-secondary btn-sm" id="ndf-add-bas" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="facl-totaux"></div></div>
+      <div id="ndf-repartition"></div>
       <div style="font-size:12px;color:var(--gray-5);margin:6px 0 16px">TVA du ticket : 17 / 14 / 8 / 3 %. Indemnités kilométriques et forfaits : 0 %. La TVA ne se récupère qu'avec le justificatif original (à confirmer avec le comptable).</div>
       <div style="border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:16px">
         <div style="background:var(--gray-1);padding:10px 16px;border-bottom:1px solid var(--gray-3);display:flex;align-items:center;gap:8px">
@@ -10341,53 +10454,89 @@ async function saveNoteFraisCore(){
   if(!numero){ showToast('N° de la note obligatoire', 'error'); return rendre(); }
   if(!date){ showToast('Date de la note obligatoire', 'error'); return rendre(); }
   if(_facLignesLibre.some(l=>!String(l.description||'').trim())){ showToast('Toutes les lignes doivent avoir une description', 'error'); return rendre(); }
-  const totalHT = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = tvaFinale('facl', _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100,0));
+  const totalHT = ndfHT(_facLignesLibre), calcTVA = ndfTVA(_facLignesLibre);
   if(!(totalHT>0)){ showToast('Le montant de la note de frais est nul', 'error'); return rendre(); }
+  // une facture par chantier (groupe du chantier par défaut en premier) ; une seule si toutes les lignes vont au même chantier
+  const groupes = ndfGroupes(chantierId);
+  if(groupes.length>1){
+    const nul = groupes.find(g=>!(ndfHT(g.lignes)>0));
+    if(nul){ showToast('Le montant de la note pour le chantier « '+escHtml(ndfLibChantier(nul.chantierId))+' » est nul ou négatif : corrigez ses lignes ou changez leur chantier', 'error'); return rendre(); }
+    const man = window._tvaMan.facl;
+    if(man && Math.abs(man.ref - calcTVA) <= 0.004){ showToast("La TVA corrigée à la main (crayon) ne peut pas être répartie entre plusieurs chantiers : cliquez sur « Recalculer » dans les totaux, ou mettez toutes les lignes sur le même chantier", 'error'); return rendre(); }
+  }
+  const scinde = groupes.length>1 || _ndfScinde, suffixes = [];
+  groupes.forEach((g,gi)=>{
+    g.ht = ndfHT(g.lignes);
+    g.tva = groupes.length===1 ? tvaFinale('facl', calcTVA) : ndfTVA(g.lignes);
+    let suf = String((_ndfChantiers.find(c=>String(c.id)===String(g.chantierId))||{}).numero||'').trim().replace(/\s+/g,'') || String(gi+1);
+    if(suffixes.includes(suf)) suf += '-'+(gi+1);
+    suffixes.push(suf);
+    g.numero = scinde ? numero+'-'+suf : numero;
+  });
   if(!_facFilesNew.length && !confirm("Aucun justificatif (ticket, facture) n'est joint.\n\nSans justificatif, la TVA ne pourra pas être récupérée et la dépense n'est pas prouvée.\nEnregistrer quand même ?")){ return rendre(); }
 
   const four = await ndfResoudreFournisseur(emp);
   if(!four){ return rendre(); }
   // la même note du même salarié ne s'enregistre pas deux fois (un fournisseur tout juste créé n'a encore aucune facture)
-  if(!four.neuf && !(await controlerFactureFournisseur({fournisseurId:four.id, numero, ttc:totalHT+totalTVA, date}))){ return rendre(); }
-
-  const {data:fac, error} = await sb.from('factures').insert({
-    po_id: null, chantier_id: chantierId, fournisseur_id: four.id,
-    numero_facture_fournisseur: numero,
-    date_facture: date,
-    date_echeance: el('facl-echeance').value||null,
-    montant_ht: totalHT, montant_tva: totalTVA, montant_ttc: totalHT+totalTVA,
-    statut: 'validee', saisie_par: currentUser.id,
-    ...achatIntervPayload('facl', null),
-    observations: el('facl-obs').value
-  }).select().single();
-  if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return rendre(); }
-
-  const lr = await sb.from('lignes_facture').insert(_facLignesLibre.map((l,i)=>({
-    facture_id: fac.id, ordre: i+1,
-    description: l.description, reference_article: l.reference_article||'',
-    quantite: parseFloat(l.quantite)||0, unite: l.unite,
-    prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva),
-    ...crPayload(l)
-  })));
-  if(lr && lr.error) showToast("Note créée, mais erreur en enregistrant les lignes : "+lr.error.message, 'error');
-
-  let nbDocs = 0;
-  for(const file of _facFilesNew){
-    const path = 'factures/'+fac.id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-    const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
-    if(!upErr){
-      const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
-      const ai = await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
-      if(!(ai && ai.error)) nbDocs++;
-    }
+  if(!four.neuf){
+    for(const g of groupes){ if(!(await controlerFactureFournisseur({fournisseurId:four.id, numero:g.numero, ttc:g.ht+g.tva, date}))){ return rendre(); } }
   }
-  const attendus = _facFilesNew.length;
+
+  const crees = [];
+  let nbDocs = 0, attendus = 0, erreursLignes = 0;
+  for(const g of groupes){
+    const {data:fac, error} = await sb.from('factures').insert({
+      po_id: null, chantier_id: g.chantierId, fournisseur_id: four.id,
+      numero_facture_fournisseur: g.numero,
+      date_facture: date,
+      date_echeance: el('facl-echeance').value||null,
+      montant_ht: g.ht, montant_tva: g.tva, montant_ttc: g.ht+g.tva,
+      statut: 'validee', saisie_par: currentUser.id,
+      ...(String(g.chantierId)===String(chantierId) ? achatIntervPayload('facl', null) : {}),
+      observations: el('facl-obs').value
+    }).select().single();
+    if(error){
+      const msg = erreurDoublonBase(error)||('Erreur: '+error.message);
+      if(!crees.length){ showToast(msg, 'error'); return rendre(); }
+      // échec en cours de route : les factures déjà créées restent ; on retire leurs lignes du formulaire (pas de doublon au nouvel essai)
+      const faites = new Set(); crees.forEach(c=>c.groupe.lignes.forEach(l=>faites.add(l)));
+      _facLignesLibre = _facLignesLibre.filter(l=>!faites.has(l));
+      _ndfScinde = true;
+      renderFacLignesLibre();
+      try{ await rafraichirPage(); }catch(e){}
+      showToast("Note de frais enregistrée en partie : "+crees.map(c=>c.fac.numero_facture_fournisseur).join(', ')+" créée(s) ; la facture « "+g.numero+" » a échoué ("+msg+"). Les lignes restantes sont conservées : corrigez puis enregistrez à nouveau.", 'error');
+      return rendre();
+    }
+    const lr = await sb.from('lignes_facture').insert(g.lignes.map((l,i)=>({
+      facture_id: fac.id, ordre: i+1,
+      description: l.description, reference_article: l.reference_article||'',
+      quantite: parseFloat(l.quantite)||0, unite: l.unite,
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva),
+      ...crPayload(l)
+    })));
+    if(lr && lr.error){ erreursLignes++; showToast("Note créée, mais erreur en enregistrant les lignes ("+g.numero+") : "+lr.error.message, 'error'); }
+    for(const file of _facFilesNew){
+      attendus++;
+      const path = 'factures/'+fac.id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+      const {error:upErr} = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+      if(!upErr){
+        const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+        const ai = await sb.from('anexos').insert({factura_id:fac.id,nome_ficheiro:file.name,url:urlData.publicUrl,tamanho:file.size,tipo:file.type,carregado_por:currentUser.id});
+        if(!(ai && ai.error)) nbDocs++;
+      }
+    }
+    crees.push({fac, groupe:g});
+  }
   _facFilesNew = [];
-  showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+numero+nIntTxt(fac)+(attendus ? ' · '+nbDocs+'/'+attendus+' justificatif(s)' : ''), nbDocs<attendus ? 'error' : undefined);
+  const docsTxt = attendus ? ' · '+nbDocs+'/'+attendus+' justificatif(s)' : '';
+  if(crees.length===1){
+    showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees[0].fac.numero_facture_fournisseur+nIntTxt(crees[0].fac)+docsTxt, nbDocs<attendus ? 'error' : undefined);
+  } else {
+    showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees.length+' factures, une par chantier : '+crees.map(c=>c.fac.numero_facture_fournisseur+' ('+fmt(c.groupe.ht)+' HT)').join(' ; ')+docsTxt, nbDocs<attendus ? 'error' : undefined);
+  }
   closeModal();
   await rafraichirPage();
-  openFacDetail(fac.id);
+  if(crees.length===1) openFacDetail(crees[0].fac.id);
 }
 
 async function openFacLibreModal(){
@@ -10450,10 +10599,11 @@ async function openFacLibreModal(){
 function renderFacLignesLibre(){
   const body = el('facl-lignes-body');
   if(!body) return;
-  morphLignes(body, _facLignesLibre.map((l,i)=>`<tr>
+  const ndf = ndfOuverte();
+  morphLignes(body, _facLignesLibre.map((l,i)=>`<tr${ndf&&l._coche?' class="ndf-lg-coche"':''}>${ndf?ndfCellCoche(l,i):''}
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
-    ${crTd(l.code_ressource_id, "updFacLigneLibre("+i+",'code_ressource_id',this.value)", 'padding:6px 10px;border-bottom:1px solid var(--gray-2)')}
+    ${ndf?ndfCellChantier(l,i):''}${crTd(l.code_ressource_id, "updFacLigneLibre("+i+",'code_ressource_id',this.value)", 'padding:6px 10px;border-bottom:1px solid var(--gray-2)')}
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updFacLigneLibre(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updFacLigneLibre(${i},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updFacLigneLibre(${i},'taux_tva',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">${[17,14,8,3,0].map(t=>`<option value="${t}" ${l.taux_tva==t?'selected':''}>${t}%</option>`).join('')}</select></td>
@@ -10465,6 +10615,7 @@ function renderFacLignesLibre(){
   const totalTVA = _facLignesLibre.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0);
   const box = el('facl-totaux');
   if(box) box.innerHTML = tvaTotauxHtml('facl', totalHT, totalTVA);
+  if(ndf) ndfMajBarres();
 }
 function addFacLigneLibre(){ _facLignesLibre.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); focusDerniereLigne('facl-lignes-body'); }
 function delFacLigneLibre(i){ _facLignesLibre.splice(i,1); renderFacLignesLibre(); }
@@ -16673,6 +16824,203 @@ async function telechargerSauvegarde(){
   if(b) b.disabled = false;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ASTREINTES — semaines d'astreinte cochées dans l'application des pointages (Ressources humaines, LECTURE SEULE)
+// SQL : migration-pointages-astreinte.sql, à exécuter dans le Supabase des POINTAGES (pas dans celui de l'ERP).
+// Même accès que « Employés » (administrateurs + « Accès aux salaires »). Une ligne = un employé × une semaine (lundi → dimanche).
+// L'ERP ne modifie rien ici (la case se coche dans les pointages) et ne calcule AUCUNE indemnité : à confirmer avec le comptable.
+// Sans le SQL : message clair, rien d'autre ne change.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+const SQL_ASTREINTE = 'migration-pointages-astreinte.sql';
+const ASTR_ETATS = {brouillon:'Brouillon', soumis:'En attente de validation', approuve:'Approuvée', rejete:'Rejetée', aucune:'Pas de feuille', inconnu:'Non disponible'};
+const ASTR_COUL = {approuve:['#D1FAE5','#064E3B'], soumis:['#DBEAFE','#1E40AF'], rejete:['#FEE2E2','#991B1B'], brouillon:['#F3E8FF','#6D28D9'], aucune:['#F3F4F6','#4B5563'], inconnu:['#F3F4F6','#4B5563']};
+let _astr = {etat:'', msg:'', lignes:[], vue:'semaine', f:{annee:'', emp:'', etat:''}};
+let _astrInfoExport = new Map();                 // id de la ligne → ligne enrichie : rempli au chargement de l'export Excel
+const astrAbsente = msg => /PGRST205|42P01|does not exist|schema cache|could not find/i.test(String(msg||''));
+const astrISO = v => String(v||'').slice(0,10);
+function astrJours(iso, n){ const d = new Date(astrISO(iso)+'T00:00:00Z'); if(isNaN(d.getTime())) return ''; d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function astrFR(iso){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(astrISO(iso)); return m ? m[3]+'/'+m[2]+'/'+m[1] : '—'; }
+// Numéro de semaine ISO 8601 (le jeudi donne l'année de la semaine) : {an, sem}
+function astrNumSemaine(iso){
+  const d = new Date(astrISO(iso)+'T00:00:00Z'); if(isNaN(d.getTime())) return {an:0, sem:0};
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay()+6)%7) + 3);
+  const an = d.getUTCFullYear(), j4 = new Date(Date.UTC(an,0,4));
+  j4.setUTCDate(j4.getUTCDate() - ((j4.getUTCDay()+6)%7));
+  return {an, sem: 1 + Math.round((d - j4) / (7*86400000))};
+}
+function astrBadge(etat){
+  const c = ASTR_COUL[etat] || ASTR_COUL.inconnu;
+  return `<span class="astr-badge" data-etat="${escHtml(etat)}" style="background:${c[0]};color:${c[1]};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap">${escHtml(ASTR_ETATS[etat]||etat)}</span>`;
+}
+// Lignes de la base → lignes enrichies (semaine ISO, période, état de la feuille de cette semaine). semaines === null : états illisibles.
+function astrConstruire(brut, semaines, nomDe){
+  const st = new Map();
+  (semaines||[]).forEach(x=>{ st.set(String(x.employe_id)+'|'+astrISO(x.semaine_debut), String(x.statut||'')); });
+  return (brut||[]).map(r=>{
+    const debut = astrISO(r.semaine_debut), n = astrNumSemaine(debut), e = String(r.employe_id);
+    const stat = st.get(e+'|'+debut), nm = nomDe ? nomDe(e) : {nom:'', rhId:null, actif:null};
+    return {id:r.id, raw:r, empId:e, nom:nm.nom, rhId:nm.rhId, actif:nm.actif, debut, fin:astrJours(debut,6), annee:n.an, sem:n.sem,
+      etat: semaines===null ? 'inconnu' : (stat && ASTR_ETATS[stat] ? stat : 'aucune'), par:String(r.par_nom||''), le:r.created_at||''};
+  }).sort((a,b)=> a.debut<b.debut?1 : a.debut>b.debut?-1 : a.nom.localeCompare(b.nom,'fr'));
+}
+async function astrCharger(){
+  _astr.etat = ''; _astr.msg = ''; _astr.lignes = [];
+  let brut;
+  try{ brut = await lirePT('semaine_astreintes','*'); }
+  catch(e){ _astr.msg = (e && e.message) || String(e); _astr.etat = astrAbsente(_astr.msg) ? 'absente' : 'erreur'; return false; }
+  let emps = [], ptEmps = [], semaines = [];
+  try{ emps = await lireTableComplete('employes_rh'); }catch(e){ emps = []; }
+  try{ ptEmps = await lirePT('employes','id,nom'); }catch(e){ ptEmps = []; }
+  if(brut.length){
+    const min = brut.map(r=>astrISO(r.semaine_debut)).sort()[0];
+    try{ semaines = await lirePT('semaines','id,employe_id,semaine_debut,statut', q=>q.gte('semaine_debut', min)); }catch(e){ semaines = null; }
+  }
+  const rhParPt = new Map(); emps.forEach(e=>{ if(e.pointage_employe_id!=null && String(e.pointage_employe_id)!=='') rhParPt.set(String(e.pointage_employe_id), e); });
+  const ptNom = new Map(); ptEmps.forEach(e=>{ ptNom.set(String(e.id), String(e.nom||'')); });
+  const nomDe = id => {
+    const rh = rhParPt.get(id);
+    if(rh) return {nom: nomPers(rh) || ('Employé #'+id), rhId: rh.id, actif: rh.actif!==false};
+    return {nom: ptNom.get(id) || ('Employé #'+id), rhId: null, actif: null};
+  };
+  _astr.lignes = astrConstruire(brut, semaines, nomDe);
+  _astr.etat = 'ok';
+  return true;
+}
+// Fiche d'un employé : ses astreintes seulement (jamais bloquant)
+async function astrLireEmploye(ptId){
+  try{
+    const brut = await lirePT('semaine_astreintes','*', q=>q.eq('employe_id', ptId));
+    let semaines = [];
+    if(brut.length){ try{ semaines = await lirePT('semaines','id,employe_id,semaine_debut,statut', q=>q.eq('employe_id', ptId)); }catch(e){ semaines = null; } }
+    return {etat:'ok', msg:'', lignes: astrConstruire(brut, semaines, null)};
+  }catch(e){ const m = (e && e.message) || String(e); return {etat: astrAbsente(m) ? 'absente' : 'erreur', msg:m, lignes:[]}; }
+}
+function astrHtmlFiche(emp, a){
+  const note = t => `<p style="font-size:13px;color:var(--gray-4)">${t}</p>`;
+  let corps;
+  if(!emp.pointage_employe_id) corps = note("Cet employé n'est pas lié à un employé du système de pointages — modifiez la fiche pour le lier.");
+  else if(a.etat==='absente') corps = `<div class="alert alert-warning" id="emp-astr-sql" style="margin:0"><i class="ti ti-database-exclamation"></i><span>Pour afficher les astreintes, exécutez d'abord <strong>${SQL_ASTREINTE}</strong> dans le Supabase des <strong>pointages</strong> (SQL Editor).</span></div>`;
+  else if(a.etat!=='ok') corps = `<div class="alert alert-error" id="emp-astr-erreur" style="margin:0"><i class="ti ti-alert-circle"></i><span>Impossible de lire les astreintes : ${escHtml(a.msg||'erreur inconnue')}</span></div>`;
+  else if(!a.lignes.length) corps = note("Aucune semaine d'astreinte enregistrée");
+  else {
+    const an = new Date().getFullYear(), nAn = a.lignes.filter(r=>r.annee===an).length, n = a.lignes.length;
+    const th = t => `<th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">${t}</th>`;
+    corps = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:13px;color:var(--gray-6)" id="emp-astr-total">${n} semaine${n>1?'s':''} d'astreinte au total</span>
+        <strong style="font-size:15px;color:var(--blue)" id="emp-astr-annee">${nAn} en ${an}</strong></div>
+      <div style="max-height:220px;overflow:auto"><table data-tri="oui" id="emp-astr-table" style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--gray-1)">${th('Semaine')}${th('Période')}${th('Feuille de la semaine')}</tr></thead>
+        <tbody>${a.lignes.map(r=>`<tr data-astr-sem="${escHtml(r.debut)}"><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><strong>S${r.sem}</strong> · ${r.annee}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${astrFR(r.debut)} → ${astrFR(r.fin)}</td><td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">${astrBadge(r.etat)}</td></tr>`).join('')}</tbody>
+      </table></div>`;
+  }
+  return `<strong style="font-size:13px">Astreintes</strong>
+      <div id="emp-astreintes" style="margin-top:8px;margin-bottom:20px">${corps}</div>
+
+      `;
+}
+
+// ── Page ──
+async function renderAstreintes(vue){
+  if(currentPage!=='astreintes') return;
+  if(vue) _astr.vue = vue;
+  el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><i class="ti ti-loader" style="font-size:30px"></i><p>Chargement des astreintes…</p></div>';
+  await astrCharger();
+  astrAfficher();
+}
+function astrEntete(actions){
+  return `<div class="page-header">
+    <div class="page-header-left"><h1>Astreintes</h1><p>Semaines d'astreinte cochées dans les pointages — consultation seule</p></div>
+    <div class="page-actions">${actions||''}</div></div>`;
+}
+const astrBtnRecharger = () => `<button class="btn btn-secondary" id="btn-astr-recharger" onclick="renderAstreintes()" title="Relire les données des pointages"><i class="ti ti-refresh"></i> Actualiser</button>`;
+function astrVue(v){ _astr.vue = v==='employe' ? 'employe' : 'semaine'; astrAfficher(); }
+function astrFiltre(champ, v){
+  if(!['annee','emp','etat'].includes(champ)) return;
+  _astr.f[champ] = String(v==null?'':v);
+  astrAfficherCorps();
+}
+function astrFiltrees(){
+  const f = _astr.f;
+  return _astr.lignes.filter(r=> (!f.annee || String(r.annee)===f.annee) && (!f.emp || r.empId===f.emp) && (!f.etat || r.etat===f.etat));
+}
+function astrAfficher(){
+  if(currentPage!=='astreintes') return;
+  if(_astr.etat==='absente'){
+    el('page-content').innerHTML = astrEntete('') + `<div class="alert alert-warning" id="astr-sql-absent"><i class="ti ti-database-exclamation"></i><span>Pour afficher les astreintes, exécutez d'abord <strong>${SQL_ASTREINTE}</strong> dans le Supabase des <strong>pointages</strong> (SQL Editor du projet des pointages, pas celui de l'ERP), puis <a href="#" onclick="renderAstreintes();return false">rechargez cette page</a>.</span></div>`;
+    return;
+  }
+  if(_astr.etat!=='ok'){
+    el('page-content').innerHTML = astrEntete('') + `<div class="alert alert-error" id="astr-erreur"><i class="ti ti-lock"></i><span>Impossible de lire les astreintes : ${escHtml(_astr.msg||'erreur inconnue')}. <a href="#" onclick="renderAstreintes();return false">Réessayer</a></span></div>`;
+    return;
+  }
+  const L = _astr.lignes;
+  const annees = [...new Set(L.map(r=>r.annee))].sort((a,b)=>b-a);
+  const emps = new Map(); L.forEach(r=>{ if(!emps.has(r.empId)) emps.set(r.empId, r.nom); });
+  const empsTries = [...emps.entries()].sort((a,b)=>a[1].localeCompare(b[1],'fr'));
+  const etats = Object.keys(ASTR_ETATS).filter(k=>L.some(r=>r.etat===k));
+  const f = _astr.f;
+  if(f.annee && !annees.some(a=>String(a)===f.annee)) f.annee = '';
+  if(f.emp && !emps.has(f.emp)) f.emp = '';
+  if(f.etat && !etats.includes(f.etat)) f.etat = '';
+  const sel = (id, champ, libTous, opts) => `<select id="${id}" onchange="astrFiltre('${champ}',this.value)" style="width:auto;min-width:150px"><option value="">${libTous}</option>${opts.map(([v,l])=>`<option value="${escHtml(v)}"${String(f[champ])===String(v)?' selected':''}>${escHtml(l)}</option>`).join('')}</select>`;
+  const onglet = (id, lib) => `<div class="tab-btn${_astr.vue===id?' active':''}" id="astr-vue-${id}" onclick="astrVue('${id}')">${lib}</div>`;
+  el('page-content').innerHTML = astrEntete(`${btnExport('astreintes')}${astrBtnRecharger()}`) + `
+    <div class="alert alert-info" id="astr-note" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>La case « Astreinte » se coche dans l'application des pointages (par l'employé ou le chef d'équipe) ; une astreinte = une semaine entière (lundi → dimanche). Cette page ne modifie rien et <strong>ne calcule aucune indemnité</strong> : la valeur d'une astreinte dépend de la convention et du contrat (à confirmer avec le comptable). Ne pas confondre avec le marquage « Astreinte » des interventions SAV.</span></div>
+    <div class="card"><div style="display:flex;gap:4px;border-bottom:2px solid var(--gray-2);padding:0 8px;flex-wrap:wrap">
+      ${onglet('semaine','Par semaine')}${onglet('employe','Par employé')}
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:12px 16px" id="astr-filtres">
+      ${sel('astr-f-annee','annee','Toutes les années', annees.map(a=>[String(a), String(a)]))}
+      ${sel('astr-f-emp','emp','Tous les employés', empsTries)}
+      ${sel('astr-f-etat','etat','Tous les états de feuille', etats.map(k=>[k, ASTR_ETATS[k]]))}
+    </div>
+    <div id="astr-corps"></div></div>`;
+  astrAfficherCorps();
+}
+function astrAfficherCorps(){
+  const c = el('astr-corps'); if(!c) return;
+  const L = astrFiltrees();
+  const nbEmp = new Set(L.map(r=>r.empId)).size, nbSem = new Set(L.map(r=>r.debut)).size, aValider = L.filter(r=>r.etat==='soumis').length;
+  const s = n => n>1 ? 's' : '';
+  const cpt = `<div id="astr-compteurs" style="display:flex;gap:18px;flex-wrap:wrap;padding:4px 16px 12px;font-size:13px;color:var(--gray-6)">
+    <span><strong id="astr-n-lignes">${L.length}</strong> astreinte${s(L.length)} (employé × semaine)</span>
+    <span><strong id="astr-n-sem">${nbSem}</strong> semaine${s(nbSem)}</span>
+    <span><strong id="astr-n-emp">${nbEmp}</strong> employé${s(nbEmp)}</span>
+    <span><strong id="astr-n-valider" style="color:var(--blue)">${aValider}</strong> feuille${s(aValider)} en attente de validation</span></div>`;
+  let corps;
+  if(!_astr.lignes.length) corps = `<div class="empty" id="astr-vide"><div class="empty-icon"><i class="ti ti-alarm"></i></div><p>Aucune semaine d'astreinte enregistrée pour le moment</p><p style="font-size:12px;color:var(--gray-5)">Elles apparaissent ici dès qu'une case « Astreinte » est cochée dans les pointages.</p></div>`;
+  else if(!L.length) corps = `<div class="empty" id="astr-aucun"><p>Aucune astreinte ne correspond à ces filtres</p></div>`;
+  else corps = _astr.vue==='employe' ? astrHtmlEmploye(L) : astrHtmlSemaine(L);
+  c.innerHTML = cpt + corps;
+}
+function astrLienEmp(r){
+  const nom = escHtml(r.nom) + (r.actif===false ? ' <span style="font-size:11px;color:var(--gray-5)">(ancien)</span>' : '');
+  return r.rhId ? `<a href="#" class="astr-emp" onclick='openEmployeDetail(${attrJson(r.rhId)});return false' style="color:var(--blue);text-decoration:none">${nom}</a>` : `<span class="astr-emp">${nom}</span>`;
+}
+const astrTh = (t, droite) => `<th style="padding:7px 10px;text-align:${droite?'right':'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">${t}</th>`;
+const astrTd = (h, droite) => `<td style="padding:7px 10px;border-bottom:1px solid var(--gray-2);vertical-align:top${droite?';text-align:right':''}">${h}</td>`;
+function astrHtmlSemaine(L){
+  const g = new Map(); L.forEach(r=>{ if(!g.has(r.debut)) g.set(r.debut, []); g.get(r.debut).push(r); });
+  const debuts = [...g.keys()].sort().reverse();
+  return `<div style="overflow-x:auto"><table id="astr-table-semaine" style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:var(--gray-1)">${astrTh('Semaine')}${astrTh('Période')}${astrTh('Employés d\'astreinte')}</tr></thead>
+    <tbody>${debuts.map(d=>{
+      const rs = g.get(d).slice().sort((a,b)=>a.nom.localeCompare(b.nom,'fr')), r0 = rs[0];
+      const chips = rs.map(r=>`<span style="display:inline-flex;gap:6px;align-items:center;margin:0 14px 4px 0">${astrLienEmp(r)}${r.etat==='approuve' ? '' : astrBadge(r.etat)}</span>`).join('');
+      return `<tr data-astr-sem="${escHtml(d)}">${astrTd(`<strong>S${r0.sem}</strong> · ${r0.annee}`)}${astrTd(`${astrFR(r0.debut)} → ${astrFR(r0.fin)}`)}${astrTd(chips)}</tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+function astrHtmlEmploye(L){
+  const g = new Map(); L.forEach(r=>{ if(!g.has(r.empId)) g.set(r.empId, []); g.get(r.empId).push(r); });
+  const ids = [...g.keys()].sort((a,b)=>g.get(a)[0].nom.localeCompare(g.get(b)[0].nom,'fr'));
+  return `<div style="overflow-x:auto"><table data-tri="oui" id="astr-table-employe" style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:var(--gray-1)">${astrTh('Employé')}${astrTh('Semaines',true)}${astrTh('Approuvées',true)}${astrTh('En attente',true)}${astrTh('Dernière astreinte')}${astrTh('Détail des semaines')}</tr></thead>
+    <tbody>${ids.map(id=>{
+      const rs = g.get(id), r0 = rs[0];                                                  // L est trié : r0 = la plus récente
+      return `<tr data-astr-emp="${escHtml(id)}">${astrTd(astrLienEmp(r0))}${astrTd(`<strong>${rs.length}</strong>`, true)}${astrTd(String(rs.filter(r=>r.etat==='approuve').length), true)}${astrTd(String(rs.filter(r=>r.etat==='soumis').length), true)}${astrTd(`S${r0.sem} · ${astrFR(r0.debut)}`)}${astrTd(`<span style="font-size:12px;color:var(--gray-6)">${rs.map(r=>'S'+r.sem+'/'+r.annee).join(', ')}</span>`)}</tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // FORMATIONS DU PERSONNEL — suivi des attestations, de leur validité et alertes d'expiration (Ressources humaines)
 // SQL : migration-formations.sql. Sans lui la page affiche un avertissement et rien d'autre ne change.
@@ -18323,6 +18671,36 @@ function definitionsExport(){
       ]
     },
 
+    // ─────────────── ASTREINTES (pointages) ───────────────
+    astreintes:{ titre:'Astreintes', pivotDefaut:{ligne:'emp', colonne:'etat'}, fichier:'Astreintes', feuille:'Astreintes', nbLibelle:'Astreintes', donneesPersonnelles:true,
+      avertissement:"Ce fichier contient des données personnelles (astreintes des salariés) : ne le partagez qu'avec des personnes autorisées.",
+      charger: async()=>{
+        if(!(await astrCharger())){
+          if(_astr.etat==='absente') throw new Error("Exécutez d'abord "+SQL_ASTREINTE+" dans le Supabase des POINTAGES (SQL Editor), puis réessayez.");
+          throw new Error(_astr.msg || 'Lecture impossible');
+        }
+        const info = new Map(); _astr.lignes.forEach(r=>info.set(String(r.id), r)); _astrInfoExport = info;
+        return {lignes: _astr.lignes.map(r=>r.raw), ctx:{}};
+      },
+      colonnes:[
+        colX('emp','Employé','txt',r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? i.nom : ''; },{g:'Astreinte'}),
+        colX('annee','Année (semaine ISO)','int',r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? i.annee : ''; },{g:'Astreinte'}),
+        colX('sem','Semaine n°','int',r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? i.sem : ''; },{g:'Astreinte'}),
+        colX('debut','Du (lundi)','date',r=>astrISO(r.semaine_debut),{g:'Astreinte'}),
+        colX('fin','Au (dimanche)','date',r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? i.fin : ''; },{g:'Astreinte'}),
+        colX('etat','Feuille de la semaine','txt',r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? ASTR_ETATS[i.etat] : ''; },{g:'Suivi'}),
+        colX('par','Cochée par','txt',r=>r.par_nom,{g:'Suivi'}),
+        colX('le','Cochée le','date',r=>r.created_at,{g:'Suivi'}),
+        colX('actif','Employé actif','txt',r=>{ const i = _astrInfoExport.get(String(r.id)); return i && i.actif!==null ? ouiNon(i.actif) : ''; },{g:'Divers',d:false})
+      ],
+      noteAnalyse: (lignes)=>[`Une ligne = un employé × une semaine d'astreinte (lundi → dimanche) : ${lignes.length} ligne${lignes.length>1?'s':''}. Aucune indemnité n'est calculée (à confirmer avec le comptable).`],
+      syntheses:[
+        {titre:'Semaines d\'astreinte par employé', colonne:'Employé', cle:r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? i.nom : 'Non renseigné'; }},
+        {titre:'Astreintes par année (employé × semaine)', colonne:'Année', cle:r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? String(i.annee) : 'Non renseigné'; }},
+        {titre:'Astreintes par état de la feuille', colonne:'Feuille de la semaine', cle:r=>{ const i = _astrInfoExport.get(String(r.id)); return i ? ASTR_ETATS[i.etat] : 'Non renseigné'; }}
+      ]
+    },
+
     // ─────────────── FORMATIONS DU PERSONNEL ───────────────
     formations:{ titre:'Formations', pivotDefaut:{ligne:'type', colonne:'etat'}, fichier:'Formations', feuille:'Formations', nbLibelle:'Attestations', donneesPersonnelles:true,
       avertissement:"Ce fichier contient des données personnelles (formations des salariés) : ne le partagez qu'avec des personnes autorisées.",
@@ -19621,6 +19999,9 @@ async function openEmployeDetail(employeId){
     }catch(e){ /* système de pointages indisponible pour le moment */ }
   }
 
+  // Semaines d'astreinte cochées dans les pointages (lecture seule ; ne bloque jamais la fiche)
+  const astrEmp = emp.pointage_employe_id ? await astrLireEmploye(emp.pointage_employe_id) : {etat:'ok', msg:'', lignes:[]};
+
   const initiales = ((emp.prenom||'')[0]||'')+((emp.nom||'')[0]||'');
   // `cat` : type de document relié à cette ligne → petite flèche ↗ vers le(s) fichier(s) chargé(s)
   // `extra` : petit texte HTML après la valeur (ex. « Expirée »)
@@ -19730,7 +20111,7 @@ async function openEmployeDetail(employeId){
           </details>`}
       </div>
 
-      <strong style="font-size:13px">Documents (contrat, permis, certificats...)</strong>
+      ${astrHtmlFiche(emp, astrEmp)}<strong style="font-size:13px">Documents (contrat, permis, certificats...)</strong>
       <p style="font-size:12px;color:var(--gray-5);margin-top:4px">Choisissez le type avant de charger : le document sera relié à la ligne correspondante de la fiche (flèche <i class="ti ti-arrow-up-right"></i>).</p>
       <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
         <label class="field-label" style="margin:0">Type du document</label>
