@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-09-1d84bb6"/>
+<meta name="lyneo-build" content="BUILD:2026-11-09-5d06e03"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1537,7 +1537,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     // ── Deux boîtes côte à côte (ex: Émetteur / Facturé à) ──
     drawBoxes(boxes, gapApres){
       const gap = 16;
-      const boxW = (this.W - 2*this.margin - gap) / boxes.length;
+      const boxW = (this.W - 2*this.margin - gap*(boxes.length-1)) / boxes.length;     // n caixas = n-1 espaços (uma caixa sozinha ocupa toda a largura, alinhada com o bandeau)
       // chaque ligne est coupée à la largeur de la boîte (nom de client ou adresse longs) ; ligne vide = ligne blanche
       const rowsOf = (b)=>{ const out = [];
         (b.lines||[]).forEach((l,li)=>{ const f = li===0 ? this.fontBold : this.font; const parts = wrapText(String(l||''), f, 9.5, boxW-24); (parts.length?parts:['']).forEach(t=>out.push({t, bold: li===0})); });
@@ -2786,7 +2786,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-09-1d84bb6';
+const APP_BUILD = 'BUILD:2026-11-09-5d06e03';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -12378,6 +12378,66 @@ function detectDevisColumns(rows){
   return null;
 }
 
+// ── Modèle « Matériel & pose » (Barthelemy, Heilig…) ──────────────────────────────────────────────
+// Le tableau mélange le devis du client et des colonnes INTERNES (prix d'achat, temps de pose, tarif horaire, décaissé, marge…, en rose dans le fichier).
+// On ne lit QUE : Matériel/description, Quantité et « prix de vente unité matériel+MO » (+ Fournisseur, seulement pour nommer les lignes de main-d'œuvre).
+// Toutes les autres colonnes sont ignorées : rien d'interne ne peut arriver dans le devis, le PDF ni l'Excel.
+function detectDevisModeleMateriel(rows){
+  const n = (c)=> (c===null||c===undefined) ? '' : String(c).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9+\/]/g,'');
+  for(let i=0;i<Math.min(rows.length,25);i++){
+    const row = rows[i]||[];
+    let descCol=-1, qteCol=-1, puCol=-1, totalCol=-1, fourCol=-1;
+    row.forEach((c,idx)=>{
+      const t = n(c);
+      if(!t) return;
+      if(/^materiel\/?(description|designation)$/.test(t)) { if(descCol<0) descCol = idx; }
+      else if(t==='quantite') { if(qteCol<0) qteCol = idx; }
+      else if(t==='fournisseur') { if(fourCol<0) fourCol = idx; }
+      else if(/vente/.test(t) && /materiel\+?mo/.test(t)){
+        if(/total/.test(t)) { if(totalCol<0) totalCol = idx; }
+        else if(/unit/.test(t)) { if(puCol<0) puCol = idx; }
+      }
+    });
+    if(descCol>=0 && qteCol>=0 && puCol>=0) return {headerRowIdx:i, descCol, qteCol, puCol, totalCol, fourCol, modele:'materiel'};
+  }
+  return null;
+}
+// Code court de la colonne « description » → unité du devis (« MO » = heures de main-d'œuvre, « Ff » = forfait…)
+const DEVIS_CODES_UNITE = {mo:'h', h:'h', hr:'h', ff:'forfait', fft:'forfait', forfait:'forfait', u:'u', pce:'u', pc:'u', ens:'u', m:'m', ml:'m', m2:'m2', 'm²':'m2', m3:'m3', kg:'kg'};
+function parseDevisModeleMaterielRows(rows, cols){
+  const result = [];
+  const txt = (v)=> (v===null||v===undefined) ? '' : String(v).trim();
+  let inOptions = false, aCompleter = 0;
+  for(const row of rows){
+    const a = cols.fourCol>=0 ? txt(row[cols.fourCol]) : '', b = txt(row[cols.descCol]);
+    let qte = _parseNumFR(row[cols.qteCol]), pu = _parseNumFR(row[cols.puCol]);
+    const tot = cols.totalCol>=0 ? _parseNumFR(row[cols.totalCol]) : null;
+    if(/^observations?\s*:/i.test(b)) break;
+    if(/^(prix\s+de\s+vente\s+total|prix\s+total|total\s*(ht|ttc|g[ée]n[ée]ral)?|total\s+options?(\s+ht)?|sous[-\s]?total|tva(\s*\d+([.,]\d+)?\s*%)?)\s*:?$/i.test(b) || /^d[ée]signation$|^mat[ée]riel\s*\/?\s*description$/i.test(b)) continue;
+    const aPrix = (pu!==null && pu!==0) || (tot!==null && tot!==0);      // les formules du modèle donnent 0 sur les lignes vides
+    // marqueur « OPTIONS » (dans Fournisseur ou description, jamais dans une colonne interne) : ni quantité ni prix sur la ligne
+    if(qte===null && !aPrix && [a,b].some(t=>/^options?\b/i.test(t))){ inOptions = true; continue; }
+    const code = DEVIS_CODES_UNITE[b.toLowerCase()];
+    let description, unite = 'u';
+    if(code!==undefined){                       // « MO » / « Ff » dans la colonne description : l'intitulé est dans la colonne Fournisseur
+      unite = code; description = a || (code==='h' ? "Main d'œuvre" : b);
+    } else description = b || (qte ? a : '');
+    if(!description) continue;                  // ligne vide du modèle (formules à 0) ou ligne « fournisseur » seule
+    if(qte===null && !aPrix){                   // ni quantité ni prix (les formules du modèle donnent 0) : titre de section
+      if(b) result.push({bloc:inOptions?'option':'principal', type:'section', description, unite:'', quantite:null, prix_unitaire_ht:null, taux_tva:17});
+      continue;
+    }
+    if((pu===null || pu===0) && tot!==null && tot!==0 && qte){ pu = tot/qte; }   // prix de vente absent : on le déduit du total de vente
+    if(qte===null) qte = 0;                     // prix sans quantité : le total Excel vaut 0, on n'invente pas de quantité
+    if(pu===null) pu = 0;
+    if(pu===0 || qte===0) aCompleter++;
+    pu = Math.round(pu*10000)/10000;           // 55.00000000000001 → 55 ; 45.714285714… → 45.7143 (le total reste juste au centime)
+    result.push({bloc:inOptions?'option':'principal', type:'ligne', description, unite, quantite:qte, prix_unitaire_ht:pu, taux_tva:17});
+  }
+  result.notes = []; result.aCompleter = aCompleter;
+  return result;
+}
+
 function parseDevisExcelRows(rows, cols){
   cols = cols || {descCol:0, uteCol:1, qteCol:2, puCol:3, totalCol:4};
   const result = [];
@@ -12440,16 +12500,19 @@ function parseDevisExcelRows(rows, cols){
 
 // Lit la page de garde du modèle Lyneo (« Objet: », « Affaire: », « Correspondant: », « Nom: » = client).
 // Renvoie seulement ce qui est trouvé ; les feuilles masquées sont ignorées.
-function extraireEnteteDevisExcel(wb){
+function extraireEnteteDevisExcel(wb, modele){
   const metas = (wb.Workbook && wb.Workbook.Sheets) || [];
   const masquee = (n)=>{ const m = metas.find(x=>x.name===n); return !!(m && m.Hidden); };
   const cles = {objet:/^objet\s*:?$/i, correspondant:/^correspondant\s*:?$/i, client:/^nom\s*:?$/i, affaire:/^affaire\s*:?$/i};
+  if(modele==='materiel') cles.client = /^(?:nom|client)\s*:?$/i;            // modèle « Matériel & pose » : « Client : Wagnertech »
+  const clientInline = modele==='materiel' ? /^client\s*:\s*(\S.*)$/i : null;
   const out = {};
   for(const nom of wb.SheetNames.filter(n=>!masquee(n))){
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[nom], {header:1, defval:null});
     for(const row of rows.slice(0,40)){
       for(let j=0;j<row.length;j++){
         const c = row[j]; if(typeof c!=='string') continue;
+        if(clientInline && !out.client){ const mc = c.trim().match(clientInline); if(mc && !/^[=#]/.test(mc[1])) out.client = mc[1].trim(); }
         for(const [k,re] of Object.entries(cles)){
           if(out[k] || !re.test(c.trim())) continue;
           const v = row.slice(j+1).find(x=>x!==null && String(x).trim()!=='');
@@ -12515,6 +12578,11 @@ function parseDevisWorkbook(wb){
 
   const essayer = (nomFeuille)=>{
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomFeuille], {header:1, defval:null});
+    const mat = detectDevisModeleMateriel(rows);   // modèle « Matériel & pose » : colonnes internes ignorées
+    if(mat){
+      const parsed = parseDevisModeleMaterielRows(rows.slice(mat.headerRowIdx+1), mat);
+      return {parsed, nbLignes:parsed.filter(r=>r.type==='ligne').length, feuille:nomFeuille, notes:[], modele:'materiel', aCompleter:parsed.aCompleter||0};
+    }
     const cols = detectDevisColumns(rows);
     if(!cols) return null; // cette feuille n'a pas de tableau de lignes (ex: page de garde, synthèse)
     const parsed = parseDevisExcelRows(rows.slice(cols.headerRowIdx+1), cols);
@@ -12546,6 +12614,14 @@ function parseDevisWorkbook(wb){
   return m2.nbLignes>m1.nbLignes ? m2 : m1;
 }
 
+// Infos supplémentaires du toast pour le modèle « Matériel & pose » : client lu mais introuvable, lignes sans prix de vente.
+function infosModeleMateriel(modele, ent, repris, aCompleter){
+  if(modele!=='materiel') return '';
+  let t = ' · colonnes internes (achat, temps de pose, marge) ignorées';
+  if(ent && ent.client && !(repris||[]).includes('Client')) t += ` · client « ${ent.client} » lu dans le fichier mais pas retrouvé : choisissez-le`;
+  if(aCompleter>0) t += ` · ${aCompleter} ligne(s) avec prix ou quantité à 0 : à compléter`;
+  return t;
+}
 async function importDevisExcelDansModal(file){
   if(!file) return;
   if(typeof XLSX==='undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
@@ -12554,7 +12630,7 @@ async function importDevisExcelDansModal(file){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const {parsed, nbLignes, feuille, notes} = parseDevisWorkbook(wb);
+      const {parsed, nbLignes, feuille, notes, modele, aCompleter} = parseDevisWorkbook(wb);
       if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       // Ajoute les lignes importées à la suite de celles déjà présentes dans le formulaire
@@ -12563,10 +12639,10 @@ async function importDevisExcelDansModal(file){
       _devisLignes.option = [...sansLignesDevisVides(_devisLignes.option), ...parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>({...r, taux_tva:tvaDef}))];
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
-      const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
+      const ent = extraireEnteteDevisExcel(wb, modele), repris = appliquerEnteteDevis(ent);
       await appliquerAttentionImportee(notes, data, repris);
 
-      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+` — vérifiez et complétez avant d'enregistrer`);
+      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+infosModeleMateriel(modele, ent, repris, aCompleter)+` — vérifiez et complétez avant d'enregistrer`);
     }catch(err){
       showToast('Erreur import: '+err.message, 'error');
     }
@@ -12582,7 +12658,7 @@ async function importDevisExcel(file){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const {parsed, nbLignes, feuille, notes} = parseDevisWorkbook(wb);
+      const {parsed, nbLignes, feuille, notes, modele, aCompleter} = parseDevisWorkbook(wb);
       if(!feuille || nbLignes===0){ showToast("Aucune ligne reconnue dans ce fichier", 'error'); return; }
 
       await openDevisModal();
@@ -12590,11 +12666,11 @@ async function importDevisExcel(file){
       _devisLignes.option = parsed.filter(r=>r.bloc==='option').map(({bloc,...r})=>r);
       renderDevisLignesBloc('principal');
       renderDevisLignesBloc('option');
-      const repris = appliquerEnteteDevis(extraireEnteteDevisExcel(wb));
+      const ent = extraireEnteteDevisExcel(wb, modele), repris = appliquerEnteteDevis(ent);
       await appliquerAttentionImportee(notes, data, repris);
 
       const nbOptions = _devisLignes.option.length;
-      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+' — vérifiez et complétez avant d\'enregistrer');
+      showToast(`${nbLignes} ligne(s) importée(s) — fichier "${file.name}", feuille "${feuille}"`+(nbOptions>0?` (dont ${nbOptions} en Options)`:'')+(repris.length?` · repris du fichier : ${repris.join(', ')}`:'')+infosModeleMateriel(modele, ent, repris, aCompleter)+' — vérifiez et complétez avant d\'enregistrer');
       if(nbOptions===0){
         setTimeout(()=>showToast("Astuce : votre fichier ne marque pas où commencent les Options — tout a été importé dans le bloc principal. Déplacez manuellement les lignes concernées si besoin.", 'error'), 1200);
       }
@@ -14996,9 +15072,10 @@ function configPdfFactureVente(f, lignes, client, lieuIntervention, origine){
       {label:'Date émission', value: fmtDate(f.date_creation)},
       {label:'Date échéance', value: fmtDate(f.date_echeance)||'—'}
     ],
+    // L'adresse de livraison/intervention de la fiche client n'est PAS imprimée dans « Facturé à » : le lieu a sa propre case (boxesBas)
     boxes: [
       {label:'Émetteur', lines:LyneoPDF.emetteurLignes()},
-      {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim()].concat(tvaClientPdf(client)?['TVA : '+tvaClientPdf(client)]:[], [client.email||''], client.adresse_livraison?['Livraison/intervention : '+client.adresse_livraison]:[])}
+      {label:'Facturé à', lines:[client.nom||'—', client.adresse||'', ((client.code_postal||'')+' '+(client.ville||'')).trim()].concat(tvaClientPdf(client)?['TVA : '+tvaClientPdf(client)]:[], [client.email||''])}
     ],
     refRow: [
       {label:'Référence', value: refDevis},
