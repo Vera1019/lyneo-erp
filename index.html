@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-08-b723f95"/>
+<meta name="lyneo-build" content="BUILD:2026-11-08-7f6b704"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -337,6 +337,8 @@ tbody tr:hover td{background:var(--blue-light)}
 .ndf-lg-coche td{background:var(--blue-light)}
 .ndf-repart{margin:10px 0 0;padding:10px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);background:var(--gray-1);font-size:12.5px}
 .ndf-repart-titre{font-weight:700;color:var(--gray-6);margin-bottom:6px}
+.ajout-bas{margin:8px 0 0;display:flex;gap:8px;flex-wrap:wrap}
+select.ndf-manque{border-color:var(--red)!important;background:#FEF2F2!important}
 .ndf-repart table{width:100%;border-collapse:collapse}
 .ndf-repart th{padding:4px 8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray-5)}
 .ndf-repart th:first-child,.ndf-repart td:first-child{text-align:left}
@@ -1094,7 +1096,7 @@ function _morphNoeudLigne(a, b){
   for(let i=0;i<n;i++){ if(!_morphNoeudLigne(ac[i], bc[i])) a.replaceChild(bc[i], ac[i]); }
   for(let i=n;i<ac.length;i++) a.removeChild(ac[i]);
   for(let i=n;i<bc.length;i++) a.appendChild(bc[i]);
-  if(a.nodeName==='SELECT'){ const ix = Array.from(b.children).findIndex(o=>o.hasAttribute('selected')); a.selectedIndex = ix>=0 ? ix : 0; }
+  if(a.nodeName==='SELECT'){ const ix = Array.from(b.querySelectorAll('option')).findIndex(o=>o.hasAttribute('selected')); a.selectedIndex = ix>=0 ? ix : 0; }
   return true;
 }
 function morphLignes(cible, html){
@@ -2767,7 +2769,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-08-b723f95';
+const APP_BUILD = 'BUILD:2026-11-08-7f6b704';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7106,6 +7108,7 @@ function openNewPO(){
         <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">Référence</th><th style="width:70px">Qté</th><th style="width:75px">Unité</th><th style="width:100px">P.U. HT €</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
         <tbody id="lignes-body"></tbody>
       </table></div>
+      <div class="ajout-bas" data-ajout-bas="po"><button type="button" class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="po-obs" placeholder="Instructions particulières..."></textarea></div>
       <div class="form-actions">
@@ -10200,76 +10203,105 @@ async function ndfNumeroSuggere(fournisseurId, dateISO){
   return pref + String(n+1).padStart(2,'0');
 }
 
-// ── NOTE DE FRAIS : chantier et code ressource PAR LIGNE ──────────────────────────────────────────────────────
-// Le chantier du haut est le chantier PAR DÉFAUT : une ligne sans chantier propre le suit. Les coûts d'un chantier se lisent sur
-// factures.chantier_id : si les lignes vont sur plusieurs chantiers, l'enregistrement crée UNE facture fournisseur par chantier
-// (n° de la note + « - » + n° du chantier), avec les mêmes justificatifs ; aucun SQL. La ligne porte un drapeau `_coche` (jamais écrit en base).
-let _ndfChantiers = [];      // chantiers proposés (archivés exclus)
+// ── NOTE DE FRAIS : l'imputation (chantier, frais généraux, centre SAV…) et le code ressource se choisissent LIGNE PAR LIGNE ───────────
+// Pas de chantier « en haut » : chaque ligne porte son chantier (obligatoire) et, pour un centre SAV, son intervention (facultative).
+// Les coûts d'un chantier se lisent sur factures.chantier_id (+ intervention_id) : l'enregistrement crée UNE facture fournisseur par
+// imputation (chantier + intervention), n° = n° de la note + « - » + n° du chantier, mêmes justificatifs ; aucun SQL.
+// Les drapeaux `_coche` et `_manque` d'une ligne ne sont jamais écrits en base.
+let _ndfChantiers = [];      // centres proposés (archivés exclus) : chantiers, frais généraux / centres internes, centres SAV
+let _ndfInterventions = [];  // interventions SAV (id, ref, nom_site, chantier_id)
+let _ndfIntervDispo = false; // colonne factures.intervention_id présente (migration-sav-achats-intervention.sql)
 let _ndfScinde = false;      // une note déjà partiellement enregistrée en plusieurs factures : les n° gardent leur suffixe
+let _ndfManques = false;     // un enregistrement a été refusé faute de chantier : les lignes sans chantier sont encadrées en rouge
 const ndfOuverte = () => !!el('ndf-employe');
-const ndfChantierDefaut = () => String((el('facl-chantier')||{}).value || '');
 const ndfLibChantier = id => { const c = _ndfChantiers.find(x=>String(x.id)===String(id)); return c ? (String(c.numero||'')+' — '+c.nom) : ''; };
+const ndfIntervDe = chantierId => _ndfInterventions.filter(i=>String(i.chantier_id)===String(chantierId));
+const ndfLibInterv = i => !i ? '' : String(i.ref||'')+(i.nom_site ? ' — '+i.nom_site : '');
+const ndfLibIntervId = id => ndfLibInterv(_ndfInterventions.find(x=>String(x.id)===String(id)));
 const ndfHT = ls => ls.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0), 0);
 const ndfTVA = ls => ls.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100, 0);
-function ndfOptionsChantier(courant){
-  const def = ndfChantierDefaut();
-  return '<option value=""'+(!courant?' selected':'')+'>↳ '+(def ? escHtml(ndfLibChantier(def)) : 'Chantier de la note')+'</option>'
-    + _ndfChantiers.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(c.id)===String(courant)?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>').join('');
+async function ndfLireInterventions(){ try{ return await lireTableComplete('interventions_sav','id'); }catch(e){ return []; } }
+// Genre d'un centre : « sav » (SAV 1/2/3…), « interne » (frais généraux, stock, heures improductives…) ou « chantier »
+function ndfGenre(c){
+  if(estCentreSav(c)) return 'sav';
+  if(c && (c.type_centre==='interne' || estCentreInterneNonPointable(c) || String(c.numero||'').trim().toUpperCase()===HI_CODE)) return 'interne';
+  return 'chantier';
 }
-// Lignes regroupées par chantier effectif ; le groupe du chantier par défaut en premier, les autres dans l'ordre d'apparition
-function ndfGroupes(defaut){
-  const dflt = String(defaut||''), m = new Map();
-  _facLignesLibre.forEach(l=>{ const id = String((l && l.chantier_id) || dflt); if(!m.has(id)) m.set(id, []); m.get(id).push(l); });
-  const g = Array.from(m.entries()).map(([chantierId, lignes])=>({chantierId, lignes}));
-  const d = g.findIndex(x=>x.chantierId===dflt);
-  if(d>0) g.unshift(g.splice(d,1)[0]);
-  return g;
+const ndfOptCh = (c, courant) => '<option value="'+escHtml(c.id)+'"'+(String(c.id)===String(courant)?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>';
+function ndfOptionsChantier(courant, vide){
+  const GENRES = [['chantier','Chantiers'],['interne','Frais généraux et centres internes'],['sav','Centres SAV']];
+  return '<option value=""'+(!courant?' selected':'')+'>'+escHtml(vide)+'</option>'
+    + GENRES.map(([g,lib])=>{ const l = _ndfChantiers.filter(c=>ndfGenre(c)===g);
+        return l.length ? '<optgroup label="'+escHtml(lib)+'">'+l.map(c=>ndfOptCh(c,courant)).join('')+'</optgroup>' : ''; }).join('');
 }
+// Lignes regroupées par imputation (chantier + intervention) dans l'ordre d'apparition ; sans colonne intervention_id, l'intervention est ignorée
+function ndfGroupes(){
+  const m = new Map();
+  _facLignesLibre.forEach(l=>{
+    const ch = String((l && l.chantier_id) || ''), iv = ch && _ndfIntervDispo ? String((l && l.intervention_id) || '') : '', k = ch+'|'+iv;
+    if(!m.has(k)) m.set(k, {chantierId:ch, interventionId:iv, lignes:[]});
+    m.get(k).lignes.push(l);
+  });
+  return Array.from(m.values());
+}
+const ndfLibGroupe = g => (g.chantierId ? ndfLibChantier(g.chantierId) : 'Sans chantier') + (g.interventionId ? ' · '+ndfLibIntervId(g.interventionId) : '');
 const ndfCellCoche = (l,i) => '<td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);text-align:center;width:30px"><input type="checkbox" class="ndf-coche" aria-label="Cocher la ligne '+(i+1)+'"'+(l._coche?' checked':'')+' onchange="ndfCocher('+i+',this.checked)"/></td>';
-const ndfCellChantier = (l,i) => '<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select class="ndf-ligne-chantier" aria-label="Chantier de la ligne '+(i+1)+'" onchange="updFacLigneLibre('+i+',\'chantier_id\',this.value)" style="width:100%;min-width:150px;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'+ndfOptionsChantier(l.chantier_id||'')+'</select></td>';
+function ndfCellChantier(l,i){
+  const manque = _ndfManques && !l.chantier_id, iv = l.chantier_id ? ndfIntervDe(l.chantier_id) : [];
+  const sous = !iv.length ? '' : (_ndfIntervDispo
+    ? '<select class="ndf-ligne-interv" aria-label="Intervention SAV de la ligne '+(i+1)+'" onchange="ndfUpdInterv('+i+',this.value)" style="width:100%;min-width:200px;margin-top:4px;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"><option value="">— Centre seulement (aucune intervention) —</option>'
+        + iv.map(x=>'<option value="'+escHtml(x.id)+'"'+(String(x.id)===String(l.intervention_id||'')?' selected':'')+'>'+escHtml(ndfLibInterv(x))+'</option>').join('')+'</select>'
+    : '<div class="ndf-interv-sql" style="font-size:11px;margin-top:3px;color:var(--orange)">⚠ Pour imputer à une intervention, exécutez migration-sav-achats-intervention.sql</div>');
+  return '<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select class="ndf-ligne-chantier'+(manque?' ndf-manque':'')+'" aria-label="Chantier de la ligne '+(i+1)+'" onchange="ndfUpdChantier('+i+',this.value)" style="width:100%;min-width:200px;padding:5px 4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px">'
+    + ndfOptionsChantier(l.chantier_id||'', '— Choisir —')+'</select>'+sous+'</td>';
+}
+function ndfUpdChantier(i, v){ const l = _facLignesLibre[i]; if(!l) return; if(String(l.chantier_id||'')!==String(v||'')) l.intervention_id = ''; l.chantier_id = v; renderFacLignesLibre(); }
+function ndfUpdInterv(i, v){ const l = _facLignesLibre[i]; if(!l) return; l.intervention_id = v; renderFacLignesLibre(); }
 function ndfCocher(i, v){ if(_facLignesLibre[i]) _facLignesLibre[i]._coche = !!v; renderFacLignesLibre(); }
 function ndfToutCocher(v){ _facLignesLibre.forEach(l=>{ l._coche = !!v; }); renderFacLignesLibre(); }
-function ndfMajDefaut(){ if(ndfOuverte()) renderFacLignesLibre(); }
 const ndfMemoCoches = () => ({code: (el('ndf-coches-code')||{}).value || '', ch: (el('ndf-coches-chantier')||{}).value || ''});
 function ndfBarreCochesHtml(memo){
   if(_facLignesLibre.length < 2) return '';
   const m = memo || ndfMemoCoches(), n = _facLignesLibre.filter(l=>l._coche).length, tous = n===_facLignesLibre.length;
   return '<div class="cr-tous ndf-coches" id="ndf-coches"><label class="ndf-tout"><input type="checkbox" id="ndf-tout"'+(tous?' checked':'')+' onchange="ndfToutCocher(this.checked)"/> Tout cocher</label>'
-    +'<span class="cr-tous-lib" id="ndf-nb-coches">'+(n ? n+' ligne'+(n>1?'s':'')+' cochée'+(n>1?'s':'') : 'Cochez des lignes pour leur attribuer un code ressource et/ou un chantier')+'</span>'
+    +'<span class="cr-tous-lib" id="ndf-nb-coches">'+(n ? n+' ligne'+(n>1?'s':'')+' cochée'+(n>1?'s':'') : 'Cochez des lignes pour leur attribuer un chantier et/ou un code ressource')+'</span>'
     +(_codesResDispo ? '<select id="ndf-coches-code" class="cr-tous-select" aria-label="Code ressource à appliquer aux lignes cochées">'+crOptions(m.code)+'</select>' : '')
-    +'<select id="ndf-coches-chantier" class="cr-tous-select" aria-label="Chantier à appliquer aux lignes cochées"><option value="">— Chantier —</option><option value="__def__"'+(m.ch==='__def__'?' selected':'')+'>↳ Chantier de la note</option>'
-    +_ndfChantiers.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(c.id)===String(m.ch)?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>').join('')+'</select>'
+    +'<select id="ndf-coches-chantier" class="cr-tous-select" aria-label="Chantier à appliquer aux lignes cochées">'+ndfOptionsChantier(m.ch, '— Chantier —')+'</select>'
     +'<button type="button" class="btn btn-secondary btn-sm" id="ndf-coches-btn" onclick="ndfAppliquerCoches()"><i class="ti ti-checks"></i> Appliquer aux lignes cochées</button></div>';
 }
 function ndfAppliquerCoches(){
   const cibles = _facLignesLibre.filter(l=>l._coche);
   if(!cibles.length){ showToast("Cochez d'abord les lignes à modifier", 'error'); return; }
   const m = ndfMemoCoches();
-  if(!m.code && !m.ch){ showToast("Choisissez un code ressource et/ou un chantier à appliquer", 'error'); return; }
+  if(!m.code && !m.ch){ showToast("Choisissez un chantier et/ou un code ressource à appliquer", 'error'); return; }
   let c = null, ch = null;
   if(m.code){
     c = _codesRes.find(x=>String(x.id)===String(m.code));
     if(!c){ showToast("Code ressource introuvable : choisissez-le à nouveau", 'error'); return; }
     if(c.actif===false){ showToast('Le code « '+escHtml(c.code)+' » est désactivé : choisissez un code actif', 'error'); return; }
   }
-  if(m.ch && m.ch!=='__def__'){
+  if(m.ch){
     ch = _ndfChantiers.find(x=>String(x.id)===String(m.ch));
     if(!ch){ showToast("Chantier introuvable : choisissez-le à nouveau", 'error'); return; }
   }
-  cibles.forEach(l=>{ if(m.code) l.code_ressource_id = m.code; if(m.ch) l.chantier_id = m.ch==='__def__' ? '' : m.ch; l._coche = false; });
+  cibles.forEach(l=>{
+    if(m.code) l.code_ressource_id = m.code;
+    if(m.ch){ if(String(l.chantier_id||'')!==String(m.ch)) l.intervention_id = ''; l.chantier_id = m.ch; }
+    l._coche = false;
+  });
   renderFacLignesLibre();
-  const que = [c ? 'code « '+escHtml(c.code)+' »' : '', m.ch==='__def__' ? 'chantier de la note' : (ch ? 'chantier « '+escHtml(String(ch.numero||'')+' — '+ch.nom)+' »' : '')].filter(Boolean).join(' et ');
+  const que = [c ? 'code « '+escHtml(c.code)+' »' : '', ch ? 'chantier « '+escHtml(String(ch.numero||'')+' — '+ch.nom)+' »' : ''].filter(Boolean).join(' et ');
   showToast(que.charAt(0).toUpperCase()+que.slice(1)+' appliqué'+(m.code&&m.ch?'s':'')+' à '+cibles.length+' ligne'+(cibles.length>1?'s':''));
 }
 function ndfRepartitionHtml(){
-  const g = ndfGroupes(ndfChantierDefaut());
+  const g = ndfGroupes();
   if(g.length < 2) return '';
   const man = window._tvaMan.facl, bloque = !!man && Math.abs(man.ref - ndfTVA(_facLignesLibre)) <= 0.004;
   const lignes = g.map(x=>{ const ht = ndfHT(x.lignes), tva = ndfTVA(x.lignes);
-    return '<tr data-ndf-chantier="'+escHtml(x.chantierId)+'"><td>'+escHtml(ndfLibChantier(x.chantierId)||'—')+'</td><td>'+x.lignes.length+' ligne'+(x.lignes.length>1?'s':'')+'</td><td>'+fmt(ht)+'</td><td>'+fmt(tva)+'</td><td><strong>'+fmt(ht+tva)+'</strong></td></tr>'; }).join('');
-  return '<div class="ndf-repart" id="ndf-repart"><div class="ndf-repart-titre"><i class="ti ti-arrows-split"></i> '+g.length+' chantiers : une facture fournisseur sera créée par chantier (n° de la note + n° du chantier)</div>'
-    +'<table><thead><tr><th>Chantier</th><th></th><th>HT</th><th>TVA</th><th>TTC</th></tr></thead><tbody>'+lignes+'</tbody></table>'
-    +(bloque ? '<div class="alert alert-warning" id="ndf-repart-tva" style="margin:8px 0 0"><i class="ti ti-alert-triangle"></i><span>La TVA a été corrigée à la main (crayon) : elle ne peut pas être répartie entre plusieurs chantiers. Cliquez sur « Recalculer » dans les totaux.</span></div>' : '')
+    return '<tr data-ndf-chantier="'+escHtml(x.chantierId)+'"'+(x.interventionId?' data-ndf-interv="'+escHtml(x.interventionId)+'"':'')+'><td'+(x.chantierId?'':' style="color:var(--red)"')+'>'+escHtml(ndfLibGroupe(x))+'</td><td>'+x.lignes.length+' ligne'+(x.lignes.length>1?'s':'')+'</td><td>'+fmt(ht)+'</td><td>'+fmt(tva)+'</td><td><strong>'+fmt(ht+tva)+'</strong></td></tr>'; }).join('');
+  return '<div class="ndf-repart" id="ndf-repart"><div class="ndf-repart-titre"><i class="ti ti-arrows-split"></i> '+g.length+' imputations : une facture fournisseur sera créée par imputation (n° de la note + n° du chantier)</div>'
+    +'<table><thead><tr><th>Imputation</th><th></th><th>HT</th><th>TVA</th><th>TTC</th></tr></thead><tbody>'+lignes+'</tbody></table>'
+    +(bloque ? '<div class="alert alert-warning" id="ndf-repart-tva" style="margin:8px 0 0"><i class="ti ti-alert-triangle"></i><span>La TVA a été corrigée à la main (crayon) : elle ne peut pas être répartie entre plusieurs imputations. Cliquez sur « Recalculer » dans les totaux.</span></div>' : '')
     +'</div>';
 }
 function ndfMajBarres(){
@@ -10287,18 +10319,21 @@ async function openNoteFraisModal(){
       </div></div></div>`);
     return;
   }
-  const [empR, fours, chR] = await Promise.all([
+  const [empR, fours, chR, ivRows, ivDispo] = await Promise.all([
     sb.from('employes_rh').select('id,nom,prenom,actif').order('nom'),
     ndfFournisseursSalaries(),
-    sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom')
+    sb.from('chantiers_lyneo').select('*').order('nom'),
+    ndfLireInterventions(),
+    colonneAchatsInterv('factures')
   ]);
   if(empR.error){ showToast("Liste des employés illisible : "+empR.error.message, 'error'); return; }
   _ndfEmployes = (empR.data||[]).filter(e=>e.actif!==false).sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr',{sensitivity:'base'}));
   _ndfFours = fours;
   const chantiers = chantiersChoix(chR.data||[]);   // les chantiers archivés ne sont plus proposés
-  _ndfChantiers = chantiers; _ndfScinde = false;
+  _ndfChantiers = chantiers; _ndfScinde = false; _ndfManques = false;
+  _ndfInterventions = ivRows || []; _ndfIntervDispo = !!ivDispo;
   await chargerCodesRessource();
-  _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
+  _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17,chantier_id:'',intervention_id:''}];
   tvaReset('facl', renderFacLignesLibre);
   _facFilesNew = [];
 
@@ -10310,11 +10345,9 @@ async function openNoteFraisModal(){
           <select id="ndf-employe" onchange="ndfSurEmploye()"><option value="">— Sélectionner —</option>${_ndfEmployes.map(e=>`<option value="${escHtml(e.id)}">${escHtml(nomPers(e))}</option>`).join('')}</select>
           <div id="ndf-emp-note" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div>
         </div>
-        <div class="form-group"><label class="field-label">Chantier par défaut *</label>
-          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures');ndfMajDefaut()"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${escHtml(c.id)}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
-          <div style="font-size:12px;margin-top:4px;color:var(--gray-5)">Chaque ligne peut avoir un autre chantier (colonne « Chantier »).</div>
+        <div class="form-group"><label class="field-label">Imputation des dépenses</label>
+          <div id="ndf-info-imput" style="font-size:12.5px;line-height:1.45;color:var(--gray-6);padding:8px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);background:var(--gray-1)"><i class="ti ti-info-circle"></i> Choisie <strong>ligne par ligne</strong> : chantier, frais généraux ou centre SAV (et intervention). Pour des lignes identiques, cochez-les puis « Appliquer ».</div>
         </div>
-        ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">N° de la note *</label><input id="facl-num" oninput="this.dataset.auto='0'" placeholder="NDF-202610-01"/><div style="font-size:12px;margin-top:4px;color:var(--gray-5)">Proposé automatiquement ; vous pouvez y mettre le n° du ticket.</div></div>
         <div class="form-group"><label class="field-label">Date de la note</label><input type="date" id="facl-date" value="${today()}" onchange="ndfSurDate()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(remboursement ; modifiable)</span></label><input type="date" id="facl-echeance" oninput="this.dataset.auto='0';ndfMajEcheance()"/><div id="facl-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>
@@ -10326,12 +10359,12 @@ async function openNoteFraisModal(){
       <div id="cr-tous-zone"></div>
       <div id="ndf-coches-zone"></div>
       <div style="overflow-x:auto;max-width:100%">
-        <table style="width:100%;border-collapse:collapse;min-width:980px" id="ndf-table">
+        <table style="width:100%;border-collapse:collapse;min-width:1060px" id="ndf-table">
           <thead><tr style="background:var(--gray-1)">
             <th style="width:30px"></th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">N° ticket</th>
             <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">Description (fournisseur réel, motif)</th>
-            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:160px">Chantier</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:230px">Chantier / frais généraux / SAV *</th>
             ${crTh('padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;min-width:140px')}
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:80px">Qté</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;width:100px">P.U. HT</th>
@@ -10342,7 +10375,7 @@ async function openNoteFraisModal(){
           <tbody id="facl-lignes-body"></tbody>
         </table>
       </div>
-      <div style="margin:8px 0 0"><button type="button" class="btn btn-secondary btn-sm" id="ndf-add-bas" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+      <div class="ajout-bas" data-ajout-bas="ndf"><button type="button" class="btn btn-secondary btn-sm" id="ndf-add-bas" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="facl-totaux"></div></div>
       <div id="ndf-repartition"></div>
       <div style="font-size:12px;color:var(--gray-5);margin:6px 0 16px">TVA du ticket : 17 / 14 / 8 / 3 %. Indemnités kilométriques et forfaits : 0 %. La TVA ne se récupère qu'avec le justificatif original (à confirmer avec le comptable).</div>
@@ -10446,29 +10479,39 @@ async function ndfResoudreFournisseur(emp){
 function saveNoteFrais(){ return gardeEnvoi('note-de-frais', saveNoteFraisCore); }
 async function saveNoteFraisCore(){
   const rendre = ()=>{ const b = el('btn-save-ndf'); if(b) b.disabled = false; };
-  const empId = el('ndf-employe')?.value || '', chantierId = el('facl-chantier')?.value || '';
+  const empId = el('ndf-employe')?.value || '';
   const numero = (el('facl-num')?.value || '').trim(), date = el('facl-date')?.value || '';
   const emp = _ndfEmployes.find(e=>String(e.id)===String(empId));
   if(!emp){ showToast('Choisissez le salarié', 'error'); return rendre(); }
-  if(!chantierId){ showToast('Le chantier (centre de coûts) est obligatoire', 'error'); return rendre(); }
+  // chaque ligne a son chantier (ou frais généraux / centre SAV) : plus de chantier « par défaut »
+  const sansCh = _facLignesLibre.map((l,i)=>l.chantier_id ? 0 : i+1).filter(Boolean);
+  if(sansCh.length){
+    _ndfManques = true; renderFacLignesLibre();
+    showToast('Choisissez le chantier (ou les frais généraux / le centre SAV) '+(sansCh.length===1 ? 'de la ligne '+sansCh[0] : 'des lignes '+sansCh.slice(0,8).join(', ')+(sansCh.length>8?'…':'')), 'error');
+    return rendre();
+  }
   if(!numero){ showToast('N° de la note obligatoire', 'error'); return rendre(); }
   if(!date){ showToast('Date de la note obligatoire', 'error'); return rendre(); }
   if(_facLignesLibre.some(l=>!String(l.description||'').trim())){ showToast('Toutes les lignes doivent avoir une description', 'error'); return rendre(); }
   const totalHT = ndfHT(_facLignesLibre), calcTVA = ndfTVA(_facLignesLibre);
   if(!(totalHT>0)){ showToast('Le montant de la note de frais est nul', 'error'); return rendre(); }
-  // une facture par chantier (groupe du chantier par défaut en premier) ; une seule si toutes les lignes vont au même chantier
-  const groupes = ndfGroupes(chantierId);
+  // une facture par imputation (chantier + intervention) ; une seule si toutes les lignes vont au même endroit
+  const groupes = ndfGroupes();
   if(groupes.length>1){
     const nul = groupes.find(g=>!(ndfHT(g.lignes)>0));
-    if(nul){ showToast('Le montant de la note pour le chantier « '+escHtml(ndfLibChantier(nul.chantierId))+' » est nul ou négatif : corrigez ses lignes ou changez leur chantier', 'error'); return rendre(); }
+    if(nul){ showToast('Le montant de la note pour « '+escHtml(ndfLibGroupe(nul))+' » est nul ou négatif : corrigez ses lignes ou changez leur imputation', 'error'); return rendre(); }
     const man = window._tvaMan.facl;
-    if(man && Math.abs(man.ref - calcTVA) <= 0.004){ showToast("La TVA corrigée à la main (crayon) ne peut pas être répartie entre plusieurs chantiers : cliquez sur « Recalculer » dans les totaux, ou mettez toutes les lignes sur le même chantier", 'error'); return rendre(); }
+    if(man && Math.abs(man.ref - calcTVA) <= 0.004){ showToast("La TVA corrigée à la main (crayon) ne peut pas être répartie entre plusieurs imputations : cliquez sur « Recalculer » dans les totaux, ou mettez toutes les lignes sur le même chantier", 'error'); return rendre(); }
   }
   const scinde = groupes.length>1 || _ndfScinde, suffixes = [];
   groupes.forEach((g,gi)=>{
     g.ht = ndfHT(g.lignes);
     g.tva = groupes.length===1 ? tvaFinale('facl', calcTVA) : ndfTVA(g.lignes);
     let suf = String((_ndfChantiers.find(c=>String(c.id)===String(g.chantierId))||{}).numero||'').trim().replace(/\s+/g,'') || String(gi+1);
+    if(g.interventionId && groupes.filter(x=>x.chantierId===g.chantierId).length>1){
+      const r = String(((_ndfInterventions.find(i=>String(i.id)===String(g.interventionId))||{}).ref)||'').trim().replace(/\s+/g,'');
+      if(r) suf += '-'+r;
+    }
     if(suffixes.includes(suf)) suf += '-'+(gi+1);
     suffixes.push(suf);
     g.numero = scinde ? numero+'-'+suf : numero;
@@ -10492,7 +10535,7 @@ async function saveNoteFraisCore(){
       date_echeance: el('facl-echeance').value||null,
       montant_ht: g.ht, montant_tva: g.tva, montant_ttc: g.ht+g.tva,
       statut: 'validee', saisie_par: currentUser.id,
-      ...(String(g.chantierId)===String(chantierId) ? achatIntervPayload('facl', null) : {}),
+      ...(g.interventionId ? {intervention_id: g.interventionId} : {}),
       observations: el('facl-obs').value
     }).select().single();
     if(error){
@@ -10532,7 +10575,7 @@ async function saveNoteFraisCore(){
   if(crees.length===1){
     showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees[0].fac.numero_facture_fournisseur+nIntTxt(crees[0].fac)+docsTxt, nbDocs<attendus ? 'error' : undefined);
   } else {
-    showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees.length+' factures, une par chantier : '+crees.map(c=>c.fac.numero_facture_fournisseur+' ('+fmt(c.groupe.ht)+' HT)').join(' ; ')+docsTxt, nbDocs<attendus ? 'error' : undefined);
+    showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees.length+' factures, une par imputation (chantier / intervention) : '+crees.map(c=>c.fac.numero_facture_fournisseur+' ('+fmt(c.groupe.ht)+' HT)').join(' ; ')+docsTxt, nbDocs<attendus ? 'error' : undefined);
   }
   closeModal();
   await rafraichirPage();
@@ -10585,6 +10628,7 @@ async function openFacLibreModal(){
           <tbody id="facl-lignes-body"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="facture-fournisseur"><button type="button" class="btn btn-secondary btn-sm" onclick="addFacLigneLibre()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="facl-totaux"></div></div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="facl-obs"></textarea></div>
       <div class="form-actions">
@@ -10617,7 +10661,7 @@ function renderFacLignesLibre(){
   if(box) box.innerHTML = tvaTotauxHtml('facl', totalHT, totalTVA);
   if(ndf) ndfMajBarres();
 }
-function addFacLigneLibre(){ _facLignesLibre.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); focusDerniereLigne('facl-lignes-body'); }
+function addFacLigneLibre(){ _facLignesLibre.push(ndfOuverte() ? {description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17,chantier_id:'',intervention_id:''} : {description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); focusDerniereLigne('facl-lignes-body'); }
 function delFacLigneLibre(i){ _facLignesLibre.splice(i,1); renderFacLignesLibre(); }
 function updFacLigneLibre(i,f,v){ _facLignesLibre[i][f]=v; renderFacLignesLibre(); }
 
@@ -13047,6 +13091,7 @@ async function openDevisModal(d=null){
           <tbody id="devis-lignes-principal"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="devis-principal"><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisSection('principal')"><i class="ti ti-folder-plus"></i> Section</button><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisLigne('principal')"><i class="ti ti-plus"></i> Ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="devis-totaux"></div></div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 8px">
@@ -13070,6 +13115,7 @@ async function openDevisModal(d=null){
           <tbody id="devis-lignes-option"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="devis-option"><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisSection('option')"><i class="ti ti-folder-plus"></i> Section</button><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisLigne('option')"><i class="ti ti-plus"></i> Ligne</button></div>
       <div style="text-align:right;font-size:13px;font-weight:700;margin-top:8px">Total options HT : <span id="devis-option-total">0,00 €</span></div>
 
       <div class="form-group full" style="margin-top:20px"><label class="field-label">Observations</label><textarea id="dv-obs">${escHtml(d?.observations||'')}</textarea></div>
@@ -13743,6 +13789,7 @@ async function openNewFactureVenteLibre(opts){
           <tbody id="vente-lignes-body"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="facture-client"><button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
       <div class="form-actions">
@@ -14390,6 +14437,7 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
           <tbody id="vente-lignes-body"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="facture-client"><button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
       </div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
@@ -14697,6 +14745,7 @@ async function openNewAvoirVente(facId){
           <tbody id="avoir-lignes-body"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="avoir"><button type="button" class="btn btn-secondary btn-sm" onclick="avoirAjouterLigne()"><i class="ti ti-plus"></i> Ligne libre</button></div>
       <div class="totaux"><div class="totaux-box" id="avoir-totaux"></div></div>
       <div id="avoir-plafond" style="font-size:12px;color:var(--gray-5);text-align:right;margin-top:4px"></div>
       <div class="form-actions">
@@ -20898,6 +20947,7 @@ async function openFactureSAVModal(interventionId){
           <tbody id="sav-lignes-body"></tbody>
         </table>
       </div>
+      <div class="ajout-bas" data-ajout-bas="facture-sav"><button type="button" class="btn btn-secondary btn-sm" onclick="addSavLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="sav-totaux"></div></div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
       <div class="form-actions">
@@ -21920,6 +21970,7 @@ async function openEditPO(poId){
     +      '<tbody id="lignes-body"></tbody>'
     +    '</table>'
     +  '</div>'
+    +  '<div class="ajout-bas" data-ajout-bas="po-modif"><button type="button" class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>'
     +  '<div class="totaux"><div class="totaux-box" id="po-totaux"></div></div>'
     +  '<div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label>'
     +    '<textarea id="po-obs">'+escHtml(po.observations||'')+'</textarea></div>'
@@ -22159,6 +22210,7 @@ async function openFacFromPO(poId){
     +    '</tr></thead>'
     +    '<tbody id="fac-po-lines-body"></tbody>'
     +  '</table></div>'
+    +  '<div class="ajout-bas" data-ajout-bas="facture-depuis-commande"><button type="button" class="btn btn-secondary btn-sm" onclick="addFacPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>'
     +  '<div class="totaux"><div class="totaux-box" id="fac-po-totaux"></div></div>'
     +  '<input type="hidden" id="fac-gen-ht" value="'+totalHT0.toFixed(2)+'"/>'
     +  '<input type="hidden" id="fac-gen-tva" value="'+totalTVA0.toFixed(2)+'"/>'
@@ -22364,6 +22416,7 @@ async function openEditFacLignes(facId){
     +      '<tbody id="efac-lignes-body"></tbody>'
     +    '</table>'
     +  '</div>'
+    +  '<div class="ajout-bas" data-ajout-bas="facture-modifier"><button type="button" class="btn btn-secondary btn-sm" onclick="addEfacLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>'
     +  '<div class="totaux"><div class="totaux-box" id="efac-totaux"></div></div>'
     +  '<div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="efac-obs">'+escHtml(fac.observations||'')+'</textarea></div>'
     +  '<div class="form-actions">'
