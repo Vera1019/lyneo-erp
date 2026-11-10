@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-10-378e748"/>
+<meta name="lyneo-build" content="BUILD:2026-11-10-f187f11"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2217,9 +2217,9 @@ function facturesDeIntervention(i, facsTous){
     vus.add(String(f.id)); return true;
   });
 }
-function etatFacturationIntervention(i, devis, facsTous){
+function etatFacturationIntervention(i, devis, facsTous, refLignes){
   if(i.devis_id && !devis) return {etat:'inconnu'};          // devis illisible : on ne devine pas
-  const ref = i.devis_id ? (parseFloat(devis.montant_ht)||0) : 0;
+  const ref = i.devis_id ? (parseFloat(devis.montant_ht)||0) : (parseFloat(refLignes)||0);   // sans devis : total HT des lignes propres de l'intervention (0 s'il n'y en a pas)
   return etatFacturationGlobal(ref, facturesDeIntervention(i, facsTous));
 }
 // ── PAIEMENT D'UNE INTERVENTION SAV : état DÉRIVÉ des factures clients et des notes de crédit (rien à saisir) ──────────────
@@ -2369,15 +2369,16 @@ async function lireAvoirsDesFactures(rows){
 async function lireFacturationInterventions(ivs, devisMap, opts){
   const liste = ivs||[];
   if(!liste.length) return {ok:true, parId:{}, rows:[]};
-  const [a, b] = await Promise.all([
+  const [a, b, c] = await Promise.all([
     lireFacturesVenteFact('intervention_id', liste.map(i=>i.id)),
-    lireFacturesVenteFact('devis_id', liste.map(i=>i.devis_id).filter(Boolean))
+    lireFacturesVenteFact('devis_id', liste.map(i=>i.devis_id).filter(Boolean)),
+    lireTotauxLignesInterventions(liste)          // référence des interventions sans devis (script SQL absent ⇒ aucune)
   ]);
-  if(!a.ok || !b.ok) return {ok:false, parId:{}, rows:[], erreur:a.erreur||b.erreur};
+  if(!a.ok || !b.ok || !c.ok) return {ok:false, parId:{}, rows:[], erreur:a.erreur||b.erreur||c.erreur};
   const vus = new Set(), rows = [];
   [...a.rows, ...b.rows].forEach(f=>{ if(!vus.has(String(f.id))){ vus.add(String(f.id)); rows.push(f); } });
   const parId = {};
-  liste.forEach(i=>{ parId[i.id] = etatFacturationIntervention(i, i.devis_id ? (devisMap||{})[String(i.devis_id)] : null, rows); });
+  liste.forEach(i=>{ parId[i.id] = etatFacturationIntervention(i, i.devis_id ? (devisMap||{})[String(i.devis_id)] : null, rows, c.parId[String(i.id)]); });
   const res = {ok:true, parId, rows};
   if(opts && opts.paiement) res.avoirs = await lireAvoirsDesFactures(rows);
   return res;
@@ -2788,7 +2789,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-10-378e748';
+const APP_BUILD = 'BUILD:2026-11-10-f187f11';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -20445,6 +20446,254 @@ async function deleteEmploye(employeId){
   renderEmployesRH();
 }
 
+// ── LIGNES PROPRES D'UNE INTERVENTION (sans devis obligatoire, comme les lignes d'une commande Odoo) ───────────────────────
+// Une intervention peut avoir ses propres lignes (déplacement, main d'œuvre, matériel…), modifiables / supprimables / ajoutables.
+// Elles servent de référence : « Facturer » les reprend avec les quantités qui restent à facturer, et le « % facturé » suit leur total HT.
+// Avec un devis lié, c'est le devis qui reste la référence (rien ne change). Sans le script SQL : tout fonctionne comme avant.
+const SQL_LIGNES_INTERVENTION = 'migration-lignes-intervention.sql';
+const MSG_SQL_LIGNES_INT = "Lignes d'intervention non activées : exécutez « "+SQL_LIGNES_INTERVENTION+" » dans Supabase (SQL Editor du projet ERP). En attendant, la facturation reprend les lignes du devis ou une ligne libre, comme avant.";
+// « Lignes types » : ce que Lyneo facture presque toujours lors d'un dépannage
+const LIGNES_TYPES_SAV = [
+  {categorie:'Frais de déplacement', description:'Frais de déplacement'},
+  {categorie:"Main d'œuvre", description:"Main d'œuvre technicien"},
+  {categorie:'Matériel', description:'Matériel'}];
+const COLS_LIGNES_INT = 'id,intervention_id,ordre,categorie,description,reference_article,unite,quantite,prix_unitaire_ht,taux_tva';
+let _intLignes = [];     // lignes en cours de saisie dans la fenêtre d'intervention
+let _intLignesCtx = {actif:false, absente:false, erreur:'', idsInitiaux:[], clients:{}, clientId:''};
+// Table absente (script SQL pas encore exécuté) : message PostgREST « Could not find the table » / PostgreSQL « relation … does not exist »
+const intLigneAbsente = e => { const m = String((e && e.message) || e || ''); return /lignes_intervention/i.test(m) && (['PGRST205','42P01'].includes(e && e.code) || /Could not find the table|does not exist|schema cache/i.test(m)); };
+
+// Lignes d'UNE intervention (ou, sans identifiant, simple test d'existence de la table). {ok, absente, rows, erreur}
+async function lireLignesIntervention(interventionId){
+  try{
+    let q = sb.from('lignes_intervention').select(COLS_LIGNES_INT);
+    q = interventionId ? q.eq('intervention_id', interventionId).order('ordre',{ascending:true}) : q.limit(1);
+    const {data, error} = await q;
+    if(error) return intLigneAbsente(error) ? {ok:true, absente:true, rows:[]} : {ok:false, absente:false, rows:[], erreur:error.message||String(error)};
+    return {ok:true, absente:false, rows: interventionId ? (data||[]) : []};
+  }catch(e){ return {ok:false, absente:false, rows:[], erreur:(e&&e.message)||String(e)}; }
+}
+// Total HT des lignes des interventions SANS devis (référence du « % facturé »). Table absente ⇒ aucun total (comportement d'avant).
+async function lireTotauxLignesInterventions(ivs){
+  const ids = (ivs||[]).filter(i=>!i.devis_id).map(i=>i.id);
+  if(!ids.length) return {ok:true, parId:{}};
+  const r = await lireParLots('lignes_intervention', 'id,intervention_id,quantite,prix_unitaire_ht', 'intervention_id', ids);   // le HT ne dépend pas de la TVA
+  if(!r.ok) return intLigneAbsente(r.erreur) ? {ok:true, absente:true, parId:{}} : {ok:false, parId:{}, erreur:r.erreur};
+  const groupes = {};
+  r.rows.forEach(l=>{ const k = String(l.intervention_id); (groupes[k] = groupes[k]||[]).push(l); });
+  const parId = {}; Object.keys(groupes).forEach(k=>{ parId[k] = totauxFacture(groupes[k]).ht; });
+  return {ok:true, parId};
+}
+// Lignes de l'intervention avec ce qui reste à facturer (même règle que chargerLignesDevisRestantes) : quantité déjà facturée par ligne
+// (lignes de factures liées via ligne_intervention_id) + part des factures sans lien de ligne (acompte, facture libre…) au prorata du total HT.
+async function chargerLignesInterventionRestantes(interventionId, lignes){
+  const src = lignes||[];
+  const {data:facsTout, error:e1} = await sb.from('factures_vente').select('*').eq('intervention_id',interventionId).neq('statut','annulee');
+  if(e1) return {ok:false, erreur:e1.message||String(e1), lignes:[]};
+  const parId = {}; (facsTout||[]).forEach(x=>{ parId[x.id]=x; });
+  const facsExistantes = (facsTout||[]).filter(x=>x.type_facture!=='avoir' || x.remet_quantites);
+  const typeCompte = x => x.type_facture==='avoir' ? (parId[x.facture_origine_id]||{}).type_facture : x.type_facture;
+  const facIds = facsExistantes.map(f=>f.id);
+  const dejaFacture = {}; let acompteHT = 0;
+  if(facIds.length){
+    const {data:lf, error:e2} = await sb.from('lignes_facture_vente').select('facture_vente_id,ligne_intervention_id,quantite').in('facture_vente_id',facIds);
+    if(e2) return {ok:false, erreur:e2.message||String(e2), lignes:[]};
+    (lf||[]).forEach(l=>{ if(l.ligne_intervention_id) dejaFacture[String(l.ligne_intervention_id)] = (dejaFacture[String(l.ligne_intervention_id)]||0) + (parseFloat(l.quantite)||0); });
+    const liees = new Set((lf||[]).filter(l=>l.ligne_intervention_id).map(l=>String(l.facture_vente_id)));
+    facsExistantes.forEach(f=>{ if(['acompte','situation','solde','libre','sav'].includes(typeCompte(f)) && !liees.has(String(f.id))) acompteHT += parseFloat(f.total_ht)||0; });
+  }
+  const montant = totauxFacture(src).ht;
+  const part = montant>0 ? Math.min(1, Math.round(acompteHT/montant*10000)/10000) : 0;
+  return {ok:true, montant, lignes: src.map(l=>{
+    const qte = parseFloat(l.quantite)||0;
+    const fait = Math.round(((dejaFacture[String(l.id)]||0) + part*qte)*10000)/10000;
+    return {
+      ligne_intervention_id: l.id, categorie: l.categorie||'Divers', description: l.description||'', reference_article: l.reference_article||'',
+      unite: l.unite||'u', quantite_devis: qte, origine_libelle: 'Intervention', deja_facture: fait,
+      quantite: Math.max(0, Math.round((qte - fait)*10000)/10000),
+      prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
+    };
+  })};
+}
+
+// ── Saisie des lignes dans la fenêtre d'intervention ─────────────────────────────────────────
+function intTarifClient(clientId, categorie){
+  const c = (_intLignesCtx.clients||{})[String(clientId||'')];
+  const t = (c && c.tarifs) ? parseFloat(c.tarifs[categorie]) : NaN;
+  if(!isNaN(t)) return t;
+  return categorie==='Astreinte' ? 75 : 0;          // même défaut que la facture SAV : tarif du client, sinon 75 € pour l'astreinte
+}
+function intTvaClient(clientId){ const c = (_intLignesCtx.clients||{})[String(clientId||'')]; return tvaDefautPays(c ? c.pays : ''); }
+function intLigneNouvelle(categorie, description){
+  const cid = _intLignesCtx.clientId;
+  return {categorie, description: description!==undefined ? description : descriptionSavDefaut(categorie), reference_article:'', unite:'u', quantite:1,
+          prix_unitaire_ht: intTarifClient(cid, categorie), taux_tva: intTvaClient(cid)};
+}
+// Avant enregistrement : une ligne entièrement vide (ajoutée par erreur) est ignorée ; sans description mais avec un prix, c'est une erreur.
+function lignesIntNettoyer(lignes){
+  const out = [];
+  for(const l of (lignes||[])){
+    const desc = String(l.description||'').trim(), pu = parseFloat(l.prix_unitaire_ht)||0;
+    if(!desc && pu===0 && !String(l.reference_article||'').trim()) continue;
+    if(!desc) return {erreur:'Chaque ligne doit avoir une description (ou supprimez-la).', lignes:[]};
+    out.push({id:l.id||null, categorie:l.categorie||'Divers', description:desc, reference_article:String(l.reference_article||'').trim(), unite:String(l.unite||'').trim()||'u',
+              quantite:parseFloat(l.quantite)||0, prix_unitaire_ht:pu, taux_tva:tvaNum(l.taux_tva)});
+  }
+  return {erreur:'', lignes:out};
+}
+function htmlEditeurLignesIntervention(){
+  const ctx = _intLignesCtx, th = (t,w,al)=>`<th style="padding:8px 10px;text-align:${al||'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase${w?';width:'+w:''}">${t}</th>`;
+  if(ctx.absente) return `<div class="alert alert-warning" id="int-lignes-sql" style="margin-bottom:16px"><i class="ti ti-alert-triangle"></i> ${escHtml(MSG_SQL_LIGNES_INT)}</div>`;
+  if(ctx.erreur) return `<div class="alert alert-warning" id="int-lignes-erreur" style="margin-bottom:16px"><i class="ti ti-alert-triangle"></i> Lignes de l'intervention illisibles (${escHtml(ctx.erreur)}) : elles ne seront ni affichées ni modifiées. Fermez cette fenêtre et réessayez.</div>`;
+  return `<div id="int-lignes-editeur" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <strong style="font-size:13px">Lignes de l'intervention</strong>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('int-tva-all','appliquerTvaGlobaleInt(this.value)')}
+          <button type="button" class="btn btn-secondary btn-sm" id="int-lignes-types" onclick="intLignesTypes()" title="Ajoute frais de déplacement, main d'œuvre et matériel"><i class="ti ti-list-details"></i> Lignes types</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addIntLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--gray-5);margin:0 0 8px">Facultatif : ces lignes seront reprises à la facturation (quantités et prix modifiables) et servent de référence au « % facturé ». Sans lignes, la facturation se fait comme avant.</div>
+      <div style="overflow-x:auto;max-width:100%">
+        <table style="width:100%;border-collapse:collapse;min-width:600px">
+          <thead><tr style="background:var(--gray-1)">${th('Catégorie','140px')}${th('Description')}${th('Qté','70px','right')}${th('P.U. HT','100px','right')}${th('TVA','76px','center')}${th('Total HT','100px','right')}<th style="width:34px"></th></tr></thead>
+          <tbody id="int-lignes-body"></tbody>
+        </table>
+      </div>
+      <div class="ajout-bas" data-ajout-bas="intervention"><button type="button" class="btn btn-secondary btn-sm" onclick="addIntLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+      <div class="totaux"><div class="totaux-box" id="int-lignes-totaux"></div></div>
+    </div>
+    <div class="alert alert-info" id="int-lignes-devis-note" style="display:none;margin-bottom:16px"><i class="ti ti-info-circle"></i> Un devis est lié : la facture reprendra les lignes du devis. Retirez le devis pour saisir ici les lignes de l'intervention.</div>`;
+}
+function intRendreLignes(){
+  const body = el('int-lignes-body'); if(!body) return;
+  const cell = 'padding:6px 10px;border-bottom:1px solid var(--gray-2)', champ = 'width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px';
+  morphLignes(body, _intLignes.map((l,idx)=>{
+    const cats = l.categorie && !ARTICLES_SAV.includes(l.categorie) ? [...ARTICLES_SAV, l.categorie] : ARTICLES_SAV;
+    return `<tr>
+    <td style="${cell}"><select onchange="updIntLigne(${idx},'categorie',this.value)">${cats.map(a=>`<option ${l.categorie===a?'selected':''}>${escHtml(a)}</option>`).join('')}</select></td>
+    <td style="${cell}"><input value="${escHtml(l.description)}" onchange="updIntLigne(${idx},'description',this.value)" style="${champ}"/>${(l.deja_facture||0)>0?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Déjà facturé : ${escHtml(fmtQteLigne(l.deja_facture))}</div>`:''}</td>
+    <td style="${cell};width:70px"><input type="text" data-calc="4" autocomplete="off" step="0.5" value="${escHtml(l.quantite)}" onchange="updIntLigne(${idx},'quantite',this.value)" style="${champ};text-align:right"/></td>
+    <td style="${cell};width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${escHtml(l.prix_unitaire_ht)}" onchange="updIntLigne(${idx},'prix_unitaire_ht',this.value)" style="${champ};text-align:right"/></td>
+    <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updIntLigne(${idx},'taux_tva',this.value)`)}</td>
+    <td style="${cell};text-align:right;font-weight:700;color:var(--blue)">${fmt(totalLigneFV(l))}</td>
+    <td style="${cell};text-align:center"><button type="button" onclick="delIntLigne(${idx})" title="Supprimer la ligne" style="background:none;border:none;cursor:pointer;color:var(--red)"><i class="ti ti-trash"></i></button></td>
+  </tr>`; }).join(''));
+  const tot = totauxFacture(_intLignes), box = el('int-lignes-totaux');
+  if(box) box.innerHTML = `
+    <div class="totaux-row"><span>Total HT</span><span>${fmt(tot.ht)}</span></div>
+    <div class="totaux-row"><span>TVA</span><span>${fmt(tot.tva)}</span></div>
+    <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(tot.ttc)}</span></div>`;
+  const g = el('int-tva-all'); if(g) g.value = tvaCommune(_intLignes);
+}
+function addIntLigne(){ _intLignes.push(intLigneNouvelle(ARTICLES_SAV[0])); intRendreLignes(); focusDerniereLigne('int-lignes-body'); }
+function delIntLigne(idx){
+  const l = _intLignes[idx]; if(!l) return;
+  if(l.id && (l.deja_facture||0)>0 && !confirm('Cette ligne est déjà facturée ('+fmtQteLigne(l.deja_facture)+'). La supprimer ne modifie pas les factures déjà créées. Continuer ?')) return;
+  _intLignes.splice(idx,1); intRendreLignes();
+}
+function updIntLigne(idx, field, value){
+  const l = _intLignes[idx]; if(!l) return;
+  if(field==='categorie'){
+    // Description et prix suivent la catégorie seulement s'ils sont encore vides / automatiques : un texte ou un prix saisi à la main n'est jamais écrasé.
+    const ancienAuto = descriptionSavDefaut(l.categorie), texte = String(l.description||'').trim();
+    const ancienTarif = intTarifClient(_intLignesCtx.clientId, l.categorie), pu = parseFloat(l.prix_unitaire_ht)||0;
+    l.categorie = value;
+    if(!texte || texte===ancienAuto) l.description = descriptionSavDefaut(value);
+    if(pu===0 || pu===ancienTarif) l.prix_unitaire_ht = intTarifClient(_intLignesCtx.clientId, value);
+  } else l[field] = value;
+  intRendreLignes();
+}
+function appliquerTvaGlobaleInt(v){ if(v==='') return; _intLignes.forEach(l=>{ l.taux_tva = Number(v); }); intRendreLignes(); }
+function intLignesTypes(){
+  const deja = new Set(_intLignes.map(l=>l.categorie)); let n = 0;
+  LIGNES_TYPES_SAV.forEach(t=>{ if(!deja.has(t.categorie)){ _intLignes.push(intLigneNouvelle(t.categorie, t.description)); n++; } });
+  if(!n) showToast('Les lignes types sont déjà présentes');
+  intRendreLignes();
+}
+// Case « Astreinte » cochée : une ligne Astreinte est ajoutée si elle n'y est pas encore (jamais retirée toute seule)
+function intAstreinteCoche(coche){
+  if(!coche || !_intLignesCtx.actif) return;
+  const devis = el('int-devis'); if(devis && devis.value) return;
+  if(_intLignes.some(l=>l.categorie==='Astreinte')) return;
+  _intLignes.push(intLigneNouvelle('Astreinte')); intRendreLignes();
+}
+// Avec un devis lié, ses lignes servent à la facturation : l'éditeur est masqué (et les lignes propres ne sont pas touchées)
+function majBlocLignesIntervention(){
+  const ed = el('int-lignes-editeur'), note = el('int-lignes-devis-note'); if(!ed) return;
+  const devis = !!(el('int-devis') && el('int-devis').value);
+  ed.style.display = devis ? 'none' : '';
+  if(note) note.style.display = devis ? '' : 'none';
+}
+// Client changé : prix et TVA des lignes qui suivaient encore le tarif / le pays de l'ancien client passent à ceux du nouveau
+function intLignesApresClient(){
+  const ctx = _intLignesCtx, sel = el('int-client'); if(!sel || !ctx.actif) return;
+  const ancien = ctx.clientId, nouveau = sel.value;
+  if(String(ancien||'')===String(nouveau||'')) return;
+  const tvaAv = intTvaClient(ancien), tvaAp = intTvaClient(nouveau);
+  _intLignes.forEach(l=>{
+    const pu = parseFloat(l.prix_unitaire_ht)||0;
+    if(pu===0 || pu===intTarifClient(ancien, l.categorie)) l.prix_unitaire_ht = intTarifClient(nouveau, l.categorie);
+    if(tvaNum(l.taux_tva)===tvaAv) l.taux_tva = tvaAp;
+  });
+  ctx.clientId = nouveau; intRendreLignes();
+}
+// Charge l'état de l'éditeur avant d'ouvrir la fenêtre (r = intervention éditée, ou modèle d'une nouvelle)
+async function intChargerLignes(r){
+  const ctx = _intLignesCtx = {actif:true, absente:false, erreur:'', idsInitiaux:[], clients:{}, clientId:(r&&r.client_id)||''};
+  _intLignes = [];
+  try{ const {data:cl} = await sb.from('clients').select('id,tarifs_sav,pays'); (cl||[]).forEach(c=>{ ctx.clients[String(c.id)] = {tarifs:c.tarifs_sav||{}, pays:c.pays||''}; }); }catch(e){}
+  const li = await lireLignesIntervention(r && r.id ? r.id : null);
+  if(li.absente){ ctx.actif = false; ctx.absente = true; return; }
+  if(!li.ok){ ctx.actif = false; ctx.erreur = li.erreur||'erreur de lecture'; return; }
+  if(!(r && r.id)) return;
+  let faits = {};
+  if(li.rows.length){ const rs = await chargerLignesInterventionRestantes(r.id, li.rows); if(rs.ok) rs.lignes.forEach(x=>{ faits[String(x.ligne_intervention_id)] = x.deja_facture; }); }
+  _intLignes = li.rows.map(x=>({id:x.id, categorie:x.categorie||'Divers', description:x.description||'', reference_article:x.reference_article||'', unite:x.unite||'u',
+    quantite:x.quantite, prix_unitaire_ht:x.prix_unitaire_ht, taux_tva:tvaNum(x.taux_tva), deja_facture:faits[String(x.id)]||0}));
+  ctx.idsInitiaux = li.rows.map(x=>String(x.id));
+}
+// Écrit les lignes (déjà nettoyées) : supprime celles retirées, met à jour les existantes (id conservé : les factures restent liées), insère les nouvelles.
+// Chaque écriture est vérifiée (une ligne refusée par les droits ne revient pas sans erreur). {ok, erreur}
+async function sauverLignesIntervention(intId, lignes, idsAvant){
+  const gardes = new Set(lignes.filter(l=>l.id).map(l=>String(l.id)));
+  const aSupprimer = (idsAvant||[]).filter(id=>!gardes.has(String(id)));
+  const corps = (l,k) => ({categorie:l.categorie, description:l.description, reference_article:l.reference_article, unite:l.unite, quantite:l.quantite, prix_unitaire_ht:l.prix_unitaire_ht, taux_tva:l.taux_tva, ordre:k+1});
+  try{
+    if(aSupprimer.length){
+      const {data, error} = await sb.from('lignes_intervention').delete().in('id', aSupprimer).select('id');
+      if(error) throw error;
+      if((data||[]).length < aSupprimer.length) throw new Error("droits insuffisants pour supprimer des lignes");
+    }
+    for(let k=0; k<lignes.length; k++){
+      if(!lignes[k].id) continue;
+      const {data, error} = await sb.from('lignes_intervention').update(corps(lignes[k],k)).eq('id', lignes[k].id).select('id');
+      if(error) throw error;
+      if(!(data||[]).length) throw new Error("droits insuffisants pour modifier une ligne");
+    }
+    const nouvelles = lignes.map((l,k)=>({l,k})).filter(x=>!x.l.id).map(x=>({intervention_id:intId, ...corps(x.l,x.k)}));
+    if(nouvelles.length){ const {error} = await sb.from('lignes_intervention').insert(nouvelles); if(error) throw error; }
+    return {ok:true};
+  }catch(e){ return {ok:false, erreur:(e&&e.message)||String(e)}; }
+}
+// Bloc « Lignes » de la fiche (lecture seule). lignes === null : rien à montrer (devis lié, script SQL absent).
+function htmlLignesIntervention(i, lignes, restants){
+  if(lignes===null || lignes===undefined) return '';
+  const fait = {}; if(restants && restants.ok) restants.lignes.forEach(r=>{ fait[String(r.ligne_intervention_id)] = r.deja_facture||0; });
+  const tot = totauxFacture(lignes), th = (t,al)=>`<th style="padding:6px 8px;text-align:${al||'left'};font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase">${t}</th>`;
+  const bouton = `<button type="button" class="btn btn-ghost btn-sm" id="int-lignes-modifier" onclick="closeModal();editInterventionById('${i.id}')"><i class="ti ti-edit"></i> ${lignes.length?'Modifier les lignes':'Ajouter des lignes'}</button>`;
+  if(!lignes.length) return `<div id="int-lignes-fiche" style="margin-bottom:20px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><strong style="font-size:13px">Lignes</strong>${bouton}</div>
+    <p style="font-size:13px;color:var(--gray-4);margin-top:4px">Aucune ligne — ajoutez frais de déplacement, main d'œuvre, matériel… : la facture les reprendra.</p></div>`;
+  return `<div id="int-lignes-fiche" style="margin-bottom:20px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px"><strong style="font-size:13px">Lignes</strong>${bouton}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--gray-1)">${th('Description')}${th('Qté','right')}${th('P.U. HT','right')}${th('TVA','right')}${th('Total HT','right')}</tr></thead><tbody>
+    ${lignes.map(l=>{ const f = fait[String(l.id)]||0; return `<tr data-ligne-int="${escHtml(l.id)}"><td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">${escHtml(l.description)}${l.categorie?` <span style="color:var(--gray-5);font-size:11px">· ${escHtml(l.categorie)}</span>`:''}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right">${escHtml(fmtQteLigne(l.quantite))} ${escHtml(l.unite||'')}${f>0?`<div style="font-size:11px;color:var(--gray-5)">facturé : ${escHtml(fmtQteLigne(f))}</div>`:''}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right">${fmtPU(l.prix_unitaire_ht)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right">${tvaNum(l.taux_tva)} %</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-weight:700">${fmt(totalLigneFV(l))}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <div style="text-align:right;font-size:13px;margin-top:6px" id="int-lignes-fiche-totaux">Total HT <strong>${fmt(tot.ht)}</strong> · TVA ${fmt(tot.tva)} · Total TTC <strong>${fmt(tot.ttc)}</strong></div></div>`;
+}
+
 // ── INTERVENTIONS (SAV) ───────────────────────────────────────
 let _interventionsSAV = [];
 let _savFacturation = {ok:false, parId:{}};   // état de facturation de chaque intervention de la liste
@@ -20611,6 +20860,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
 // ou simplement des valeurs de départ (ex: depuis un devis : client, description, devis_id...).
 async function openInterventionModal(r=null){
   const isEdit = !!(r && r.id);
+  await intChargerLignes(r);          // lignes propres de l'intervention (état de l'éditeur) ; sans effet sans le script SQL
   const [{data:clientsData},{data:employesData},{data:devisData},{data:centresData},{data:devisPris}] = await Promise.all([
     sb.from('clients').select('id,nom,email,telephone,adresse,code_postal,ville').eq('actif',true).order('nom'),
     sb.from('employes_rh').select('id,nom,prenom,email').eq('actif',true).order('nom'),
@@ -20670,6 +20920,8 @@ async function openInterventionModal(r=null){
 
       <div class="form-group full" style="margin-bottom:16px"><label class="field-label">Description du problème</label><textarea id="int-description" placeholder="Panne signalée, symptômes, équipement concerné...">${escHtml(r?.description||'')}</textarea></div>
 
+      ${htmlEditeurLignesIntervention()}
+
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Technicien (employé)</label>
           <select id="int-technicien-id" onchange="prefillTechnicienIntervention()">
@@ -20682,7 +20934,7 @@ async function openInterventionModal(r=null){
       </div>
 
       <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:12px;${r?.astreinte?'background:#FEF2F2;border-color:var(--red)':''}">
-        <input type="checkbox" id="int-astreinte" ${r?.astreinte?'checked':''} style="width:18px;height:18px"/>
+        <input type="checkbox" id="int-astreinte" ${r?.astreinte?'checked':''} onchange="intAstreinteCoche(this.checked)" style="width:18px;height:18px"/>
         <div><strong style="font-size:13px">Astreinte</strong><div style="font-size:12px;color:var(--gray-5)">Intervention urgente hors horaires — un supplément sera pré-rempli à la facturation.</div></div>
       </div>
 
@@ -20709,8 +20961,9 @@ async function openInterventionModal(r=null){
   </div></div>`);
   // Client déjà connu (ex: depuis un devis) : reprend téléphone, email et adresse de sa fiche
   if(!isEdit && r && r.client_id) prefillClientIntervention();
-  filtrerDevisIntervention();
+  filtrerDevisIntervention();             // masque l'éditeur de lignes si un devis est déjà lié (majBlocLignesIntervention)
   prefillCentreIntervention();
+  intRendreLignes();
 }
 
 // Depuis un devis : ouvre le formulaire d'intervention déjà rempli (client, description, devis lié)
@@ -20743,6 +20996,7 @@ function reprendreAdresseClientIntervention(){
 }
 
 function prefillClientIntervention(){
+  intLignesApresClient();             // prix et TVA des lignes suivent le nouveau client
   const sel = el('int-client');
   const opt = sel.options[sel.selectedIndex];
   if(!opt || !opt.value) return;
@@ -20764,6 +21018,7 @@ function filtrerDevisIntervention(){
   });
   const cur = sel.options[sel.selectedIndex];
   if(cur && cur.value && clientId && cur.dataset.client!==clientId) sel.value='';
+  majBlocLignesIntervention();        // le devis a pu être retiré
 }
 
 // Si un centre de coûts SAV est rattaché au client choisi (ex: SAV 2 = Delhaize), il est proposé par défaut
@@ -20781,6 +21036,7 @@ function prefillCentreIntervention(){
 // Choisir un devis reprend le client, la description et l'état de l'offre
 function prefillDepuisDevisIntervention(){
   const sel = el('int-devis');
+  majBlocLignesIntervention();        // devis lié ⇒ l'éditeur de lignes est masqué (la facture reprend le devis)
   const opt = sel.options[sel.selectedIndex];
   if(!opt || !opt.value) return;
   const clientId = opt.dataset.client;
@@ -20800,6 +21056,13 @@ function prefillTechnicienIntervention(){
 async function saveIntervention(id){
   const clientId = el('int-client').value;
   if(!clientId){ showToast("Client obligatoire", 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+  // Lignes de l'intervention : validées AVANT d'écrire quoi que ce soit (rien n'est enregistré à moitié). Avec un devis lié, les lignes propres ne sont pas touchées.
+  let lignesOk = null, lignesErreur = '';
+  if(_intLignesCtx.actif && !(el('int-devis') && el('int-devis').value)){
+    const n = lignesIntNettoyer(_intLignes);
+    if(n.erreur){ showToast(n.erreur, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+    lignesOk = n.lignes;
+  }
 
   const data = {
     client_id: clientId,
@@ -20833,17 +21096,20 @@ async function saveIntervention(id){
         await sb.from('purchase_orders_lyneo').update({chantier_id:data.chantier_id}).eq('intervention_id',id);
       }catch(e){}
     }
+    if(lignesOk){ const w = await sauverLignesIntervention(id, lignesOk, _intLignesCtx.idsInitiaux); if(!w.ok) lignesErreur = w.erreur; }
     showToast('Intervention mise à jour');
   } else {
     const {data:ref} = await sb.rpc('generate_intervention_number');
     const numero = parseInt((ref.match(/\d+$/)||['0'])[0]);
-    const {error} = await sb.from('interventions_sav').insert({...data, ref, numero, statut:'nouvelle', cree_par:currentUser.id});
+    const {data:nouvelle, error} = await sb.from('interventions_sav').insert({...data, ref, numero, statut:'nouvelle', cree_par:currentUser.id}).select('id').single();
     if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+    if(lignesOk && lignesOk.length){ const w = await sauverLignesIntervention(nouvelle.id, lignesOk, []); if(!w.ok) lignesErreur = w.erreur; }
 
     // Plus de code par intervention dans les pointages : les salariés pointent sur le centre SAV (SAV 1, SAV 2, SAV 3).
     // Une intervention n'a donc plus de code à créer ; on rappelle seulement de choisir le centre.
     showToast('Intervention créée — '+ref + (data.chantier_id ? ' (les heures se pointent sur le centre SAV)' : ' — choisissez un centre SAV (Modifier) : les heures se pointent sur SAV 1, SAV 2 ou SAV 3'));
   }
+  if(lignesErreur) showToast("⚠ L'intervention est enregistrée, mais ses lignes ne l'ont pas toutes été : "+lignesErreur+". Rouvrez « Modifier » pour vérifier les lignes.", 'error');
   closeModal();
   rafraichirPage();
 }
@@ -20974,7 +21240,14 @@ async function openInterventionDetail(interventionId){
       if(couts.etat==='ok'){ const r = coutDesPicages(pics||[], couts.parPt); coutMOInterv = r.cout; heuresSansCoutInterv = r.heuresSansCout; }
     }
   }catch(e){ /* système de pointages indisponible */ }
-  const etatFact = etatFacturationIntervention(i, devisLie, facturesLiees);
+  // Lignes propres (sans devis lié) : référence du % facturé ; illisibles ⇒ « — » (jamais un faux état)
+  let lignesInt = null, restantsInt = null, lignesIntIllisibles = false;
+  if(!i.devis_id){
+    const li = await lireLignesIntervention(i.id);
+    if(!li.ok) lignesIntIllisibles = true;
+    else if(!li.absente){ lignesInt = li.rows; if(li.rows.length) restantsInt = await chargerLignesInterventionRestantes(i.id, li.rows); }
+  }
+  const etatFact = lignesIntIllisibles ? {etat:'inconnu'} : etatFacturationIntervention(i, devisLie, facturesLiees, lignesInt ? totauxFacture(lignesInt).ht : 0);
   const photos = (anexos||[]).filter(a=>a.categorie==='photo');
   const documents = (anexos||[]).filter(a=>a.categorie!=='photo');
   const achatsInterv = await chargerAchatsInterventions([i.id]);
@@ -21008,6 +21281,7 @@ async function openInterventionDetail(interventionId){
       </div>
       ${i.description?`<div style="margin-bottom:20px"><strong style="font-size:13px">Description</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(i.description)}</p></div>`:''}
 
+      ${htmlLignesIntervention(i, lignesInt, restantsInt)}
       ${blocCouts}
 
       <div class="form-actions" style="margin-bottom:20px">
@@ -21101,19 +21375,32 @@ async function openFactureSAVModal(interventionId){
     }
   }
   echeanceDefaut = calculerEcheanceDepuisConditions(today(), condPaiementFv()) || '';
-  if(!devisInfoSav && i.astreinte){
+  let intLignesInfo = null;
+  if(!devisInfoSav){
+    const li = await lireLignesIntervention(i.id);
+    if(!li.ok){ showToast("Lignes de l'intervention illisibles : "+li.erreur+" — réessayez dans un instant", 'error'); return; }
+    if(li.rows.length){
+      const rs = await chargerLignesInterventionRestantes(i.id, li.rows);
+      if(!rs.ok){ showToast("Factures de l'intervention illisibles : "+rs.erreur+" — réessayez dans un instant", 'error'); return; }
+      intLignesInfo = {nb:li.rows.length, montant:rs.montant};
+      _sav_venteLignes = rs.lignes;
+      window._savFacCtx.aLignesIntervention = true;
+    }
+  }
+  if(!devisInfoSav && !intLignesInfo && i.astreinte){
     _sav_venteLignes.push({categorie:'Astreinte', description:"Supplément intervention en astreinte", reference_article:i.ref, unite:'u', quantite:1, prix_unitaire_ht: tarifs['Astreinte']??75, taux_tva:window._tvaDefautSav??17});
   }
   if(!_sav_venteLignes.length){   // aucune ligne de départ (ni lignes du devis, ni astreinte) : une ligne vide prête à remplir
     _sav_venteLignes.push({categorie:ARTICLES_SAV[0], description:descriptionSavDefaut(ARTICLES_SAV[0]), reference_article:'', unite:'u', quantite:1, prix_unitaire_ht:0, taux_tva:window._tvaDefautSav??17});
   }
-  const toutFacture = devisInfoSav && _sav_venteLignes.length>0 && _sav_venteLignes.every(l=>(parseFloat(l.quantite)||0)===0);
+  const toutFacture = (devisInfoSav || intLignesInfo) && _sav_venteLignes.length>0 && _sav_venteLignes.every(l=>(parseFloat(l.quantite)||0)===0);
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Facturer l'intervention ${i.ref}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       ${devisInfoSav?`<div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Lignes reprises du devis <strong>${devisInfoSav.numero}</strong> (${fmt(devisInfoSav.montant_ht)} HT), avec les quantités qui restent à facturer. Vous pouvez les ajuster ou ajouter des lignes (ex: astreinte, déplacement).</div>`:''}
-      ${toutFacture?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Toutes les lignes de ce devis ont déjà été facturées (quantités à 0). Ajoutez une ligne si vous devez facturer autre chose.</div>`:''}
+      ${intLignesInfo?`<div class="alert alert-info" id="fv-sav-lignes-interv" style="margin-bottom:12px"><i class="ti ti-info-circle"></i> Lignes reprises de l'intervention <strong>${escHtml(i.ref)}</strong> (${fmt(intLignesInfo.montant)} HT), avec les quantités qui restent à facturer. Vous pouvez les ajuster ou ajouter des lignes.</div>`:''}
+      ${toutFacture?`<div class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Toutes les lignes ${intLignesInfo?"de cette intervention":"de ce devis"} ont déjà été facturées (quantités à 0). Ajoutez une ligne si vous devez facturer autre chose.</div>`:''}
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Date de facture</label><input type="date" id="fv-date" value="${today()}" onchange="majEcheanceAuto()"/></div>
         <div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions de paiement du client ; modifiable)</span></label><input type="date" id="fv-echeance" value="${echeanceDefaut}" data-auto="1" oninput="this.dataset.auto='0'; infoEcheance('fv')"/><div id="fv-echeance-info" style="font-size:12px;margin-top:4px"></div></div>
@@ -21159,7 +21446,7 @@ function renderSavLignes(tarifs){
   if(!body) return;
   morphLignes(body, _sav_venteLignes.map((l,idx)=>`<tr>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><select onchange="updSavLigne(${idx},'categorie',this.value,true)">${ARTICLES_SAV.map(a=>`<option ${l.categorie===a?'selected':''}>${a}</option>`).join('')}</select></td>
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">Devis : ${l.quantite_devis} ${escHtml(l.unite||'')} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updSavLigne(${idx},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/>${l.quantite_devis!==undefined?`<div style="font-size:11px;color:var(--gray-5);margin-top:3px">${escHtml(l.origine_libelle||'Devis')} : ${l.quantite_devis} ${escHtml(l.unite||'')} · déjà facturé : ${l.deja_facture||0}</div>`:''}</td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:70px"><input type="text" data-calc="4" autocomplete="off" step="0.5" value="${l.quantite}" onchange="updSavLigne(${idx},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:100px"><input type="text" data-calc="4" autocomplete="off" step="0.01" value="${l.prix_unitaire_ht}" onchange="updSavLigne(${idx},'prix_unitaire_ht',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
     <td style="padding:6px 6px;border-bottom:1px solid var(--gray-2);width:76px">${tvaSelectHTML(l.taux_tva, `updSavLigne(${idx},'taux_tva',this.value)`)}</td>
@@ -21196,6 +21483,7 @@ async function updSavLigne(idx,field,value,isTarif){
   renderSavLignes();
 }
 
+const savFactureDepuisLignesInt = () => !!(window._savFacCtx && window._savFacCtx.aLignesIntervention);
 async function saveFactureSAV(interventionId, clientId){
   if(_sav_venteLignes.length===0 || _sav_venteLignes.some(l=>!l.description)){
     showToast("Ajoutez au moins une ligne avec description", 'error');
@@ -21203,9 +21491,9 @@ async function saveFactureSAV(interventionId, clientId){
     return;
   }
   // Les lignes du devis déjà entièrement facturées (quantité 0) ne sont pas recopiées sur la facture
-  const lignesAFacturer = _sav_venteLignes.filter(l=>!(l.ligne_devis_id && (parseFloat(l.quantite)||0)===0));
+  const lignesAFacturer = _sav_venteLignes.filter(l=>!((l.ligne_devis_id || l.ligne_intervention_id) && (parseFloat(l.quantite)||0)===0));
   if(lignesAFacturer.length===0){
-    showToast("Rien à facturer : toutes les lignes du devis sont déjà facturées", 'error');
+    showToast(savFactureDepuisLignesInt() ? "Rien à facturer : toutes les lignes de l'intervention sont déjà facturées" : "Rien à facturer : toutes les lignes du devis sont déjà facturées", 'error');
     const b=el('btn-save-sav'); if(b) b.disabled=false;
     return;
   }
@@ -21227,11 +21515,16 @@ async function saveFactureSAV(interventionId, clientId){
   }).select().single();
   if(error){ showToast('Erreur: '+error.message, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return; }
 
-  await sb.from('lignes_facture_vente').insert(lignesAFacturer.map((l,idx)=>({
+  const {error:errLignes} = await sb.from('lignes_facture_vente').insert(lignesAFacturer.map((l,idx)=>({
     facture_vente_id: fac.id, ligne_devis_id: l.ligne_devis_id||null, ordre: idx+1, categorie: l.categorie,
     description: l.description, reference_article: l.reference_article||'', unite: l.unite,
-    quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva)
+    quantite: parseFloat(l.quantite)||0, prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva),
+    ...(l.ligne_intervention_id ? {ligne_intervention_id: l.ligne_intervention_id} : {})      // la colonne n'est envoyée que pour une ligne d'intervention (script SQL exécuté)
   })));
+  if(errLignes){
+    await sb.from('factures_vente').delete().eq('id', fac.id);        // jamais de facture sans ses lignes
+    showToast('Erreur lignes: '+errLignes.message, 'error'); const b=el('btn-save-sav'); if(b) b.disabled=false; return;
+  }
 
   const acc = await accepterDevisFacture(ctx.devisId);       // devis facturé ⇒ « Accepté »
   // L'intervention suit la facturation : « Facturée » si tout est facturé, « Partiellement facturée » s'il reste du devis à facturer
