@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-09-5d06e03"/>
+<meta name="lyneo-build" content="BUILD:2026-11-10-378e748"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -815,6 +815,7 @@ button.frm-pill:hover{filter:brightness(.96)}
       <div class="nav-section">Chantiers &amp; SAV</div>
       <a class="nav-item" href="#/chantiers" onclick="return navLien(event,'chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</a>
       <a class="nav-item" href="#/interventions_sav" onclick="return navLien(event,'interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions SAV</a>
+      <a class="nav-item hidden" href="#/heures_a_valider" onclick="return navLien(event,'heures_a_valider')" id="nav-heures_a_valider"><i class="ti ti-clock-check"></i> Heures à valider<span id="hav-badge" style="display:none"></span></a>
 
       <div class="nav-section">Achats</div>
       <a class="nav-item" href="#/fournisseurs" onclick="return navLien(event,'fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</a>
@@ -2762,6 +2763,7 @@ function showLoginError(msg){
 
 function afficherEcranConnexion(){
   currentUser = null;
+  if(typeof havReset==='function') havReset();
   _clotureVentes = null;
   el('login-page').classList.remove('hidden');
   el('app-layout').classList.add('hidden');
@@ -2786,7 +2788,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-09-5d06e03';
+const APP_BUILD = 'BUILD:2026-11-10-378e748';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -2883,6 +2885,7 @@ function initApp(){
   { const p = pageDepuisHash(); if(pageAutorisee(p)) navigate(p, true); else navigate('dashboard', 'remplacer'); }   // un nouvel onglet ouvert sur #/devis arrive directement sur les devis
   setTimeout(()=>{ afficherNotifAnniversaire().catch(()=>{}); }, 900);   // « Aujourd'hui, c'est l'anniversaire de … » (une fois par jour)
   demarrerVerifVersion();   // version affichée dans le menu + contrôle périodique « Nouvelle version disponible »
+  setTimeout(()=>{ if(typeof havDemarrer==='function') havDemarrer().catch(()=>{}); }, 700);   // « Vous avez N h à valider » (responsables de chantier)
 }
 
 // Mon mot de passe (chaque utilisateur change le sien)
@@ -3044,7 +3047,7 @@ new MutationObserver(()=>{
 }).observe(document.body, {childList:true, subtree:true});
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider'};
 
 // ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
 const PAGES_ADMIN = ['utilisateurs','controle','documents'];
@@ -3094,10 +3097,11 @@ function navigate(page, depuisAdresse){
   const R = pageRenderers();
   const rendu = Object.prototype.hasOwnProperty.call(R,page) ? R[page] : null;
   if(typeof rendu==='function') rendu();
+  if(typeof havMajChrome==='function') havMajChrome();   // bandeau « heures à valider » : pas sur l'écran de validation lui-même
 }
 
 function pageRenderers(){
-  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes};
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider};
 }
 
 // Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
@@ -21329,6 +21333,449 @@ async function saveUser(id){
   showToast(id?'Utilisateur mis à jour':'Utilisateur créé');
   if(salairesNonEnregistre) showToast("⚠ « Accès aux salaires » n'est pas enregistré : exécutez d'abord « migration-employes-fiche-complete.sql » dans Supabase.", 'error');
   closeModal(); renderUtilisateurs();
+}
+
+// ── HEURES À VALIDER (10/11/2026) ───────────────────────────────────────────────────────────────────────────────
+// Validation des heures par BLOC DE CHANTIER dans la semaine soumise d'un employé (système de pointages).
+//   • Un bloc = les heures d'un employé sur un chantier pendant une semaine (+ un bloc « Absences » par semaine).
+//   • Le responsable du chantier (chantiers_lyneo.chef_chantier_id → fiche employé, lié à l'utilisateur ERP par l'e-mail) valide SES blocs.
+//     Centres SAV : n'importe quel responsable valide (le premier clôt). Heures improductives, absences, chantiers sans
+//     responsable ou non reliés à l'ERP : direction (administrateur qui n'est pas responsable de chantier).
+//   • Un bloc validé le reste tant que ses heures ne changent pas (empreinte). La semaine passe à « approuvé » toute seule
+//     quand tous ses blocs sont validés. « À corriger » renvoie la semaine à l'employé avec le motif ; les blocs déjà validés
+//     et inchangés restent validés.
+//   • Table : semaine_validations (projet POINTAGES) — migration-pointages-validation-chantier.sql. Sans elle : lecture seule.
+const HAV_SQL = 'migration-pointages-validation-chantier.sql';
+const HAV_JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+let _hav = null;                 // dernier calcul : {t, d, ctx, semaines, resume}
+let _havPromesse = null;         // lecture en cours (évite deux lectures simultanées)
+let _havMinuteur = null;
+let _havVue = 'mes';             // 'mes' | 'tout'
+const havToast = (m, t) => showToast(escHtml(m), (t==='warn' || t==='error') ? 'error' : 'success');
+const havIso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const havJ10 = s => String(s==null?'':s).slice(0,10);
+function havJours(debut){ const b = new Date(havJ10(debut)+'T12:00:00'), out = []; for(let i=0;i<7;i++){ const d = new Date(b); d.setDate(d.getDate()+i); out.push(havIso(d)); } return out; }
+function havSemNum(debut){ const p = havJ10(debut).split('-').map(Number); const d = new Date(Date.UTC(p[0], p[1]-1, p[2])); d.setUTCDate(d.getUTCDate()+4-(d.getUTCDay()||7)); const y0 = new Date(Date.UTC(d.getUTCFullYear(),0,1)); return Math.ceil(((d-y0)/86400000+1)/7); }
+function havH(n){ const v = Math.round((parseFloat(n)||0)*100)/100; return String(v).replace('.',','); }
+const havNormEmail = e => String(e==null?'':e).trim().toLowerCase();
+// Signature stable des heures d'un bloc : si elle change, la validation ne vaut plus
+function havEmpreinte(lignes){
+  return (lignes||[]).map(l=>havJ10(l.date)+'|'+(l.k||'jour')+'|'+(parseFloat(l.heures)||0).toFixed(2)).sort().join(';');
+}
+const havAbsentSQL = msg => /PGRST205|42P01|does not exist|schema cache|could not find/i.test(String(msg||''));
+
+// Pointages/absences d'un employé pour une semaine (colonnes optionnelles : repli sans type_heures)
+async function havLirePicages(appliquer){
+  const lire = async cols => { const out = []; for(let d0=0;;d0+=1000){ let q = sbPT.from('picages').select(cols); q = appliquer(q); const {data,error} = await q.order('id',{ascending:true}).range(d0,d0+999); if(error) return {error}; const l = data||[]; out.push(...l); if(l.length<1000) break; } return {data:out}; };
+  let r = await lire('id,employe_id,chantier_id,date,heures,type_heures');
+  if(r.error && /type_heures/i.test(r.error.message||'')) r = await lire('id,employe_id,chantier_id,date,heures');
+  if(r.error) throw r.error;
+  return r.data;
+}
+async function havLireAbsences(appliquer){
+  try{
+    const out = [];
+    for(let d0=0;;d0+=1000){ let q = sbPT.from('absences').select('id,employe_id,date,type,heures'); q = appliquer(q); const {data,error} = await q.order('id',{ascending:true}).range(d0,d0+999); if(error) return []; const l = data||[]; out.push(...l); if(l.length<1000) break; }
+    return out;
+  }catch(e){ return []; }
+}
+const havLignesPicages = l => ({date:havJ10(l.date), k:(l.type_heures==='nuit'?'nuit':'jour'), heures:parseFloat(l.heures)||0});
+const havLignesAbsences = l => ({date:havJ10(l.date), k:'abs-'+String(l.type||''), heures:parseFloat(l.heures)||0});
+
+// Chantier du système de pointages → qui doit valider ses heures
+function havClasser(chantiers, interventions, ptRows){
+  const map = new Map();
+  const mettre = (pt, info)=>{ const k = String(pt.id), cur = map.get(k); if(!cur || (cur.classe==='admin' && info.classe!=='admin')) map.set(k, info); };
+  (chantiers||[]).forEach(c=>{
+    const type = c.type_centre||'chantier';
+    codesPointagesDe(c).forEach(code=>{
+      const pt = trouverChantierPointages(ptRows, code); if(!pt) return;
+      if(type==='chantier') mettre(pt, c.chef_chantier_id ? {classe:'resp', resp:String(c.chef_chantier_id), lib:libChantierAchat(c)} : {classe:'admin', resp:null, lib:libChantierAchat(c), sansResp:true});
+      else if(type==='sav') mettre(pt, {classe:'pool', resp:null, lib:libChantierAchat(c)});
+      else mettre(pt, {classe:'admin', resp:null, lib:libChantierAchat(c)});
+    });
+  });
+  const parId = new Map((chantiers||[]).map(c=>[String(c.id), c]));
+  (interventions||[]).forEach(i=>{
+    const c = parId.get(String(i.chantier_id)); if(!c || c.type_centre!=='sav' || !i.ref) return;
+    const pt = trouverChantierPointages(ptRows, i.ref); if(pt) mettre(pt, {classe:'pool', resp:null, lib:libChantierAchat(c)+' · '+i.ref});
+  });
+  return map;
+}
+function havBloc(emp, debut, cle, lignes, cl, valParCle){
+  const empreinte = havEmpreinte(lignes), v = valParCle.get(String(emp)+'|'+debut+'|'+cle) || null;
+  const jours = {}; let heures = 0;
+  lignes.forEach(l=>{ jours[l.date] = (jours[l.date]||0)+l.heures; heures += l.heures; });
+  const valide = !!v && v.statut==='valide' && String(v.empreinte)===empreinte;
+  return {cle:String(cle), classe:cl.classe, resp:cl.resp||null, lib:cl.lib, sansResp:!!cl.sansResp, inconnu:!!cl.inconnu, heures, jours, empreinte,
+          etat: valide ? 'valide' : 'attente', decision: v,
+          renvoye: (!valide && v && v.statut==='a_corriger') ? v : null, modifie: !!v && String(v.empreinte)!==empreinte};
+}
+// Blocs de chaque semaine soumise
+function havCalculer(d){
+  const classes = havClasser(d.chantiers, d.interventions, d.ptRows);
+  const ptParId = new Map((d.ptRows||[]).map(p=>[String(p.id), p]));
+  const nomEmp = new Map((d.ptEmp||[]).map(e=>[String(e.id), e.nom]));
+  const valParCle = new Map(); (d.validations||[]).forEach(v=>valParCle.set(String(v.employe_id)+'|'+havJ10(v.semaine_debut)+'|'+String(v.bloc), v));
+  const out = [];
+  (d.semaines||[]).forEach(s=>{
+    const debut = havJ10(s.semaine_debut), jours = havJours(debut), a = jours[0], z = jours[6];
+    const dansSemaine = x => String(x.employe_id)===String(s.employe_id) && havJ10(x.date)>=a && havJ10(x.date)<=z && (parseFloat(x.heures)||0)>0;
+    const parBloc = new Map();
+    (d.picages||[]).filter(dansSemaine).forEach(p=>{ const k = String(p.chantier_id); if(!parBloc.has(k)) parBloc.set(k, []); parBloc.get(k).push(havLignesPicages(p)); });
+    const blocs = [];
+    parBloc.forEach((lignes,k)=>{
+      const pt = ptParId.get(k);
+      const cl = classes.get(k) || {classe:'admin', resp:null, lib:(pt ? (pt.nom||pt.code||('Chantier '+k)) : 'Chantier '+k), inconnu:true};
+      blocs.push(havBloc(s.employe_id, debut, k, lignes, cl, valParCle));
+    });
+    const abs = (d.absences||[]).filter(dansSemaine).map(havLignesAbsences);
+    if(abs.length) blocs.push(havBloc(s.employe_id, debut, 'ABS', abs, {classe:'admin', resp:null, lib:'Absences'}, valParCle));
+    const ordreClasse = {resp:0, pool:1, admin:2};
+    blocs.sort((x,y)=> (ordreClasse[x.classe]-ordreClasse[y.classe]) || String(x.lib).localeCompare(String(y.lib),'fr',{numeric:true}));
+    out.push({sem:s, emp:String(s.employe_id), empNom:nomEmp.get(String(s.employe_id))||('Employé '+s.employe_id), debut, jours, blocs,
+              total: blocs.reduce((t,b)=>t+b.heures,0), vide: blocs.length===0, complet: blocs.every(b=>b.etat==='valide')});
+  });
+  out.sort((x,y)=> x.debut.localeCompare(y.debut) || String(x.empNom).localeCompare(String(y.empNom),'fr'));
+  return out;
+}
+// Qui est l'utilisateur connecté ? (e-mail de l'utilisateur ERP = e-mail de la fiche employé)
+function havContexte(user, d){
+  const m = havNormEmail(user && user.email);
+  const cand = m ? (d.emps||[]).filter(e=>havNormEmail(e.email)===m) : [];
+  const emp = cand.length===1 ? cand[0] : null;
+  const empId = emp ? String(emp.id) : null;
+  const estResp = !!empId && (d.chantiers||[]).some(c=>(c.type_centre||'chantier')==='chantier' && c.statut!=='archive' && c.chef_chantier_id && String(c.chef_chantier_id)===empId);
+  const admin = !!user && user.role==='admin';
+  return {admin, emp, empId, estResp, ambigu: cand.length>1, superviseur: admin && !estResp};
+}
+// Le valideur « normal » d'un bloc
+function havMien(b, ctx){
+  if(b.classe==='resp') return !!ctx.empId && b.resp===ctx.empId;
+  if(b.classe==='pool') return !!ctx.estResp;
+  return !!ctx.superviseur;
+}
+const havPeutValider = (b, ctx) => !!ctx.superviseur || havMien(b, ctx);
+function havResume(semaines, ctx){
+  let blocs = 0, heures = 0; const sem = new Set();
+  (semaines||[]).forEach(w=>w.blocs.forEach(b=>{ if(b.etat==='attente' && havMien(b, ctx)){ blocs++; heures += b.heures; sem.add(w.emp+'|'+w.debut); } }));
+  return {blocs, heures, semaines:sem.size};
+}
+function havNomValideur(b, d){
+  if(b.classe==='resp'){ const e = (d.emps||[]).find(x=>String(x.id)===b.resp); return e ? nomPers(e) : 'responsable'; }
+  if(b.classe==='pool') return 'un responsable (SAV)';
+  return b.sansResp ? 'direction (chantier sans responsable)' : 'direction';
+}
+
+// Lecture de tout ce qu'il faut (mise en cache 45 s)
+async function havCharger(force){
+  if(!force && _hav && Date.now()-_hav.t < 45000) return _hav;
+  if(_havPromesse) return _havPromesse;
+  _havPromesse = (async()=>{
+    try{
+      const [emps, chantiers, interventions] = await Promise.all([
+        lirePagine('employes_rh', 'id,nom,prenom,email,actif'),
+        lirePagine('chantiers_lyneo', '*'),
+        lirePagine('interventions_sav', 'id,ref,chantier_id').catch(()=>[])
+      ]);
+      const [ptRows, ptEmp, semaines] = await Promise.all([
+        lireChantiersPointages(),
+        lirePT('employes', 'id,nom'),
+        lirePT('semaines', '*', q=>q.eq('statut','soumis'))
+      ]);
+      let picages = [], absences = [], validations = [], sqlManque = false;
+      if(semaines.length){
+        const debuts = semaines.map(s=>havJ10(s.semaine_debut)).sort();
+        const min = debuts[0], max = havJours(debuts[debuts.length-1])[6];
+        picages = await havLirePicages(q=>q.gte('date',min).lte('date',max));
+        absences = await havLireAbsences(q=>q.gte('date',min).lte('date',max));
+        try{
+          validations = await lirePT('semaine_validations', '*', q=>q.gte('semaine_debut', min));
+        }catch(e){ if(havAbsentSQL(e && e.message)) sqlManque = true; else throw e; }
+      }else{
+        try{ await sbPT.from('semaine_validations').select('id').limit(1).then(r=>{ if(r.error && havAbsentSQL(r.error.message)) sqlManque = true; }); }catch(e){}
+      }
+      const d = {emps, chantiers, interventions, ptRows, ptEmp, semaines, picages, absences, validations, sqlManque};
+      const calc = havCalculer(d), ctx = havContexte(currentUser, d);
+      _hav = {t:Date.now(), d, ctx, semaines:calc, resume:havResume(calc, ctx)};
+      return _hav;
+    } finally { _havPromesse = null; }
+  })();
+  return _havPromesse;
+}
+
+// ── Menu, faixa de connexion, minuteur ──────────────────────────────────────────────────────────────────────────
+function havMajChrome(){
+  const h = _hav; if(!h) return;
+  const nav = document.getElementById('nav-heures_a_valider');
+  const visible = !!(h.ctx.superviseur || h.ctx.estResp);
+  if(nav){
+    nav.classList.toggle('hidden', !visible);
+    let badge = document.getElementById('hav-badge');
+    if(!badge){ badge = document.createElement('span'); badge.id = 'hav-badge'; badge.style.cssText = 'margin-left:auto;background:#F59E0B;color:#fff;border-radius:9px;padding:0 7px;font-size:11px;font-weight:700;line-height:18px'; nav.appendChild(badge); }
+    badge.textContent = h.resume.blocs ? String(h.resume.blocs) : '';
+    badge.style.display = h.resume.blocs ? '' : 'none';
+  }
+  const main = document.querySelector('.main'), page = document.getElementById('page-content');
+  let b = document.getElementById('hav-bandeau');
+  const montrer = visible && !h.d.sqlManque && h.resume.blocs>0 && currentPage!=='heures_a_valider';
+  if(!montrer){ if(b) b.remove(); return; }
+  if(!b && main && page){ b = document.createElement('div'); b.id = 'hav-bandeau'; b.setAttribute('role','status'); main.insertBefore(b, page); }
+  if(!b) return;
+  b.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 24px;background:#FEF3C7;border-bottom:1px solid #F59E0B;color:#78350F;font-size:13.5px';
+  const r = h.resume;
+  b.innerHTML = '<i class="ti ti-clock-check" style="font-size:18px"></i><span><strong>Vous avez '+escHtml(havH(r.heures))+' h à valider</strong> — '+r.blocs+' bloc'+(r.blocs>1?'s':'')+' de chantier, '+r.semaines+' semaine'+(r.semaines>1?'s':'')+' soumise'+(r.semaines>1?'s':'')+'.</span>'
+    + '<button class="btn btn-primary btn-sm" id="hav-bandeau-btn" onclick="navigate(\'heures_a_valider\')">Valider mes heures</button>';
+}
+function havReset(){ _hav = null; _havPromesse = null; _havVue = 'mes'; if(_havMinuteur){ clearInterval(_havMinuteur); _havMinuteur = null; } const b = document.getElementById('hav-bandeau'); if(b) b.remove(); const n = document.getElementById('nav-heures_a_valider'); if(n) n.classList.add('hidden'); const g = document.getElementById('hav-badge'); if(g) g.style.display = 'none'; }
+async function havDemarrer(){
+  try{ await havCharger(false); havMajChrome(); }catch(e){}
+  if(!_havMinuteur){
+    _havMinuteur = setInterval(()=>{ havCharger(true).then(havMajChrome).catch(()=>{}); }, 10*60*1000);
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && (!_hav || Date.now()-_hav.t > 120000)) havCharger(true).then(havMajChrome).catch(()=>{}); });
+  }
+}
+
+// ── Écriture d'une décision ─────────────────────────────────────────────────────────────────────────────────────
+async function havAudit(action, details){
+  try{ await sbPT.from('audit_log').insert({user_id:null, action, details, created_at:new Date().toISOString()}); }catch(e){}
+}
+// Relit la semaine (encore « soumise » ?) et ses blocs tels qu'ils sont MAINTENANT dans la base
+async function havRelireSemaine(emp, debut){
+  const jours = havJours(debut), a = jours[0], z = jours[6];
+  const rs = await sbPT.from('semaines').select('*').eq('employe_id',emp).eq('semaine_debut',debut).eq('statut','soumis').limit(1);
+  if(rs.error) throw rs.error;
+  const sem = (rs.data||[])[0] || null;
+  if(!sem) return {sem:null};
+  const picages = await havLirePicages(q=>q.eq('employe_id',emp).gte('date',a).lte('date',z));
+  const absences = await havLireAbsences(q=>q.eq('employe_id',emp).gte('date',a).lte('date',z));
+  let validations = [];
+  const rv = await sbPT.from('semaine_validations').select('*').eq('employe_id',emp).eq('semaine_debut',debut);
+  if(rv.error){ if(havAbsentSQL(rv.error.message)) return {sem, sqlManque:true}; throw rv.error; }
+  validations = rv.data||[];
+  const d = Object.assign({}, _hav ? _hav.d : {}, {semaines:[sem], picages, absences, validations});
+  const w = havCalculer(d)[0];
+  return {sem, w};
+}
+async function havEcrireDecision(emp, debut, bloc, statut, motif){
+  const par = nomPers(currentUser) || (currentUser && currentUser.email) || 'ERP';
+  const ligne = {employe_id:emp, semaine_debut:debut, bloc:String(bloc.cle), statut, empreinte:bloc.empreinte, heures:Math.round(bloc.heures*100)/100,
+                 motif: statut==='a_corriger' ? motif : null, par_nom:par, par_email:(currentUser && currentUser.email)||null, via:'erp'};
+  const lire = async()=>{ const r = await sbPT.from('semaine_validations').select('id,statut,empreinte,par_nom').eq('employe_id',emp).eq('semaine_debut',debut).eq('bloc',String(bloc.cle)).limit(1); if(r.error) throw r.error; return (r.data||[])[0]||null; };
+  let ex = await lire();
+  if(ex && statut==='valide' && ex.statut==='valide' && String(ex.empreinte)===bloc.empreinte) return true;   // déjà validé (mêmes heures) : le premier valideur reste
+  if(!ex){
+    const ins = await sbPT.from('semaine_validations').insert(ligne).select('id');
+    if(!ins.error) return true;
+    if(ins.error.code!=='23505') throw ins.error;
+    ex = await lire();                                          // quelqu'un vient de décider en même temps
+    if(!ex) throw ins.error;
+    if(statut==='valide' && ex.statut==='valide' && String(ex.empreinte)===bloc.empreinte) return true;
+  }
+  const up = await sbPT.from('semaine_validations').update(ligne).eq('id',ex.id).select('id');
+  if(up.error) throw up.error;
+  if(!(up.data||[]).length) throw new Error("Mise à jour refusée par la base (droits).");
+  return true;
+}
+// Si tous les blocs sont validés : la semaine passe à « approuvé » (seulement si elle est toujours soumise, dans le même état)
+async function havAppliquerSemaine(emp, debut, explicite){
+  const r = await havRelireSemaine(emp, debut);
+  if(!r.sem || !r.w || !r.w.complet) return {approuvee:false};
+  if(r.w.vide && !explicite) return {approuvee:false};
+  let q = sbPT.from('semaines').update({statut:'approuve', valide_le:new Date().toISOString()}).eq('id',r.sem.id).eq('statut','soumis');
+  if(r.sem.soumis_le) q = q.eq('soumis_le', r.sem.soumis_le);
+  const res = await q.select('id');
+  if(res.error) throw res.error;
+  const ok = (res.data||[]).length>0;
+  if(ok) await havAudit('APPROBATION_BLOCS', 'Semaine '+debut+' de '+r.w.empNom+' approuvée : tous les blocs de chantier sont validés (dernière validation par '+(nomPers(currentUser)||'ERP')+')');
+  return {approuvee:ok};
+}
+// decision = 'valide' | 'a_corriger'
+async function havDecider(emp, debut, cle, decision, motif){
+  if(_hav && _hav.d.sqlManque){ havToast("La base des pointages doit être mise à jour : exécutez « "+HAV_SQL+" » dans le projet POINTAGES.", 'error'); return {ok:false}; }
+  emp = String(emp); debut = havJ10(debut); cle = String(cle);
+  if(!_hav){ try{ await havCharger(false); }catch(e){ havToast('Impossible de lire les pointages : '+((e&&e.message)||e), 'error'); return {ok:false}; } }
+  if(decision==='a_corriger' && !String(motif||'').trim()){ havToast('Indiquez le motif pour l\'employé.', 'error'); return {ok:false}; }
+  let r;
+  try{ r = await havRelireSemaine(emp, debut); }catch(e){ havToast('Impossible de relire la semaine : '+((e&&e.message)||e), 'error'); return {ok:false}; }
+  if(r.sqlManque){ havToast("La base des pointages doit être mise à jour : exécutez « "+HAV_SQL+" » dans le projet POINTAGES.", 'error'); return {ok:false}; }
+  if(!r.sem){ havToast("Cette semaine n'est plus « soumise » (déjà traitée ou retirée par l'employé). Liste actualisée.", 'warn'); await havRafraichir(); return {ok:false}; }
+  const bloc = (r.w.blocs||[]).find(b=>b.cle===cle);
+  if(!bloc){ havToast("Ce bloc n'existe plus dans cette semaine (heures modifiées). Liste actualisée.", 'warn'); await havRafraichir(); return {ok:false}; }
+  const ctx = _hav ? _hav.ctx : havContexte(currentUser, {emps:[], chantiers:[]});
+  if(!havPeutValider(bloc, ctx)){ havToast("Ce bloc n'est pas dans vos chantiers : il doit être validé par "+havNomValideur(bloc, _hav.d)+".", 'error'); return {ok:false}; }
+  const affiche = _hav && _hav.semaines.find(w=>w.emp===emp && w.debut===debut);
+  const vu = affiche && affiche.blocs.find(b=>b.cle===cle);
+  if(vu && vu.empreinte!==bloc.empreinte){ havToast("Les heures de ce bloc ont changé depuis l'affichage : relisez-les puis validez à nouveau.", 'warn'); await havRafraichir(); return {ok:false}; }
+  try{ await havEcrireDecision(emp, debut, bloc, decision, String(motif||'').trim()); }
+  catch(e){ havToast('Erreur : '+((e&&e.message)||e), 'error'); return {ok:false}; }
+  let approuvee = false, renvoyee = false;
+  if(decision==='valide'){
+    await havAudit('VALIDATION_BLOC', 'Bloc « '+bloc.lib+' » ('+havH(bloc.heures)+' h) — semaine '+debut+' de '+r.w.empNom+' validé par '+(nomPers(currentUser)||'ERP')+' (ERP)');
+    try{ approuvee = (await havAppliquerSemaine(emp, debut)).approuvee; }catch(e){ havToast("Bloc validé, mais la semaine n'a pas pu être approuvée automatiquement : "+((e&&e.message)||e), 'warn'); }
+  }else{
+    const texte = MOTIF_RENVOI_ERP+' : ['+bloc.lib+'] '+String(motif).trim()+' — '+(nomPers(currentUser)||'ERP');
+    const up = await sbPT.from('semaines').update({statut:'brouillon', commentaire:texte, valide_le:new Date().toISOString()}).eq('id',r.sem.id).eq('statut','soumis').select('id');
+    renvoyee = !up.error && (up.data||[]).length>0;
+    if(!renvoyee) havToast("Décision enregistrée, mais la semaine n'a pas pu être renvoyée (elle a été modifiée entretemps).", 'warn');
+    await havAudit('RENVOI_BLOC', 'Bloc « '+bloc.lib+' » — semaine '+debut+' de '+r.w.empNom+' à corriger : '+String(motif).trim()+' (par '+(nomPers(currentUser)||'ERP')+', ERP)');
+  }
+  await havRafraichir();
+  return {ok:true, approuvee, renvoyee};
+}
+const MOTIF_RENVOI_ERP = 'Renvoyé pour correction';
+
+// ── Écran ───────────────────────────────────────────────────────────────────────────────────────────────────────
+async function havRafraichir(){
+  try{ await havCharger(true); }catch(e){ /* l'écran affichera l'erreur au prochain dessin */ }
+  havMajChrome();
+  if(currentPage==='heures_a_valider') await havDessiner();
+}
+function havDetailJours(b, jours){
+  return jours.map((j,i)=> b.jours[j] ? HAV_JOURS[i]+' '+j.slice(8,10)+'/'+j.slice(5,7)+' : '+havH(b.jours[j])+' h' : '').filter(Boolean).join(' · ');
+}
+function havPuce(b, d, ctx){
+  const style = 'display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:12px;font-size:12px;';
+  if(b.etat==='valide') return '<span class="hav-puce hav-ok" style="'+style+'background:#D1FAE5;color:#065F46">✔ '+escHtml(b.lib)+' · '+escHtml(havH(b.heures))+' h'+(b.decision&&b.decision.par_nom?' · '+escHtml(b.decision.par_nom):'')+'</span>';
+  const mien = havPeutValider(b, ctx);
+  return '<span class="hav-puce hav-att" style="'+style+(mien?'background:#FEF3C7;color:#78350F':'background:#F3F4F6;color:#4B5563')+'">⏳ '+escHtml(b.lib)+' · '+escHtml(havH(b.heures))+' h — '+(mien?'à valider':'attend '+escHtml(havNomValideur(b, d)))+'</span>';
+}
+function havHtmlBloc(w, b, d, ctx, actif){
+  const cle = escHtml(w.emp)+'|'+escHtml(w.debut)+'|'+escHtml(b.cle);
+  const alerte = b.renvoye ? '<div class="hav-renvoye" style="font-size:12px;color:#B45309;margin-top:3px">⚠ Déjà renvoyé le '+escHtml(havJ10(b.renvoye.updated_at||b.renvoye.created_at||'').split('-').reverse().join('/'))+' par '+escHtml(b.renvoye.par_nom||'')+' : « '+escHtml(b.renvoye.motif||'')+' » — '+(b.modifie?'les heures ont été modifiées depuis.':'les heures n\'ont pas changé.')+'</div>'
+    : (b.modifie ? '<div class="hav-modifie" style="font-size:12px;color:#B45309;margin-top:3px">Les heures ont changé depuis la dernière validation : à valider à nouveau.</div>' : '');
+  return '<div class="hav-bloc" data-bloc="'+cle+'" style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;margin-top:8px;border:1px solid #F59E0B;border-radius:10px;background:#FFFBEB">'
+    + '<div style="min-width:220px;flex:1"><strong>'+escHtml(b.lib)+'</strong> — '+escHtml(havH(b.heures))+' h'+(b.classe==='pool'?' <span style="font-size:11px;color:#6B7280">(SAV — tout responsable peut valider)</span>':'')+(b.classe==='admin'&&!b.sansResp?' <span style="font-size:11px;color:#6B7280">(direction)</span>':'')+(b.sansResp?' <span style="font-size:11px;color:#B45309">(chantier sans responsable)</span>':'')+(b.inconnu?' <span style="font-size:11px;color:#B45309">(non relié à l\'ERP)</span>':'')
+    + '<div style="font-size:12px;color:#6B7280;margin-top:2px">'+escHtml(havDetailJours(b, w.jours))+'</div>'+alerte+'</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+    + '<button class="btn btn-primary btn-sm hav-valider" '+(actif?'':'disabled ')+'onclick="havBtnValider(this)" data-k="'+cle+'"><i class="ti ti-check"></i> Valider</button>'
+    + '<button class="btn btn-secondary btn-sm hav-renvoyer" '+(actif?'':'disabled ')+'onclick="havBtnRenvoi(this)" data-k="'+cle+'"><i class="ti ti-arrow-back-up"></i> À corriger</button></div>'
+    + '<div class="hav-renvoi-zone" style="display:none;width:100%"><input class="hav-motif" style="width:100%;padding:7px 9px;border:1px solid var(--gray-3);border-radius:6px;font-size:13px" maxlength="300" placeholder="Motif visible par l\'employé (obligatoire)"/>'
+    + '<div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-primary btn-sm hav-envoyer" onclick="havBtnEnvoyer(this)" data-k="'+cle+'">Renvoyer à l\'employé</button><button class="btn btn-secondary btn-sm" onclick="havBtnAnnuler(this)">Annuler</button></div></div>'
+    + '</div>';
+}
+function havParseCle(k){ const p = String(k).split('|'); return {emp:p[0], debut:p[1], bloc:p.slice(2).join('|')}; }
+async function havBtnValider(btn){
+  const c = havParseCle(btn.dataset.k); btn.disabled = true;
+  const r = await havDecider(c.emp, c.debut, c.bloc, 'valide');
+  if(r.ok) havToast(r.approuvee ? 'Bloc validé — semaine complète, approuvée ✓' : 'Bloc validé ✓');
+  else btn.disabled = false;
+}
+function havBtnRenvoi(btn){ const z = btn.closest('.hav-bloc').querySelector('.hav-renvoi-zone'); z.style.display = 'block'; const i = z.querySelector('.hav-motif'); if(i) i.focus(); }
+function havBtnAnnuler(btn){ const z = btn.closest('.hav-renvoi-zone'); z.style.display = 'none'; }
+async function havBtnEnvoyer(btn){
+  const c = havParseCle(btn.dataset.k), bloc = btn.closest('.hav-bloc'), motif = bloc.querySelector('.hav-motif').value;
+  btn.disabled = true;
+  const r = await havDecider(c.emp, c.debut, c.bloc, 'a_corriger', motif);
+  if(r.ok) havToast(r.renvoyee ? 'Renvoyé à l\'employé pour correction ↩' : 'Décision enregistrée');
+  else btn.disabled = false;
+}
+async function havBtnToutValider(){
+  const h = _hav; if(!h) return;
+  const mes = []; h.semaines.forEach(w=>w.blocs.forEach(b=>{ if(b.etat==='attente' && havMien(b, h.ctx)) mes.push({w, b}); }));
+  if(!mes.length) return;
+  const tot = mes.reduce((t,x)=>t+x.b.heures,0);
+  if(!confirm('Valider '+mes.length+' bloc'+(mes.length>1?'s':'')+' ('+havH(tot)+' h) de vos chantiers ?\n\nVérifiez d\'abord les heures : la validation vaut pour ces heures exactes.')) return;
+  let ok = 0, ko = 0;
+  for(const x of mes){ const r = await havDecider(x.w.emp, x.w.debut, x.b.cle, 'valide'); if(r.ok) ok++; else ko++; }
+  havToast(ok+' bloc'+(ok>1?'s':'')+' validé'+(ok>1?'s':'')+(ko?' · '+ko+' non validé'+(ko>1?'s':''):''), ko?'warn':undefined);
+}
+async function havBtnApprouver(btn){
+  const c = havParseCle(btn.dataset.k); btn.disabled = true;
+  try{ const r = await havAppliquerSemaine(c.emp, c.debut, true); havToast(r.approuvee ? 'Semaine approuvée ✓' : "La semaine n'a pas pu être approuvée (déjà traitée ?)", r.approuvee?undefined:'warn'); }
+  catch(e){ havToast('Erreur : '+((e&&e.message)||e), 'error'); }
+  await havRafraichir();
+}
+function havChangerVue(v){ _havVue = v; havDessiner(); }
+
+// Quadro de verificação (superviseur) : quem é responsável, tem conta ERP, quem pode validar tudo
+async function havDiagnostic(h){
+  let users = [];
+  try{ const r = await sb.from('utilisateurs').select('id,prenom,nom,email,role,actif'); users = r.data||[]; }catch(e){}
+  const actifs = users.filter(u=>u.actif!==false);
+  const parResp = new Map(), sansResp = [];
+  (h.d.chantiers||[]).filter(c=>(c.type_centre||'chantier')==='chantier' && c.statut==='actif').forEach(c=>{
+    if(!c.chef_chantier_id){ sansResp.push(libChantierAchat(c)); return; }
+    const k = String(c.chef_chantier_id); if(!parResp.has(k)) parResp.set(k, []); parResp.get(k).push(libChantierAchat(c));
+  });
+  const lignes = [];
+  parResp.forEach((chs,k)=>{
+    const e = (h.d.emps||[]).find(x=>String(x.id)===k), mail = havNormEmail(e && e.email);
+    const comptes = mail ? actifs.filter(u=>havNormEmail(u.email)===mail) : [];
+    const doublon = mail ? (h.d.emps||[]).filter(x=>havNormEmail(x.email)===mail).length>1 : false;
+    let etat, couleur;
+    if(!e){ etat = '✖ fiche employé introuvable'; couleur = '#B91C1C'; }
+    else if(!mail){ etat = '✖ la fiche employé n\'a pas d\'e-mail'; couleur = '#B91C1C'; }
+    else if(doublon){ etat = '✖ deux fiches employé avec le même e-mail'; couleur = '#B91C1C'; }
+    else if(!comptes.length){ etat = '✖ aucun utilisateur ERP actif avec l\'e-mail '+e.email; couleur = '#B91C1C'; }
+    else { etat = '✔ compte ERP actif ('+comptes[0].email+', rôle '+comptes[0].role+')'; couleur = '#065F46'; }
+    lignes.push({nom:e?nomPers(e):'(fiche '+k+')', n:chs.length, chs, etat, couleur});
+  });
+  lignes.sort((a,b)=>a.nom.localeCompare(b.nom,'fr'));
+  const sup = actifs.filter(u=>u.role==='admin').filter(u=>{
+    const m = havNormEmail(u.email), cand = (h.d.emps||[]).filter(e=>havNormEmail(e.email)===m);
+    if(cand.length!==1) return true;
+    return !(h.d.chantiers||[]).some(c=>(c.type_centre||'chantier')==='chantier' && c.statut!=='archive' && c.chef_chantier_id && String(c.chef_chantier_id)===String(cand[0].id));
+  });
+  const supSansFiche = sup.filter(u=>(h.d.emps||[]).filter(e=>havNormEmail(e.email)===havNormEmail(u.email)).length!==1);
+  return {lignes, sansResp, superviseurs:sup.map(u=>nomPers(u)||u.email), supSansFiche:supSansFiche.map(u=>nomPers(u)||u.email)};
+}
+function havHtmlDiagnostic(dg){
+  if(!dg) return '';
+  const l = dg.lignes.map(x=>'<tr><td style="padding:6px 10px"><strong>'+escHtml(x.nom)+'</strong></td><td style="padding:6px 10px">'+x.n+' chantier'+(x.n>1?'s':'')+' <span style="color:#6B7280;font-size:12px">('+escHtml(x.chs.slice(0,4).join(', ')+(x.chs.length>4?'…':''))+')</span></td><td style="padding:6px 10px;color:'+x.couleur+'">'+escHtml(x.etat)+'</td></tr>').join('');
+  return '<div class="card" id="hav-diag" style="padding:14px 16px;margin-bottom:16px"><details><summary style="cursor:pointer;font-weight:600"><i class="ti ti-stethoscope"></i> Vérification des responsables et des accès</summary>'
+    + '<div style="margin-top:10px;font-size:13px">Les heures d\'un chantier sont validées par son <strong>responsable</strong> (fiche du chantier) ; l\'utilisateur ERP est reconnu par <strong>l\'e-mail de sa fiche employé</strong>.</div>'
+    + '<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Responsable</th><th>Chantiers en cours</th><th>Accès ERP</th></tr></thead><tbody>'+(l||'<tr><td colspan="3" style="padding:8px 10px;color:#6B7280">Aucun chantier en cours avec responsable.</td></tr>')+'</tbody></table></div>'
+    + (dg.sansResp.length ? '<div style="margin-top:8px;font-size:13px;color:#B45309">⚠ Chantiers en cours <strong>sans responsable</strong> (leurs heures sont validées par la direction) : '+escHtml(dg.sansResp.join(', '))+'</div>' : '')
+    + '<div style="margin-top:8px;font-size:13px"><strong>Direction</strong> (valident les heures improductives, les absences et peuvent valider à la place d\'un responsable) : '+escHtml(dg.superviseurs.join(', ')||'—')+'</div>'
+    + (dg.supSansFiche.length ? '<div style="margin-top:6px;font-size:13px;color:#B45309">⚠ Ces administrateurs n\'ont pas de fiche employé reconnue par e-mail : ils sont traités comme direction (ils peuvent tout valider) — liez leur fiche si ce sont des responsables de chantier : '+escHtml(dg.supSansFiche.join(', '))+'</div>' : '')
+    + '</details></div>';
+}
+
+async function havDessiner(){
+  const page = el('page-content'); if(!page || currentPage!=='heures_a_valider') return;
+  let h;
+  try{ h = await havCharger(false); }
+  catch(e){
+    page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Heures à valider</h1></div></div><div class="alert alert-error"><i class="ti ti-alert-triangle"></i><span>Impossible de lire le système de pointages : '+escHtml((e&&e.message)||String(e))+'</span></div>';
+    return;
+  }
+  const {ctx, d} = h;
+  const peut = ctx.superviseur || ctx.estResp;
+  const voirTout = ctx.superviseur && _havVue==='tout';
+  const aTraiter = w => ctx.superviseur && (w.vide || w.complet);          // tout validé (ou vide) mais pas encore approuvée : à approuver
+  const visibles = h.semaines.filter(w=>voirTout ? true : (w.blocs.some(b=>b.etat==='attente' && havMien(b, ctx)) || aTraiter(w)));
+  const actif = !d.sqlManque;
+  let dg = null; if(ctx.superviseur){ try{ dg = await havDiagnostic(h); }catch(e){} }
+  const r = h.resume;
+  const cartes = visibles.map(w=>{
+    const num = havSemNum(w.debut);
+    const puces = w.blocs.map(b=>havPuce(b, d, ctx)).join('');
+    const aValider = w.blocs.filter(b=>b.etat==='attente' && (voirTout ? havPeutValider(b, ctx) : havMien(b, ctx)));
+    const aApprouver = ctx.superviseur && (w.complet || w.vide);
+    return '<div class="card hav-semaine" data-sem="'+escHtml(w.emp+'|'+w.debut)+'" style="padding:14px 16px;margin-bottom:12px">'
+      + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>'+escHtml(w.empNom)+'</strong> <span style="color:#6B7280">— S'+escHtml(String(num))+' · '+escHtml(w.jours[0].split('-').reverse().join('/'))+' → '+escHtml(w.jours[6].split('-').reverse().join('/'))+'</span></div><div style="color:#6B7280">Semaine : '+escHtml(havH(w.total))+' h</div></div>'
+      + '<div style="margin-top:6px">'+puces+'</div>'
+      + aValider.map(b=>havHtmlBloc(w, b, d, ctx, actif)).join('')
+      + (aApprouver ? '<div style="margin-top:8px"><button class="btn btn-primary btn-sm hav-approuver" '+(actif?'':'disabled ')+'onclick="havBtnApprouver(this)" data-k="'+escHtml(w.emp+'|'+w.debut)+'"><i class="ti ti-circle-check"></i> Approuver la semaine ('+(w.vide?'aucune heure encodée':'tous les blocs sont validés')+')</button></div>' : '')
+      + '</div>';
+  }).join('');
+  let intro;
+  if(!peut) intro = '<div class="alert alert-info"><i class="ti ti-info-circle"></i><span>'+(ctx.emp ? 'Vous n\'êtes responsable d\'aucun chantier en cours : rien à valider ici.' : 'Votre e-mail ('+escHtml(currentUser&&currentUser.email||'')+') ne correspond à aucune fiche employé'+(ctx.ambigu?' unique':'')+' : demandez à l\'administration de renseigner l\'e-mail sur votre fiche (RH → Employés).')+'</span></div>';
+  else if(!r.blocs) intro = '<div class="alert alert-success"><i class="ti ti-circle-check"></i><span>Rien à valider pour le moment.</span></div>';
+  else intro = '<div class="alert alert-warning" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><i class="ti ti-clock-check"></i><span style="flex:1"><strong>'+escHtml(havH(r.heures))+' h à valider</strong> — '+r.blocs+' bloc'+(r.blocs>1?'s':'')+' sur '+r.semaines+' semaine'+(r.semaines>1?'s':'')+'.</span>'+(actif?'<button class="btn btn-primary btn-sm" id="hav-tout-valider" onclick="havBtnToutValider()"><i class="ti ti-checks"></i> Valider tous mes blocs</button>':'')+'</div>';
+  page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Heures à valider</h1><p>Validation des heures pointées, chantier par chantier</p></div>'
+    + '<div class="page-actions">'+(ctx.superviseur?'<select id="hav-vue" onchange="havChangerVue(this.value)" style="padding:7px 10px;border:1px solid var(--gray-3);border-radius:6px"><option value="mes" '+(voirTout?'':'selected')+'>Mes blocs à valider</option><option value="tout" '+(voirTout?'selected':'')+'>Toutes les semaines soumises</option></select> ':'')+'<button class="btn btn-secondary" id="hav-actualiser" onclick="havRafraichir()"><i class="ti ti-refresh"></i> Actualiser</button></div></div>'
+    + (d.sqlManque ? '<div class="alert alert-warning" id="hav-sql"><i class="ti ti-database-exclamation"></i><span><strong>Lecture seule.</strong> La base des pointages doit être mise à jour pour valider par chantier : exécutez le script « '+HAV_SQL+' » dans le SQL Editor du projet <strong>POINTAGES</strong>.</span></div>' : '')
+    + intro + (dg ? havHtmlDiagnostic(dg) : '')
+    + cartes;
+  havMajChrome();
+}
+async function renderHeuresAValider(){
+  const page = el('page-content');
+  if(page) page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Heures à valider</h1></div></div><div class="card" style="padding:24px">Lecture des pointages…</div>';
+  try{ await havCharger(true); }catch(e){ /* havDessiner affiche l'erreur */ }
+  await havDessiner();
 }
 
 // ── INIT ─────────────────────────────────────────────────────
