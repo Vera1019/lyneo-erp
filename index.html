@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-10-f187f11"/>
+<meta name="lyneo-build" content="BUILD:2026-11-10-5d840e8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2671,6 +2671,7 @@ function showToast(msg, type='success', ms=3500) {
 
 function showModal(html) {
   razTri('M');
+  razReferencesFournisseur();
   el('modal-container').innerHTML = html;
   el('modal-container').querySelector('.modal-overlay').addEventListener('click', function(e){
     if(e.target === this) closeModal();
@@ -2789,7 +2790,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-10-f187f11';
+const APP_BUILD = 'BUILD:2026-11-10-5d840e8';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7148,7 +7149,7 @@ function renderPoLignes(){
   if(!body) return;
   morphLignes(body, poLignes.map((l,i)=>`<tr>
     <td><input value="${escHtml(l.description)}" onchange="updLigne(${i},'description',this.value)" placeholder="Description..."/></td>
-    <td><input value="${escHtml(l.reference_article)}" onchange="updLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
+    <td><input value="${escHtml(l.reference_article)}" onchange="updLigne(${i},'reference_article',this.value)" list="dl-refs-fourn" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
@@ -7169,7 +7170,7 @@ function renderPoLignes(){
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
 
-function updLigne(i,k,v){ poLignes[i][k]=v; renderPoLignes(); }
+function updLigne(i,k,v){ poLignes[i][k]=v; renderPoLignes(); if(k==='reference_article') proposerDescriptionReference(poLignes, i, (el('po-four')||{}).value, renderPoLignes, {unites:['u','m','m2','m3','kg','h','forfait']}); }
 function addPoLigne(){ poLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderPoLignes(); focusDerniereLigne('lignes-body'); }
 function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
 
@@ -10667,7 +10668,7 @@ function renderFacLignesLibre(){
   if(!body) return;
   const ndf = ndfOuverte();
   morphLignes(body, _facLignesLibre.map((l,i)=>`<tr${ndf&&l._coche?' class="ndf-lg-coche"':''}>${ndf?ndfCellCoche(l,i):''}
-    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
+    <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.reference_article||'')}" onchange="updFacLigneLibre(${i},'reference_article',this.value)" list="dl-refs-fourn" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:12px"/></td>
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)"><input value="${escHtml(l.description)}" onchange="updFacLigneLibre(${i},'description',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px"/></td>
     ${ndf?ndfCellChantier(l,i):''}${crTd(l.code_ressource_id, "updFacLigneLibre("+i+",'code_ressource_id',this.value)", 'padding:6px 10px;border-bottom:1px solid var(--gray-2)')}
     <td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);width:80px"><input type="text" data-calc="4" autocomplete="off" step="1" value="${l.quantite}" onchange="updFacLigneLibre(${i},'quantite',this.value)" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right"/></td>
@@ -10685,6 +10686,81 @@ function renderFacLignesLibre(){
 }
 function addFacLigneLibre(){ _facLignesLibre.push(ndfOuverte() ? {description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17,chantier_id:'',intervention_id:''} : {description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderFacLignesLibre(); focusDerniereLigne('facl-lignes-body'); }
 function delFacLigneLibre(i){ _facLignesLibre.splice(i,1); renderFacLignesLibre(); }
+// ── MÉMOIRE DES RÉFÉRENCES FOURNISSEUR (bons de commande + factures fournisseur) ───────────────────────────────────────────────
+// Table « references_fournisseur » (script migration-references-fournisseur.sql) : par fournisseur, la DERNIÈRE description / unité / prix / TVA / code ressource
+// utilisés pour chaque référence. Elle se remplit au départ depuis l'historique et GRANDIT TOUTE SEULE (gatilho SQL à chaque ligne enregistrée).
+// Ici : lecture (relue à l'ouverture de chaque fenêtre et au changement de fournisseur), suggestions de références (datalist) et préremplissage d'une ligne.
+// Règle d'or : on ne remplace JAMAIS un texte saisi. Sans le script SQL, la description reste proposée depuis la dernière facture du fournisseur (comportement d'avant).
+const refFournAbsente = e => { const m = String((e && e.message) || e || ''); return /references_fournisseur/i.test(m) && (['PGRST205','42P01'].includes(e && e.code) || /Could not find the table|does not exist|schema cache/i.test(m)); };
+const cleRef = r => String(r||'').trim().toLowerCase();
+const TVA_LIGNE_VALIDES = [17,14,8,3,0];
+let _refsFourn = {};                 // fournisseurId → {ok, absente, rows}   (jamais mis en cache après une erreur)
+let _refsAvertie = {absente:false, erreur:false};
+async function lireReferencesFournisseur(fid, forcer){
+  const id = String(fid||'');
+  if(!id) return {ok:true, absente:false, rows:[], sansFournisseur:true};
+  if(!forcer && _refsFourn[id]) return _refsFourn[id];
+  let r;
+  try{
+    const rows = await lirePagine('references_fournisseur', 'id,reference,description,unite,prix_unitaire_ht,taux_tva,code_ressource_id', q=>q.eq('fournisseur_id', id));
+    r = {ok:true, absente:false, rows};
+    _refsFourn[id] = r;
+  }catch(e){
+    r = refFournAbsente(e) ? {ok:true, absente:true, rows:[]} : {ok:false, absente:false, rows:[], erreur:(e && e.message) || String(e)};
+    if(r.absente) _refsFourn[id] = r;
+  }
+  return r;
+}
+// Avertissement UNE fois par session (pas à chaque ligne) : script SQL absent, ou lecture impossible
+function avertirReferencesFournisseur(r){
+  if(!r) return;
+  if(r.absente && !_refsAvertie.absente){ _refsAvertie.absente = true; showToast("Mémoire des références indisponible : exécutez migration-references-fournisseur.sql (la description reste proposée depuis la dernière facture du fournisseur)"); }
+  else if(!r.ok && !_refsAvertie.erreur){ _refsAvertie.erreur = true; showToast("Références du fournisseur illisibles : "+(r.erreur||'erreur de lecture')+" — la description est proposée depuis la dernière facture", 'error'); }
+}
+// <datalist id="dl-refs-fourn"> : les références connues du fournisseur (valeur = référence, libellé = description — prix). Vide sans fournisseur / sans script.
+function majListeReferences(r){
+  let dl = el('dl-refs-fourn');
+  if(!dl){ dl = document.createElement('datalist'); dl.id = 'dl-refs-fourn'; document.body.appendChild(dl); }
+  const rows = (r && r.ok && Array.isArray(r.rows)) ? r.rows.slice().sort((a,b)=>String(a.reference).localeCompare(String(b.reference),'fr',{numeric:true,sensitivity:'base'})) : [];
+  dl.innerHTML = rows.map(x=>`<option value="${escHtml(x.reference)}">${escHtml((x.description||'')+' — '+fmt(x.prix_unitaire_ht)+' / '+(x.unite||'u'))}</option>`).join('');
+}
+// Fournisseur de la fenêtre ouverte (commande, facture libre ou modification d'une facture) ; vide si aucune de ces fenêtres n'est ouverte
+function fournisseurFenetreRefs(){
+  const po = el('po-four'); if(po) return po.value;
+  const fl = el('facl-fournisseur'); if(fl) return fl.value;
+  if(el('efac-lignes-body') && window._efacOrig) return window._efacOrig.fournisseur_id;
+  return '';
+}
+let _dlRefsFid = null, _dlRefsSeq = 0;
+function razReferencesFournisseur(){ _refsFourn = {}; _dlRefsFid = null; _dlRefsSeq++; }       // à chaque nouvelle fenêtre : on relit (une facture enregistrée entre-temps a pu enrichir la mémoire)
+// Appelé quand on entre dans un champ « Référence » : charge (une fois par fournisseur et par fenêtre) la liste de suggestions
+async function rafraichirListeReferences(){
+  const fid = String(fournisseurFenetreRefs() || '');
+  if(fid === _dlRefsFid) return;
+  _dlRefsFid = fid; const seq = ++_dlRefsSeq;
+  const r = await lireReferencesFournisseur(fid);
+  if(seq !== _dlRefsSeq) return;                               // un autre fournisseur a été choisi pendant la lecture
+  if(!r.ok) _dlRefsFid = null;                                 // erreur : on réessaiera à la prochaine entrée dans le champ
+  majListeReferences(r);
+  avertirReferencesFournisseur(r);
+}
+document.addEventListener('focusin', e=>{ const t = e.target; if(t && t.getAttribute && t.getAttribute('list') === 'dl-refs-fourn') rafraichirListeReferences(); });
+// Remplit la ligne `l` depuis la mémoire `x`. Description vide → on reprend tout (description, unité « u », prix 0, TVA, code ressource vide).
+// Description saisie IDENTIQUE à celle de la mémoire → même produit : on ne complète que le prix (si 0), l'unité (si « u ») et le code (si vide).
+// Description saisie DIFFÉRENTE → on ne touche à rien. Renvoie true si la ligne a changé.
+function completerLigneDepuisReference(l, x, opts){
+  const o = opts || {};
+  const vide = !String(l.description||'').trim();
+  if(!vide && cleRef(l.description) !== cleRef(x.description)) return false;
+  let change = false;
+  if(vide && x.description){ l.description = x.description; change = true; }
+  if((!l.unite || l.unite === 'u') && x.unite && x.unite !== l.unite && (!o.unites || o.unites.includes(x.unite))){ l.unite = x.unite; change = true; }
+  if(!(parseFloat(l.prix_unitaire_ht)||0) && (parseFloat(x.prix_unitaire_ht)||0) > 0){ l.prix_unitaire_ht = x.prix_unitaire_ht; change = true; }
+  if(vide && TVA_LIGNE_VALIDES.includes(Number(x.taux_tva)) && Number(l.taux_tva) !== Number(x.taux_tva)){ l.taux_tva = Number(x.taux_tva); change = true; }
+  if(o.code && !l.code_ressource_id && x.code_ressource_id && _codesResDispo && _codesRes.some(c=>String(c.id)===String(x.code_ressource_id) && c.actif !== false)){ l.code_ressource_id = x.code_ressource_id; change = true; }
+  return change;
+}
+
 // ── Référence connue → description proposée (factures fournisseur) ─────────────────────────────────────────────
 // Quand on saisit une référence d'article dans une ligne dont la description est vide, on reprend la description de la DERNIÈRE facture
 // encodée de CE fournisseur avec cette même référence (la référence est celle du fournisseur : chez un autre fournisseur elle veut dire autre chose).
@@ -10699,17 +10775,26 @@ async function descriptionConnueReference(fournisseurId, ref){
     return ok.length ? String(ok[0].description).trim() : '';
   }catch(e){ return ''; }
 }
-async function proposerDescriptionReference(lignes, i, fournisseurId, redessiner){
+async function proposerDescriptionReference(lignes, i, fournisseurId, redessiner, opts){
   const l = lignes[i]; if(!l) return;
   const ref = String(l.reference_article||'').trim();
-  if(!ref || String(l.description||'').trim()) return;                     // jamais écraser un texte déjà là
+  if(!ref) return;
+  // 1) la mémoire du fournisseur (table references_fournisseur) : description, unité, prix, TVA, code ressource — jamais un texte saisi
+  const m = await lireReferencesFournisseur(fournisseurId);
+  avertirReferencesFournisseur(m);
+  // pendant la lecture la ligne a pu changer (référence modifiée, ligne supprimée)
+  if(lignes[i]!==l || String(l.reference_article||'').trim()!==ref) return;
+  const x = m.ok ? (m.rows.find(r=>cleRef(r.reference)===cleRef(ref)) || null) : null;
+  if(x){ if(completerLigneDepuisReference(l, x, opts)) redessiner(); return; }
+  // 2) sinon (script SQL absent, référence jamais mémorisée) : description de la DERNIÈRE facture de ce fournisseur avec cette référence
+  if(String(l.description||'').trim()) return;                             // jamais écraser un texte déjà là
   const d = await descriptionConnueReference(fournisseurId, ref);
   // pendant la recherche la ligne a pu changer (référence modifiée, description saisie, ligne supprimée)
   if(!d || lignes[i]!==l || String(l.reference_article||'').trim()!==ref || String(l.description||'').trim()) return;
   l.description = d;
   redessiner();
 }
-function updFacLigneLibre(i,f,v){ _facLignesLibre[i][f]=v; renderFacLignesLibre(); if(f==='reference_article') proposerDescriptionReference(_facLignesLibre, i, (el('facl-fournisseur')||{}).value, renderFacLignesLibre); }
+function updFacLigneLibre(i,f,v){ _facLignesLibre[i][f]=v; renderFacLignesLibre(); if(f==='reference_article') proposerDescriptionReference(_facLignesLibre, i, (el('facl-fournisseur')||{}).value, renderFacLignesLibre, {code:true}); }
 
 async function saveFacLibre(){
   const chantierId = el('facl-chantier').value;
@@ -13196,6 +13281,7 @@ async function openDevisModal(d=null){
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dv-excel-input-modal').click()"><i class="ti ti-file-spreadsheet"></i> Importer Excel</button>
           <input type="file" id="dv-excel-input-modal" accept=".xlsx,.xls" style="display:none" onchange="importDevisExcelDansModal(this.files[0]);this.value=''"/>
           <button class="btn btn-secondary btn-sm" onclick="addDevisSection('principal')"><i class="ti ti-folder-plus"></i> Section</button>
+          ${selectLigneTypeHTML('devis-principal')}
           <button class="btn btn-secondary btn-sm" onclick="addDevisLigne('principal')"><i class="ti ti-plus"></i> Ligne</button>
         </div>
       </div>
@@ -13213,13 +13299,14 @@ async function openDevisModal(d=null){
           <tbody id="devis-lignes-principal"></tbody>
         </table>
       </div>
-      <div class="ajout-bas" data-ajout-bas="devis-principal"><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisSection('principal')"><i class="ti ti-folder-plus"></i> Section</button><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisLigne('principal')"><i class="ti ti-plus"></i> Ligne</button></div>
+      <div class="ajout-bas" data-ajout-bas="devis-principal"><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisSection('principal')"><i class="ti ti-folder-plus"></i> Section</button>${selectLigneTypeHTML('devis-principal')}<button type="button" class="btn btn-secondary btn-sm" onclick="addDevisLigne('principal')"><i class="ti ti-plus"></i> Ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="devis-totaux"></div></div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 8px">
         <strong style="font-size:13px">Options (non comprises dans le prix ci-dessus)</strong>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="addDevisSection('option')"><i class="ti ti-folder-plus"></i> Section</button>
+          ${selectLigneTypeHTML('devis-option')}
           <button class="btn btn-secondary btn-sm" onclick="addDevisLigne('option')"><i class="ti ti-plus"></i> Ligne</button>
         </div>
       </div>
@@ -13237,7 +13324,7 @@ async function openDevisModal(d=null){
           <tbody id="devis-lignes-option"></tbody>
         </table>
       </div>
-      <div class="ajout-bas" data-ajout-bas="devis-option"><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisSection('option')"><i class="ti ti-folder-plus"></i> Section</button><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisLigne('option')"><i class="ti ti-plus"></i> Ligne</button></div>
+      <div class="ajout-bas" data-ajout-bas="devis-option"><button type="button" class="btn btn-secondary btn-sm" onclick="addDevisSection('option')"><i class="ti ti-folder-plus"></i> Section</button>${selectLigneTypeHTML('devis-option')}<button type="button" class="btn btn-secondary btn-sm" onclick="addDevisLigne('option')"><i class="ti ti-plus"></i> Ligne</button></div>
       <div style="text-align:right;font-size:13px;font-weight:700;margin-top:8px">Total options HT : <span id="devis-option-total">0,00 €</span></div>
 
       <div class="form-group full" style="margin-top:20px"><label class="field-label">Observations</label><textarea id="dv-obs">${escHtml(d?.observations||'')}</textarea></div>
@@ -13951,7 +14038,7 @@ async function openNewFactureVenteLibre(opts){
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('fv-tva-all','appliquerTvaGlobaleFv(this.value)')}
-        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+        ${selectLigneTypeHTML('facture-client')}<button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       </div>
       <div id="fv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px"></div>
       <div style="overflow-x:auto;max-width:100%">
@@ -13968,7 +14055,7 @@ async function openNewFactureVenteLibre(opts){
           <tbody id="vente-lignes-body"></tbody>
         </table>
       </div>
-      <div class="ajout-bas" data-ajout-bas="facture-client"><button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+      <div class="ajout-bas" data-ajout-bas="facture-client">${selectLigneTypeHTML('facture-client')}<button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
       <div class="form-actions">
@@ -14557,6 +14644,7 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
   window._condClientFv = (clCond && clCond.conditions_paiement) || '';
   window._paysClientFv = (clCond && clCond.pays) || '';
   window._tvaDefautFv = tvaDefautPays(window._paysClientFv);
+  window._clientIdFv = chantier.client_id;      // pour le menu « + Ligne type… » (tarifs SAV du client)
   window._clientSelFv = true;
   if(!_venteLignes.length){   // aucune ligne de départ (pas de devis, ou devis sans lignes) : une ligne vide prête à remplir (les lignes viennent du devis quand il y en a)
     _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:window._tvaDefautFv??17}];
@@ -14597,7 +14685,7 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes à facturer</strong>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('fv-tva-all','appliquerTvaGlobaleFv(this.value)')}
-        <button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+        ${selectLigneTypeHTML('facture-client')}<button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       </div>
       <div id="fv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px"></div>
       <div style="overflow-x:auto;max-width:100%">
@@ -14616,7 +14704,7 @@ async function openGenerateFactureVente(chantierId, devisIdChoisi, typeInitial){
           <tbody id="vente-lignes-body"></tbody>
         </table>
       </div>
-      <div class="ajout-bas" data-ajout-bas="facture-client"><button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+      <div class="ajout-bas" data-ajout-bas="facture-client">${selectLigneTypeHTML('facture-client')}<button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
       <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
       </div>
       <div class="form-group full" style="margin-top:16px"><label class="field-label">Observations</label><textarea id="fv-obs"></textarea></div>
@@ -20694,6 +20782,72 @@ function htmlLignesIntervention(i, lignes, restants){
     <div style="text-align:right;font-size:13px;margin-top:6px" id="int-lignes-fiche-totaux">Total HT <strong>${fmt(tot.ht)}</strong> · TVA ${fmt(tot.tva)} · Total TTC <strong>${fmt(tot.ttc)}</strong></div></div>`;
 }
 
+// ── LIGNES TYPES DES DEVIS ET DES FACTURES CLIENTS (même principe que « Lignes types » des interventions SAV) ───────────────
+// Menu « + Ligne type… » : une catégorie (Main d'œuvre, Frais de déplacement, Matériel, Astreinte, Sous-traitance, Divers) ou le trio
+// « Déplacement + main d'œuvre + matériel ». La ligne reprend la description type, l'unité, le tarif SAV de la fiche du client et la TVA du pays du client.
+// Rien n'est écrit en base (pas de SQL) ; une ligne vide en fin de tableau est remplie au lieu d'être laissée à côté.
+const UNITE_LIGNE_TYPE = {"Main d'œuvre":'h', "Frais de déplacement":'FF', "Matériel":'u', "Astreinte":'FF', "Sous-traitance":'FF', "Divers":'u'};
+const LIGNE_TYPE_TRIO = '__trio';
+function selectLigneTypeHTML(editeur){
+  return `<select onchange="ajouterLigneType('${editeur}',this)" title="Ajoute une ligne type avec le tarif du client" style="width:auto;max-width:260px;flex:0 0 auto;padding:5px 8px;border:1px solid var(--gray-3);border-radius:var(--radius);font-size:12px;background:#fff;cursor:pointer">`
+    + `<option value="">+ Ligne type…</option><option value="${escHtml(LIGNE_TYPE_TRIO)}">Déplacement + main d'œuvre + matériel</option>`
+    + ARTICLES_SAV.map(a=>`<option value="${escHtml(a)}">${escHtml(a)}</option>`).join('') + `</select>`;
+}
+const estLigneVenteVide = l => !!l && !String(l.description||'').trim() && !(parseFloat(l.prix_unitaire_ht)||0) && !l.ligne_devis_id;
+function prixTarifClient(tarifs, categorie){
+  const t = tarifs ? parseFloat(tarifs[categorie]) : NaN;
+  if(!isNaN(t)) return t;
+  return categorie==='Astreinte' ? 75 : 0;          // même défaut que la facture SAV : tarif du client, sinon 75 € pour l'astreinte
+}
+// Tarifs SAV et pays du client. Sans client : rien (prix à 0). Erreur de lecture : ok=false (la ligne est ajoutée mais le prix reste à saisir, jamais un faux prix).
+async function lireTarifsClient(clientId){
+  const id = String(clientId||'');
+  if(!id) return {ok:true, tarifs:{}, pays:'', sansClient:true};
+  try{
+    const {data, error} = await sb.from('clients').select('tarifs_sav,pays').eq('id', id).single();
+    if(error || !data) return {ok:false, tarifs:{}, pays:''};
+    return {ok:true, tarifs:data.tarifs_sav||{}, pays:data.pays||''};
+  }catch(e){ return {ok:false, tarifs:{}, pays:''}; }
+}
+function contexteLigneType(editeur){
+  if(editeur==='devis-principal' || editeur==='devis-option'){
+    const bloc = editeur==='devis-option' ? 'option' : 'principal';
+    return {clientId:(el('dv-client')||{}).value||'', lignes:()=>_devisLignes[bloc], vide:estLigneDevisVide, tva:()=>window._tvaDefautDoc??17,
+      nouvelle:(d,u,p,tva)=>({type:'ligne', description:d, unite:u, quantite:1, prix_unitaire_ht:p, taux_tva:tva}),
+      rendre:()=>renderDevisLignesBloc(bloc), corps:'devis-lignes-'+bloc};
+  }
+  if(editeur==='facture-client'){
+    const libre = _venteLigneMode==='libre';
+    return {clientId: libre ? ((el('fvl-client')||{}).value||'') : (window._clientIdFv||''), lignes:()=>_venteLignes, vide:estLigneVenteVide, tva:()=>window._tvaDefautFv??17,
+      nouvelle:(d,u,p,tva)=>({description:d, reference_article:'', unite:u, quantite:1, prix_unitaire_ht:p, taux_tva:tva}),
+      rendre:()=>(libre ? renderVenteLignesLibre : renderVenteLignes)(), corps:'vente-lignes-body'};
+  }
+  return null;
+}
+async function ajouterLigneType(editeur, sel){
+  const choix = sel.value; sel.value = '';                 // le menu revient sur « + Ligne type… »
+  const types = choix===LIGNE_TYPE_TRIO ? LIGNES_TYPES_SAV.map(t=>t.categorie) : (ARTICLES_SAV.includes(choix) ? [choix] : []);
+  if(!types.length) return;
+  const ctx0 = contexteLigneType(editeur); if(!ctx0) return;
+  const t = await lireTarifsClient(ctx0.clientId);
+  const ctx = contexteLigneType(editeur); if(!ctx) return;  // pendant la lecture, la fenêtre a pu être fermée ou changer
+  const lignes = ctx.lignes(); if(!Array.isArray(lignes)) return;
+  const deja = new Set(lignes.filter(l=>l.type!=='section').map(l=>String(l.description||'').trim().toLowerCase()));
+  let ajoutees = 0;
+  types.forEach(cat=>{
+    const des = descriptionSavDefaut(cat) || (LIGNES_TYPES_SAV.find(x=>x.categorie===cat)||{}).description || cat;
+    if(choix===LIGNE_TYPE_TRIO && deja.has(des.toLowerCase())) return;       // le trio n'ajoute que ce qui manque ; un choix précis ajoute toujours
+    const l = ctx.nouvelle(des, UNITE_LIGNE_TYPE[cat]||'u', prixTarifClient(t.tarifs, cat), ctx.tva());
+    const dernier = lignes[lignes.length-1];
+    if(dernier && ctx.vide(dernier)) lignes[lignes.length-1] = l; else lignes.push(l);
+    deja.add(des.toLowerCase()); ajoutees++;
+  });
+  if(!ajoutees){ showToast('Ces lignes types sont déjà dans la liste'); return; }
+  ctx.rendre(); focusDerniereLigne(ctx.corps);
+  if(!t.ok) showToast("Tarif du client illisible : vérifiez les prix des lignes ajoutées", 'error');
+  else if(t.sansClient) showToast("Aucun client choisi : prix à 0 € — choisissez le client puis ajoutez les lignes pour reprendre ses tarifs");
+}
+
 // ── INTERVENTIONS (SAV) ───────────────────────────────────────
 let _interventionsSAV = [];
 let _savFacturation = {ok:false, parId:{}};   // état de facturation de chaque intervention de la liste
@@ -23375,7 +23529,7 @@ function renderEfacLignes(){
   morphLignes(body, _efacLignes.map((l,i)=>`<tr>
     <td><input value="${escHtml(l.description)}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
     ${crTd(l.code_ressource_id, "updEfacLigne("+i+",'code_ressource_id',this.value)", '')}
-    <td><input value="${escHtml(l.reference_article)}" onchange="updEfacLigne(${i},'reference_article',this.value)" placeholder="Réf."/></td>
+    <td><input value="${escHtml(l.reference_article)}" onchange="updEfacLigne(${i},'reference_article',this.value)" list="dl-refs-fourn" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
     <td><select onchange="updEfacLigne(${i},'unite',this.value)">
       ${['u','m','m2','m3','kg','h','forfait'].map(u=>`<option ${l.unite===u?'selected':''}>${u}</option>`).join('')}
@@ -23395,7 +23549,7 @@ function renderEfacLignes(){
 }
 function efacTvaCalculee(){ return _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0); }
 
-function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); if(k==='reference_article') proposerDescriptionReference(_efacLignes, i, window._efacOrig && window._efacOrig.fournisseur_id, renderEfacLignes); }
+function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); if(k==='reference_article') proposerDescriptionReference(_efacLignes, i, window._efacOrig && window._efacOrig.fournisseur_id, renderEfacLignes, {code:true}); }
 function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); focusDerniereLigne('efac-lignes-body'); }
 function delEfacLigne(i){ _efacLignes.splice(i,1); renderEfacLignes(); }
 
