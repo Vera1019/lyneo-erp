@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-10-8243ccd"/>
+<meta name="lyneo-build" content="BUILD:2026-11-10-fa8672f"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -816,6 +816,7 @@ button.frm-pill:hover{filter:brightness(.96)}
       <a class="nav-item" href="#/chantiers" onclick="return navLien(event,'chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</a>
       <a class="nav-item" href="#/interventions_sav" onclick="return navLien(event,'interventions_sav')" id="nav-interventions_sav"><i class="ti ti-tool"></i> Interventions SAV</a>
       <a class="nav-item hidden" href="#/heures_a_valider" onclick="return navLien(event,'heures_a_valider')" id="nav-heures_a_valider"><i class="ti ti-clock-check"></i> Heures à valider<span id="hav-badge" style="display:none"></span></a>
+      <a class="nav-item hidden" href="#/pointages_incompletes" onclick="return navLien(event,'pointages_incompletes')" id="nav-pointages_incompletes"><i class="ti ti-clock"></i> Pointages à compléter<span id="pti-badge" style="display:none"></span></a>
 
       <div class="nav-section">Achats</div>
       <a class="nav-item" href="#/fournisseurs" onclick="return navLien(event,'fournisseurs')" id="nav-fournisseurs"><i class="ti ti-users"></i> Fournisseurs</a>
@@ -2766,6 +2767,7 @@ function showLoginError(msg){
 function afficherEcranConnexion(){
   currentUser = null;
   if(typeof havReset==='function') havReset();
+  if(typeof ptiReset==='function') ptiReset();
   _clotureVentes = null;
   el('login-page').classList.remove('hidden');
   el('app-layout').classList.add('hidden');
@@ -2790,7 +2792,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-10-8243ccd';
+const APP_BUILD = 'BUILD:2026-11-10-fa8672f';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -2888,6 +2890,7 @@ function initApp(){
   setTimeout(()=>{ afficherNotifAnniversaire().catch(()=>{}); }, 900);   // « Aujourd'hui, c'est l'anniversaire de … » (une fois par jour)
   demarrerVerifVersion();   // version affichée dans le menu + contrôle périodique « Nouvelle version disponible »
   setTimeout(()=>{ if(typeof havDemarrer==='function') havDemarrer().catch(()=>{}); }, 700);   // « Vous avez N h à valider » (responsables de chantier)
+  setTimeout(()=>{ if(typeof ptiDemarrer==='function') ptiDemarrer().catch(()=>{}); }, 1500);   // « Pointages incomplets de la semaine précédente » (direction, à partir du lundi 12 h)
 }
 
 // Mon mot de passe (chaque utilisateur change le sien)
@@ -3049,7 +3052,7 @@ new MutationObserver(()=>{
 }).observe(document.body, {childList:true, subtree:true});
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider',pointages_incompletes:'Pointages à compléter'};
 
 // ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
 const PAGES_ADMIN = ['utilisateurs','controle','documents'];
@@ -3100,10 +3103,11 @@ function navigate(page, depuisAdresse){
   const rendu = Object.prototype.hasOwnProperty.call(R,page) ? R[page] : null;
   if(typeof rendu==='function') rendu();
   if(typeof havMajChrome==='function') havMajChrome();   // bandeau « heures à valider » : pas sur l'écran de validation lui-même
+  if(typeof ptiMajChrome==='function') ptiMajChrome();   // bandeau « pointages à compléter » : pas sur sa propre page
 }
 
 function pageRenderers(){
-  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider};
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider,pointages_incompletes:renderPointagesIncompletes};
 }
 
 // Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
@@ -22241,6 +22245,239 @@ async function renderHeuresAValider(){
   if(page) page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Heures à valider</h1></div></div><div class="card" style="padding:24px">Lecture des pointages…</div>';
   try{ await havCharger(true); }catch(e){ /* havDessiner affiche l'erreur */ }
   await havDessiner();
+}
+
+// ── POINTAGES À COMPLÉTER : qui n'a pas (tout) encodé la semaine précédente (10/11/2026) ──────────────────────────────────────────
+// Règle (Vera, 10/11/2026) : les pointages de la semaine précédente doivent être faits au plus tard le LUNDI À 12 h ; le lundi après-midi la direction
+// (Vera et Corinne = administrateurs qui ne sont responsables d'aucun chantier en cours, voir havContexte) voit qui n'a rien encodé ou moins que prévu.
+// Le personnel de bureau, qui ne pointe pas, est exclu (liste « Ne pointe pas » : parametres_app / pointages_rappels, sans SQL).
+// « Prévu » = 8 h × jours ouvrés (lundi→vendredi, hors jours fériés, dans la période d'emploi), 40 h maximum ; les absences comptent : même définition que
+// l'app des pointages (heuresAttendues). Lecture seule sur les pointages : rien n'y est écrit.
+const PTI_CLE = 'pointages_rappels';
+const PTI_H_JOUR = 8, PTI_H_MAX = 40;
+let _ptiCache = {};              // lundi → {t, calc, config, ...}
+let _ptiGen = 0;                 // incrémenté à la déconnexion : une lecture lancée avant ne remplit pas le cache du suivant
+let _ptiMinuteur = null, _ptiVisible = false;
+let _ptiSemaine = null;          // lundi affiché dans la page (null = semaine précédente)
+let _ptiFiltre = 'traiter';      // 'traiter' | 'tout'
+let _ptiReglages = false;        // panneau « Qui pointe ? » ouvert
+const ptiLundi = d => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12); x.setDate(x.getDate()-((x.getDay()||7)-1)); return havIso(x); };
+const ptiDecaler = (iso, n) => { const x = new Date(havJ10(iso)+'T12:00:00'); x.setDate(x.getDate()+n); return havIso(x); };
+const ptiPrecedente = d => ptiDecaler(ptiLundi(d), -7);
+const ptiEchue = d => d.getTime() >= new Date(ptiLundi(d)+'T12:00:00').getTime();      // lundi 12 h de la semaine en cours dépassé : la semaine précédente est en retard
+const ptiFr = iso => havJ10(iso).split('-').reverse().join('/');
+function ptiJoursOuvres(debut, feries, entree, sortie){
+  return havJours(debut).slice(0,5).filter(iso=>!(feries && feries[iso]) && (!entree || iso>=havJ10(entree)) && (!sortie || iso<=havJ10(sortie)));
+}
+// Calcul pur. d = {debut, emps (employes_rh), dispenses [ids], picages, absences, semaines, feries {iso:nom}}
+function ptiCalculer(d){
+  const debut = havJ10(d.debut), jours = havJours(debut), a = jours[0], z = jours[6];
+  const dispenses = new Set((d.dispenses||[]).map(String));
+  const lignes = [];
+  (d.emps||[]).forEach(e=>{
+    if(e.actif===false || dispenses.has(String(e.id))) return;
+    const entree = e.date_embauche ? havJ10(e.date_embauche) : '', sortie = e.date_sortie ? havJ10(e.date_sortie) : '';
+    if((entree && entree>z) || (sortie && sortie<a)) return;                                 // pas encore arrivé / déjà parti
+    const attendues = Math.min(PTI_H_MAX, ptiJoursOuvres(debut, d.feries, entree, sortie).length * PTI_H_JOUR);
+    const ptId = e.pointage_employe_id==null ? '' : String(e.pointage_employe_id).trim();
+    const somme = l => Math.round((l||[]).filter(x=>String(x.employe_id)===ptId && havJ10(x.date)>=a && havJ10(x.date)<=z).reduce((t,x)=>t+Math.max(0, parseFloat(x.heures)||0), 0)*100)/100;
+    const heures = ptId ? Math.round((somme(d.picages)+somme(d.absences))*100)/100 : 0;
+    const sem = ptId ? (d.semaines||[]).find(s=>String(s.employe_id)===ptId && havJ10(s.semaine_debut)===debut) : null;
+    const statut = sem ? String(sem.statut||'') : (heures>0 ? 'brouillon' : '');
+    let etat;
+    if(attendues<=0) etat = 'complete';                                                       // rien d'attendu (semaine fériée, hors période d'emploi)
+    else if(!ptId) etat = 'nonlie';                                                           // pas de compte de pointage : il ne peut pas pointer
+    else if(heures<=0) etat = 'aucune';
+    else if(heures < attendues-0.001) etat = 'partielle';
+    else etat = (statut==='brouillon' || statut==='rejete') ? 'asoumettre' : 'complete';
+    lignes.push({id:String(e.id), nom:nomPers(e), ptId, attendues, heures, manque:Math.max(0, Math.round((attendues-heures)*100)/100), statut, etat});
+  });
+  const ordre = {aucune:0, partielle:1, nonlie:2, asoumettre:3, complete:4};
+  lignes.sort((x,y)=> (ordre[x.etat]-ordre[y.etat]) || (y.manque-x.manque) || x.nom.localeCompare(y.nom,'fr',{numeric:true}));
+  const n = e => lignes.filter(l=>l.etat===e).length;
+  const resume = {total:lignes.length, aucune:n('aucune'), partielle:n('partielle'), nonlie:n('nonlie'), asoumettre:n('asoumettre'), complete:n('complete')};
+  resume.manquantes = resume.aucune + resume.partielle + resume.nonlie;
+  return {debut, jours, lignes, resume};
+}
+// « Qui ne pointe pas » : liste enregistrée dans parametres_app (clé pointages_rappels). configuree=false tant qu'elle n'a jamais été enregistrée.
+async function ptiLireConfig(){
+  try{
+    const {data, error} = await sb.from('parametres_app').select('valeur_json').eq('cle', PTI_CLE);
+    if(error) return {ok:false, configuree:false, dispenses:[], erreur:error.message||String(error)};
+    const v = data && data[0] ? data[0].valeur_json : null;
+    if(!v || !Array.isArray(v.dispenses)) return {ok:true, configuree:false, dispenses:[]};
+    return {ok:true, configuree:true, dispenses:v.dispenses.map(String)};
+  }catch(e){ return {ok:false, configuree:false, dispenses:[], erreur:(e && e.message) || String(e)}; }
+}
+// Lecture d'une semaine (lundi). Les erreurs de lecture remontent (jamais un « tout le monde est complet » par défaut) ; seuls les jours fériés sont facultatifs.
+async function ptiCharger(force, debutDemande){
+  const gen = _ptiGen;                                                                          // si l'utilisateur se déconnecte pendant la lecture, rien n'est gardé pour le suivant
+  const h = await havCharger(false);
+  if(!h.ctx.superviseur) return {refuse:true, ctx:h.ctx};
+  const debut = debutDemande || ptiPrecedente(new Date());
+  const c = _ptiCache[debut];
+  if(!force && c && Date.now()-c.t < 45000) return c;
+  const z = havJours(debut)[6];
+  const [config, emps, picages, absences, semaines] = await Promise.all([
+    ptiLireConfig(),
+    lirePagine('employes_rh', 'id,nom,prenom,email,actif,pointage_employe_id,date_embauche,date_sortie'),
+    havLirePicages(q=>q.gte('date', debut).lte('date', z)),
+    lirePT('absences', 'id,employe_id,date,heures', q=>q.gte('date', debut).lte('date', z)),
+    lirePT('semaines', 'id,employe_id,semaine_debut,statut', q=>q.eq('semaine_debut', debut))
+  ]);
+  let feries = {}, feriesIndispo = false;
+  try{ (await lirePT('feries', '*', q=>q.gte('date', debut).lte('date', z))).forEach(f=>{ if(f.date) feries[havJ10(f.date)] = f.nom || f.libelle || 'Jour férié'; }); }
+  catch(e){ feriesIndispo = true; }
+  const calc = ptiCalculer({debut, emps, dispenses:config.dispenses, picages, absences, semaines, feries});
+  const r = {t:Date.now(), debut, ctx:h.ctx, config, emps, calc, feriesIndispo};
+  if(gen === _ptiGen) _ptiCache[debut] = r;
+  return r;
+}
+// ── Menu, bandeau de connexion, minuteur ────────────────────────────────────────────────────────────────────────
+function ptiMasque(){ try{ return localStorage.getItem('pti-masque') === havIso(new Date()); }catch(e){ return false; } }
+function ptiMasquerAujourdhui(){ try{ localStorage.setItem('pti-masque', havIso(new Date())); }catch(e){} const b = document.getElementById('pti-bandeau'); if(b) b.remove(); }
+function ptiMajChrome(){
+  const visible = !!(_hav && _hav.ctx && _hav.ctx.superviseur);
+  const nav = document.getElementById('nav-pointages_incompletes');
+  const maintenant = new Date(), r = _ptiCache[ptiPrecedente(maintenant)];
+  const du = visible && !!r && r.config.configuree && ptiEchue(maintenant);                  // échéance : lundi 12 h
+  const n = du ? r.calc.resume.manquantes : 0;
+  if(nav){
+    nav.classList.toggle('hidden', !visible);
+    let badge = document.getElementById('pti-badge');
+    if(!badge){ badge = document.createElement('span'); badge.id = 'pti-badge'; badge.style.cssText = 'margin-left:auto;background:#DC2626;color:#fff;border-radius:9px;padding:0 7px;font-size:11px;font-weight:700;line-height:18px'; nav.appendChild(badge); }
+    badge.textContent = n ? String(n) : ''; badge.style.display = n ? '' : 'none';
+  }
+  const main = document.querySelector('.main'), page = document.getElementById('page-content');
+  let b = document.getElementById('pti-bandeau');
+  if(!(du && n>0 && currentPage!=='pointages_incompletes' && !ptiMasque())){ if(b) b.remove(); return; }
+  if(!b && main && page){ b = document.createElement('div'); b.id = 'pti-bandeau'; b.setAttribute('role','status'); main.insertBefore(b, page); }
+  if(!b) return;
+  b.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 24px;background:#FEE2E2;border-bottom:1px solid #F87171;color:#7F1D1D;font-size:13.5px';
+  const noms = r.calc.lignes.filter(l=>['aucune','partielle','nonlie'].includes(l.etat));
+  const lib = l => l.nom + (l.etat==='aucune' ? ' (aucune heure)' : l.etat==='nonlie' ? ' (non lié)' : ' (il manque '+havH(l.manque)+' h)');
+  const montres = noms.slice(0,3).map(lib).join(', ') + (noms.length>3 ? ' + '+(noms.length-3)+' autre'+(noms.length-3>1?'s':'') : '');
+  const s = r.calc.resume.asoumettre;
+  b.innerHTML = '<i class="ti ti-clock" style="font-size:18px"></i><span><strong>Pointages de la semaine '+escHtml(String(havSemNum(r.debut)))+' : '+n+' personne'+(n>1?'s':'')+' n\'ont pas tout encodé</strong> — '+escHtml(montres)+'.'
+    + (s ? ' <span style="opacity:.85">'+s+' semaine'+(s>1?'s':'')+' complète'+(s>1?'s':'')+' pas encore soumise'+(s>1?'s':'')+'.</span>' : '')+'</span>'
+    + '<button class="btn btn-primary btn-sm" id="pti-bandeau-voir" onclick="navigate(\'pointages_incompletes\')">Voir</button>'
+    + '<button class="btn btn-secondary btn-sm" id="pti-bandeau-masquer" onclick="ptiMasquerAujourdhui()">Masquer aujourd\'hui</button>';
+}
+function ptiReset(){
+  _ptiCache = {}; _ptiGen++; _ptiSemaine = null; _ptiFiltre = 'traiter'; _ptiReglages = false;
+  if(_ptiMinuteur){ clearInterval(_ptiMinuteur); _ptiMinuteur = null; }
+  const b = document.getElementById('pti-bandeau'); if(b) b.remove();
+  const n = document.getElementById('nav-pointages_incompletes'); if(n) n.classList.add('hidden');
+  const g = document.getElementById('pti-badge'); if(g) g.style.display = 'none';
+}
+async function ptiRafraichirChrome(){
+  try{ await ptiCharger(true, ptiPrecedente(new Date())); }catch(e){}
+  ptiMajChrome();
+}
+async function ptiDemarrer(){
+  try{ await havCharger(false); }catch(e){ return; }
+  if(!(_hav && _hav.ctx && _hav.ctx.superviseur)){ ptiMajChrome(); return; }
+  await ptiRafraichirChrome();
+  if(!_ptiMinuteur) _ptiMinuteur = setInterval(ptiRafraichirChrome, 30*60*1000);
+  if(!_ptiVisible){ _ptiVisible = true; document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && _ptiMinuteur) ptiRafraichirChrome(); }); }
+}
+// ── Réglages : qui ne pointe pas ────────────────────────────────────────────────────────────────────────────────
+// Première utilisation : on propose de cocher les administrateurs de l'ERP (à confirmer par « Enregistrer »).
+async function ptiSuggestionBureau(emps){
+  try{
+    const us = await lirePagine('utilisateurs', 'email,role,actif');
+    const mails = new Set(us.filter(u=>u.role==='admin' && u.actif!==false).map(u=>havNormEmail(u.email)).filter(Boolean));
+    return (emps||[]).filter(e=>mails.has(havNormEmail(e.email))).map(e=>String(e.id));
+  }catch(e){ return []; }
+}
+async function ptiEnregistrerReglages(){
+  const ids = Array.from(document.querySelectorAll('#pti-reglages .pti-disp')).filter(c=>c.checked).map(c=>String(c.value));
+  const btn = document.getElementById('pti-enregistrer'); if(btn) btn.disabled = true;
+  let err = null;
+  try{
+    const r = await sb.from('parametres_app').upsert({cle:PTI_CLE, valeur_json:{dispenses:ids, maj_par:(currentUser&&currentUser.email)||null, maj_le:new Date().toISOString()}}, {onConflict:'cle'}).select('cle');
+    if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = "enregistrement refusé (droits insuffisants)";
+  }catch(e){ err = (e && e.message) || String(e); }
+  if(btn) btn.disabled = false;
+  if(err){ showToast(escHtml('Impossible d\'enregistrer : '+err), 'error'); return; }
+  showToast('Liste enregistrée');
+  _ptiReglages = false; _ptiCache = {};
+  await ptiDessiner(true); ptiRafraichirChrome();
+}
+function ptiOuvrirReglages(ouvrir){ _ptiReglages = ouvrir!==false; ptiDessiner(false); }
+function ptiChangerFiltre(v){ _ptiFiltre = v==='tout' ? 'tout' : 'traiter'; ptiDessiner(false); }
+function ptiChangerSemaine(delta){
+  const cible = ptiDecaler(_ptiSemaine || ptiPrecedente(new Date()), delta*7);
+  if(cible > ptiLundi(new Date())) return;                                                    // pas au-delà de la semaine en cours
+  _ptiSemaine = cible; ptiDessiner(true);
+}
+// ── Page ────────────────────────────────────────────────────────────────────────────────────────────────────────
+const PTI_ETATS = {aucune:['Aucune heure','#B91C1C','#FEE2E2'], partielle:['Partielle','#92400E','#FEF3C7'], nonlie:['Non lié aux pointages','#7C2D12','#FFEDD5'], asoumettre:['À soumettre','#1E40AF','#DBEAFE'], complete:['Complète','#166534','#DCFCE7']};
+const PTI_STATUTS = {brouillon:'Brouillon', soumis:'Soumise', approuve:'Approuvée', rejete:'Rejetée'};
+const ptiPuce = (txt, fg, bg) => '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:12px;font-weight:600;color:'+fg+';background:'+bg+'">'+escHtml(txt)+'</span>';
+async function renderPointagesIncompletes(){
+  const page = el('page-content');
+  if(page) page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Pointages à compléter</h1></div></div><div class="card" style="padding:24px">Lecture des pointages…</div>';
+  await ptiDessiner(true);
+}
+async function ptiDessiner(recharger){
+  const page = el('page-content'); if(!page || currentPage!=='pointages_incompletes') return;
+  const debut = _ptiSemaine || ptiPrecedente(new Date());
+  const entete = '<div class="page-header"><div class="page-header-left"><h1>Pointages à compléter</h1><p>Qui n\'a pas (tout) encodé ses heures — échéance : le lundi à 12 h</p></div></div>';
+  let r;
+  try{ r = await ptiCharger(!!recharger, debut); }
+  catch(e){ page.innerHTML = entete + '<div class="alert alert-error"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les pointages : '+escHtml((e&&e.message)||String(e))+'</span></div>'; return; }
+  if(currentPage!=='pointages_incompletes' || (_ptiSemaine || ptiPrecedente(new Date())) !== debut) return;      // la page a changé (autre page, autre semaine) pendant la lecture
+  if(r.refuse){ page.innerHTML = entete + '<div class="alert alert-info"><i class="ti ti-info-circle"></i><span>Cette page est réservée à la direction (administrateurs qui ne sont responsables d\'aucun chantier en cours).</span></div>'; return; }
+  const {config, calc} = r, rs = calc.resume;
+  const reglagesOuverts = _ptiReglages || (config.ok && !config.configuree);
+  let reglages = '';
+  if(reglagesOuverts){
+    const preselection = new Set(config.configuree ? config.dispenses : await ptiSuggestionBureau(r.emps));
+    const actifs = (r.emps||[]).filter(e=>e.actif!==false).slice().sort((x,y)=>nomPers(x).localeCompare(nomPers(y),'fr'));
+    reglages = '<div class="card" id="pti-reglages" style="padding:14px 16px;margin-bottom:14px">'
+      + '<div style="font-weight:700;margin-bottom:4px">Qui ne pointe pas ?</div>'
+      + '<div style="color:#6B7280;font-size:13px;margin-bottom:8px">'+(config.configuree ? 'Cochez les personnes qui ne pointent pas (bureau, direction) : elles n\'apparaissent jamais dans cette liste ni dans les rappels.' : '<strong>À faire une fois :</strong> cochez les personnes qui ne pointent pas (bureau, direction), puis enregistrez. Les administrateurs de l\'ERP sont pré-cochés : vérifiez la liste.')+'</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px">'
+      + actifs.map(e=>'<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="pti-disp" value="'+escHtml(String(e.id))+'" '+(preselection.has(String(e.id))?'checked':'')+'> '+escHtml(nomPers(e))+'</label>').join('')
+      + '</div><div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-primary btn-sm" id="pti-enregistrer" onclick="ptiEnregistrerReglages()">Enregistrer</button>'
+      + (config.configuree ? '<button class="btn btn-secondary btn-sm" id="pti-fermer-reglages" onclick="ptiOuvrirReglages(false)">Annuler</button>' : '') + '</div></div>';
+  }
+  const actuelle = ptiLundi(new Date()), prec = ptiPrecedente(new Date());
+  const etiq = debut===prec ? 'semaine précédente' : (debut===actuelle ? 'semaine en cours' : 'semaine passée');
+  const echeance = ptiDecaler(debut, 7), depassee = new Date().getTime() >= new Date(echeance+'T12:00:00').getTime();
+  const nav = '<div class="page-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    + '<button class="btn btn-secondary btn-sm" id="pti-prec" onclick="ptiChangerSemaine(-1)" title="Semaine précédente">‹</button>'
+    + '<strong id="pti-semaine">Semaine '+escHtml(String(havSemNum(debut)))+' · '+ptiFr(calc.jours[0])+' → '+ptiFr(calc.jours[6])+'</strong> <span style="color:#6B7280">('+etiq+')</span>'
+    + '<button class="btn btn-secondary btn-sm" id="pti-suiv" onclick="ptiChangerSemaine(1)" title="Semaine suivante" '+(debut>=actuelle?'disabled':'')+'>›</button>'
+    + '<span style="color:#6B7280;margin-left:8px">Échéance : lundi '+ptiFr(echeance)+' à 12 h'+(depassee?' — <strong style="color:#B91C1C">dépassée</strong>':'')+'</span>'
+    + '<span style="flex:1"></span>'
+    + '<select id="pti-filtre" onchange="ptiChangerFiltre(this.value)" style="padding:6px 10px;border:1px solid var(--gray-3);border-radius:6px"><option value="traiter" '+(_ptiFiltre==='traiter'?'selected':'')+'>À traiter</option><option value="tout" '+(_ptiFiltre==='tout'?'selected':'')+'>Tous</option></select>'
+    + '<button class="btn btn-secondary btn-sm" id="pti-actualiser" onclick="ptiDessiner(true)"><i class="ti ti-refresh"></i> Actualiser</button>'
+    + '<button class="btn btn-secondary btn-sm" id="pti-ouvrir-reglages" onclick="ptiOuvrirReglages(true)"><i class="ti ti-users"></i> Qui pointe ?</button></div>';
+  if(!config.ok){
+    page.innerHTML = entete + '<div class="alert alert-error" id="pti-config-erreur"><i class="ti ti-alert-triangle"></i><span>La liste de ceux qui ne pointent pas est illisible ('+escHtml(config.erreur||'erreur')+') : le bandeau de rappel est désactivé. '+escHtml(SQL_DOCUMENTS)+'</span></div>';
+    return;
+  }
+  if(!config.configuree){ page.innerHTML = entete + reglages; return; }               // tant que la liste n'est pas enregistrée : aucune liste de retardataires (le personnel de bureau y figurerait)
+  const cartes = [['complete','Complètes',rs.complete],['partielle','Partielles',rs.partielle],['aucune','Sans aucune heure',rs.aucune],['asoumettre','À soumettre',rs.asoumettre],['nonlie','Non liés',rs.nonlie]]
+    .map(c=>'<div class="card pti-carte" data-etat="'+c[0]+'" style="padding:10px 16px;min-width:120px"><div style="font-size:22px;font-weight:700">'+c[2]+'</div><div style="color:#6B7280;font-size:12px">'+c[1]+'</div></div>').join('');
+  const visibles = calc.lignes.filter(l=>_ptiFiltre==='tout' || l.etat!=='complete');
+  const tableau = visibles.length
+    ? '<div class="card" style="padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:620px" id="pti-tableau"><thead><tr style="background:var(--gray-1);text-align:left"><th style="padding:8px 12px">Employé</th><th style="padding:8px 12px;text-align:right">Heures encodées</th><th style="padding:8px 12px;text-align:right">Prévues</th><th style="padding:8px 12px;text-align:right">Manque</th><th style="padding:8px 12px">Semaine</th><th style="padding:8px 12px">État</th></tr></thead><tbody>'
+      + visibles.map(l=>{ const e = PTI_ETATS[l.etat];
+          return '<tr class="pti-ligne" data-emp="'+escHtml(l.id)+'" data-etat="'+escHtml(l.etat)+'"><td style="padding:8px 12px;border-top:1px solid var(--gray-2)">'+escHtml(l.nom)+'</td>'
+            + '<td style="padding:8px 12px;border-top:1px solid var(--gray-2);text-align:right">'+escHtml(havH(l.heures))+' h</td>'
+            + '<td style="padding:8px 12px;border-top:1px solid var(--gray-2);text-align:right">'+escHtml(havH(l.attendues))+' h</td>'
+            + '<td style="padding:8px 12px;border-top:1px solid var(--gray-2);text-align:right;font-weight:700;color:'+(l.manque>0?'#B91C1C':'#6B7280')+'">'+(l.manque>0?escHtml(havH(l.manque))+' h':'—')+'</td>'
+            + '<td style="padding:8px 12px;border-top:1px solid var(--gray-2)">'+(PTI_STATUTS[l.statut] ? escHtml(PTI_STATUTS[l.statut]) : '—')+'</td>'
+            + '<td style="padding:8px 12px;border-top:1px solid var(--gray-2)">'+ptiPuce(e[0], e[1], e[2])+'</td></tr>'; }).join('')
+      + '</tbody></table></div>'
+    : '<div class="alert alert-success" id="pti-ok"><i class="ti ti-circle-check"></i><span>'+(rs.total ? 'Tout le monde a encodé la semaine.' : 'Personne à suivre cette semaine.')+'</span></div>';
+  const notes = (r.feriesIndispo ? '<div class="alert alert-warning" id="pti-feries"><i class="ti ti-alert-triangle"></i><span>Les jours fériés n\'ont pas pu être lus : les heures prévues peuvent être surestimées.</span></div>' : '')
+    + '<div style="color:#6B7280;font-size:12px;margin:10px 0">Prévu = 8 h × jours ouvrés (lundi→vendredi, hors jours fériés), 40 h maximum ; les absences comptent. « À soumettre » : heures complètes mais semaine encore en brouillon ou rejetée. '+(config.dispenses.length ? escHtml(String(config.dispenses.length))+' personne'+(config.dispenses.length>1?'s ne pointent':' ne pointe')+' pas (exclue'+(config.dispenses.length>1?'s':'')+').' : '')+'</div>';
+  page.innerHTML = entete + nav + reglages + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">'+cartes+'</div>' + tableau + notes;
+  ptiMajChrome();
 }
 
 // ── INIT ─────────────────────────────────────────────────────
