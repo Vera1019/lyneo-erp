@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-10-5d840e8"/>
+<meta name="lyneo-build" content="BUILD:2026-11-10-8243ccd"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2790,7 +2790,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-10-5d840e8';
+const APP_BUILD = 'BUILD:2026-11-10-8243ccd';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -10745,19 +10745,36 @@ async function rafraichirListeReferences(){
   avertirReferencesFournisseur(r);
 }
 document.addEventListener('focusin', e=>{ const t = e.target; if(t && t.getAttribute && t.getAttribute('list') === 'dl-refs-fourn') rafraichirListeReferences(); });
+// Ce que la mémoire (ou, sans le script SQL, la dernière facture) a rempli dans une ligne : {reference, description, unite?, prix?, tva?, code?}.
+// Les champs unite/prix/tva/code n'y figurent que s'ils ont été remplis automatiquement. Sert UNIQUEMENT à une chose : quand la Vera change la référence d'une ligne
+// (elle s'était trompée), ce qui vient encore de l'ancienne référence et que la Vera n'a pas touché est remplacé par ce que donne la nouvelle. Jamais un texte modifié.
+// (WeakMap : rien n'est ajouté à la ligne, donc rien ne part en base.)
+const _refAuto = new WeakMap();
+const descriptionAuto = (l, ref) => { const p = _refAuto.get(l); return !!p && cleRef(p.reference) !== cleRef(ref) && cleRef(l.description) === cleRef(p.description); };   // description encore celle d'une AUTRE référence
 // Remplit la ligne `l` depuis la mémoire `x`. Description vide → on reprend tout (description, unité « u », prix 0, TVA, code ressource vide).
+// Description encore celle que l'ancienne référence avait remplie (jamais modifiée) → comme une ligne vide ; ce que la Vera a modifié reste.
 // Description saisie IDENTIQUE à celle de la mémoire → même produit : on ne complète que le prix (si 0), l'unité (si « u ») et le code (si vide).
 // Description saisie DIFFÉRENTE → on ne touche à rien. Renvoie true si la ligne a changé.
 function completerLigneDepuisReference(l, x, opts){
   const o = opts || {};
-  const vide = !String(l.description||'').trim();
+  const prev = _refAuto.get(l) || {};
+  const autre = descriptionAuto(l, x.reference);                       // la ligne vient d'une autre référence, non modifiée
+  const vide = !String(l.description||'').trim() || autre;
   if(!vide && cleRef(l.description) !== cleRef(x.description)) return false;
+  const auto = autre ? Object.assign({}, prev) : {};
   let change = false;
-  if(vide && x.description){ l.description = x.description; change = true; }
-  if((!l.unite || l.unite === 'u') && x.unite && x.unite !== l.unite && (!o.unites || o.unites.includes(x.unite))){ l.unite = x.unite; change = true; }
-  if(!(parseFloat(l.prix_unitaire_ht)||0) && (parseFloat(x.prix_unitaire_ht)||0) > 0){ l.prix_unitaire_ht = x.prix_unitaire_ht; change = true; }
-  if(vide && TVA_LIGNE_VALIDES.includes(Number(x.taux_tva)) && Number(l.taux_tva) !== Number(x.taux_tva)){ l.taux_tva = Number(x.taux_tva); change = true; }
-  if(o.code && !l.code_ressource_id && x.code_ressource_id && _codesResDispo && _codesRes.some(c=>String(c.id)===String(x.code_ressource_id) && c.actif !== false)){ l.code_ressource_id = x.code_ressource_id; change = true; }
+  if(vide && x.description){ if(l.description !== x.description) change = true; l.description = x.description; auto.reference = x.reference; auto.description = x.description; }
+  const unitePermise = x.unite && (!o.unites || o.unites.includes(x.unite));
+  if(unitePermise && x.unite !== l.unite && (!l.unite || l.unite === 'u' || (autre && prev.unite !== undefined && l.unite === prev.unite))){ l.unite = x.unite; auto.unite = x.unite; change = true; }
+  const prix = parseFloat(x.prix_unitaire_ht)||0;
+  if(prix > 0 && (!(parseFloat(l.prix_unitaire_ht)||0) || (autre && prev.prix !== undefined && (parseFloat(l.prix_unitaire_ht)||0) === prev.prix)) && (parseFloat(l.prix_unitaire_ht)||0) !== prix){ l.prix_unitaire_ht = x.prix_unitaire_ht; auto.prix = prix; change = true; }
+  if(vide && TVA_LIGNE_VALIDES.includes(Number(x.taux_tva)) && (!autre || (prev.tva !== undefined && Number(l.taux_tva) === prev.tva))){ if(Number(l.taux_tva) !== Number(x.taux_tva)) change = true; l.taux_tva = Number(x.taux_tva); auto.tva = Number(x.taux_tva); }
+  if(o.code){
+    const codeValide = x.code_ressource_id && _codesResDispo && _codesRes.some(c=>String(c.id)===String(x.code_ressource_id) && c.actif !== false) ? x.code_ressource_id : null;
+    if(!l.code_ressource_id && codeValide){ l.code_ressource_id = codeValide; auto.code = codeValide; change = true; }
+    else if(autre && prev.code !== undefined && String(l.code_ressource_id||'') === String(prev.code) && String(l.code_ressource_id||'') !== String(codeValide||'')){ l.code_ressource_id = codeValide; auto.code = codeValide; change = true; }   // l'ancien code (rempli automatiquement, non modifié) ne reste pas sur la nouvelle référence
+  }
+  if(vide && auto.description !== undefined) _refAuto.set(l, auto);
   return change;
 }
 
@@ -10787,11 +10804,12 @@ async function proposerDescriptionReference(lignes, i, fournisseurId, redessiner
   const x = m.ok ? (m.rows.find(r=>cleRef(r.reference)===cleRef(ref)) || null) : null;
   if(x){ if(completerLigneDepuisReference(l, x, opts)) redessiner(); return; }
   // 2) sinon (script SQL absent, référence jamais mémorisée) : description de la DERNIÈRE facture de ce fournisseur avec cette référence
-  if(String(l.description||'').trim()) return;                             // jamais écraser un texte déjà là
+  if(String(l.description||'').trim() && !descriptionAuto(l, ref)) return;  // jamais écraser un texte déjà là (sauf celui que l'ancienne référence avait rempli et que personne n'a modifié)
   const d = await descriptionConnueReference(fournisseurId, ref);
   // pendant la recherche la ligne a pu changer (référence modifiée, description saisie, ligne supprimée)
-  if(!d || lignes[i]!==l || String(l.reference_article||'').trim()!==ref || String(l.description||'').trim()) return;
+  if(!d || lignes[i]!==l || String(l.reference_article||'').trim()!==ref || (String(l.description||'').trim() && !descriptionAuto(l, ref))) return;
   l.description = d;
+  _refAuto.set(l, Object.assign({}, _refAuto.get(l) || {}, {reference: ref, description: d}));
   redessiner();
 }
 function updFacLigneLibre(i,f,v){ _facLignesLibre[i][f]=v; renderFacLignesLibre(); if(f==='reference_article') proposerDescriptionReference(_facLignesLibre, i, (el('facl-fournisseur')||{}).value, renderFacLignesLibre, {code:true}); }
