@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-10-fa8672f"/>
+<meta name="lyneo-build" content="BUILD:2026-11-11-d737c05"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2792,7 +2792,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-10-fa8672f';
+const APP_BUILD = 'BUILD:2026-11-11-d737c05';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -6757,6 +6757,7 @@ async function openFourDetail(fourId){
         <div class="info-item"><label>N° TVA</label><span>${escHtml(four.numero_tva||'—')}</span></div>
         <div class="info-item"><label>Conditions de paiement</label><span>${escHtml(four.conditions_paiement||'—')}</span></div>
       </div>
+      ${four.employe_id ? '' : tiaZone('fournisseur', four.id)}
       <strong style="font-size:13px">Factures liées (${facs.length})</strong>
       <div style="overflow-x:auto;margin-top:8px">
         <table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:640px">
@@ -6804,6 +6805,7 @@ async function openFourDetail(fourId){
       </div>
     </div>
   </div></div>`);
+  tiaMonter('fournisseur', four.id);
 }
 // selectId : liste « Fournisseur » d'un formulaire ouvert (facture, commande…) → la fiche s'ouvre PAR-DESSUS, sans fermer le formulaire,
 // et le fournisseur créé (ou modifié) est sélectionné à l'enregistrement (comme « Créer et modifier » d'Odoo).
@@ -6835,6 +6837,7 @@ function openFourModal(r=null, selectId=null){
           </select>
         </div>
       </div>
+      ${r?.employe_id ? '' : tiaZone('fournisseur', r?.id)}
       <div class="form-actions">
         ${isEdit && !selectId ? `<button class="btn btn-danger" id="f-suppr" onclick="supprimerFournisseur('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
         <button class="btn btn-secondary" onclick="${fermer}">Annuler</button>
@@ -6842,7 +6845,7 @@ function openFourModal(r=null, selectId=null){
       </div>
     </div>
   </div></div>`;
-  if(!selectId){ showModal(html); return; }
+  if(!selectId){ showModal(html); tiaMonter('fournisseur', r?.id||null); return; }
   let c = el('four-rapide-container');
   if(!c){ c = document.createElement('div'); c.id = 'four-rapide-container'; document.body.appendChild(c); }
   c.innerHTML = html;
@@ -6850,6 +6853,7 @@ function openFourModal(r=null, selectId=null){
   ov.style.zIndex = 300;
   ov.addEventListener('click', function(e){ if(e.target===this) fermerFourRapide(); });
   const n = el('f-nom'); if(n) n.focus();
+  tiaMonter('fournisseur', r?.id||null);
 }
 function fermerFourRapide(){ const c = el('four-rapide-container'); if(c) c.innerHTML = ''; }
 
@@ -6886,6 +6890,7 @@ async function saveFourCore(id, selectId=null){
   const ctl = await controlerDoublonsTiers('fournisseurs', {nom, tva:el('f-tva').value, email:el('f-email').value}, id, 'fournisseur', selectId ? 'Utiliser celui-ci' : 'Voir la fiche');
   if(ctl==='stop') return;
   if(ctl && ctl.existant){
+    if(!id) tiaAbandonner('fournisseur');
     if(selectId){ fermerFourRapide(); const {data:ex} = await sb.from('fournisseurs').select('*').eq('id',ctl.existant).single(); if(ex) majSelectFournisseur(selectId, ex); showToast('Fournisseur existant sélectionné'); }
     else { closeModal(); openFourDetail(ctl.existant); }
     return;
@@ -6895,14 +6900,16 @@ async function saveFourCore(id, selectId=null){
     const r = id ? await sb.from('fournisseurs').update(data).eq('id',id).select().single() : await sb.from('fournisseurs').insert(data).select().single();
     if(r.error){ showToast('Erreur: '+r.error.message, 'error'); return; }
     window._condFournCache = {};
+    if(!id) await tiaEnvoyerEnAttente('fournisseur', r.data && r.data.id);
     fermerFourRapide();
     majSelectFournisseur(selectId, {...data, id:(r.data&&r.data.id)||id});
     showToast(id?'Fournisseur mis à jour':'Fournisseur "'+nom+'" créé et sélectionné');
     return;
   }
-  const {error} = id ? await sb.from('fournisseurs').update(data).eq('id',id) : await sb.from('fournisseurs').insert(data);
+  const {data:savedF, error} = id ? await sb.from('fournisseurs').update(data).eq('id',id) : await sb.from('fournisseurs').insert(data).select('id').single();
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   window._condFournCache = {};
+  if(!id) await tiaEnvoyerEnAttente('fournisseur', savedF && savedF.id);
   showToast(id?'Fournisseur mis à jour':'Fournisseur créé');
   closeModal(); renderFournisseurs();
 }
@@ -11878,6 +11885,7 @@ async function supprimerFiche(type, id, opts){
       chemins = (docs||[]).map(d=>_txt(d.url).split('/Documents/')[1]).filter(Boolean);
     }catch(e){}
   }
+  const urlsTia = (type==='client' || type==='fournisseur') ? await tiaUrlsDe(type, id) : [];     // documents joints : leurs lignes partent en cascade, les fichiers ensuite
   const {data:suppr, error} = await sb.from(cfg.table).delete().eq('id',id).select('id');
   if(error){
     if(error.code==='23503' || /foreign key|violates|référence/i.test(error.message||'')) showToast(`Suppression refusée : « ${libFiche(type,fiche)} » est encore utilisé ailleurs. Désactivez-le plutôt.`, 'error');
@@ -11892,6 +11900,7 @@ async function supprimerFiche(type, id, opts){
       await sb.from('anexos_chantier').delete().eq('chantier_id',id);
     }catch(e){}
   }
+  if(urlsTia.length) await supprimerFichiersStockage(urlsTia);
   showToast(`${cfg.article.charAt(0).toUpperCase()+cfg.article.slice(1)} « ${libFiche(type,fiche)} » supprimé`+(type==='chantier' && fiche.code_pointages ? " (les heures pointées sont conservées ; le code n'est plus proposé aux salariés)" : ''));
   if(type==='chantier' && fiche.code_pointages) lancerMajPointagesCodesSupprimes(codesPointagesDe(fiche));
   if(opts.panneau) await ouvrirDoublons(opts.panneau); else { closeModal(); await cfg.refresh(); }
@@ -11933,9 +11942,9 @@ async function supprimerFactureFournisseur(id, opts){
 
 // ══ FUSION (clients, fournisseurs) ═══════════════════════════
 const FUSION_CFG = {
-  clients: {table:'clients', refs:[['devis','client_id'],['factures_vente','client_id'],['chantiers_lyneo','client_id'],['interventions_sav','client_id']],
-            champs:['contact_principal','email','telephone','numero_tva','adresse','adresse_livraison','code_postal','ville']},
-  fournisseurs: {table:'fournisseurs', refs:[['purchase_orders_lyneo','fournisseur_id'],['factures','fournisseur_id']],
+  clients: {table:'clients', refs:[['devis','client_id'],['factures_vente','client_id'],['chantiers_lyneo','client_id'],['interventions_sav','client_id'],['anexos_client','client_id',true]],
+            champs:['contact_principal','email','email_facturation','telephone','numero_tva','adresse','adresse_livraison','code_postal','ville']},
+  fournisseurs: {table:'fournisseurs', refs:[['purchase_orders_lyneo','fournisseur_id'],['factures','fournisseur_id'],['anexos_fournisseur','fournisseur_id',true]],
             champs:['email','telephone','numero_tva','adresse','code_postal','ville']}
 };
 // Rattache tout ce qui dépend de chaque fiche « à retirer » à la fiche « à garder », complète les champs vides, puis supprime les fiches retirées.
@@ -11946,10 +11955,11 @@ async function fusionnerFiches(type, garderId, retirerIds){
   for(const rid of retirerIds){
     const {data:ret} = await sb.from(cfg.table).select('*').eq('id',rid).single();
     if(!ret) continue;
-    for(const [table, col] of cfg.refs){
+    for(const [table, col, facultatif] of cfg.refs){
       const patch = {[col]: garderId};
       if(type==='clients' && table==='chantiers_lyneo') patch.client = garde.nom;
       const {error} = await sb.from(table).update(patch).eq(col, rid);
+      if(error && facultatif && erreurTableAbsente(error)) continue;          // table des documents joints pas encore créée (script SQL non exécuté) : rien à rattacher
       if(error){ showToast(`Fusion interrompue (${table}) : ${error.message}. Rien n'a été supprimé ; vous pouvez réessayer après correction.`, 'error'); return false; }
     }
     const comble = {};
@@ -12047,7 +12057,7 @@ async function renderClients(search=''){
     const {data} = await sb.from('clients').select('*').order('nom');
     _clients = data||[];
   }
-  const items = search ? _clients.filter(i=>(i.nom+(i.email||'')).toLowerCase().includes(search.toLowerCase())) : _clients;
+  const items = search ? _clients.filter(i=>(i.nom+(i.email||'')+' '+(i.email_facturation||'')).toLowerCase().includes(search.toLowerCase())) : _clients;
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div>
@@ -12116,6 +12126,7 @@ function openClientModal(r=null, selectId=null){
         <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${escHtml(r?.nom||'')}" placeholder="Nom de la société ou du client"/></div>
         <div class="form-group"><label class="field-label">Contact principal</label><input id="cl-contact" value="${escHtml(r?.contact_principal||'')}" placeholder="Nom du contact"/></div>
         <div class="form-group"><label class="field-label">Email</label><input type="email" id="cl-email" value="${escHtml(r?.email||'')}" placeholder="contact@client.com"/></div>
+        <div class="form-group"><label class="field-label">E-mail de facturation <span style="font-weight:400;color:var(--gray-5)">(factures et relances — vide = l'email ci-dessus)</span></label><input type="text" id="cl-email-fact" value="${escHtml(r?.email_facturation||'')}" placeholder="comptabilite@client.com ; autre@client.com" autocomplete="off"/></div>
         <div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel" value="${escHtml(r?.telephone||'')}" placeholder="+352 ..."/></div>
         <div class="form-group"><label class="field-label">N° TVA</label><input id="cl-tva" value="${escHtml(r?.numero_tva||'')}" placeholder="LU12345678"/></div>
         <div class="form-group full"><label class="field-label">Adresse</label><input id="cl-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Rue et numéro"/></div>
@@ -12136,6 +12147,7 @@ function openClientModal(r=null, selectId=null){
         </div>
         <div class="form-group full"><label class="field-label">Notes</label><textarea id="cl-notes" placeholder="Informations complémentaires...">${escHtml(r?.notes||'')}</textarea></div>
       </div>
+      ${tiaZone('client', r?.id)}
       <div class="form-actions">
         ${isEdit && !selectId ? `<button class="btn btn-danger" id="cl-suppr" onclick="supprimerClient('${r.id}')" style="margin-right:auto"><i class="ti ti-trash"></i> Supprimer</button>` : ''}
         <button class="btn btn-secondary" onclick="${fermer}">Annuler</button>
@@ -12143,7 +12155,7 @@ function openClientModal(r=null, selectId=null){
       </div>
     </div>
   </div></div>`;
-  if(!selectId){ showModal(html); return; }
+  if(!selectId){ showModal(html); tiaMonter('client', r?.id||null); return; }
   let c = el('client-rapide-container');
   if(!c){ c = document.createElement('div'); c.id = 'client-rapide-container'; document.body.appendChild(c); }
   c.innerHTML = html;
@@ -12151,6 +12163,7 @@ function openClientModal(r=null, selectId=null){
   ov.style.zIndex = 300;
   ov.addEventListener('click', function(e){ if(e.target===this) fermerClientRapide(); });
   const n = el('cl-nom'); if(n) n.focus();
+  tiaMonter('client', r?.id||null);
 }
 function fermerClientRapide(){ const c = el('client-rapide-container'); if(c) c.innerHTML = ''; }
 
@@ -12188,10 +12201,15 @@ function saveClient(id, selectId=null){ return gardeEnvoi('client', ()=>saveClie
 async function saveClientCore(id, selectId=null){
   const nom = el('cl-nom').value.trim();
   if(!nom){ showToast('Nom obligatoire','error'); return; }
+  // e-mail de facturation : une ou plusieurs adresses valides (séparées par « ; » ou une virgule), sinon on ne grave rien
+  const chkFact = emailFactAnalyser((el('cl-email-fact')||{}).value);
+  if(!chkFact.ok){ showToast('E-mail de facturation invalide : '+escHtml(chkFact.invalide), 'error'); const ef = el('cl-email-fact'); if(ef) ef.focus(); return; }
+  const emailFact = chkFact.liste.join('; ');
   // doublon possible (même nom, même TVA, même e-mail, nom très proche) — seulement si l'un de ces champs a changé
   const ctl = await controlerDoublonsTiers('clients', {nom, tva:el('cl-tva').value, email:el('cl-email').value}, id, 'client', selectId ? 'Utiliser celui-ci' : 'Voir la fiche');
   if(ctl==='stop') return;
   if(ctl && ctl.existant){
+    if(!id) tiaAbandonner('client');
     if(selectId){ fermerClientRapide(); const {data:ex} = await sb.from('clients').select('*').eq('id',ctl.existant).single(); if(ex) majSelectClient(selectId, ex); showToast('Client existant sélectionné'); }
     else { closeModal(); openClientDetail(ctl.existant); }
     return;
@@ -12211,10 +12229,16 @@ async function saveClientCore(id, selectId=null){
     actif: el('cl-actif').value==='1',
     notes: el('cl-notes').value
   };
-  const {data:saved, error} = id
-    ? await sb.from('clients').update(data).eq('id',id).select().single()
-    : await sb.from('clients').insert(data).select().single();
+  // la colonne « email_facturation » n'existe qu'après le script SQL : sans elle, on enregistre tout le reste et on prévient
+  let sansColonneFact = false;
+  const {data:saved, error} = await avecEmailFact(async avec=>{
+    if(!avec) sansColonneFact = true;
+    const d = avec ? {...data, email_facturation: emailFact || null} : data;
+    return id ? await sb.from('clients').update(d).eq('id',id).select().single() : await sb.from('clients').insert(d).select().single();
+  });
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
+  if(sansColonneFact && emailFact) showToast("Client enregistré, mais l'e-mail de facturation n'a pas pu l'être : exécutez d'abord "+SQL_TIA+" dans Supabase", 'error', 7000);
+  if(!id) await tiaEnvoyerEnAttente('client', saved && saved.id);          // documents choisis avant l'enregistrement d'une fiche nouvelle
   if(selectId){
     fermerClientRapide();
     majSelectClient(selectId, {...data, id: (saved&&saved.id)||id});
@@ -12349,12 +12373,15 @@ async function openClientDetail(clientId){
     <div class="modal-body">
       <div class="info-grid" style="margin-bottom:20px">
         <div class="info-item"><label>Contact principal</label><span>${escHtml(client.contact_principal||'—')}</span></div>
+        ${String(client.email_facturation||'').trim() ? `<div class="info-item" id="cl-detail-email-fact"><label>E-mail de facturation</label><span>${escHtml(client.email_facturation)}</span></div>` : ''}
         <div class="info-item"><label>Adresse</label><span>${escHtml(client.adresse||'—')} ${escHtml(client.code_postal||'')} ${escHtml(client.ville||'')}</span></div>
         ${client.adresse_livraison?`<div class="info-item"><label>Adresse de livraison / intervention</label><span>${escHtml(client.adresse_livraison)}</span></div>`:''}
         <div class="info-item"><label>N° TVA</label><span>${escHtml(client.numero_tva||'—')}</span></div>
         <div class="info-item"><label>Conditions de paiement</label><span>${escHtml(client.conditions_paiement||'—')}</span></div>
       </div>
       ${client.notes?`<div style="margin-bottom:20px"><strong style="font-size:13px">Notes</strong><p style="font-size:13px;color:var(--gray-6);margin-top:4px">${escHtml(client.notes)}</p></div>`:''}
+
+      ${tiaZone('client', client.id)}
 
       <strong style="font-size:13px">Chantiers liés (${chantiers.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
@@ -12457,6 +12484,7 @@ async function openClientDetail(clientId){
       </div>
     </div>
   </div></div>`);
+  tiaMonter('client', client.id);
 }
 // ── IMPORT EXCEL POUR DEVIS ───────────────────────────────────
 function _parseNumFR(v){
@@ -15453,10 +15481,11 @@ function envfvMessage(f){
     : `Bonjour,\n\nVeuillez trouver ci-joint notre facture n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC${ech}.\n\nNous restons à votre disposition pour toute question.\n\nCordialement,\nLYNEO`;
 }
 async function envoyerFactureParEmail(facId){
-  const r = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email)').eq('id', facId).single();
+  const r = await avecEmailFact(avec=>sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email'+(avec?',email_facturation':'')+')').eq('id', facId).single());
   const f = r.data;
   if(!f){ showToast('Facture introuvable', 'error'); return; }
-  const dest = (f.clients && f.clients.email) || '', avoir = f.type_facture==='avoir';
+  const dest = emailFacturationClient(f.clients), avoir = f.type_facture==='avoir';
+  const destFact = !!(f.clients && String(f.clients.email_facturation||'').trim());
   const mon = _envFV = {facId, f, pdf:null, erreur:null, extras:[], suiv:1, pret:null};
   // le PDF est préparé dès l'ouverture : les boutons répondent tout de suite (le partage exige un clic « récent »)
   mon.pret = pdfBytesFactureVente(facId).then(x=>{
@@ -15472,7 +15501,7 @@ async function envoyerFactureParEmail(facId){
   c.innerHTML = `<div class="modal-overlay" style="z-index:300" onclick="if(event.target===this)fermerEnvoiFV()"><div class="modal" style="max-width:680px">
     <div class="modal-header"><h3><i class="ti ti-mail"></i> Envoyer ${estRefProvisoire(f.numero) ? (avoir?'le projet de note de crédit':'la facture proforma') : (avoir?'la note de crédit':'la facture')+' '+escHtml(f.numero)}</h3><button class="modal-close" onclick="fermerEnvoiFV()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
-      <div class="form-group"><label class="field-label" for="envfv-a">À (e-mail du client${f.clients&&f.clients.nom ? ' — '+escHtml(f.clients.nom) : ''})</label>
+      <div class="form-group"><label class="field-label" for="envfv-a">À (e-mail ${destFact ? 'de facturation' : 'du client'}${f.clients&&f.clients.nom ? ' — '+escHtml(f.clients.nom) : ''})</label>
         <input id="envfv-a" type="text" value="${escHtml(dest)}" placeholder="comptabilite@client.lu" autocomplete="off"/>
         ${dest ? '' : '<div id="envfv-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce client : saisissez-la ici (et ajoutez-la dans Clients pour la prochaine fois).</div>'}</div>
       <div class="form-group"><label class="field-label" for="envfv-cc">Cc (facultatif — plusieurs adresses séparées par « ; » ou une virgule)</label><input id="envfv-cc" type="text" value="" autocomplete="off"/></div>
@@ -15642,7 +15671,7 @@ function niveauRelanceConseille(retard, derniere, jourIso){
 }
 // Factures ÉMISES et non soldées, lues dans la base (indépendant de la liste affichée) + notes de crédit émises ; ne garde que celles en retard
 async function chargerEchuesFV(jourIso){
-  const fact = await lirePagine('factures_vente', 'id,numero,client_id,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email)', q=>q.in('statut', ['envoyee','payee_partiel']));
+  const fact = await avecEmailFact(avec=>lirePagine('factures_vente', 'id,numero,client_id,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email'+(avec?',email_facturation':'')+')', q=>q.in('statut', ['envoyee','payee_partiel'])));
   const avRows = await lirePagine('factures_vente', 'id,facture_origine_id,total_ht,total_ttc,statut,type_facture', q=>q.eq('type_facture', 'avoir'));
   const av = avoirsParFacture(avRows);
   return {factures: fact.filter(f=>joursRetardAvec(f, av, jourIso) > 0), av};
@@ -15653,7 +15682,7 @@ function lignesRelanceClients(factures, av, jourIso){
   (factures || []).forEach(f=>{
     const retard = joursRetardAvec(f, av, jourIso); if(!(retard > 0)) return;
     const cid = f.client_id || '__sans_client';
-    const g = par[cid] = par[cid] || {clientId: f.client_id || null, nom: (f.clients && f.clients.nom) || '—', email: (f.clients && f.clients.email) || '', factures: [], total: 0};
+    const g = par[cid] = par[cid] || {clientId: f.client_id || null, nom: (f.clients && f.clients.nom) || '—', email: emailFacturationClient(f.clients), factures: [], total: 0};
     const solde = relArr(soldeFv(f, av)), derniere = derniereRelanceFV(f.id);
     g.factures.push({f, retard, solde, derniere, conseil: niveauRelanceConseille(retard, derniere, jourIso)});
     g.total += solde;
@@ -15769,7 +15798,7 @@ async function openRelanceClient(clientId){
   if(!g){ showToast('Aucune facture échue pour ce client', 'error'); return; }
   let client = {nom: g.nom, email: g.email};
   if(g.clientId){
-    const rc = await sb.from('clients').select('id,nom,email,adresse,code_postal,ville,numero_tva').eq('id', g.clientId).single();
+    const rc = await avecEmailFact(avec=>sb.from('clients').select('id,nom,email,'+(avec?'email_facturation,':'')+'adresse,code_postal,ville,numero_tva').eq('id', g.clientId).single());
     if(rc.data) client = rc.data;
   }
   const mon = _relance = {g, client, jour, niveau: g.niveau, lot: relUuid(), consigne: false, messageModifie: false, objetModifie: false, occupe: false};
@@ -15805,8 +15834,8 @@ function htmlRelanceClient(mon){
           <td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right"><input type="text" inputmode="decimal" id="rel-mt-${id}" value="${x.solde.toFixed(2).replace('.', ',')}" style="width:110px;text-align:right" oninput="relRafraichir()" aria-label="Montant dû ${escHtml(x.f.numero)}"/>${x.f.statut==='payee_partiel' ? '<div style="font-size:11px;color:var(--orange)">part. payée : vérifiez le montant</div>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
       <div id="rel-total" style="font-size:13px;font-weight:700;text-align:right;margin-bottom:12px"></div>
       <div class="form-group"><label class="field-label" for="rel-a">À (e-mail du client — ${escHtml(g.nom)})</label>
-        <input id="rel-a" type="text" value="${escHtml(c.email || '')}" placeholder="comptabilite@client.lu" autocomplete="off"/>
-        ${c.email ? '' : '<div id="rel-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce client : saisissez-la ici (ou téléchargez la lettre PDF pour un envoi postal).</div>'}</div>
+        <input id="rel-a" type="text" value="${escHtml(emailFacturationClient(c))}" placeholder="comptabilite@client.lu" autocomplete="off"/>
+        ${emailFacturationClient(c) ? '' : '<div id="rel-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce client : saisissez-la ici (ou téléchargez la lettre PDF pour un envoi postal).</div>'}</div>
       <div class="form-group"><label class="field-label" for="rel-cc">Cc (facultatif — plusieurs adresses séparées par « ; » ou une virgule)</label><input id="rel-cc" type="text" value="" autocomplete="off"/></div>
       <div class="form-group"><label class="field-label" for="rel-sujet">Objet</label><input id="rel-sujet" value="" oninput="_relance.objetModifie=true" autocomplete="off"/></div>
       <div class="form-group"><label class="field-label" for="rel-corps">Message (e-mail et lettre PDF) — « ${RELANCE_TOKEN} » est remplacé par la liste des factures</label><textarea id="rel-corps" rows="11" oninput="_relance.messageModifie=true"></textarea></div>
@@ -16924,7 +16953,7 @@ const TRAC_FICHES = {                 // fenêtre « fiche » → table
 };
 Object.assign(JOURNAL_TABLES, {bons_livraison:'Réceptions (BL)', lignes_bl:'Lignes de réception', remarques_intervention:'Remarques SAV', codes_ressource:'Codes ressource',
   anexos:'Documents (factures fournisseurs)', anexos_chantier:'Documents (chantiers)', anexos_devis:'Documents (devis)', anexos_facture_vente:'Documents (factures clients)', anexos_bl:'Documents (réceptions)', relances_facture:'Relances (factures clients)',
-  anexos_intervention:'Documents (SAV)', anexos_employe:'Documents (employés)'});
+  anexos_intervention:'Documents (SAV)', anexos_employe:'Documents (employés)', anexos_client:'Documents (clients)', anexos_fournisseur:'Documents (fournisseurs)'});
 const TRAC_SYSTEME = /^(postgres|service_role|supabase_admin|authenticator|anon)$/i;      // opérations faites depuis le SQL Editor / un script (imports…)
 const TRAC_CACHE_MS = 10*60*1000;
 
@@ -17133,7 +17162,7 @@ async function enregistrerCloture(supprimer){
 
 const TABLES_SAUVEGARDE = ['utilisateurs','clients','fournisseurs','codes_ressource','chantiers_lyneo','devis','lignes_devis','factures_vente','lignes_facture_vente',
   'interventions_sav','remarques_intervention','purchase_orders_lyneo','lignes_po','bons_livraison','lignes_bl','factures','lignes_facture','paiements',
-  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','relances_facture','anexos_bl','anexos_employe','anexos_intervention','parametres_app','journal_audit'];
+  'employes_rh','employes_remuneration','formations_types','formations_employes','habilitations_fonctions','habilitations_designations','anexos','anexos_chantier','anexos_devis','anexos_facture_vente','relances_facture','anexos_bl','anexos_employe','anexos_intervention','anexos_client','anexos_fournisseur','parametres_app','journal_audit'];
 async function telechargerSauvegarde(){
   const b = el('btn-sauvegarde'), etat = el('ctl-sauv-etat');
   if(b) b.disabled = true;
@@ -22478,6 +22507,254 @@ async function ptiDessiner(recharger){
     + '<div style="color:#6B7280;font-size:12px;margin:10px 0">Prévu = 8 h × jours ouvrés (lundi→vendredi, hors jours fériés), 40 h maximum ; les absences comptent. « À soumettre » : heures complètes mais semaine encore en brouillon ou rejetée. '+(config.dispenses.length ? escHtml(String(config.dispenses.length))+' personne'+(config.dispenses.length>1?'s ne pointent':' ne pointe')+' pas (exclue'+(config.dispenses.length>1?'s':'')+').' : '')+'</div>';
   page.innerHTML = entete + nav + reglages + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">'+cartes+'</div>' + tableau + notes;
   ptiMajChrome();
+}
+
+// ── CLIENTS ET FOURNISSEURS : DOCUMENTS JOINTS (annexes) + E-MAIL DE FACTURATION DU CLIENT (11/11/2026) ──────────────────────────
+// Demande de la Vera : « dans les clients et fournisseurs on doit pouvoir rajouter des annexes » et « dans les clients, le champ e-mail pour facturation ».
+// Documents : tables anexos_client / anexos_fournisseur (script « migration-clients-fournisseurs-annexes.sql »), fichiers dans le Storage (bucket Documents,
+// dossiers clients/<id>/ et fournisseurs/<id>/). Même principe que les réceptions et les factures : glisser-déposer, Aperçu dans le panneau latéral, Ouvrir, Supprimer.
+// Fiche NOUVELLE : on choisit les fichiers avant d'enregistrer, ils sont envoyés une fois la fiche créée.
+// E-mail de facturation : colonne clients.email_facturation (même script). Vide = e-mail principal. Utilisé comme destinataire par défaut de l'envoi des factures et des relances.
+// Sans le script SQL, l'ERP fonctionne comme avant : les fiches s'enregistrent, les sections « Documents joints » affichent un avis avec le nom du script.
+const SQL_TIA = 'migration-clients-fournisseurs-annexes.sql';
+const TIA_CFG = {
+  client:      {table:'anexos_client',      cle:'client_id',      dossier:'clients',      nom:'client',      aide:'contrat-cadre, tarifs, bon de commande…'},
+  fournisseur: {table:'anexos_fournisseur', cle:'fournisseur_id', dossier:'fournisseurs', nom:'fournisseur', aide:'conditions générales, certificats, tarifs…'}
+};
+const TIA_MAX = 10*1024*1024;
+const _tia = {client:{sqlOk:null}, fournisseur:{sqlOk:null}};
+let _tiaAttente = {client:[], fournisseur:[]};          // fichiers choisis avant l'enregistrement d'une fiche nouvelle
+let _tiaDocs = [];                                       // documents affichés (pour l'aperçu)
+const tiaErreurTable = (type, err) => !!err && (['PGRST205','42P01'].includes(err.code)
+  || new RegExp('Could not find the table|relation "?(public\\.)?'+TIA_CFG[type].table+'"? does not exist|Could not find the \'[a-z_]+\' column of \''+TIA_CFG[type].table+'\'','i').test(err.message||''));
+const erreurTableAbsente = err => !!err && (['PGRST205','42P01'].includes(err.code) || /Could not find the table|relation "?[a-z_.]+"? does not exist/i.test(err.message||''));
+const tiaMsgSql = () => `Exécutez d'abord ${SQL_TIA} dans Supabase`;
+
+async function tiaVerifierTable(type){
+  if(_tia[type].sqlOk===true) return true;
+  try{
+    const r = await sb.from(TIA_CFG[type].table).select('id').limit(1);
+    if(r.error){ if(tiaErreurTable(type, r.error)){ _tia[type].sqlOk = false; return false; } return null; }
+    _tia[type].sqlOk = true; return true;
+  }catch(e){ return null; }
+}
+async function tiaCharger(type, id){
+  const cfg = TIA_CFG[type];
+  try{
+    const r = await sb.from(cfg.table).select('*,utilisateurs(nom,prenom)').eq(cfg.cle, id).order('created_at',{ascending:false});
+    if(r.error){
+      if(tiaErreurTable(type, r.error)){ _tia[type].sqlOk = false; return {ok:false, manque:true, data:[]}; }
+      return {ok:false, manque:false, erreur:r.error.message, data:[]};
+    }
+    _tia[type].sqlOk = true;
+    return {ok:true, data:r.data||[]};
+  }catch(e){ return {ok:false, manque:false, erreur:(e&&e.message)||String(e), data:[]}; }
+}
+// Zone réservée dans la fiche : remplie ensuite par tiaMonter (la fiche s'ouvre tout de suite, les documents arrivent après)
+function tiaZone(type, id){
+  return `<div id="tia-zone" data-type="${escHtml(type)}" data-id="${escHtml(id==null?'':String(id))}" style="margin:14px 0 18px"><strong style="font-size:13px"><i class="ti ti-paperclip"></i> Documents joints</strong><div style="font-size:12px;color:var(--gray-5);margin-top:6px">Chargement…</div></div>`;
+}
+function tiaZoneActive(type, id){
+  const z = el('tia-zone');
+  return (z && z.dataset.type===type && z.dataset.id===(id==null?'':String(id))) ? z : null;
+}
+async function tiaMonter(type, id){
+  _tiaAttente[type] = [];
+  if(!tiaZoneActive(type, id)) return;
+  if(id==null || id===''){
+    const sqlOk = await tiaVerifierTable(type);
+    const z = tiaZoneActive(type, id); if(!z) return;
+    z.innerHTML = tiaHtmlNouvelle(type, sqlOk);
+    tiaRendreAttente(type);
+    return;
+  }
+  const ax = await tiaCharger(type, id);
+  const z = tiaZoneActive(type, id); if(!z) return;                 // la fiche a changé ou s'est fermée pendant la lecture
+  z.innerHTML = tiaHtmlSection(type, id, ax);
+}
+function tiaTitre(n){ return `<strong style="font-size:13px"><i class="ti ti-paperclip"></i> Documents joints${n==null?'':' (<span id="tia-annexes-n">'+n+'</span>)'}</strong>`; }
+function tiaHtmlListe(type, id, anexos){
+  _tiaDocs = [];
+  if(!anexos || !anexos.length) return '<div id="tia-annexes-vide" style="text-align:center;padding:14px;color:var(--gray-4);font-size:13px"><i class="ti ti-files" style="font-size:24px;display:block;margin-bottom:4px"></i>Aucun document joint</div>';
+  return anexos.map(a=>{
+    const sur = /^https?:\/\//i.test(a.url||'');
+    let idx = -1;
+    if(sur){ idx = _tiaDocs.length; _tiaDocs.push({url:a.url, nom:a.nome_ficheiro, tipo:a.tipo}); }
+    const info = `${a.tamanho?tailleFichier(a.tamanho)+' — ':''}Ajouté${a.utilisateurs?' par '+escHtml(nomPers(a.utilisateurs)):''} le ${fmtDate(a.created_at)}`;
+    return `<div class="tia-annexe" data-id="${escHtml(a.id)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:9px 12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:6px;background:#fff">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <i class="ti ${/pdf/i.test(a.tipo||'')||/\.pdf$/i.test(a.nome_ficheiro||'')?'ti-file-type-pdf':'ti-file'}" style="font-size:22px;color:var(--blue)"></i>
+        <div style="min-width:0"><div style="font-weight:600;font-size:13px;word-break:break-word">${escHtml(a.nome_ficheiro)}</div>
+        <div style="font-size:11px;color:var(--gray-5)">${info}</div></div>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${idx>=0 && apPrevisualisable({nom:a.nome_ficheiro, tipo:a.tipo}) ? `<button type="button" class="btn btn-secondary btn-sm" data-apercu-tia="${idx}" onclick="tiaApercu(${idx})" title="Aperçu à droite"><i class="ti ti-eye"></i> Aperçu</button>` : ''}
+        <a href="${sur?escHtml(a.url):'#'}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="Ouvrir dans un nouvel onglet"><i class="ti ti-external-link"></i></a>
+        <button type="button" class="btn btn-danger btn-sm" data-suppr-tia="${escHtml(a.id)}" onclick="tiaSupprimer('${escHtml(type)}','${escHtml(id)}','${escHtml(a.id)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function tiaApercu(i){ ouvrirApercu(_tiaDocs, i, false); }
+function tiaHtmlSection(type, id, ax){
+  const cfg = TIA_CFG[type], i = escHtml(id), t = escHtml(type);
+  if(ax.manque) return `${tiaTitre(null)}<div class="alert alert-info" id="tia-annexes-sql" style="margin-top:8px"><i class="ti ti-info-circle"></i> Pour joindre des documents à ${cfg.nom==='client'?'un client':'un fournisseur'}, exécutez d'abord <strong>${SQL_TIA}</strong> dans Supabase → SQL Editor (une seule fois).</div>`;
+  if(!ax.ok) return `${tiaTitre(null)}<div class="alert alert-warning" id="tia-annexes-erreur" style="margin-top:8px"><i class="ti ti-alert-triangle"></i> Les documents n'ont pas pu être lus pour le moment. Fermez et rouvrez la fiche.</div>`;
+  return `${tiaTitre(ax.data.length)}
+    <div id="tia-drop-zone" style="border:2px dashed var(--gray-3);border-radius:var(--radius);padding:14px;margin:8px 0;text-align:center;background:var(--gray-1)"
+      ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+      ondragleave="this.style.borderColor='var(--gray-3)';this.style.background='var(--gray-1)'"
+      ondrop="tiaDeposer(event,'${t}','${i}')">
+      <label class="btn btn-secondary" style="cursor:pointer"><i class="ti ti-cloud-upload"></i> Joindre des documents
+        <input type="file" id="tia-doc-input" multiple style="display:none" onchange="tiaUpload('${t}','${i}',this.files).then(()=>{ this.value=''; })"/></label>
+      <p style="font-size:11px;color:var(--gray-4);margin-top:6px">ou glissez-les ici — ${cfg.aide} — max 10 MB par fichier</p>
+    </div>
+    <div id="tia-upload-progress" style="display:none;margin-bottom:8px"><div style="background:var(--gray-2);border-radius:4px;height:6px"><div id="tia-progress-bar" style="background:var(--blue);height:6px;border-radius:4px;width:0%"></div></div><div id="tia-progress-text" style="font-size:11px;color:var(--gray-5);margin-top:3px"></div></div>
+    <div id="tia-annexes-liste" data-type="${t}" data-id="${i}">${tiaHtmlListe(type, id, ax.data)}</div>`;
+}
+// Fiche nouvelle : les fichiers sont choisis maintenant, envoyés après l'enregistrement
+function tiaHtmlNouvelle(type, sqlOk){
+  const cfg = TIA_CFG[type], t = escHtml(type);
+  if(sqlOk===false) return `${tiaTitre(null)}<div class="alert alert-info" id="tia-annexes-sql" style="margin-top:8px"><i class="ti ti-info-circle"></i> Pour joindre des documents à ${cfg.nom==='client'?'un client':'un fournisseur'}, exécutez d'abord <strong>${SQL_TIA}</strong> dans Supabase → SQL Editor (une seule fois).</div>`;
+  return `${tiaTitre(null)}
+    <div style="margin:8px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer"><i class="ti ti-cloud-upload"></i> Choisir des documents
+        <input type="file" id="tia-attente-input" multiple style="display:none" onchange="tiaChoisirAttente('${t}',this)"/></label>
+      <span style="font-size:11px;color:var(--gray-4)">${cfg.aide} — max 10 MB par fichier — envoyés à l'enregistrement</span>
+    </div>
+    <div id="tia-attente-liste" data-type="${t}"></div>`;
+}
+function tiaRendreAttente(type){
+  const z = el('tia-attente-liste'); if(!z || z.dataset.type!==type) return;
+  z.innerHTML = _tiaAttente[type].map((f,i)=>`<div class="tia-fichier-new" data-i="${i}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-top:6px;background:#fff">
+      <span style="font-size:13px;word-break:break-word"><i class="ti ti-file"></i> ${escHtml(f.name)} <span style="color:var(--gray-5);font-size:11px">${tailleFichier(f.size)}</span></span>
+      <span style="display:flex;gap:6px">${apPrevisualisable({nom:f.name, tipo:f.type})?`<button type="button" class="btn btn-secondary btn-sm" onclick="tiaApercuLocal('${escHtml(type)}',${i})" title="Aperçu"><i class="ti ti-eye"></i></button>`:''}
+      <button type="button" class="btn btn-danger btn-sm" onclick="tiaRetirerAttente('${escHtml(type)}',${i})" title="Retirer"><i class="ti ti-x"></i></button></span></div>`).join('');
+}
+function tiaChoisirAttente(type, input){
+  Array.from(input.files||[]).forEach(f=>{
+    if(f.size > TIA_MAX){ showToast(`${escHtml(f.name)} dépasse 10MB — ignoré`,'error'); return; }
+    if(!_tiaAttente[type].some(x=>x.name===f.name && x.size===f.size && x.lastModified===f.lastModified)) _tiaAttente[type].push(f);
+  });
+  input.value = '';
+  tiaRendreAttente(type);
+}
+function tiaRetirerAttente(type, i){ _tiaAttente[type].splice(i,1); tiaRendreAttente(type); }
+function tiaApercuLocal(type, i){
+  if(!_tiaAttente[type][i]) return;
+  ouvrirApercu(_tiaAttente[type].map(f=>({url:URL.createObjectURL(f), nom:f.name, tipo:f.type})), i, true);
+}
+async function tiaRafraichir(type, id){
+  const liste = el('tia-annexes-liste');
+  if(!liste || liste.dataset.type!==type || liste.dataset.id!==String(id)) return;          // la fiche n'est plus ouverte (ou c'est une autre fiche)
+  const r = await tiaCharger(type, id);
+  if(!r.ok) return;
+  const l2 = el('tia-annexes-liste');
+  if(l2 && l2.dataset.type===type && l2.dataset.id===String(id)){ l2.innerHTML = tiaHtmlListe(type, id, r.data); const n = el('tia-annexes-n'); if(n) n.textContent = r.data.length; }
+}
+function tiaDeposer(event, type, id){
+  event.preventDefault();
+  const z = el('tia-drop-zone'); if(z){ z.style.borderColor = 'var(--gray-3)'; z.style.background = 'var(--gray-1)'; }
+  return tiaUpload(type, id, event.dataTransfer.files);
+}
+// Envoi des fichiers : 1) contrôle de la table (rien dans le stockage si le script SQL manque), 2) fichier, 3) ligne en base (le fichier est retiré si la ligne échoue).
+// opts.silencieux : pas de message de succès (l'appelant affiche le sien). Renvoie {reussis, manque}.
+async function tiaUpload(type, id, files, opts){
+  files = Array.from(files||[]); opts = opts || {};
+  const cfg = TIA_CFG[type], res = {reussis:0, manque:false};
+  if(!files.length) return res;
+  if((await tiaVerifierTable(type))===false){
+    res.manque = true;
+    showToast(opts.silencieux ? `Fiche enregistrée, mais ${files.length>1?"les documents n'ont pas été joints":"le document n'a pas été joint"} : exécutez d'abord ${SQL_TIA} dans Supabase` : tiaMsgSql(), 'error');
+    return res;
+  }
+  const progress = el('tia-upload-progress'), bar = el('tia-progress-bar'), txt = el('tia-progress-text');
+  if(progress) progress.style.display = 'block';
+  let derniere = null;
+  for(let i=0;i<files.length;i++){
+    const file = files[i];
+    if(file.size > TIA_MAX){ showToast(`${escHtml(file.name)} dépasse 10MB — ignoré`,'error'); continue; }
+    if(bar) bar.style.width = Math.round((i/files.length)*100)+'%';
+    if(txt) txt.textContent = `Envoi ${i+1}/${files.length} : ${file.name}`;
+    const path = `${cfg.dossier}/${id}/${Date.now()}_${i}_${nomSurStockage(file.name)}`;
+    const up = await sb.storage.from('Documents').upload(path, file, {upsert:false});
+    if(up.error){ showToast('Erreur upload: '+escHtml(up.error.message),'error'); derniere = up.error.message; continue; }
+    const {data:urlData} = sb.storage.from('Documents').getPublicUrl(path);
+    const ins = await sb.from(cfg.table).insert({[cfg.cle]:id, nome_ficheiro:file.name, url:urlData.publicUrl, tamanho:file.size,
+      tipo:file.type||null, carregado_por:(currentUser&&currentUser.id)||null});
+    if(ins.error){
+      try{ await sb.storage.from('Documents').remove([path]); }catch(e){}           // pas de fichier orphelin si la ligne n'a pas pu être enregistrée
+      if(tiaErreurTable(type, ins.error)){ _tia[type].sqlOk = false; res.manque = true; showToast(tiaMsgSql(), 'error'); derniere = ins.error.message; break; }
+      showToast('Erreur: '+escHtml(ins.error.message),'error'); derniere = ins.error.message; continue;
+    }
+    res.reussis++;
+  }
+  if(bar) bar.style.width = '100%';
+  if(progress) setTimeout(()=>{ progress.style.display='none'; if(bar) bar.style.width='0%'; }, 600);
+  if(res.reussis>0 && !opts.silencieux) showToast(res.reussis>1 ? `${res.reussis} documents ajoutés` : 'Document ajouté');
+  else if(res.reussis===0 && derniere && !res.manque) showToast("Aucun document n'a pu être ajouté", 'error');
+  await tiaRafraichir(type, id);
+  return res;
+}
+async function tiaSupprimer(type, id, docId){
+  const cfg = TIA_CFG[type];
+  const {data:a} = await sb.from(cfg.table).select('*').eq('id',docId).maybeSingle();
+  if(!a){ showToast('Document introuvable','error'); await tiaRafraichir(type, id); return; }
+  if(!confirm('Supprimer ce document ?')) return;
+  const r = await sb.from(cfg.table).delete().eq('id',docId).select();
+  if(r.error){ showToast('Erreur: '+escHtml(r.error.message),'error'); return; }
+  if(!r.data || r.data.length===0){ showToast("Suppression refusée par la base de données (droits d'accès)", 'error'); return; }
+  await supprimerFichiersStockage([a.url]);
+  showToast('Document supprimé');
+  await tiaRafraichir(type, id);
+}
+// Après la création d'une fiche : envoie les fichiers choisis avant l'enregistrement
+async function tiaEnvoyerEnAttente(type, id){
+  const files = _tiaAttente[type].slice(); _tiaAttente[type] = [];
+  if(!files.length) return;
+  if(!id){ showToast(`Fiche enregistrée, mais ${files.length>1?"les documents n'ont pas été joints":"le document n'a pas été joint"}`, 'error'); return; }
+  const r = await tiaUpload(type, id, files, {silencieux:true});
+  if(r.reussis>0) showToast(r.reussis>1 ? `${r.reussis} documents joints à la fiche` : 'Document joint à la fiche');
+  else if(!r.manque) showToast("Fiche enregistrée, mais aucun document n'a pu être joint", 'error');
+}
+// Fiche existante trouvée à la place d'une création (contrôle des doublons) : les fichiers choisis ne sont pas envoyés
+function tiaAbandonner(type){
+  const n = _tiaAttente[type].length; _tiaAttente[type] = [];
+  if(n) showToast(n>1 ? "Les documents choisis n'ont pas été joints (fiche existante utilisée)" : "Le document choisi n'a pas été joint (fiche existante utilisée)", 'error');
+}
+// Avant la suppression d'une fiche : les adresses des fichiers (les lignes partent en cascade, les fichiers du stockage sont retirés ensuite)
+async function tiaUrlsDe(type, id){
+  try{
+    const cfg = TIA_CFG[type];
+    const {data} = await sb.from(cfg.table).select('url').eq(cfg.cle, id);
+    return (data||[]).map(d=>d.url).filter(Boolean);
+  }catch(e){ return []; }
+}
+
+// ── E-mail de facturation du client ──────────────────────────────────────────────────────────────────────
+const _clEmailFact = {ok:null};                                                // null = pas encore su ; false = colonne absente (script SQL pas exécuté)
+const erreurColonneEmailFact = e => !!e && /email_facturation/i.test((e && e.message) || String(e));
+// Adresse(s) à utiliser pour facturer : l'e-mail de facturation s'il existe, sinon l'e-mail principal
+const emailFacturationClient = c => {
+  const f = String((c && c.email_facturation) || '').trim();
+  return f || String((c && c.email) || '').trim();
+};
+// Exécute requete(avec) en demandant la colonne ; si elle n'existe pas encore (script SQL pas exécuté), recommence sans elle
+async function avecEmailFact(requete){
+  if(_clEmailFact.ok !== false){
+    try{
+      const r = await requete(true);
+      if(!(r && r.error && erreurColonneEmailFact(r.error))){ if(!(r && r.error)) _clEmailFact.ok = true; return r; }
+    }catch(e){ if(!erreurColonneEmailFact(e)) throw e; }
+    _clEmailFact.ok = false;
+  }
+  return requete(false);
+}
+// « a@x.lu ; b@y.lu » → {ok, liste:[…], invalide:'…'} (séparateurs : point-virgule, virgule, espace)
+function emailFactAnalyser(texte){
+  const liste = adressesEmail(texte);
+  const mauvaise = liste.find(a=>!EMAIL_RE.test(a));
+  return {ok: !mauvaise, liste, invalide: mauvaise||''};
 }
 
 // ── INIT ─────────────────────────────────────────────────────
