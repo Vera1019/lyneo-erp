@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-11-95824fa"/>
+<meta name="lyneo-build" content="BUILD:2026-11-12-fe8d001"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -811,6 +811,7 @@ button.frm-pill:hover{filter:brightness(.96)}
       <a class="nav-item" href="#/clients" onclick="return navLien(event,'clients')" id="nav-clients"><i class="ti ti-building-store"></i> Clients</a>
       <a class="nav-item" href="#/devis" onclick="return navLien(event,'devis')" id="nav-devis"><i class="ti ti-file-description"></i> Devis</a>
       <a class="nav-item" href="#/factures_vente" onclick="return navLien(event,'factures_vente')" id="nav-factures_vente"><i class="ti ti-receipt"></i> Factures clients</a>
+      <a class="nav-item hidden" href="#/demandes_facturation" onclick="return navLien(event,'demandes_facturation')" id="nav-demandes_facturation"><i class="ti ti-receipt-2"></i> Demandes de facturation<span id="df-badge" style="display:none"></span></a>
 
       <div class="nav-section">Chantiers &amp; SAV</div>
       <a class="nav-item" href="#/chantiers" onclick="return navLien(event,'chantiers')" id="nav-chantiers"><i class="ti ti-building-factory-2"></i> Chantiers</a>
@@ -2767,6 +2768,7 @@ function showLoginError(msg){
 function afficherEcranConnexion(){
   currentUser = null;
   if(typeof havReset==='function') havReset();
+  if(typeof dfReset==='function') dfReset();
   if(typeof ptiReset==='function') ptiReset();
   _clotureVentes = null;
   el('login-page').classList.remove('hidden');
@@ -2792,7 +2794,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-11-95824fa';
+const APP_BUILD = 'BUILD:2026-11-12-fe8d001';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -2890,7 +2892,8 @@ function initApp(){
   { const p = pageDepuisHash(); if(pageAutorisee(p)) navigate(p, true); else navigate('dashboard', 'remplacer'); }   // un nouvel onglet ouvert sur #/devis arrive directement sur les devis
   setTimeout(()=>{ afficherNotifAnniversaire().catch(()=>{}); }, 900);   // « Aujourd'hui, c'est l'anniversaire de … » (une fois par jour)
   demarrerVerifVersion();   // version affichée dans le menu + contrôle périodique « Nouvelle version disponible »
-  setTimeout(()=>{ if(typeof havDemarrer==='function') havDemarrer().catch(()=>{}); }, 700);   // « Vous avez N h à valider » (responsables de chantier)
+  setTimeout(()=>{ if(typeof havDemarrer==='function') havDemarrer().catch(()=>{}); }, 700);
+  setTimeout(()=>{ if(typeof dfDemarrer==='function') dfDemarrer().catch(()=>{}); }, 1100);   // « Demandes de facturation » : à traiter (direction) / réponses (chefs de projet)   // « Vous avez N h à valider » (responsables de chantier)
   setTimeout(()=>{ if(typeof ptiDemarrer==='function') ptiDemarrer().catch(()=>{}); }, 1500);   // « Pointages incomplets de la semaine précédente » (direction, à partir du lundi 12 h)
 }
 
@@ -3053,7 +3056,7 @@ new MutationObserver(()=>{
 }).observe(document.body, {childList:true, subtree:true});
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider',pointages_incompletes:'Pointages à compléter'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider',demandes_facturation:'Demandes de facturation',pointages_incompletes:'Pointages à compléter'};
 
 // ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
 const PAGES_ADMIN = ['utilisateurs','controle','documents'];
@@ -3103,12 +3106,13 @@ function navigate(page, depuisAdresse){
   const R = pageRenderers();
   const rendu = Object.prototype.hasOwnProperty.call(R,page) ? R[page] : null;
   if(typeof rendu==='function') rendu();
+  if(typeof dfMajChrome==='function') dfMajChrome();   // bandeau « demandes de facturation » : pas sur sa propre page
   if(typeof havMajChrome==='function') havMajChrome();   // bandeau « heures à valider » : pas sur l'écran de validation lui-même
   if(typeof ptiMajChrome==='function') ptiMajChrome();   // bandeau « pointages à compléter » : pas sur sa propre page
 }
 
 function pageRenderers(){
-  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider,pointages_incompletes:renderPointagesIncompletes};
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider,demandes_facturation:renderDemandesFacturation,pointages_incompletes:renderPointagesIncompletes};
 }
 
 // Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
@@ -4701,6 +4705,7 @@ async function openChantierDetail(chantierId, tab){
         <span style="font-size:12px;color:var(--gray-5)">${escHtml(chantier.client)}</span>
       </div>
       <div class="flex gap-8 items-center">
+        ${typeof dfBtnHtml==='function' ? dfBtnHtml('chantier', chantierId, estChantierType && chantier.statut!=='archive') : ''}
         ${estChantierType && chantier.statut==='actif' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-terminer" onclick="terminerChantier('${chantierId}')"><i class="ti ti-circle-check"></i> Marquer terminé</button>` : ''}
         ${estChantierType && chantier.statut==='termine' ? `<button class="btn btn-secondary btn-sm" id="ch-btn-archiver" onclick="archiverChantier('${chantierId}')"><i class="ti ti-archive"></i> Archiver</button>` : ''}
         ${chEstArchive(chantier) ? `<button class="btn btn-primary btn-sm" id="ch-btn-desarchiver" onclick="desarchiverChantier('${chantierId}')"><i class="ti ti-arrow-back-up"></i> Désarchiver</button>` : ''}
@@ -13629,6 +13634,7 @@ async function openDevisDetail(devisId){
         <button class="btn btn-secondary" onclick="downloadPDF_Devis('${d.id}')"><i class="ti ti-file-download"></i> PDF</button>
         <button class="btn btn-secondary" id="btn-excel-dv" onclick="downloadExcel_Devis('${d.id}')" title="Exporter le devis au format Excel (même présentation que votre modèle : Page initial, DEVIS, Modalités)"><i class="ti ti-file-spreadsheet"></i> Excel</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
+        ${typeof dfBtnHtml==='function' ? (interventionLiee ? dfBtnHtml('intervention', interventionLiee.id, d.statut==='accepte' && interventionLiee.statut!=='facturee', 'btn-secondary') : dfBtnHtml('devis', d.id, d.statut==='accepte', 'btn-secondary')) : ''}
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
         ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
@@ -21544,6 +21550,7 @@ async function openInterventionDetail(interventionId){
 
       <div class="form-actions" style="margin-bottom:20px">
         <button class="btn ${i.statut==='facturee'?'btn-secondary':'btn-primary'}" id="int-btn-facturer" onclick="closeModal();openFactureSAVModal('${i.id}')" title="Créer la facture client de cette intervention"><i class="ti ti-receipt"></i> Facturer</button>
+        ${typeof dfBtnHtml==='function' ? dfBtnHtml('intervention', i.id, i.statut!=='facturee', 'btn-secondary') : ''}
         <button class="btn btn-ghost" onclick="closeModal();editInterventionById('${i.id}')"><i class="ti ti-edit"></i> Modifier</button>
         <button class="btn btn-secondary" onclick="emailClientIntervention('${i.id}')"><i class="ti ti-mail"></i> Email client</button>
         <button class="btn btn-secondary" onclick="emailTechnicienIntervention('${i.id}')"><i class="ti ti-mail"></i> Email technicien</button>
@@ -21962,7 +21969,7 @@ function havBloc(emp, debut, cle, lignes, cl, valParCle){
   const jours = {}; let heures = 0;
   lignes.forEach(l=>{ jours[l.date] = (jours[l.date]||0)+l.heures; heures += l.heures; });
   const valide = !!v && v.statut==='valide' && String(v.empreinte)===empreinte;
-  return {cle:String(cle), classe:cl.classe, resp:cl.resp||null, lib:cl.lib, sansResp:!!cl.sansResp, inconnu:!!cl.inconnu, heures, jours, empreinte, lignes:lignes.map(l=>({date:l.date, k:l.k, heures:l.heures})),
+  return {cle:String(cle), emp:String(emp), abs:String(cle)==='ABS', classe:cl.classe, resp:cl.resp||null, lib:cl.lib, sansResp:!!cl.sansResp, inconnu:!!cl.inconnu, heures, jours, empreinte, lignes:lignes.map(l=>({date:l.date, k:l.k, heures:l.heures})),
           etat: valide ? 'valide' : 'attente', decision: v,
           renvoye: (!valide && v && v.statut==='a_corriger') ? v : null, modifie: !!v && String(v.empreinte)!==empreinte};
 }
@@ -21988,7 +21995,9 @@ function havCalculer(d){
     if(abs.length) blocs.push(havBloc(s.employe_id, debut, 'ABS', abs, {classe:'admin', resp:null, lib:'Absences'}, valParCle));
     const ordreClasse = {resp:0, pool:1, admin:2};
     blocs.sort((x,y)=> (ordreClasse[x.classe]-ordreClasse[y.classe]) || String(x.lib).localeCompare(String(y.lib),'fr',{numeric:true}));
-    out.push({sem:s, emp:String(s.employe_id), empNom:nomEmp.get(String(s.employe_id))||('Employé '+s.employe_id), debut, jours, blocs,
+    const totalSem = blocs.reduce((t,b)=>t+b.heures,0), attendues = havAttendues(d, s.employe_id, debut);
+    const manque = attendues==null ? 0 : Math.max(0, Math.round((attendues-totalSem)*100)/100);
+    out.push({attendues, manque, incomplete: attendues!=null && blocs.length>0 && manque>0.001, sem:s, emp:String(s.employe_id), empNom:nomEmp.get(String(s.employe_id))||('Employé '+s.employe_id), debut, jours, blocs,
               total: blocs.reduce((t,b)=>t+b.heures,0), vide: blocs.length===0, complet: blocs.every(b=>b.etat==='valide')});
   });
   out.sort((x,y)=> x.debut.localeCompare(y.debut) || String(x.empNom).localeCompare(String(y.empNom),'fr'));
@@ -22002,21 +22011,27 @@ function havContexte(user, d){
   const empId = emp ? String(emp.id) : null;
   const estResp = !!empId && (d.chantiers||[]).some(c=>(c.type_centre||'chantier')==='chantier' && c.statut!=='archive' && c.chef_chantier_id && String(c.chef_chantier_id)===empId);
   const admin = !!user && user.role==='admin';
-  return {admin, emp, empId, estResp, ambigu: cand.length>1, superviseur: admin && !estResp};
+  const superviseur = admin && !estResp, cfg = d.cfg || null;
+  const valideAbs = !!user && (cfg && cfg.configuree ? (!!m && cfg.absences.includes(m)) : superviseur);
+  const ptEmpId = emp && emp.pointage_employe_id!=null && String(emp.pointage_employe_id).trim()!=='' ? String(emp.pointage_employe_id).trim() : null;
+  return {admin, emp, empId, estResp, ambigu: cand.length>1, superviseur, valideAbs, peutHeures: admin || estResp, ptEmpId};
 }
 // Le valideur « normal » d'un bloc
 function havMien(b, ctx){
+  if(havPropre(b, ctx)) return false;                 // jamais ses propres heures
+  if(b.abs) return !!ctx.valideAbs;
   if(b.classe==='resp') return !!ctx.empId && b.resp===ctx.empId;
   if(b.classe==='pool') return !!ctx.estResp;
   return !!ctx.superviseur;
 }
-const havPeutValider = (b, ctx) => !!ctx.superviseur || havMien(b, ctx);
+const havPeutValider = (b, ctx) => !havPropre(b, ctx) && (b.abs ? !!ctx.valideAbs : (!!ctx.peutHeures || havMien(b, ctx)));
 function havResume(semaines, ctx){
   let blocs = 0, heures = 0; const sem = new Set();
   (semaines||[]).forEach(w=>w.blocs.forEach(b=>{ if(b.etat==='attente' && havMien(b, ctx)){ blocs++; heures += b.heures; sem.add(w.emp+'|'+w.debut); } }));
   return {blocs, heures, semaines:sem.size};
 }
 function havNomValideur(b, d){
+  if(b.abs) return havNomsAbs(d);
   if(b.classe==='resp'){ const e = (d.emps||[]).find(x=>String(x.id)===b.resp); return e ? nomPers(e) : 'responsable'; }
   if(b.classe==='pool') return 'un responsable (SAV)';
   return b.sansResp ? 'direction (chantier sans responsable)' : 'direction';
@@ -22029,7 +22044,7 @@ async function havCharger(force){
   _havPromesse = (async()=>{
     try{
       const [emps, chantiers, interventions] = await Promise.all([
-        lirePagine('employes_rh', 'id,nom,prenom,email,actif'),
+        havLireEmps(),
         lirePagine('chantiers_lyneo', '*'),
         lirePagine('interventions_sav', 'id,ref,chantier_id').catch(()=>[])
       ]);
@@ -22038,19 +22053,21 @@ async function havCharger(force){
         lirePT('employes', 'id,nom'),
         lirePT('semaines', '*', q=>q.eq('statut','soumis'))
       ]);
-      let picages = [], absences = [], validations = [], sqlManque = false;
+      let picages = [], absences = [], validations = [], sqlManque = false, feries = null;
       if(semaines.length){
         const debuts = semaines.map(s=>havJ10(s.semaine_debut)).sort();
         const min = debuts[0], max = havJours(debuts[debuts.length-1])[6];
         picages = await havLirePicages(q=>q.gte('date',min).lte('date',max));
         absences = await havLireAbsences(q=>q.gte('date',min).lte('date',max));
+        feries = await havLireFeries(min, max);
         try{
           validations = await lirePT('semaine_validations', '*', q=>q.gte('semaine_debut', min));
         }catch(e){ if(havAbsentSQL(e && e.message)) sqlManque = true; else throw e; }
       }else{
         try{ await sbPT.from('semaine_validations').select('id').limit(1).then(r=>{ if(r.error && havAbsentSQL(r.error.message)) sqlManque = true; }); }catch(e){}
       }
-      const d = {emps, chantiers, interventions, ptRows, ptEmp, semaines, picages, absences, validations, sqlManque};
+      const cfg = await havLireConfig();
+      const d = {emps, chantiers, interventions, ptRows, ptEmp, semaines, picages, absences, validations, sqlManque, cfg, feries, feriesIndispo: semaines.length>0 && feries===null, lienIndispo: emps.lienIndispo===true};
       const calc = havCalculer(d), ctx = havContexte(currentUser, d);
       _hav = {t:Date.now(), d, ctx, semaines:calc, resume:havResume(calc, ctx)};
       return _hav;
@@ -22063,7 +22080,7 @@ async function havCharger(force){
 function havMajChrome(){
   const h = _hav; if(!h) return;
   const nav = document.getElementById('nav-heures_a_valider');
-  const visible = !!(h.ctx.superviseur || h.ctx.estResp);
+  const visible = !!(h.ctx.peutHeures || h.ctx.valideAbs);
   if(nav){
     nav.classList.toggle('hidden', !visible);
     let badge = document.getElementById('hav-badge');
@@ -22108,7 +22125,8 @@ async function havRelireSemaine(emp, debut){
   const rv = await sbPT.from('semaine_validations').select('*').eq('employe_id',emp).eq('semaine_debut',debut);
   if(rv.error){ if(havAbsentSQL(rv.error.message)) return {sem, sqlManque:true}; throw rv.error; }
   validations = rv.data||[];
-  const d = Object.assign({}, _hav ? _hav.d : {}, {semaines:[sem], picages, absences, validations});
+  const feries = await havLireFeries(a, z);
+  const d = Object.assign({}, _hav ? _hav.d : {}, {semaines:[sem], picages, absences, validations, feries});
   const w = havCalculer(d)[0];
   return {sem, w};
 }
@@ -22137,12 +22155,13 @@ async function havAppliquerSemaine(emp, debut, explicite){
   const r = await havRelireSemaine(emp, debut);
   if(!r.sem || !r.w || !r.w.complet) return {approuvee:false};
   if(r.w.vide && !explicite) return {approuvee:false};
+  if(r.w.incomplete && !explicite) return {approuvee:false, incomplete:true, total:r.w.total, attendues:r.w.attendues};
   let q = sbPT.from('semaines').update({statut:'approuve', valide_le:new Date().toISOString()}).eq('id',r.sem.id).eq('statut','soumis');
   if(r.sem.soumis_le) q = q.eq('soumis_le', r.sem.soumis_le);
   const res = await q.select('id');
   if(res.error) throw res.error;
   const ok = (res.data||[]).length>0;
-  if(ok) await havAudit('APPROBATION_BLOCS', 'Semaine '+debut+' de '+r.w.empNom+' approuvée : tous les blocs de chantier sont validés (dernière validation par '+(nomPers(currentUser)||'ERP')+')');
+  if(ok) await havAudit('APPROBATION_BLOCS', 'Semaine '+debut+' de '+r.w.empNom+' approuvée : tous les blocs de chantier sont validés (dernière validation par '+(nomPers(currentUser)||'ERP')+')'+(r.w.incomplete ? ' — approuvée malgré des heures incomplètes ('+havH(r.w.total)+' h sur '+havH(r.w.attendues)+' h prévues)' : ''));
   return {approuvee:ok};
 }
 // decision = 'valide' | 'a_corriger'
@@ -22158,16 +22177,17 @@ async function havDecider(emp, debut, cle, decision, motif){
   const bloc = (r.w.blocs||[]).find(b=>b.cle===cle);
   if(!bloc){ havToast("Ce bloc n'existe plus dans cette semaine (heures modifiées). Liste actualisée.", 'warn'); await havRafraichir(); return {ok:false}; }
   const ctx = _hav ? _hav.ctx : havContexte(currentUser, {emps:[], chantiers:[]});
-  if(!havPeutValider(bloc, ctx)){ havToast("Ce bloc n'est pas dans vos chantiers : il doit être validé par "+havNomValideur(bloc, _hav.d)+".", 'error'); return {ok:false}; }
+  if(havPropre(bloc, ctx)){ havToast("Vous ne pouvez pas valider vos propres heures : un autre responsable doit le faire.", 'error'); return {ok:false}; }
+  if(!havPeutValider(bloc, ctx)){ havToast((bloc.abs ? "Les absences ne peuvent être validées que par : " : "Ce bloc doit être validé par ")+havNomValideur(bloc, _hav.d)+".", 'error'); return {ok:false}; }
   const affiche = _hav && _hav.semaines.find(w=>w.emp===emp && w.debut===debut);
   const vu = affiche && affiche.blocs.find(b=>b.cle===cle);
   if(vu && vu.empreinte!==bloc.empreinte){ havToast("Les heures de ce bloc ont changé depuis l'affichage : relisez-les puis validez à nouveau.", 'warn'); await havRafraichir(); return {ok:false}; }
   try{ await havEcrireDecision(emp, debut, bloc, decision, String(motif||'').trim()); }
   catch(e){ havToast('Erreur : '+((e&&e.message)||e), 'error'); return {ok:false}; }
-  let approuvee = false, renvoyee = false;
+  let approuvee = false, renvoyee = false, incomplete = false, infoInc = null;
   if(decision==='valide'){
     await havAudit('VALIDATION_BLOC', 'Bloc « '+bloc.lib+' » ('+havH(bloc.heures)+' h) — semaine '+debut+' de '+r.w.empNom+' validé par '+(nomPers(currentUser)||'ERP')+' (ERP)');
-    try{ approuvee = (await havAppliquerSemaine(emp, debut)).approuvee; }catch(e){ havToast("Bloc validé, mais la semaine n'a pas pu être approuvée automatiquement : "+((e&&e.message)||e), 'warn'); }
+    try{ const ap = await havAppliquerSemaine(emp, debut); approuvee = ap.approuvee; incomplete = !!ap.incomplete; infoInc = ap; }catch(e){ havToast("Bloc validé, mais la semaine n'a pas pu être approuvée automatiquement : "+((e&&e.message)||e), 'warn'); }
   }else{
     const texte = MOTIF_RENVOI_ERP+' : ['+bloc.lib+'] '+String(motif).trim()+' — '+(nomPers(currentUser)||'ERP');
     const up = await sbPT.from('semaines').update({statut:'brouillon', commentaire:texte, valide_le:new Date().toISOString()}).eq('id',r.sem.id).eq('statut','soumis').select('id');
@@ -22176,7 +22196,7 @@ async function havDecider(emp, debut, cle, decision, motif){
     await havAudit('RENVOI_BLOC', 'Bloc « '+bloc.lib+' » — semaine '+debut+' de '+r.w.empNom+' à corriger : '+String(motif).trim()+' (par '+(nomPers(currentUser)||'ERP')+', ERP)');
   }
   await havRafraichir();
-  return {ok:true, approuvee, renvoyee};
+  return {ok:true, approuvee, renvoyee, incomplete, total:infoInc && infoInc.total, attendues:infoInc && infoInc.attendues};
 }
 const MOTIF_RENVOI_ERP = 'Renvoyé pour correction';
 
@@ -22192,15 +22212,15 @@ function havDetailJours(b, jours){
 function havPuce(b, d, ctx){
   const style = 'display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:12px;font-size:12px;';
   if(b.etat==='valide') return '<span class="hav-puce hav-ok" style="'+style+'background:#D1FAE5;color:#065F46">✔ '+escHtml(b.lib)+' · '+escHtml(havH(b.heures))+' h'+(b.decision&&b.decision.par_nom?' · '+escHtml(b.decision.par_nom):'')+'</span>';
-  const mien = havPeutValider(b, ctx);
-  return '<span class="hav-puce hav-att" style="'+style+(mien?'background:#FEF3C7;color:#78350F':'background:#F3F4F6;color:#4B5563')+'">⏳ '+escHtml(b.lib)+' · '+escHtml(havH(b.heures))+' h — '+(mien?'à valider':'attend '+escHtml(havNomValideur(b, d)))+'</span>';
+  const mien = havMien(b, ctx), peut = havPeutValider(b, ctx);
+  return '<span class="hav-puce hav-att" style="'+style+(mien?'background:#FEF3C7;color:#78350F':'background:#F3F4F6;color:#4B5563')+'">⏳ '+escHtml(b.lib)+' · '+escHtml(havH(b.heures))+' h — '+(mien?'à valider':'attend '+escHtml(havNomValideur(b, d))+(peut?' (vous pouvez valider)':''))+'</span>';
 }
 function havHtmlBloc(w, b, d, ctx, actif){
   const cle = escHtml(w.emp)+'|'+escHtml(w.debut)+'|'+escHtml(b.cle);
   const alerte = b.renvoye ? '<div class="hav-renvoye" style="font-size:12px;color:#B45309;margin-top:3px">⚠ Déjà renvoyé le '+escHtml(havJ10(b.renvoye.updated_at||b.renvoye.created_at||'').split('-').reverse().join('/'))+' par '+escHtml(b.renvoye.par_nom||'')+' : « '+escHtml(b.renvoye.motif||'')+' » — '+(b.modifie?'les heures ont été modifiées depuis.':'les heures n\'ont pas changé.')+'</div>'
     : (b.modifie ? '<div class="hav-modifie" style="font-size:12px;color:#B45309;margin-top:3px">Les heures ont changé depuis la dernière validation : à valider à nouveau.</div>' : '');
   return '<div class="hav-bloc" data-bloc="'+cle+'" style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;margin-top:8px;border:1px solid #F59E0B;border-radius:10px;background:#FFFBEB">'
-    + '<div style="min-width:220px;flex:1"><strong>'+escHtml(b.lib)+'</strong> — '+escHtml(havH(b.heures))+' h'+(b.classe==='pool'?' <span style="font-size:11px;color:#6B7280">(SAV — tout responsable peut valider)</span>':'')+(b.classe==='admin'&&!b.sansResp?' <span style="font-size:11px;color:#6B7280">(direction)</span>':'')+(b.sansResp?' <span style="font-size:11px;color:#B45309">(chantier sans responsable)</span>':'')+(b.inconnu?' <span style="font-size:11px;color:#B45309">(non relié à l\'ERP)</span>':'')
+    + '<div style="min-width:220px;flex:1"><strong>'+escHtml(b.lib)+'</strong> — '+escHtml(havH(b.heures))+' h'+(b.classe==='pool'?' <span style="font-size:11px;color:#6B7280">(SAV — tout responsable peut valider)</span>':'')+(b.classe==='admin'&&!b.sansResp&&!b.abs?' <span style="font-size:11px;color:#6B7280">(direction)</span>':'')+(b.abs?' <span style="font-size:11px;color:#6B7280">(absences — valideurs désignés)</span>':'')+(b.sansResp?' <span style="font-size:11px;color:#B45309">(chantier sans responsable)</span>':'')+(b.inconnu?' <span style="font-size:11px;color:#B45309">(non relié à l\'ERP)</span>':'')
     + '<div style="font-size:12px;color:#6B7280;margin-top:2px">'+escHtml(havDetailJours(b, w.jours))+'</div>'+alerte+'</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
     + '<button type="button" class="btn btn-ghost btn-sm hav-oeil hav-oeil-bloc" data-k="'+cle+'" onclick="havBtnOeil(this)" title="Voir ce que la personne a pointé (toute la semaine)" aria-label="Voir le détail des heures pointées"><i class="ti ti-eye"></i></button>'
@@ -22214,7 +22234,7 @@ function havParseCle(k){ const p = String(k).split('|'); return {emp:p[0], debut
 async function havBtnValider(btn){
   const c = havParseCle(btn.dataset.k); btn.disabled = true;
   const r = await havDecider(c.emp, c.debut, c.bloc, 'valide');
-  if(r.ok) havToast(r.approuvee ? 'Bloc validé — semaine complète, approuvée ✓' : 'Bloc validé ✓');
+  if(r.ok) havToast(r.approuvee ? 'Bloc validé — semaine complète, approuvée ✓' : (r.incomplete ? 'Bloc validé — semaine incomplète ('+havH(r.total)+' h sur '+havH(r.attendues)+' h prévues) : elle n\'est pas approuvée automatiquement' : 'Bloc validé ✓'), r.incomplete ? 'warn' : undefined);
   else btn.disabled = false;
 }
 function havBtnRenvoi(btn){ const z = btn.closest('.hav-bloc').querySelector('.hav-renvoi-zone'); z.style.display = 'block'; const i = z.querySelector('.hav-motif'); if(i) i.focus(); }
@@ -22237,6 +22257,8 @@ async function havBtnToutValider(){
   havToast(ok+' bloc'+(ok>1?'s':'')+' validé'+(ok>1?'s':'')+(ko?' · '+ko+' non validé'+(ko>1?'s':''):''), ko?'warn':undefined);
 }
 async function havBtnApprouver(btn){
+  { const k = havParseCle(btn.dataset.k), w = _hav && _hav.semaines.find(x=>x.emp===k.emp && x.debut===k.debut);
+    if(w && w.incomplete && !confirm('Cette semaine est incomplète : '+havH(w.total)+' h sur '+havH(w.attendues)+' h prévues (il manque '+havH(w.manque)+' h).\n\nL\'approuver la verrouille : l\'employé ne pourra plus la compléter.\nApprouver quand même ?')) return; }
   const c = havParseCle(btn.dataset.k); btn.disabled = true;
   try{ const r = await havAppliquerSemaine(c.emp, c.debut, true); havToast(r.approuvee ? 'Semaine approuvée ✓' : "La semaine n'a pas pu être approuvée (déjà traitée ?)", r.approuvee?undefined:'warn'); }
   catch(e){ havToast('Erreur : '+((e&&e.message)||e), 'error'); }
@@ -22274,7 +22296,7 @@ async function havDiagnostic(h){
     return !(h.d.chantiers||[]).some(c=>(c.type_centre||'chantier')==='chantier' && c.statut!=='archive' && c.chef_chantier_id && String(c.chef_chantier_id)===String(cand[0].id));
   });
   const supSansFiche = sup.filter(u=>(h.d.emps||[]).filter(e=>havNormEmail(e.email)===havNormEmail(u.email)).length!==1);
-  return {lignes, sansResp, superviseurs:sup.map(u=>nomPers(u)||u.email), supSansFiche:supSansFiche.map(u=>nomPers(u)||u.email)};
+  return {lignes, sansResp, admins:actifs.filter(u=>u.role==='admin').map(u=>({email:havNormEmail(u.email), nom:nomPers(u)||u.email})).filter(a=>a.email), directionMails:sup.map(u=>havNormEmail(u.email)).filter(Boolean), superviseurs:sup.map(u=>nomPers(u)||u.email), supSansFiche:supSansFiche.map(u=>nomPers(u)||u.email)};
 }
 function havHtmlDiagnostic(dg){
   if(!dg) return '';
@@ -22283,7 +22305,7 @@ function havHtmlDiagnostic(dg){
     + '<div style="margin-top:10px;font-size:13px">Les heures d\'un chantier sont validées par son <strong>responsable</strong> (fiche du chantier) ; l\'utilisateur ERP est reconnu par <strong>l\'e-mail de sa fiche employé</strong>.</div>'
     + '<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Responsable</th><th>Chantiers en cours</th><th>Accès ERP</th></tr></thead><tbody>'+(l||'<tr><td colspan="3" style="padding:8px 10px;color:#6B7280">Aucun chantier en cours avec responsable.</td></tr>')+'</tbody></table></div>'
     + (dg.sansResp.length ? '<div style="margin-top:8px;font-size:13px;color:#B45309">⚠ Chantiers en cours <strong>sans responsable</strong> (leurs heures sont validées par la direction) : '+escHtml(dg.sansResp.join(', '))+'</div>' : '')
-    + '<div style="margin-top:8px;font-size:13px"><strong>Direction</strong> (valident les heures improductives, les absences et peuvent valider à la place d\'un responsable) : '+escHtml(dg.superviseurs.join(', ')||'—')+'</div>'
+    + '<div style="margin-top:8px;font-size:13px"><strong>Direction</strong> (valident les heures improductives et celles des chantiers sans responsable, et peuvent valider à la place d\'un responsable) : '+escHtml(dg.superviseurs.join(', ')||'—')+'</div>'
     + (dg.supSansFiche.length ? '<div style="margin-top:6px;font-size:13px;color:#B45309">⚠ Ces administrateurs n\'ont pas de fiche employé reconnue par e-mail : ils sont traités comme direction (ils peuvent tout valider) — liez leur fiche si ce sont des responsables de chantier : '+escHtml(dg.supSansFiche.join(', '))+'</div>' : '')
     + '</details></div>';
 }
@@ -22297,8 +22319,8 @@ async function havDessiner(){
     return;
   }
   const {ctx, d} = h;
-  const peut = ctx.superviseur || ctx.estResp;
-  const voirTout = ctx.superviseur && _havVue==='tout';
+  const peut = ctx.peutHeures || ctx.valideAbs;
+  const voirTout = peut && _havVue==='tout';
   const aTraiter = w => ctx.superviseur && (w.vide || w.complet);          // tout validé (ou vide) mais pas encore approuvée : à approuver
   const visibles = h.semaines.filter(w=>voirTout ? true : (w.blocs.some(b=>b.etat==='attente' && havMien(b, ctx)) || aTraiter(w)));
   const actif = !d.sqlManque;
@@ -22312,18 +22334,20 @@ async function havDessiner(){
     return '<div class="card hav-semaine" data-sem="'+escHtml(w.emp+'|'+w.debut)+'" style="padding:14px 16px;margin-bottom:12px">'
       + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>'+escHtml(w.empNom)+'</strong> <span style="color:#6B7280">— S'+escHtml(String(num))+' · '+escHtml(w.jours[0].split('-').reverse().join('/'))+' → '+escHtml(w.jours[6].split('-').reverse().join('/'))+'</span></div><div style="color:#6B7280;display:flex;align-items:center;gap:8px">Semaine : '+escHtml(havH(w.total))+' h <button type="button" class="btn btn-ghost btn-sm hav-oeil hav-oeil-sem" data-k="'+escHtml(w.emp+'|'+w.debut+'|')+'" onclick="havBtnOeil(this)" title="Voir ce que '+escHtml(w.empNom)+' a pointé cette semaine" aria-label="Voir le détail des heures pointées de '+escHtml(w.empNom)+'"><i class="ti ti-eye"></i></button></div></div>'
       + '<div style="margin-top:6px">'+puces+'</div>'
+      + (w.incomplete ? '<div class="hav-incomplete" style="margin-top:6px;font-size:12.5px;color:#B45309">⚠ Semaine incomplète : '+escHtml(havH(w.total))+' h sur '+escHtml(havH(w.attendues))+' h prévues (il manque '+escHtml(havH(w.manque))+' h). Elle ne sera pas approuvée automatiquement : l\'employé peut la compléter.</div>' : '')
       + aValider.map(b=>havHtmlBloc(w, b, d, ctx, actif)).join('')
-      + (aApprouver ? '<div style="margin-top:8px"><button class="btn btn-primary btn-sm hav-approuver" '+(actif?'':'disabled ')+'onclick="havBtnApprouver(this)" data-k="'+escHtml(w.emp+'|'+w.debut)+'"><i class="ti ti-circle-check"></i> Approuver la semaine ('+(w.vide?'aucune heure encodée':'tous les blocs sont validés')+')</button></div>' : '')
+      + (aApprouver ? '<div style="margin-top:8px"><button class="btn btn-primary btn-sm hav-approuver" '+(actif?'':'disabled ')+'onclick="havBtnApprouver(this)" data-k="'+escHtml(w.emp+'|'+w.debut)+'"><i class="ti ti-circle-check"></i> '+(w.incomplete ? 'Approuver quand même ('+escHtml(havH(w.total))+' h sur '+escHtml(havH(w.attendues))+' h)' : 'Approuver la semaine ('+(w.vide?'aucune heure encodée':'tous les blocs sont validés')+')')+'</button></div>' : '')
       + '</div>';
   }).join('');
   let intro;
-  if(!peut) intro = '<div class="alert alert-info"><i class="ti ti-info-circle"></i><span>'+(ctx.emp ? 'Vous n\'êtes responsable d\'aucun chantier en cours : rien à valider ici.' : 'Votre e-mail ('+escHtml(currentUser&&currentUser.email||'')+') ne correspond à aucune fiche employé'+(ctx.ambigu?' unique':'')+' : demandez à l\'administration de renseigner l\'e-mail sur votre fiche (RH → Employés).')+'</span></div>';
+  if(!peut) intro = '<div class="alert alert-info"><i class="ti ti-info-circle"></i><span>'+(ctx.emp ? 'Vous n\'êtes ni responsable de chantier, ni administrateur, ni valideur d\'absences : rien à valider ici.' : 'Votre e-mail ('+escHtml(currentUser&&currentUser.email||'')+') ne correspond à aucune fiche employé'+(ctx.ambigu?' unique':'')+' : demandez à l\'administration de renseigner l\'e-mail sur votre fiche (RH → Employés).')+'</span></div>';
   else if(!r.blocs) intro = '<div class="alert alert-success"><i class="ti ti-circle-check"></i><span>Rien à valider pour le moment.</span></div>';
   else intro = '<div class="alert alert-warning" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><i class="ti ti-clock-check"></i><span style="flex:1"><strong>'+escHtml(havH(r.heures))+' h à valider</strong> — '+r.blocs+' bloc'+(r.blocs>1?'s':'')+' sur '+r.semaines+' semaine'+(r.semaines>1?'s':'')+'.</span>'+(actif?'<button class="btn btn-primary btn-sm" id="hav-tout-valider" onclick="havBtnToutValider()"><i class="ti ti-checks"></i> Valider tous mes blocs</button>':'')+'</div>';
   page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Heures à valider</h1><p>Validation des heures pointées, chantier par chantier</p></div>'
-    + '<div class="page-actions">'+(ctx.superviseur?'<select id="hav-vue" onchange="havChangerVue(this.value)" style="padding:7px 10px;border:1px solid var(--gray-3);border-radius:6px"><option value="mes" '+(voirTout?'':'selected')+'>Mes blocs à valider</option><option value="tout" '+(voirTout?'selected':'')+'>Toutes les semaines soumises</option></select> ':'')+'<button class="btn btn-secondary" id="hav-actualiser" onclick="havRafraichir()"><i class="ti ti-refresh"></i> Actualiser</button></div></div>'
+    + '<div class="page-actions">'+(peut?'<select id="hav-vue" onchange="havChangerVue(this.value)" style="padding:7px 10px;border:1px solid var(--gray-3);border-radius:6px"><option value="mes" '+(voirTout?'':'selected')+'>Mes blocs à valider</option><option value="tout" '+(voirTout?'selected':'')+'>Toutes les semaines soumises</option></select> ':'')+'<button class="btn btn-secondary" id="hav-actualiser" onclick="havRafraichir()"><i class="ti ti-refresh"></i> Actualiser</button></div></div>'
     + (d.sqlManque ? '<div class="alert alert-warning" id="hav-sql"><i class="ti ti-database-exclamation"></i><span><strong>Lecture seule.</strong> La base des pointages doit être mise à jour pour valider par chantier : exécutez le script « '+HAV_SQL+' » dans le SQL Editor du projet <strong>POINTAGES</strong>.</span></div>' : '')
-    + intro + (dg ? havHtmlDiagnostic(dg) : '')
+    + intro + (d.lienIndispo ? '<div class="alert alert-warning" id="hav-lien"><i class="ti ti-alert-triangle"></i><span>Les colonnes « lien pointages », date d\'embauche et de sortie n\'ont pas pu être lues sur les fiches employés : la règle « personne ne valide ses propres heures » et les périodes d\'emploi sont désactivées tant que ce n\'est pas corrigé (RH → Employés).</span></div>' : '') + (d.feriesIndispo ? '<div class="alert alert-warning" id="hav-feries"><i class="ti ti-alert-triangle"></i><span>Les jours fériés n\'ont pas pu être lus : le contrôle des heures prévues est désactivé (les semaines entièrement validées sont approuvées comme avant).</span></div>' : '')
+    + (dg ? havHtmlReglageAbs(h, dg) + havHtmlDiagnostic(dg) : '')
     + cartes;
   havMajChrome();
 }
@@ -23312,12 +23336,12 @@ async function ndfAppliquerCorrection(){
 const havLibAbs = k => { const t = String(k||'').replace(/^abs-/, '').replace(/_/g, ' ').trim(); return t ? t.charAt(0).toUpperCase()+t.slice(1) : 'Absence'; };
 const havDateFr = iso => String(iso||'').slice(0,10).split('-').reverse().join('/');
 // Cellule d'un jour pour un bloc : total des heures, + nuit / type d'absence
-function havCelluleJour(b, iso){
+function havCelluleJour(b, iso, voirTypes){
   const ls = (b.lignes||[]).filter(l=>l.date===iso);
   if(!ls.length) return '<td class="hav-j hav-vide" data-jour="'+escHtml(iso)+'" style="padding:6px 8px;text-align:center;color:#9CA3AF">·</td>';
   const tot = ls.reduce((t,l)=>t+(parseFloat(l.heures)||0), 0);
   const nuit = ls.filter(l=>l.k==='nuit').reduce((t,l)=>t+(parseFloat(l.heures)||0), 0);
-  const types = [...new Set(ls.filter(l=>String(l.k).indexOf('abs-')===0).map(l=>havLibAbs(l.k)))];
+  const types = [...new Set(ls.filter(l=>String(l.k).indexOf('abs-')===0).map(l=>voirTypes ? havLibAbs(l.k) : 'Absence'))];
   return '<td class="hav-j" data-jour="'+escHtml(iso)+'" style="padding:6px 8px;text-align:center;white-space:nowrap"><strong>'+escHtml(havH(tot))+'</strong>'
     +(nuit>0 ? '<div class="hav-nuit" style="font-size:11px;color:#4338CA" title="dont '+escHtml(havH(nuit))+' h de nuit">🌙 '+escHtml(havH(nuit))+'</div>' : '')
     +(types.length ? '<div class="hav-type" style="font-size:11px;color:#6B7280">'+types.map(escHtml).join(', ')+'</div>' : '')+'</td>';
@@ -23334,10 +23358,10 @@ function havVoirSemaine(emp, debut, blocCle){
     const etat = b.etat==='valide'
       ? '<span class="hav-etat" style="color:#065F46">✔ validé'+(b.decision && b.decision.par_nom ? ' par '+escHtml(b.decision.par_nom) : '')+'</span>'
       : (mien ? '<span class="hav-etat" style="color:#92400E;font-weight:600">⏳ à valider par vous</span>'
-              : '<span class="hav-etat" style="color:#4B5563">⏳ attend '+escHtml(havNomValideur(b, d))+(ctx.superviseur ? ' <span style="font-size:11px">(vous pouvez valider à sa place)</span>' : '')+'</span>');
+              : '<span class="hav-etat" style="color:#4B5563">⏳ attend '+escHtml(havNomValideur(b, d))+(havPeutValider(b, ctx) ? ' <span style="font-size:11px">(vous pouvez valider à sa place)</span>' : '')+'</span>');
     return '<tr class="hav-ligne'+(focus?' hav-focus':'')+'" data-bloc="'+escHtml(b.cle)+'" data-etat="'+(b.etat==='valide'?'valide':(mien?'mien':'autre'))+'" style="background:'+fond+(focus?';outline:2px solid #F59E0B':'')+'">'
       +'<td style="padding:6px 8px;min-width:170px"><strong>'+escHtml(b.lib)+'</strong>'+(b.classe==='pool' ? '<div style="font-size:11px;color:#6B7280">SAV — tout responsable</div>' : '')+(b.sansResp ? '<div style="font-size:11px;color:#B45309">chantier sans responsable</div>' : '')+'</td>'
-      +w.jours.map(j=>havCelluleJour(b, j)).join('')
+      +w.jours.map(j=>havCelluleJour(b, j, !!ctx.valideAbs)).join('')
       +'<td class="hav-tot" style="padding:6px 8px;text-align:right;white-space:nowrap;font-weight:700">'+escHtml(havH(b.heures))+' h</td>'
       +'<td style="padding:6px 8px;font-size:12.5px">'+etat+'</td></tr>';
   }).join('');
@@ -23361,6 +23385,572 @@ function havVoirSemaine(emp, debut, blocCle){
     </div></div></div>`);
 }
 function havBtnOeil(btn){ const c = havParseCle(btn.dataset.k); havVoirSemaine(c.emp, c.debut, c.bloc==='' ? null : c.bloc); }
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// HEURES À VALIDER : QUI VALIDE QUOI (12/11/2026)
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// Règle demandée par la direction :
+//   • les HEURES pointées par les collaborateurs sont validées par les responsables de projet (Jonathan, Manuel, Christopher) et, plus généralement,
+//     par tout responsable de chantier ou administrateur — pas seulement pour leurs propres chantiers ;
+//   • les ABSENCES ne sont validées que par les personnes désignées (Vera et Corinne) : liste enregistrée dans parametres_app (clé heures_a_valider),
+//     sans SQL. Tant qu'elle n'est pas enregistrée, c'est toute la direction qui valide les absences (comportement d'avant) ;
+//   • personne ne valide SES PROPRES heures (séparation des tâches, comme l'approbation d'une feuille de temps dans Odoo) ;
+//   • une semaine n'est approuvée toute seule que si elle contient les heures PRÉVUES (8 h × jours ouvrés hors jours fériés, 40 h max, absences comprises) :
+//     sinon elle reste « soumise » (le collaborateur peut la compléter) et la direction peut l'approuver « quand même » en connaissance de cause ;
+//   • le TYPE d'absence (maladie, congé…) n'est montré qu'aux valideurs d'absences : les responsables voient « Absence ».
+const HAV_CLE = 'heures_a_valider';
+// Liste des valideurs d'absences : { ok, configuree, absences:[e-mails en minuscules], erreur }
+async function havLireConfig(){
+  try{
+    const {data, error} = await sb.from('parametres_app').select('valeur_json').eq('cle', HAV_CLE);
+    if(error) return {ok:false, configuree:false, absences:[], erreur:error.message||String(error)};
+    const v = data && data[0] ? data[0].valeur_json : null;
+    const liste = v && Array.isArray(v.absences) ? Array.from(new Set(v.absences.map(havNormEmail).filter(Boolean))) : [];
+    return {ok:true, configuree:liste.length>0, absences:liste};
+  }catch(e){ return {ok:false, configuree:false, absences:[], erreur:(e && e.message) || String(e)}; }
+}
+// Jours fériés de la période (null si illisibles : le contrôle des heures prévues est alors désactivé, jamais deviné)
+async function havLireFeries(a, z){
+  try{
+    const o = {};
+    (await lirePT('feries', '*', q=>q.gte('date', a).lte('date', z))).forEach(f=>{ if(f.date) o[havJ10(f.date)] = f.nom || f.libelle || 'Jour férié'; });
+    return o;
+  }catch(e){ return null; }
+}
+// Heures prévues d'une semaine pour un employé des pointages (même définition que l'app des pointages) ; null si on ne peut pas le dire
+function havAttendues(d, ptEmpId, debut){
+  if(!d || !d.feries) return null;
+  const fiche = (d.emps||[]).find(e=>e.pointage_employe_id!=null && String(e.pointage_employe_id).trim()===String(ptEmpId));
+  const entree = fiche && fiche.date_embauche ? havJ10(fiche.date_embauche) : '', sortie = fiche && fiche.date_sortie ? havJ10(fiche.date_sortie) : '';
+  return Math.min(PTI_H_MAX, ptiJoursOuvres(debut, d.feries, entree, sortie).length * PTI_H_JOUR);
+}
+// Un bloc de ma propre semaine ? (l'e-mail de ma fiche employé relie mon compte ERP à mon compte de pointage)
+const havPropre = (b, ctx) => !!(ctx && ctx.ptEmpId && b && b.emp!=null && String(b.emp)===String(ctx.ptEmpId));
+// Noms des valideurs d'absences (pour « attend … »)
+function havNomsAbs(d){
+  const cfg = d && d.cfg;
+  if(!cfg || !cfg.configuree) return 'la direction';
+  return cfg.absences.map(m=>{ const e = (d.emps||[]).find(x=>havNormEmail(x.email)===m); return e ? nomPers(e) : m; }).join(', ');
+}
+// ── Réglage : qui valide les absences ? (carte dans la page, direction seulement) ─────────────────────────────────
+function havPeutRegler(ctx){ return !!ctx.superviseur && (ctx.valideAbs || !(_hav && _hav.d.cfg && _hav.d.cfg.configuree)); }
+function havHtmlReglageAbs(h, dg){
+  const cfg = h.d.cfg || {ok:true, configuree:false, absences:[]}, ctx = h.ctx;
+  const admins = (dg && dg.admins) || [];
+  const pre = new Set(cfg.configuree ? cfg.absences : (dg && dg.directionMails || []));
+  const peut = havPeutRegler(ctx);
+  const cases = admins.map(a=>'<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;cursor:'+(peut?'pointer':'default')+';text-transform:none;letter-spacing:0"><input type="checkbox" class="hav-abs-cb" value="'+escHtml(a.email)+'" '+(pre.has(a.email)?'checked ':'')+(peut?'':'disabled ')+'> '+escHtml(a.nom)+'</label>').join('');
+  return '<div class="card" id="hav-abs" style="padding:14px 16px;margin-bottom:16px">'
+    + '<div style="font-weight:700;margin-bottom:4px"><i class="ti ti-user-check"></i> Qui valide les absences ?</div>'
+    + '<div style="color:#6B7280;font-size:13px;margin-bottom:8px">Les <strong>heures</strong> pointées sont validées par les responsables de projet (tout responsable de chantier ou administrateur). Les <strong>absences</strong> (congés, maladie…) ne sont validées que par les personnes cochées'
+    + (cfg.configuree ? '.' : ' — <strong>à faire une fois :</strong> vérifiez la liste puis enregistrez (en attendant, toute la direction peut les valider).')+'</div>'
+    + (cfg.ok ? '' : '<div class="alert alert-warning" id="hav-abs-erreur" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><span>La liste n\'a pas pu être lue ('+escHtml(cfg.erreur||'erreur')+') : toute la direction valide les absences en attendant.</span></div>')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px">'+(cases || '<span style="color:#6B7280">Aucun administrateur actif trouvé.</span>')+'</div>'
+    + '<div style="margin-top:10px">'+(peut
+        ? '<button class="btn btn-primary btn-sm" id="hav-abs-enregistrer" onclick="havEnregistrerAbs()">Enregistrer</button>'
+        : '<span style="font-size:12px;color:#6B7280">Seules les personnes cochées peuvent modifier cette liste.</span>')+'</div></div>';
+}
+async function havEnregistrerAbs(){
+  const h = _hav; if(!h) return;
+  if(!havPeutRegler(h.ctx)){ showToast('Vous ne pouvez pas modifier cette liste', 'error'); return; }
+  const mails = Array.from(document.querySelectorAll('#hav-abs .hav-abs-cb')).filter(c=>c.checked).map(c=>havNormEmail(c.value)).filter(Boolean);
+  if(!mails.length){ showToast('Cochez au moins une personne : sans valideur, personne ne pourrait valider les absences', 'error'); return; }
+  const moi = havNormEmail(currentUser && currentUser.email);
+  if(moi && !mails.includes(moi) && !confirm("Vous n'êtes pas dans la liste : vous ne pourrez plus valider les absences ni modifier cette liste.\n\nEnregistrer quand même ?")) return;
+  const btn = document.getElementById('hav-abs-enregistrer'); if(btn) btn.disabled = true;
+  let err = null;
+  try{
+    const r = await sb.from('parametres_app').upsert({cle:HAV_CLE, valeur_json:{absences:mails, maj_par:(currentUser&&currentUser.email)||null, maj_le:new Date().toISOString()}}, {onConflict:'cle'}).select('cle');
+    if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = 'enregistrement refusé (droits insuffisants)';
+  }catch(e){ err = (e && e.message) || String(e); }
+  if(btn) btn.disabled = false;
+  if(err){ showToast(escHtml("Impossible d'enregistrer : "+err), 'error'); return; }
+  showToast('Valideurs d\'absences enregistrés');
+  await havRafraichir();
+}
+
+async function havLireEmps(){
+  try{ return await lirePagine('employes_rh', 'id,nom,prenom,email,actif,pointage_employe_id,date_embauche,date_sortie'); }
+  catch(e){ const r = await lirePagine('employes_rh', 'id,nom,prenom,email,actif'); r.lienIndispo = true; return r; }       // colonnes absentes : la garde « propres heures » et les périodes d'emploi ne peuvent pas fonctionner → signalé à l'écran
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// DEMANDES DE FACTURATION (12/11/2026)
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// Les chefs de projet (Jonathan, Manuel, Christopher : tout responsable de chantier) demandent à la direction de facturer un chantier, un devis ou une
+// intervention SAV (acompte, situation, solde, facture totale). La direction (Vera, Corinne, Jean-Baptiste : administrateurs, ou la liste choisie dans
+// la page) traite : « facturée » (avec la facture liée) ou « refusée » (motif obligatoire). La personne qui a demandé est prévenue du résultat
+// (pastille dans le menu + bandeau + page « Mes demandes »). Personne ne traite SA propre demande.
+// Données : table demandes_facturation (migration-demandes-facturation.sql) ; la liste des « traitants » est dans parametres_app (clé demandes_facturation,
+// sans SQL). Sans le script SQL : message clair avec son nom, rien d'autre ne change dans l'ERP.
+const DF_SQL = 'migration-demandes-facturation.sql';
+const DF_CLE = 'demandes_facturation';
+const DF_MSG_SQL = "Les demandes de facturation ne sont pas encore installées : exécutez « " + DF_SQL + " » une fois dans Supabase → SQL Editor (projet de l'ERP).";
+const DF_TYPES = {acompte:'Acompte', situation:'Situation', solde:'Solde', totale:'Facture totale'};
+const DF_STATUTS = {demandee:'À traiter', traitee:'Facturée', refusee:'Refusée', annulee:'Annulée'};
+const DF_ORIGINES = {chantier:'Chantier', devis:'Devis', intervention:'Intervention SAV'};
+const DF_COL = {chantier:'chantier_id', devis:'devis_id', intervention:'intervention_id'};
+let _df = null, _dfPromesse = null, _dfMinuteur = null, _dfEcouteur = false, _dfOnglet = null, _dfRecherche = '', _dfNouveaux = new Set(), _dfDemande = null, _dfTraiter = null;
+
+const dfRef = r => 'DF-' + String(r && r.num != null ? r.num : '').padStart(4, '0');
+const dfDateFr = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); };
+const dfJours = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - d.getTime()) / 864e5)); };
+const dfPct = p => String(Number(p)).replace('.', ',');
+// « 12,5 » / « 12.5 » / « 1 250,00 » → nombre ; vide → null ; illisible → NaN
+function dfParseNombre(v){
+  const t = String(v == null ? '' : v).trim().replace(/\s/g, '').replace(',', '.');
+  if(t === '') return null;
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
+}
+// Contrôles du formulaire : { ok, erreur, pourcentage, montant }
+function dfValider(type, pct, montant, message){
+  if(!DF_TYPES[type]) return {ok:false, erreur:'Choisissez le type de facturation'};
+  const msg = String(message || '').trim();
+  if(msg.length > 1000) return {ok:false, erreur:'Le message est trop long (1000 caractères au maximum)'};
+  if(type === 'solde' || type === 'totale') return {ok:true, pourcentage:null, montant:null, message:msg};
+  const p = dfParseNombre(pct), m = dfParseNombre(montant);
+  if(Number.isNaN(p) || Number.isNaN(m)) return {ok:false, erreur:'Pourcentage ou montant illisible'};
+  if(p == null && m == null) return {ok:false, erreur:'Indiquez le pourcentage OU le montant HT à facturer'};
+  if(p != null && m != null) return {ok:false, erreur:'Indiquez le pourcentage OU le montant HT, pas les deux'};
+  if(p != null && !(p > 0 && p <= 100)) return {ok:false, erreur:'Le pourcentage doit être supérieur à 0 et au plus 100'};
+  if(m != null && !(m > 0)) return {ok:false, erreur:'Le montant HT doit être supérieur à 0'};
+  return {ok:true, pourcentage:p == null ? null : Math.round(p * 100) / 100, montant:m == null ? null : Math.round(m * 100) / 100, message:msg};
+}
+
+// ── Qui peut quoi ─────────────────────────────────────────────────────────────────────────────────────────────
+// demande : tout administrateur et tout responsable de chantier (Jonathan, Manuel, Christopher) ; traite : la liste choisie dans la page (administrateurs
+// seulement) ou, tant qu'elle n'est pas enregistrée, la direction = administrateurs qui ne sont responsables d'aucun chantier en cours (Vera, Corinne, Jean-Baptiste).
+function dfContexte(user, d){
+  const base = havContexte(user, {emps:d.emps, chantiers:d.chantiers, cfg:null});
+  const m = havNormEmail(user && user.email), cfg = d.cfg || null;
+  const peutTraiter = !!user && base.admin && (cfg && cfg.configuree ? cfg.traitants.includes(m) : base.superviseur);
+  return {email:m, admin:base.admin, estResp:base.estResp, empId:base.empId, ambigu:base.ambigu, superviseur:base.superviseur, peutTraiter, peutDemander:!!user && (base.admin || base.estResp)};
+}
+const dfMienne = (l, ctx) => !!ctx.email && havNormEmail(l.demandeur_email) === ctx.email;
+// Résultat que la personne n'a pas encore vu (facturée, refusée, ou annulée par quelqu'un d'autre)
+const dfResultatNonVu = (l, ctx) => dfMienne(l, ctx) && !l.vu_le && (l.statut === 'traitee' || l.statut === 'refusee' || (l.statut === 'annulee' && havNormEmail(l.traite_par_email) !== havNormEmail(l.demandeur_email)));
+function dfResume(lignes, ctx){
+  const L = lignes || [];
+  const aTraiter = ctx.peutTraiter ? L.filter(l => l.statut === 'demandee' && !dfMienne(l, ctx)).length : 0;
+  const nonVus = L.filter(l => dfResultatNonVu(l, ctx));
+  return {aTraiter, resultats:nonVus.length, nonVus};
+}
+
+// ── Lecture ───────────────────────────────────────────────────────────────────────────────────────────────────
+async function dfLireConfig(){
+  try{
+    const {data, error} = await sb.from('parametres_app').select('valeur_json').eq('cle', DF_CLE);
+    if(error) return {ok:false, configuree:false, traitants:[], erreur:error.message || String(error)};
+    const v = data && data[0] ? data[0].valeur_json : null;
+    const liste = v && Array.isArray(v.traitants) ? Array.from(new Set(v.traitants.map(havNormEmail).filter(Boolean))) : [];
+    return {ok:true, configuree:liste.length > 0, traitants:liste};
+  }catch(e){ return {ok:false, configuree:false, traitants:[], erreur:(e && e.message) || String(e)}; }
+}
+async function dfCharger(force){
+  if(_dfPromesse && !force) return _dfPromesse;
+  const p = (async () => {
+    const user = currentUser; if(!user) return null;
+    let emps = [], chantiers = [], erreurCtx = null;
+    try{ emps = await havLireEmps(); }catch(e){ erreurCtx = (e && e.message) || String(e); }
+    try{ chantiers = await lirePagine('chantiers_lyneo', 'id,chef_chantier_id,type_centre,statut'); }catch(e){ erreurCtx = erreurCtx || (e && e.message) || String(e); }
+    const cfg = await dfLireConfig();
+    const d = {emps, chantiers, cfg, lignes:[], admins:[], sqlManque:false, erreur:null, erreurCtx};
+    const ctx = dfContexte(user, d);
+    try{ d.lignes = await lirePagine(DF_CLE, '*'); }
+    catch(e){ if(havAbsentSQL(e && e.message)) d.sqlManque = true; else d.erreur = (e && e.message) || String(e); }
+    d.lignes.sort((a, b) => (Number(b.num) || 0) - (Number(a.num) || 0));
+    if(ctx.peutTraiter && !d.sqlManque){
+      try{
+        const us = await lirePagine('utilisateurs', 'id,prenom,nom,email,role,actif');
+        d.admins = us.filter(u => u.actif !== false && u.role === 'admin' && havNormEmail(u.email)).map(u => ({email:havNormEmail(u.email), nom:nomPers(u) || u.email, direction:dfContexte(u, d).superviseur}));
+      }catch(e){ /* la carte « qui traite » restera vide */ }
+    }
+    return {t:Date.now(), ctx, d, resume:dfResume(d.lignes, ctx)};
+  })();
+  _dfPromesse = p;
+  try{ _df = await p; return _df; }catch(e){ _dfPromesse = null; throw e; }
+}
+async function dfRafraichir(){
+  try{ await dfCharger(true); }catch(e){ /* l'écran affichera l'erreur au prochain dessin */ }
+  dfMajChrome();
+  if(currentPage === 'demandes_facturation') await dfDessiner();
+}
+
+// ── Menu, pastille, bandeau ───────────────────────────────────────────────────────────────────────────────────
+function dfMajChrome(){
+  const df = _df; if(!df) return;
+  const {ctx, d, resume:r} = df;
+  const visible = !!(ctx.peutDemander || ctx.peutTraiter);
+  const nav = document.getElementById('nav-demandes_facturation');
+  const n = (ctx.peutTraiter ? r.aTraiter : 0) + r.resultats;
+  if(nav){
+    nav.classList.toggle('hidden', !visible);
+    let badge = document.getElementById('df-badge');
+    if(!badge){ badge = document.createElement('span'); badge.id = 'df-badge'; badge.style.cssText = 'margin-left:auto;background:#3B82F6;color:#fff;border-radius:9px;padding:0 7px;font-size:11px;font-weight:700;line-height:18px'; nav.appendChild(badge); }
+    const nb = d.sqlManque ? 0 : n;
+    badge.textContent = nb ? String(nb) : '';
+    badge.style.display = nb ? '' : 'none';
+  }
+  const main = document.querySelector('.main'), page = document.getElementById('page-content');
+  let b = document.getElementById('df-bandeau');
+  const montrer = visible && !d.sqlManque && n > 0 && currentPage !== 'demandes_facturation';
+  if(!montrer){ if(b) b.remove(); return; }
+  if(!b && main && page){ b = document.createElement('div'); b.id = 'df-bandeau'; b.setAttribute('role', 'status'); main.insertBefore(b, page); }
+  if(!b) return;
+  b.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 24px;background:#DBEAFE;border-bottom:1px solid #3B82F6;color:#1E3A8A;font-size:13.5px';
+  const parts = [];
+  if(ctx.peutTraiter && r.aTraiter > 0) parts.push('<strong>' + r.aTraiter + ' demande' + (r.aTraiter > 1 ? 's' : '') + ' de facturation à traiter</strong>');
+  if(r.resultats === 1){
+    const l = r.nonVus[0];
+    const quoi = l.statut === 'traitee' ? 'a été <strong>facturée</strong>' + (l.facture_ref ? ' (' + escHtml(l.facture_ref) + ')' : '')
+               : l.statut === 'refusee' ? 'a été <strong>refusée</strong> : « ' + escHtml(l.motif_refus || '') + ' »' : 'a été <strong>annulée</strong>';
+    parts.push('Votre demande ' + escHtml(dfRef(l)) + ' (' + escHtml(l.origine_ref || '') + ') ' + quoi);
+  }else if(r.resultats > 1) parts.push('<strong>' + r.resultats + ' de vos demandes de facturation ont une réponse</strong>');
+  b.innerHTML = '<i class="ti ti-receipt-2" style="font-size:18px"></i><span>' + parts.join(' · ') + '</span>'
+    + '<button class="btn btn-primary btn-sm" id="df-bandeau-btn" onclick="dfAller()">Voir</button>';
+}
+function dfAller(){
+  const r = _df && _df.resume, ctx = _df && _df.ctx;
+  _dfOnglet = (ctx && ctx.peutTraiter && r && r.aTraiter > 0) ? 'traiter' : (r && r.resultats > 0 ? 'mes' : null);
+  navigate('demandes_facturation');
+}
+function dfReset(){
+  _df = null; _dfPromesse = null; _dfOnglet = null; _dfRecherche = ''; _dfNouveaux = new Set(); _dfDemande = null; _dfTraiter = null;
+  if(_dfMinuteur){ clearInterval(_dfMinuteur); _dfMinuteur = null; }
+  const b = document.getElementById('df-bandeau'); if(b) b.remove();
+  const n = document.getElementById('nav-demandes_facturation'); if(n) n.classList.add('hidden');
+  const g = document.getElementById('df-badge'); if(g){ g.textContent = ''; g.style.display = 'none'; }
+}
+async function dfDemarrer(){
+  try{ await dfCharger(false); dfMajChrome(); }catch(e){}
+  if(!_dfMinuteur){
+    _dfMinuteur = setInterval(() => { dfCharger(true).then(dfMajChrome).catch(() => {}); }, 3 * 60 * 1000);
+  }
+  if(!_dfEcouteur){
+    _dfEcouteur = true;
+    document.addEventListener('visibilitychange', () => { if(currentUser && !document.hidden && (!_df || Date.now() - _df.t > 120000)) dfCharger(true).then(dfMajChrome).catch(() => {}); });
+  }
+}
+
+// ── Boutons « Demander la facturation » (chantier, devis, intervention) ───────────────────────────────────────────
+function dfBtnHtml(type, id, afficher, classe){
+  if(afficher === false || !_df || !_df.ctx.peutDemander || !id) return '';
+  return '<button type="button" class="btn ' + (classe || 'btn-secondary btn-sm') + ' df-btn-demander" onclick="dfOuvrirDemande(\'' + escHtml(type) + '\',\'' + escHtml(String(id)) + '\')" title="Demander à la direction de facturer"><i class="ti ti-receipt-2"></i> Demander la facturation</button>';
+}
+async function dfLireOrigine(type, id){
+  try{
+    if(type === 'chantier'){
+      const r = await sb.from('chantiers_lyneo').select('*').eq('id', id).limit(1); const c = r.data && r.data[0]; if(!c) return null;
+      return {label:libChantierAchat(c) || String(c.numero || ''), client:String(c.client || '')};
+    }
+    if(type === 'devis'){
+      const r = await sb.from('devis').select('*,clients(nom)').eq('id', id).limit(1); const dv = r.data && r.data[0]; if(!dv) return null;
+      return {label:String(dv.numero || '') + (dv.objet ? ' — ' + dv.objet : ''), client:String((dv.clients && dv.clients.nom) || '')};
+    }
+    const r = await sb.from('interventions_sav').select('*,clients(nom)').eq('id', id).limit(1); const i = r.data && r.data[0]; if(!i) return null;
+    return {label:String(i.ref || '') + (i.nom_site ? ' — ' + i.nom_site : ''), client:String((i.clients && i.clients.nom) || '')};
+  }catch(e){ return null; }
+}
+async function dfOuvrirDemande(type, id){
+  if(!DF_COL[type]){ return; }
+  if(!_df){ try{ await dfCharger(false); }catch(e){} }
+  if(!_df || !_df.ctx.peutDemander){ showToast("Vous n'avez pas le droit de demander une facturation", 'error'); return; }
+  if(_df.d.sqlManque){ showToast(escHtml(DF_MSG_SQL), 'error', 9000); return; }
+  const o = await dfLireOrigine(type, id);
+  if(!o){ showToast("Origine introuvable : rouvrez la fiche", 'error'); return; }
+  _dfDemande = {type, id:String(id), label:o.label, client:o.client};
+  const col = DF_COL[type];
+  const hist = _df.d.lignes.filter(l => l.origine_type === type && String(l[col]) === String(id)).slice(0, 5);
+  const ligneHist = l => '<li style="margin:2px 0"><strong>' + escHtml(dfRef(l)) + '</strong> · ' + escHtml(DF_TYPES[l.type_facturation] || '') + (l.pourcentage != null ? ' ' + escHtml(dfPct(l.pourcentage)) + ' %' : '') + (l.montant_ht != null ? ' ' + escHtml(fmt(l.montant_ht)) + ' HT' : '')
+    + ' · ' + escHtml(DF_STATUTS[l.statut] || l.statut) + (l.facture_ref ? ' (' + escHtml(l.facture_ref) + ')' : '') + ' · ' + escHtml(dfDateFr(l.created_at)) + '</li>';
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:560px">
+    <div class="modal-header"><h3>Demander la facturation</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="background:var(--gray-1);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"><strong>${escHtml(DF_ORIGINES[type])} : ${escHtml(o.label)}</strong>${o.client ? '<div style="color:#6B7280">Client : ' + escHtml(o.client) + '</div>' : ''}</div>
+      ${hist.length ? '<div id="df-hist" style="font-size:12.5px;color:#4B5563;margin-bottom:12px"><div style="font-weight:600;margin-bottom:2px">Déjà demandé pour cette fiche</div><ul style="margin:0;padding-left:18px">' + hist.map(ligneHist).join('') + '</ul></div>' : ''}
+      <div class="form-group"><label>Type de facturation</label>
+        <select id="df-type" onchange="dfChangerType()">${Object.keys(DF_TYPES).map(k => '<option value="' + k + '"' + (k === 'situation' ? ' selected' : '') + '>' + escHtml(DF_TYPES[k]) + '</option>').join('')}</select></div>
+      <div class="form-row" id="df-bloc-montants" style="display:flex;gap:12px">
+        <div class="form-group" style="flex:1"><label>Pourcentage (%)</label><input id="df-pct" inputmode="decimal" placeholder="ex. 30" oninput="dfExclusif('pct')"/></div>
+        <div class="form-group" style="flex:1"><label>ou montant HT (€)</label><input id="df-montant" inputmode="decimal" placeholder="ex. 12 500,00" oninput="dfExclusif('montant')"/></div>
+      </div>
+      <div class="form-group"><label>Message pour la direction <span style="font-weight:400;color:#6B7280">(facultatif)</span></label><textarea id="df-message" rows="3" maxlength="1000" placeholder="ex. Réception partielle faite le 10/11, le client attend la facture"></textarea></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-primary" id="df-envoyer" onclick="dfEnvoyer()"><i class="ti ti-send"></i> Envoyer la demande</button></div>
+    </div></div></div>`);
+  dfChangerType();
+}
+function dfChangerType(){
+  const t = (document.getElementById('df-type') || {}).value, bloc = document.getElementById('df-bloc-montants'); if(!bloc) return;
+  const libre = t === 'solde' || t === 'totale';
+  bloc.style.display = libre ? 'none' : 'flex';
+  ['df-pct', 'df-montant'].forEach(i => { const e = document.getElementById(i); if(e){ e.disabled = libre; if(libre) e.value = ''; } });
+}
+// un seul des deux champs à la fois
+function dfExclusif(qui){
+  const a = document.getElementById(qui === 'pct' ? 'df-montant' : 'df-pct'), b = document.getElementById(qui === 'pct' ? 'df-pct' : 'df-montant');
+  if(a && b && String(b.value).trim() !== '') a.value = '';
+}
+async function dfEnvoyer(){
+  const dm = _dfDemande, df = _df; if(!dm || !df) return;
+  if(!df.ctx.peutDemander){ showToast("Vous n'avez pas le droit de demander une facturation", 'error'); return; }
+  const val = k => (document.getElementById(k) || {}).value;
+  const type = val('df-type');
+  const v = dfValider(type, val('df-pct'), val('df-montant'), val('df-message'));
+  if(!v.ok){ showToast(escHtml(v.erreur), 'error'); return; }
+  const col = DF_COL[dm.type];
+  if(df.d.lignes.some(l => l.statut === 'demandee' && l.origine_type === dm.type && String(l[col]) === dm.id && l.type_facturation === type)){
+    showToast(escHtml('Une demande « ' + DF_TYPES[type] + ' » est déjà en attente pour cette fiche : attendez la réponse de la direction ou annulez-la dans « Mes demandes ».'), 'error', 7000); return;
+  }
+  const btn = document.getElementById('df-envoyer'); if(btn) btn.disabled = true;
+  const ligne = {demandeur_email:df.ctx.email, demandeur_nom:nomPers(currentUser) || (currentUser && currentUser.email) || '', origine_type:dm.type, origine_ref:dm.label, client_nom:dm.client,
+                 type_facturation:type, pourcentage:v.pourcentage, montant_ht:v.montant, message:v.message};
+  ligne[col] = dm.id;
+  let r;
+  try{ r = await sb.from(DF_CLE).insert(ligne).select('*'); }catch(e){ r = {error:e}; }
+  if(btn) btn.disabled = false;
+  if(r.error){
+    const m = (r.error && r.error.message) || String(r.error);
+    if(havAbsentSQL(m)) showToast(escHtml(DF_MSG_SQL), 'error', 9000);
+    else if(/duplicate key|ux_demandes_facturation_ouverte/i.test(m)) showToast(escHtml('Une demande « ' + DF_TYPES[type] + ' » est déjà en attente pour cette fiche (déposée par quelqu\'un d\'autre).'), 'error', 7000);
+    else showToast(escHtml("Impossible d'envoyer la demande : " + m), 'error');
+    return;
+  }
+  const cree = r.data && r.data[0];
+  closeModal(); _dfDemande = null;
+  showToast(escHtml('Demande ' + (cree ? dfRef(cree) + ' ' : '') + 'envoyée à la direction'));
+  await dfRafraichir();
+}
+
+// ── Page « Demandes de facturation » ───────────────────────────────────────────────────────────────────────────
+async function renderDemandesFacturation(){
+  const page = el('page-content');
+  _dfNouveaux = new Set();
+  if(page) page.innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Demandes de facturation</h1></div></div><div class="card" style="padding:24px">Chargement…</div>';
+  try{ await dfCharger(true); }catch(e){ /* dfDessiner affiche l'erreur */ }
+  dfMajChrome();
+  await dfDessiner();
+}
+function dfLigne(id){ return _df ? _df.d.lignes.find(l => String(l.id) === String(id)) : null; }
+function dfOngletsDispo(df){
+  const o = [];
+  if(df.ctx.peutTraiter) o.push(['traiter', 'À traiter'], ['histo', 'Historique']);
+  if(df.ctx.peutDemander) o.push(['mes', 'Mes demandes']);
+  return o;
+}
+function dfFiltrerLignes(df, onglet){
+  const {ctx, d} = df;
+  const q = _dfRecherche.trim().toLowerCase();
+  let L = d.lignes;
+  if(onglet === 'traiter') L = L.filter(l => l.statut === 'demandee').sort((a, b) => (new Date(a.created_at) - new Date(b.created_at)) || ((Number(a.num) || 0) - (Number(b.num) || 0)));   // les plus anciennes d'abord
+  else if(onglet === 'histo') L = L.filter(l => l.statut !== 'demandee');
+  else L = L.filter(l => dfMienne(l, ctx));
+  if(q) L = L.filter(l => [dfRef(l), l.origine_ref, l.client_nom, l.demandeur_nom, l.message, l.facture_ref, DF_TYPES[l.type_facturation]].some(x => String(x || '').toLowerCase().includes(q)));
+  return L;
+}
+function dfCarte(l, ctx, onglet){
+  const propre = dfMienne(l, ctx), ouv = l.statut === 'demandee', jours = dfJours(l.created_at);
+  const coul = {demandee:['#92400E', '#FEF3C7'], traitee:['#065F46', '#D1FAE5'], refusee:['#991B1B', '#FEE2E2'], annulee:['#4B5563', '#F3F4F6']}[l.statut] || ['#4B5563', '#F3F4F6'];
+  const idCol = l[DF_COL[l.origine_type]];
+  const origine = idCol ? '<a href="#" class="df-origine" onclick="dfOuvrirOrigine(\'' + escHtml(String(l.id)) + '\');return false">' + escHtml(l.origine_ref || '—') + '</a>'
+                        : escHtml(l.origine_ref || '—') + ' <span style="color:#9CA3AF">(supprimé)</span>';
+  const montant = (l.pourcentage != null ? ' ' + escHtml(dfPct(l.pourcentage)) + ' %' : '') + (l.montant_ht != null ? ' ' + escHtml(fmt(l.montant_ht)) + ' HT' : '');
+  let resultat = '';
+  if(l.statut === 'traitee') resultat = '<div class="df-resultat" style="margin-top:6px;font-size:12.5px;color:#065F46">✔ Facturée par ' + escHtml(l.traite_par_nom || l.traite_par_email || '') + ' le ' + escHtml(dfDateFr(l.traite_le)) + (l.facture_ref ? ' — facture <strong>' + escHtml(l.facture_ref) + '</strong>' : ' — sans facture liée') + '</div>';
+  else if(l.statut === 'refusee') resultat = '<div class="df-resultat" style="margin-top:6px;font-size:12.5px;color:#991B1B">✖ Refusée par ' + escHtml(l.traite_par_nom || l.traite_par_email || '') + ' le ' + escHtml(dfDateFr(l.traite_le)) + ' — motif : « ' + escHtml(l.motif_refus || '') + ' »</div>';
+  else if(l.statut === 'annulee') resultat = '<div class="df-resultat" style="margin-top:6px;font-size:12.5px;color:#4B5563">Annulée par ' + escHtml(l.traite_par_nom || l.traite_par_email || '') + ' le ' + escHtml(dfDateFr(l.traite_le)) + '</div>';
+  let actions = '';
+  if(ouv && ctx.peutTraiter && onglet === 'traiter'){
+    actions += propre ? '<span class="df-propre" style="font-size:12px;color:#6B7280">Votre propre demande : une autre personne de la direction doit la traiter.</span>'
+      : '<button class="btn btn-primary btn-sm df-facturee" onclick="dfOuvrirTraiter(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-check"></i> Facturée</button>'
+      + '<button class="btn btn-secondary btn-sm df-refuser" onclick="dfOuvrirRefus(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-x"></i> Refuser</button>';
+  }
+  if(ouv && propre) actions += '<button class="btn btn-ghost btn-sm df-annuler" onclick="dfAnnuler(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-ban"></i> Annuler ma demande</button>';
+  const age = ouv ? '<span class="df-age" style="font-size:11.5px;margin-left:6px;color:' + (jours >= 3 ? '#B45309' : '#6B7280') + ';font-weight:' + (jours >= 3 ? '700' : '400') + '">' + (jours === 0 ? "aujourd'hui" : 'il y a ' + jours + ' j') + '</span>' : '';
+  return '<div class="card df-carte" data-id="' + escHtml(String(l.id)) + '" data-statut="' + escHtml(l.statut) + '" style="padding:12px 14px;margin-bottom:10px' + (_dfNouveaux.has(String(l.id)) ? ';border-left:4px solid #3B82F6' : '') + '">'
+    + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>' + escHtml(dfRef(l)) + '</strong> <span style="color:#6B7280">· ' + escHtml(dfDateFr(l.created_at)) + '</span>' + age
+    + (_dfNouveaux.has(String(l.id)) ? ' <span class="df-nouveau" style="background:#3B82F6;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:700">Nouveau</span>' : '') + '</div>'
+    + '<span class="df-statut" style="background:' + coul[1] + ';color:' + coul[0] + ';border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600">' + escHtml(DF_STATUTS[l.statut] || l.statut) + '</span></div>'
+    + '<div style="margin-top:6px;font-size:13.5px"><span style="color:#6B7280">' + escHtml(DF_ORIGINES[l.origine_type] || '') + ' :</span> ' + origine + (l.client_nom ? ' <span style="color:#6B7280">· ' + escHtml(l.client_nom) + '</span>' : '') + '</div>'
+    + '<div style="margin-top:2px;font-size:13.5px"><strong>' + escHtml(DF_TYPES[l.type_facturation] || '') + '</strong>' + montant + (onglet !== 'mes' ? ' <span style="color:#6B7280">· demandé par ' + escHtml(l.demandeur_nom || l.demandeur_email || '') + '</span>' : '') + '</div>'
+    + (l.message ? '<div class="df-message" style="margin-top:6px;font-size:13px;color:#374151;background:var(--gray-1);border-radius:6px;padding:6px 10px;white-space:pre-wrap">' + escHtml(l.message) + '</div>' : '')
+    + resultat
+    + (actions ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + actions + '</div>' : '') + '</div>';
+}
+function dfListeHtml(df, onglet){
+  const L = dfFiltrerLignes(df, onglet);
+  if(!L.length){
+    const vide = _dfRecherche.trim() ? 'Aucune demande ne correspond à la recherche.' : onglet === 'traiter' ? 'Aucune demande de facturation à traiter.' : onglet === 'histo' ? 'Aucune demande traitée pour le moment.' : "Vous n'avez fait aucune demande de facturation. Utilisez le bouton « Demander la facturation » dans la fiche d'un chantier, d'un devis ou d'une intervention.";
+    return '<div class="empty df-vide"><div class="empty-icon"><i class="ti ti-receipt-2"></i></div><p>' + escHtml(vide) + '</p></div>';
+  }
+  return L.map(l => dfCarte(l, df.ctx, onglet)).join('');
+}
+function dfHtmlReglage(df){
+  const {ctx, d} = df, cfg = d.cfg || {ok:true, configuree:false, traitants:[]};
+  const pre = new Set(cfg.configuree ? cfg.traitants : d.admins.filter(a => a.direction).map(a => a.email));
+  const peut = ctx.peutTraiter;
+  const cases = d.admins.map(a => '<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;text-transform:none;letter-spacing:0"><input type="checkbox" class="df-traitant-cb" value="' + escHtml(a.email) + '" ' + (pre.has(a.email) ? 'checked ' : '') + (peut ? '' : 'disabled ') + '> ' + escHtml(a.nom) + '</label>').join('');
+  return '<div class="card" id="df-reglage" style="padding:14px 16px;margin-top:16px">'
+    + '<div style="font-weight:700;margin-bottom:4px"><i class="ti ti-user-check"></i> Qui traite les demandes de facturation ?</div>'
+    + '<div style="color:#6B7280;font-size:13px;margin-bottom:8px">Les personnes cochées voient les demandes, les marquent « facturées » ou les refusent, et reçoivent la pastille dans le menu.'
+    + (cfg.configuree ? '' : ' <strong>Par défaut</strong> : la direction (administrateurs sans chantier). Enregistrez la liste pour la fixer.') + '</div>'
+    + (cfg.ok === false ? '<div class="alert alert-warning" id="df-reglage-erreur" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><span>La liste n\'a pas pu être lue (' + escHtml(cfg.erreur || 'erreur') + ') : la direction traite en attendant.</span></div>' : '')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px">' + (cases || '<span style="color:#6B7280">Aucun administrateur actif trouvé.</span>') + '</div>'
+    + '<div style="margin-top:10px">' + (peut ? '<button class="btn btn-primary btn-sm" id="df-reglage-enregistrer" onclick="dfEnregistrerTraitants()">Enregistrer</button>' : '') + '</div></div>';
+}
+async function dfEnregistrerTraitants(){
+  const df = _df; if(!df) return;
+  if(!df.ctx.peutTraiter){ showToast('Vous ne pouvez pas modifier cette liste', 'error'); return; }
+  const mails = Array.from(document.querySelectorAll('#df-reglage .df-traitant-cb')).filter(c => c.checked).map(c => havNormEmail(c.value)).filter(Boolean);
+  if(!mails.length){ showToast('Cochez au moins une personne : sans traitant, personne ne pourrait traiter les demandes', 'error'); return; }
+  if(df.ctx.email && !mails.includes(df.ctx.email) && !confirm("Vous n'êtes pas dans la liste : vous ne pourrez plus traiter les demandes ni modifier cette liste.\n\nEnregistrer quand même ?")) return;
+  const btn = document.getElementById('df-reglage-enregistrer'); if(btn) btn.disabled = true;
+  let err = null;
+  try{
+    const r = await sb.from('parametres_app').upsert({cle:DF_CLE, valeur_json:{traitants:mails, maj_par:(currentUser && currentUser.email) || null, maj_le:new Date().toISOString()}}, {onConflict:'cle'}).select('cle');
+    if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = 'enregistrement refusé (droits insuffisants)';
+  }catch(e){ err = (e && e.message) || String(e); }
+  if(btn) btn.disabled = false;
+  if(err){ showToast(escHtml("Impossible d'enregistrer : " + err), 'error'); return; }
+  showToast('Personnes qui traitent les demandes enregistrées');
+  await dfRafraichir();
+}
+async function dfDessiner(){
+  const page = el('page-content'); if(!page || currentPage !== 'demandes_facturation') return;
+  const entete = '<div class="page-header"><div class="page-header-left"><h1>Demandes de facturation</h1><p>Les responsables demandent, la direction facture ou refuse (motif obligatoire) ; chacun est prévenu du résultat.</p></div></div>';
+  let df;
+  try{ df = await dfCharger(false); }
+  catch(e){ page.innerHTML = entete + '<div class="alert alert-error"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les demandes : ' + escHtml((e && e.message) || String(e)) + '</span></div>'; return; }
+  if(!df){ page.innerHTML = entete; return; }
+  const {ctx, d} = df;
+  if(d.sqlManque){ page.innerHTML = entete + '<div class="alert alert-warning" id="df-sql"><i class="ti ti-alert-triangle"></i><span>' + escHtml(DF_MSG_SQL) + '</span></div>'; return; }
+  if(d.erreur){ page.innerHTML = entete + '<div class="alert alert-error" id="df-erreur"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les demandes : ' + escHtml(d.erreur) + '</span></div>'; return; }
+  const onglets = dfOngletsDispo(df);
+  if(!onglets.length){
+    page.innerHTML = entete + '<div class="alert alert-info" id="df-aucun-droit"><i class="ti ti-info-circle"></i><span>' + (ctx.empId ? 'Cette page est réservée aux responsables de chantier (qui demandent) et à la direction (qui traite).' : ctx.ambigu ? 'Votre e-mail (' + escHtml((currentUser && currentUser.email) || '') + ') figure sur plusieurs fiches employé : demandez à l\'administration de n\'en garder qu\'une (RH → Employés).' : 'Votre e-mail (' + escHtml((currentUser && currentUser.email) || '') + ') ne correspond à aucune fiche employé : demandez à l\'administration de renseigner l\'e-mail sur votre fiche (RH → Employés).') + '</span></div>';
+    return;
+  }
+  if(!_dfOnglet || !onglets.some(o => o[0] === _dfOnglet)) _dfOnglet = onglets[0][0];
+  const r = df.resume;
+  const compte = {traiter:r.aTraiter, mes:r.resultats};
+  const tabs = onglets.map(o => '<button class="btn ' + (o[0] === _dfOnglet ? 'btn-primary' : 'btn-secondary') + ' btn-sm df-onglet" data-onglet="' + o[0] + '" onclick="dfChoisirOnglet(\'' + o[0] + '\')">' + escHtml(o[1]) + (compte[o[0]] ? ' (' + compte[o[0]] + ')' : '') + '</button>').join('');
+  page.innerHTML = entete
+    + (d.erreurCtx ? '<div class="alert alert-warning" id="df-ctx"><i class="ti ti-alert-triangle"></i><span>Vos droits n\'ont pas pu être vérifiés complètement (' + escHtml(d.erreurCtx) + ') : certaines options peuvent manquer.</span></div>' : '')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' + tabs
+    + '<input id="df-recherche" type="search" placeholder="Rechercher (n°, client, chantier, personne…)" value="' + escHtml(_dfRecherche) + '" oninput="dfRechercher(this.value)" style="margin-left:auto;min-width:240px;padding:7px 10px;border:1px solid var(--gray-3);border-radius:6px;font-size:13px"/></div>'
+    + '<div id="df-liste">' + dfListeHtml(df, _dfOnglet) + '</div>'
+    + (ctx.peutTraiter && _dfOnglet === 'traiter' ? dfHtmlReglage(df) : '');
+  if(_dfOnglet === 'mes') await dfMarquerVus(r.nonVus.map(l => String(l.id)));
+}
+function dfChoisirOnglet(o){ _dfOnglet = o; dfDessiner(); }
+function dfRechercher(v){
+  _dfRecherche = String(v || '');
+  const liste = document.getElementById('df-liste'); if(liste && _df) liste.innerHTML = dfListeHtml(_df, _dfOnglet);
+}
+// Les résultats vus sont marqués « vus » : la pastille et le bandeau disparaissent ; la carte garde « Nouveau » jusqu'à la fermeture de la page
+async function dfMarquerVus(ids){
+  if(!ids.length || !_df) return;
+  ids.forEach(i => _dfNouveaux.add(i));
+  const maintenant = new Date().toISOString();
+  try{
+    const r = await sb.from(DF_CLE).update({vu_le:maintenant}).in('id', ids).is('vu_le', null).select('id');
+    if(r.error) return;
+    _df.d.lignes.forEach(l => { if(ids.includes(String(l.id))) l.vu_le = maintenant; });
+    _df.resume = dfResume(_df.d.lignes, _df.ctx);
+    dfMajChrome();
+    const liste = document.getElementById('df-liste'); if(liste) liste.innerHTML = dfListeHtml(_df, _dfOnglet);
+  }catch(e){ /* le résultat restera « non vu » : sans gravité */ }
+}
+function dfOuvrirOrigine(id){
+  const l = dfLigne(id); if(!l) return;
+  const cible = l[DF_COL[l.origine_type]]; if(!cible) return;
+  if(l.origine_type === 'chantier') openChantierDetail(cible);
+  else if(l.origine_type === 'devis') openDevisDetail(cible);
+  else openInterventionDetail(cible);
+}
+
+// ── Décisions de la direction ──────────────────────────────────────────────────────────────────────────────────
+// Écrit la décision seulement si la demande est ENCORE « à traiter » (deux personnes de la direction peuvent cliquer en même temps)
+async function dfEcrire(id, maj, msgOk){
+  let r;
+  try{ r = await sb.from(DF_CLE).update(maj).eq('id', id).eq('statut', 'demandee').select('id'); }catch(e){ r = {error:e}; }
+  if(r.error){
+    const m = (r.error && r.error.message) || String(r.error);
+    showToast(escHtml(havAbsentSQL(m) ? DF_MSG_SQL : "Impossible d'enregistrer : " + m), 'error', 7000); return false;
+  }
+  if(!(r.data || []).length){ showToast("Cette demande n'est plus à traiter (déjà traitée, annulée ou refusée par quelqu'un d'autre). Liste actualisée.", 'error', 7000); closeModal(); await dfRafraichir(); return false; }
+  closeModal(); showToast(escHtml(msgOk)); await dfRafraichir(); return true;
+}
+function dfControlerTraitement(id){
+  const l = dfLigne(id), df = _df;
+  if(!l || !df){ showToast('Demande introuvable : actualisez la page', 'error'); return null; }
+  if(!df.ctx.peutTraiter){ showToast("Vous n'avez pas le droit de traiter les demandes de facturation", 'error'); return null; }
+  if(dfMienne(l, df.ctx)){ showToast('Vous ne pouvez pas traiter votre propre demande : une autre personne de la direction doit le faire', 'error', 6000); return null; }
+  if(l.statut !== 'demandee'){ showToast("Cette demande n'est plus à traiter", 'error'); return null; }
+  return l;
+}
+async function dfOuvrirTraiter(id){
+  const l = dfControlerTraitement(id); if(!l) return;
+  const col = DF_COL[l.origine_type], cible = l[col];
+  let factures = [], erreurF = null;
+  if(cible){
+    try{
+      const r = await sb.from('factures_vente').select('id,numero,statut,total_ht,type_facture,created_at').eq(col, cible).order('created_at', {ascending:false});
+      if(r.error) throw r.error;
+      factures = (r.data || []).filter(f => f.type_facture !== 'avoir' && f.statut !== 'annulee');   // ni avoir, ni facture annulée
+    }catch(e){ erreurF = (e && e.message) || String(e); }
+  }
+  _dfTraiter = {id:String(l.id), factures};
+  const lib = f => (f.numero || 'Brouillon') + ' · ' + dfDateFr(f.created_at) + ' · ' + fmt(f.total_ht || 0) + ' HT' + (f.statut === 'brouillon' ? ' (brouillon)' : '');
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:560px">
+    <div class="modal-header"><h3>Demande ${escHtml(dfRef(l))} — facturée</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <p style="font-size:13px;margin-bottom:10px"><strong>${escHtml(DF_TYPES[l.type_facturation] || '')}</strong>${l.pourcentage != null ? ' ' + escHtml(dfPct(l.pourcentage)) + ' %' : ''}${l.montant_ht != null ? ' ' + escHtml(fmt(l.montant_ht)) + ' HT' : ''} — ${escHtml(l.origine_ref || '')} · demandé par ${escHtml(l.demandeur_nom || l.demandeur_email || '')}</p>
+      ${erreurF ? '<div class="alert alert-warning" id="df-factures-erreur"><i class="ti ti-alert-triangle"></i><span>Les factures de cette fiche n\'ont pas pu être lues (' + escHtml(erreurF) + ').</span></div>' : ''}
+      <div class="form-group"><label>Facture créée pour cette demande</label>
+        <select id="df-facture"><option value="">— choisir la facture —</option>${factures.map(f => '<option value="' + escHtml(String(f.id)) + '">' + escHtml(lib(f)) + '</option>').join('')}</select>
+        ${factures.length ? '' : '<div id="df-pas-de-facture" style="font-size:12.5px;color:#B45309;margin-top:4px">Aucune facture trouvée pour cette fiche : créez d\'abord la facture (bouton « Ouvrir »), puis revenez ici.</div>'}</div>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;text-transform:none;letter-spacing:0"><input type="checkbox" id="df-sans-facture"> Aucune facture à lier (facturé en dehors de l'ERP)</label>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-secondary" onclick="dfOuvrirOrigine('${escHtml(String(l.id))}')">Ouvrir ${escHtml(DF_ORIGINES[l.origine_type] || '')}</button><button class="btn btn-primary" id="df-confirmer" onclick="dfConfirmerTraiter()"><i class="ti ti-check"></i> Marquer comme facturée</button></div>
+    </div></div></div>`);
+}
+async function dfConfirmerTraiter(){
+  const t = _dfTraiter; if(!t) return;
+  const l = dfControlerTraitement(t.id); if(!l) return;
+  const sel = (document.getElementById('df-facture') || {}).value, sans = !!(document.getElementById('df-sans-facture') || {}).checked;
+  if(!sel && !sans){ showToast("Choisissez la facture créée, ou cochez « Aucune facture à lier »", 'error'); return; }
+  const f = sel ? t.factures.find(x => String(x.id) === String(sel)) : null;
+  if(sel && !f){ showToast('Facture introuvable : rouvrez la fenêtre', 'error'); return; }
+  const btn = document.getElementById('df-confirmer'); if(btn) btn.disabled = true;
+  const ok = await dfEcrire(t.id, {statut:'traitee', traite_par_nom:nomPers(currentUser) || (currentUser && currentUser.email) || '', facture_vente_id:f ? f.id : null, facture_ref:f ? (f.numero || 'Brouillon') : null}, 'Demande ' + dfRef(l) + ' marquée comme facturée');
+  if(!ok && btn) btn.disabled = false;
+}
+function dfOuvrirRefus(id){
+  const l = dfControlerTraitement(id); if(!l) return;
+  _dfTraiter = {id:String(l.id), factures:[]};
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:520px">
+    <div class="modal-header"><h3>Refuser la demande ${escHtml(dfRef(l))}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <p style="font-size:13px;margin-bottom:10px">${escHtml(DF_TYPES[l.type_facturation] || '')} — ${escHtml(l.origine_ref || '')} · demandé par ${escHtml(l.demandeur_nom || l.demandeur_email || '')}</p>
+      <div class="form-group"><label>Motif du refus (obligatoire, visible par ${escHtml(l.demandeur_nom || 'le demandeur')})</label><textarea id="df-motif" rows="3" maxlength="500" placeholder="ex. Acompte non prévu au contrat — facturer à la réception"></textarea></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-danger" id="df-confirmer-refus" onclick="dfConfirmerRefus()"><i class="ti ti-x"></i> Refuser la demande</button></div>
+    </div></div></div>`);
+}
+async function dfConfirmerRefus(){
+  const t = _dfTraiter; if(!t) return;
+  const l = dfControlerTraitement(t.id); if(!l) return;
+  const motif = String((document.getElementById('df-motif') || {}).value || '').trim();
+  if(motif.length < 3){ showToast('Le motif du refus est obligatoire (3 caractères au moins)', 'error'); return; }
+  const btn = document.getElementById('df-confirmer-refus'); if(btn) btn.disabled = true;
+  const ok = await dfEcrire(t.id, {statut:'refusee', motif_refus:motif.slice(0, 500), traite_par_nom:nomPers(currentUser) || (currentUser && currentUser.email) || ''}, 'Demande ' + dfRef(l) + ' refusée');
+  if(!ok && btn) btn.disabled = false;
+}
+async function dfAnnuler(id){
+  const l = dfLigne(id), df = _df;
+  if(!l || !df || !dfMienne(l, df.ctx)){ showToast('Vous ne pouvez annuler que vos propres demandes', 'error'); return; }
+  if(l.statut !== 'demandee'){ showToast("Cette demande n'est plus en attente", 'error'); await dfRafraichir(); return; }
+  if(!confirm('Annuler la demande ' + dfRef(l) + ' (' + (l.origine_ref || '') + ') ?')) return;
+  await dfEcrire(String(l.id), {statut:'annulee', traite_par_nom:nomPers(currentUser) || (currentUser && currentUser.email) || '', vu_le:new Date().toISOString()}, 'Demande ' + dfRef(l) + ' annulée');   // vu_le : le demandeur sait qu'il a annulé (pas de pastille pour sa propre annulation)
+}
 
 // ── INIT ─────────────────────────────────────────────────────
 function toggleSidebar(){
