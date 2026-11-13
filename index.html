@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-12-fe8d001"/>
+<meta name="lyneo-build" content="BUILD:2026-11-13-9cd71bf"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2794,7 +2794,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-12-fe8d001';
+const APP_BUILD = 'BUILD:2026-11-13-9cd71bf';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -22099,7 +22099,7 @@ function havMajChrome(){
   b.innerHTML = '<i class="ti ti-clock-check" style="font-size:18px"></i><span><strong>Vous avez '+escHtml(havH(r.heures))+' h à valider</strong> — '+r.blocs+' bloc'+(r.blocs>1?'s':'')+' de chantier, '+r.semaines+' semaine'+(r.semaines>1?'s':'')+' soumise'+(r.semaines>1?'s':'')+'.</span>'
     + '<button class="btn btn-primary btn-sm" id="hav-bandeau-btn" onclick="navigate(\'heures_a_valider\')">Valider mes heures</button>';
 }
-function havReset(){ _hav = null; _havPromesse = null; _havVue = 'mes'; if(_havMinuteur){ clearInterval(_havMinuteur); _havMinuteur = null; } const b = document.getElementById('hav-bandeau'); if(b) b.remove(); const n = document.getElementById('nav-heures_a_valider'); if(n) n.classList.add('hidden'); const g = document.getElementById('hav-badge'); if(g) g.style.display = 'none'; }
+function havReset(){ _havAbsOuvert = null; _hav = null; _havPromesse = null; _havVue = 'mes'; if(_havMinuteur){ clearInterval(_havMinuteur); _havMinuteur = null; } const b = document.getElementById('hav-bandeau'); if(b) b.remove(); const n = document.getElementById('nav-heures_a_valider'); if(n) n.classList.add('hidden'); const g = document.getElementById('hav-badge'); if(g) g.style.display = 'none'; }
 async function havDemarrer(){
   try{ await havCharger(false); havMajChrome(); }catch(e){}
   if(!_havMinuteur){
@@ -23434,21 +23434,27 @@ function havNomsAbs(d){
 }
 // ── Réglage : qui valide les absences ? (carte dans la page, direction seulement) ─────────────────────────────────
 function havPeutRegler(ctx){ return !!ctx.superviseur && (ctx.valideAbs || !(_hav && _hav.d.cfg && _hav.d.cfg.configuree)); }
+let _havAbsOuvert = null;            // null = par défaut (ouvert seulement tant que la liste n'est pas enregistrée)
+function havAbsBascule(resume){ const d = resume && resume.parentNode; if(d) _havAbsOuvert = !d.open; }
 function havHtmlReglageAbs(h, dg){
   const cfg = h.d.cfg || {ok:true, configuree:false, absences:[]}, ctx = h.ctx;
   const admins = (dg && dg.admins) || [];
   const pre = new Set(cfg.configuree ? cfg.absences : (dg && dg.directionMails || []));
   const peut = havPeutRegler(ctx);
-  const cases = admins.map(a=>'<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;cursor:'+(peut?'pointer':'default')+';text-transform:none;letter-spacing:0"><input type="checkbox" class="hav-abs-cb" value="'+escHtml(a.email)+'" '+(pre.has(a.email)?'checked ':'')+(peut?'':'disabled ')+'> '+escHtml(a.nom)+'</label>').join('');
-  return '<div class="card" id="hav-abs" style="padding:14px 16px;margin-bottom:16px">'
-    + '<div style="font-weight:700;margin-bottom:4px"><i class="ti ti-user-check"></i> Qui valide les absences ?</div>'
+  const cases = admins.map(a=>'<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;cursor:'+(peut?'pointer':'default')+';text-transform:none;letter-spacing:0"><input type="checkbox" class="hav-abs-cb" style="width:auto;flex:none;margin:0" value="'+escHtml(a.email)+'" '+(pre.has(a.email)?'checked ':'')+(peut?'':'disabled ')+'> '+escHtml(a.nom)+'</label>').join('');
+  const ouvert = _havAbsOuvert === null ? !cfg.configuree : _havAbsOuvert;   // une liste illisible n'est jamais « configurée » : la carte reste ouverte et l'avertissement se voit
+  const noms = admins.filter(a => pre.has(a.email)).map(a => a.nom);
+  const resume = cfg.configuree ? (noms.join(', ') || 'personne') : 'par défaut : toute la direction — à enregistrer';
+  return '<details class="card" id="hav-abs" ' + (ouvert ? 'open ' : '') + 'style="padding:0;margin-bottom:16px">'
+    + '<summary id="hav-abs-titre" onclick="havAbsBascule(this)" style="cursor:pointer;padding:12px 16px;font-weight:700"><i class="ti ti-user-check"></i> Qui valide les absences ? <span style="font-weight:400;font-size:12.5px;color:#6B7280">— ' + escHtml(resume) + '</span></summary>'
+    + '<div style="padding:0 16px 14px">'
     + '<div style="color:#6B7280;font-size:13px;margin-bottom:8px">Les <strong>heures</strong> pointées sont validées par les responsables de projet (tout responsable de chantier ou administrateur). Les <strong>absences</strong> (congés, maladie…) ne sont validées que par les personnes cochées'
     + (cfg.configuree ? '.' : ' — <strong>à faire une fois :</strong> vérifiez la liste puis enregistrez (en attendant, toute la direction peut les valider).')+'</div>'
     + (cfg.ok ? '' : '<div class="alert alert-warning" id="hav-abs-erreur" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><span>La liste n\'a pas pu être lue ('+escHtml(cfg.erreur||'erreur')+') : toute la direction valide les absences en attendant.</span></div>')
     + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px">'+(cases || '<span style="color:#6B7280">Aucun administrateur actif trouvé.</span>')+'</div>'
     + '<div style="margin-top:10px">'+(peut
         ? '<button class="btn btn-primary btn-sm" id="hav-abs-enregistrer" onclick="havEnregistrerAbs()">Enregistrer</button>'
-        : '<span style="font-size:12px;color:#6B7280">Seules les personnes cochées peuvent modifier cette liste.</span>')+'</div></div>';
+        : '<span style="font-size:12px;color:#6B7280">Seules les personnes cochées peuvent modifier cette liste.</span>')+'</div></div></details>';
 }
 async function havEnregistrerAbs(){
   const h = _hav; if(!h) return;
@@ -23466,6 +23472,7 @@ async function havEnregistrerAbs(){
   if(btn) btn.disabled = false;
   if(err){ showToast(escHtml("Impossible d'enregistrer : "+err), 'error'); return; }
   showToast('Valideurs d\'absences enregistrés');
+  _havAbsOuvert = false;                          // enregistré : la carte se replie
   await havRafraichir();
 }
 
@@ -23490,7 +23497,7 @@ const DF_TYPES = {acompte:'Acompte', situation:'Situation', solde:'Solde', total
 const DF_STATUTS = {demandee:'À traiter', traitee:'Facturée', refusee:'Refusée', annulee:'Annulée'};
 const DF_ORIGINES = {chantier:'Chantier', devis:'Devis', intervention:'Intervention SAV'};
 const DF_COL = {chantier:'chantier_id', devis:'devis_id', intervention:'intervention_id'};
-let _df = null, _dfPromesse = null, _dfMinuteur = null, _dfEcouteur = false, _dfOnglet = null, _dfRecherche = '', _dfNouveaux = new Set(), _dfDemande = null, _dfTraiter = null;
+let _df = null, _dfPromesse = null, _dfMinuteur = null, _dfEcouteur = false, _dfOnglet = null, _dfRecherche = '', _dfNouveaux = new Set(), _dfDemande = null, _dfTraiter = null, _dfReglageOuvert = null;   // _dfReglageOuvert : null = par défaut (ouvert seulement tant que la liste n'est pas enregistrée)
 
 const dfRef = r => 'DF-' + String(r && r.num != null ? r.num : '').padStart(4, '0');
 const dfDateFr = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); };
@@ -23615,7 +23622,7 @@ function dfAller(){
   navigate('demandes_facturation');
 }
 function dfReset(){
-  _df = null; _dfPromesse = null; _dfOnglet = null; _dfRecherche = ''; _dfNouveaux = new Set(); _dfDemande = null; _dfTraiter = null;
+  _df = null; _dfPromesse = null; _dfOnglet = null; _dfRecherche = ''; _dfNouveaux = new Set(); _dfDemande = null; _dfTraiter = null; _dfReglageOuvert = null;
   if(_dfMinuteur){ clearInterval(_dfMinuteur); _dfMinuteur = null; }
   const b = document.getElementById('df-bandeau'); if(b) b.remove();
   const n = document.getElementById('nav-demandes_facturation'); if(n) n.classList.add('hidden');
@@ -23788,15 +23795,21 @@ function dfHtmlReglage(df){
   const {ctx, d} = df, cfg = d.cfg || {ok:true, configuree:false, traitants:[]};
   const pre = new Set(cfg.configuree ? cfg.traitants : d.admins.filter(a => a.direction).map(a => a.email));
   const peut = ctx.peutTraiter;
-  const cases = d.admins.map(a => '<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;text-transform:none;letter-spacing:0"><input type="checkbox" class="df-traitant-cb" value="' + escHtml(a.email) + '" ' + (pre.has(a.email) ? 'checked ' : '') + (peut ? '' : 'disabled ') + '> ' + escHtml(a.nom) + '</label>').join('');
-  return '<div class="card" id="df-reglage" style="padding:14px 16px;margin-top:16px">'
-    + '<div style="font-weight:700;margin-bottom:4px"><i class="ti ti-user-check"></i> Qui traite les demandes de facturation ?</div>'
+  const cases = d.admins.map(a => '<label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;text-transform:none;letter-spacing:0"><input type="checkbox" class="df-traitant-cb" style="width:auto;flex:none;margin:0" value="' + escHtml(a.email) + '" ' + (pre.has(a.email) ? 'checked ' : '') + (peut ? '' : 'disabled ') + '> ' + escHtml(a.nom) + '</label>').join('');
+  // Réglage « une fois pour toutes » : repliable. Ouvert seulement tant que la liste n'est pas enregistrée (ou illisible) ; le choix de la personne est gardé quand la page se redessine.
+  const ouvert = _dfReglageOuvert === null ? !cfg.configuree : _dfReglageOuvert;   // une liste illisible n'est jamais « configurée » : la carte reste ouverte et l'avertissement se voit
+  const noms = d.admins.filter(a => pre.has(a.email)).map(a => a.nom);
+  const resume = cfg.configuree ? (noms.join(', ') || 'personne') : 'par défaut : la direction — à enregistrer';
+  return '<details class="card" id="df-reglage" ' + (ouvert ? 'open ' : '') + 'style="padding:0;margin-top:16px">'
+    + '<summary id="df-reglage-titre" onclick="dfReglageBascule(this)" style="cursor:pointer;padding:12px 16px;font-weight:700"><i class="ti ti-user-check"></i> Qui traite les demandes de facturation ? <span style="font-weight:400;font-size:12.5px;color:#6B7280">— ' + escHtml(resume) + '</span></summary>'
+    + '<div style="padding:0 16px 14px">'
     + '<div style="color:#6B7280;font-size:13px;margin-bottom:8px">Les personnes cochées voient les demandes, les marquent « facturées » ou les refusent, et reçoivent la pastille dans le menu.'
     + (cfg.configuree ? '' : ' <strong>Par défaut</strong> : la direction (administrateurs sans chantier). Enregistrez la liste pour la fixer.') + '</div>'
     + (cfg.ok === false ? '<div class="alert alert-warning" id="df-reglage-erreur" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><span>La liste n\'a pas pu être lue (' + escHtml(cfg.erreur || 'erreur') + ') : la direction traite en attendant.</span></div>' : '')
     + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px">' + (cases || '<span style="color:#6B7280">Aucun administrateur actif trouvé.</span>') + '</div>'
-    + '<div style="margin-top:10px">' + (peut ? '<button class="btn btn-primary btn-sm" id="df-reglage-enregistrer" onclick="dfEnregistrerTraitants()">Enregistrer</button>' : '') + '</div></div>';
+    + '<div style="margin-top:10px">' + (peut ? '<button class="btn btn-primary btn-sm" id="df-reglage-enregistrer" onclick="dfEnregistrerTraitants()">Enregistrer</button>' : '') + '</div></div></details>';
 }
+function dfReglageBascule(resume){ const d = resume && resume.parentNode; if(d) _dfReglageOuvert = !d.open; }   // appelé avant que le navigateur bascule : le nouvel état est l'inverse de l'actuel
 async function dfEnregistrerTraitants(){
   const df = _df; if(!df) return;
   if(!df.ctx.peutTraiter){ showToast('Vous ne pouvez pas modifier cette liste', 'error'); return; }
@@ -23812,6 +23825,7 @@ async function dfEnregistrerTraitants(){
   if(btn) btn.disabled = false;
   if(err){ showToast(escHtml("Impossible d'enregistrer : " + err), 'error'); return; }
   showToast('Personnes qui traitent les demandes enregistrées');
+  _dfReglageOuvert = false;                       // enregistré : la carte se replie
   await dfRafraichir();
 }
 async function dfDessiner(){
