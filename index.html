@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-15-235f4fa"/>
+<meta name="lyneo-build" content="BUILD:2026-11-15-af4a7e1"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2795,7 +2795,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-15-235f4fa';
+const APP_BUILD = 'BUILD:2026-11-15-af4a7e1';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -23990,6 +23990,8 @@ const CF_CENTRES = [
   ['F00005','Comptabilité'], ['F00006','Ressources Humaines'], ['F00007','Achats'], ['F00008','Juridiques'], ['F00009','Assurances'],
   ['F00010','Administration'], ['F00011','Immeubles /sièges'], ['F00012','Informatique'], ['F00013','Management Fees']
 ];
+// Centres « Autres » du fichier de la direction financière (Centre de coûts et Code ressources) : internes, réservés aux achats (STOCK existe déjà : « Passer en centre interne »)
+const CF_AUTRES = [['FLOTTE','Parc Automobile (Carburant, Location, Leasing)'], ['FORMATION','Frais de Formation, Cotisation Formation Continue'], ['SALAIRES','Charges salariales, EPI, Electroportatif, UP']];
 const CF_TYPES = {chantier:'Chantier', sav:'Centre SAV', interne:'Interne'};
 const cfNumero = c => String((c && c.numero) || '').trim();
 const cfTypeInterne = c => !!c && c.type_centre === 'interne';                       // marqué « interne » dans la base
@@ -24044,7 +24046,7 @@ let _cfEtat = {erreur:null, tous:[], occupe:false};
 function cfCarteDocumentsHtml(){
   return '<div class="card" style="padding:20px;margin-bottom:16px" id="doc-centres-frais">'
     + '<h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-building-community"></i> Centres de frais et centres internes</h3>'
-    + '<p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Les frais généraux se suivent par centre de frais (F00001 … F00013, comme dans le fichier de reporting de la direction financière). Ces centres ne servent qu’aux <strong>achats</strong> : commandes, factures fournisseurs et notes de frais. Ils n’apparaissent ni dans la liste des Chantiers, ni dans les devis et factures clients, ni dans les pointages.</p>'
+    + '<p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Les frais généraux se suivent par centre de frais (F00001 … F00013, comme dans le fichier de reporting de la direction financière), plus les centres FLOTTE, FORMATION et SALAIRES (STOCK : « Passer en centre interne »). Ces centres ne servent qu’aux <strong>achats</strong> : commandes, factures fournisseurs et notes de frais. Ils n’apparaissent ni dans la liste des Chantiers, ni dans les devis et factures clients, ni dans les pointages.</p>'
     + '<div id="cf-zone"><p style="color:var(--gray-5)">Chargement…</p></div></div>';
 }
 async function cfCharger(){
@@ -24061,7 +24063,7 @@ function cfPlan(tous){
     String(c.code_pointages || '').split(/[,;]/).forEach(x => { x = x.trim().toUpperCase(); if(x) codes.add(x); });
   });
   const creer = [], conflits = [], presents = [];
-  CF_CENTRES.forEach(([num, nom]) => {
+  CF_CENTRES.concat(CF_AUTRES).forEach(([num, nom]) => {
     const c = parNum.get(num);
     if(c) { if(cfTypeInterne(c)) presents.push(c); else conflits.push({numero:num, nom, raison:'existe déjà avec le type « ' + (CF_TYPES[c.type_centre || 'chantier'] || c.type_centre) + ' » (' + (c.nom || '') + ')'}); }
     else if(codes.has(num)) conflits.push({numero:num, nom, raison:'déjà utilisé comme code pointages d’un autre centre'});
@@ -24087,7 +24089,7 @@ function cfDessiner(){
       + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (ok ? '' : '<button class="btn btn-secondary btn-sm cf-passer" onclick="cfPasserInterne(\'' + escHtml(String(c.id)) + '\')" title="Ne plus le proposer dans les chantiers, les devis et les factures clients">Passer en centre interne</button>') + '</td></tr>';
   }).join('');
   z.innerHTML =
-    '<p style="font-size:13px;margin-bottom:10px" id="cf-resume"><strong>' + plan.presents.length + '</strong> centre' + (plan.presents.length > 1 ? 's' : '') + ' de frais sur ' + CF_CENTRES.length + ' (F00001 – F' + String(CF_CENTRES.length).padStart(5, '0') + ')'
+    '<p style="font-size:13px;margin-bottom:10px" id="cf-resume"><strong>' + plan.presents.filter(cfEstFrais).length + '</strong> centre' + (plan.presents.filter(cfEstFrais).length > 1 ? 's' : '') + ' de frais sur ' + CF_CENTRES.length + ' (F00001 – F' + String(CF_CENTRES.length).padStart(5, '0') + ') et <strong>' + plan.presents.filter(c => !cfEstFrais(c)).length + '</strong> sur ' + CF_AUTRES.length + ' autres centres (' + CF_AUTRES.map(a => a[0]).join(', ') + ')'
       + (plan.creer.length ? ' — <strong>' + plan.creer.length + '</strong> à créer' : ' — tous créés') + '.</p>'
     + (plan.conflits.length ? '<div class="alert alert-warning" id="cf-conflits" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>Non créés : ' + plan.conflits.map(x => '<strong>' + escHtml(x.numero) + '</strong> ' + escHtml(x.raison)).join(' · ') + '</span></div>' : '')
     + '<div style="margin-bottom:12px"><button class="btn btn-primary" id="cf-creer" onclick="cfCreerManquants()"' + (plan.creer.length && !_cfEtat.occupe ? '' : ' disabled') + '><i class="ti ti-plus"></i> Créer les ' + plan.creer.length + ' centre' + (plan.creer.length > 1 ? 's' : '') + ' de frais manquant' + (plan.creer.length > 1 ? 's' : '') + '</button></div>'
