@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-13-9cd71bf"/>
+<meta name="lyneo-build" content="BUILD:2026-11-15-235f4fa"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2770,6 +2770,7 @@ function afficherEcranConnexion(){
   if(typeof havReset==='function') havReset();
   if(typeof dfReset==='function') dfReset();
   if(typeof ptiReset==='function') ptiReset();
+  if(typeof daReset==='function') daReset();
   _clotureVentes = null;
   el('login-page').classList.remove('hidden');
   el('app-layout').classList.add('hidden');
@@ -2794,7 +2795,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-13-9cd71bf';
+const APP_BUILD = 'BUILD:2026-11-15-235f4fa';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -2887,6 +2888,7 @@ function initApp(){
   const dateEl = el('topbar-date');
   if(dateEl) dateEl.innerHTML = '<i class="ti ti-calendar" style="font-size:13px"></i>'+new Date().toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
   chargerCloture();
+  daDemarrer();            // « Documents » : le menu n'apparaît qu'aux personnes des listes d'accès
   entrepriseChargee();     // données de l'entreprise imprimées sur les PDF / Excel (page Administration → Documents)
   cvCharger().catch(()=>{});     // comptes de vente des factures clients (liste + existence de la colonne)
   { const p = pageDepuisHash(); if(pageAutorisee(p)) navigate(p, true); else navigate('dashboard', 'remplacer'); }   // un nouvel onglet ouvert sur #/devis arrive directement sur les devis
@@ -3064,6 +3066,7 @@ function pageDepuisHash(){ const m = String(location.hash||'').match(/^#\/([a-z_
 function pageAutorisee(p){
   const R = pageRenderers();
   if(!p || !Object.prototype.hasOwnProperty.call(R,p) || typeof R[p]!=='function') return false;   // refuse __proto__, constructor…
+  if(p==='documents') return daPeutVoirSync();   // administrateurs figurant dans l'une des deux listes (ou tous, tant que la liste n'est pas enregistrée)
   if(PAGES_ADMIN.includes(p)) return !!currentUser && currentUser.role==='admin';
   if(p==='employes_rh' || p==='formations' || p==='astreintes') return !!currentUser && peutVoirSalaires();
   return true;
@@ -3404,7 +3407,7 @@ async function renderDashboard(){
   const montantAchats = pos.filter(p=>['envoyee','rec_partielle','rec_totale'].includes(p.statut)).reduce((a,b)=>a+(b.total_ttc||0),0);
 
   // ── CHANTIERS
-  const chantiersActifs = chants.filter(c=>c.statut==='actif');
+  const chantiersActifs = chants.filter(c=>c.statut==='actif' && (c.type_centre||'chantier')==='chantier' && !cfEstInterne(c));   // ni centres SAV ni centres internes
   // Chantiers terminés : ce qu'il reste à encaisser (factures clients non payées) et retenues de garantie en attente
   const chantiersTermines = chants.filter(c=>c.statut==='termine' && (c.type_centre||'chantier')==='chantier');
   const sitTermines = chantiersTermines.map(c=>({c, s:situationFinanciereChantier(c, facsV)}));
@@ -3997,7 +4000,8 @@ async function renderChantiers(search=''){
   }
   // Les centres de coûts SAV (SAV 1, SAV 2...) vivent dans le module Interventions : ils ne sont pas listés ici.
   const centresSav = _chantiers.filter(c=>c.type_centre==='sav');
-  const baseTous = _chantiers.filter(c=>c.type_centre!=='sav');
+  const centresInternes = _chantiers.filter(cfEstInterne);   // frais généraux, HI, STOCK… : réservés aux achats, gérés dans Documents
+  const baseTous = _chantiers.filter(c=>c.type_centre!=='sav' && !cfEstInterne(c));
   const archives = baseTous.filter(chEstArchive);
   const actifs = baseTous.filter(c=>!chEstArchive(c));
   const baseChantiers = _chVue==='archives' ? archives : actifs;
@@ -4017,6 +4021,7 @@ async function renderChantiers(search=''){
       </div>
     </div>
     ${centresSav.length?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${centresSav.length} centre${centresSav.length>1?'s':''} de coûts SAV (${centresSav.map(c=>escHtml(c.numero)).sort().join(', ')}) — gérés dans <a href="#" onclick="navigate('interventions_sav');return false" style="color:var(--blue);font-weight:600">Interventions</a>, avec leurs interventions.</div>`:''}
+    ${cfInfoChantiersHtml(centresInternes)}
     <div style="display:flex;border-bottom:1px solid var(--gray-3);margin-bottom:16px">
       ${ongletCh('actifs', '<i class="ti ti-building-factory-2"></i> Chantiers', actifs.length)}
       ${ongletCh('archives', '<i class="ti ti-archive"></i> Chantiers archivés', archives.length)}
@@ -4296,7 +4301,7 @@ async function openChantierDetail(chantierId, tab){
 
   // Load factures fournisseur and vente for this chantier
   const [facsFournR, facsVenteR, devisR] = await Promise.all([
-    sb.from('factures').select('*').eq('chantier_id', chantierId).order('created_at',{ascending:false}),
+    facturesDesCentres([chantierId]).then(d=>({data:d})),
     Promise.resolve(sb.from('factures_vente').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})).catch(()=>({data:[]})),
     sb.from('devis').select('*,clients(nom)').eq('chantier_id',chantierId).order('created_at',{ascending:false})
   ]);
@@ -7131,7 +7136,7 @@ async function renderPOS(search='', filterStatut=''){
 
 function openNewPO(){
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
-  const chantsOpts = _chantiersActive.map(c=>`<option value="${c.id}">${escHtml(c.numero)} — ${escHtml(c.nom)}</option>`).join('');
+  const chantsOpts = cfGroupesAchat(_chantiersActive, '');
   const foursOpts = _foursActive.filter(f=>!f.employe_id).map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');   // pas de salariés (notes de frais)
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -9177,7 +9182,7 @@ async function renderFactures(){
   const [facsR, posR, chR, ndfR] = await Promise.all([
     chargerFacturesListe().then(async r=>{ if(_facCodesOk) await chargerCodesRessource(); return r; }),
     sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom),chantiers_lyneo!chantier_id(nom)').in('statut',['rec_totale','rec_partielle','envoyee']).order('created_at',{ascending:false}),
-    sb.from('chantiers_lyneo').select('id,numero,nom').order('nom'),
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom'),
     ndfFournisseursSalaries()
   ]);
   _ndfSet = new Set((ndfR||[]).map(f=>String(f.id)));   // fournisseurs « salarié » : leurs factures sont des notes de frais
@@ -9189,7 +9194,7 @@ async function renderFactures(){
   const ids = new Set(_facsListe.map(f=>f.id));
   _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
   const F = _facFiltres, sel = (a,b)=>a===b?' selected':'';
-  const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
+  const optChantiers = cfGroupesAchat(_facChantiers, '');
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Factures fournisseurs</h1><p>Suivi des factures et des paiements</p></div>
@@ -9351,7 +9356,7 @@ function afficherFactures(){
   const ex = el('fac-export-n'); if(ex) ex.textContent = `(${tous.length})`;
   const selectables = items.filter(r=>r.statut!=='annulee');
   const all = el('fac-sel-all'); if(all) all.disabled = !selectables.length;
-  const optChantiers = _facChantiers.map(c=>`<option value="${c.id}">${escHtml(libelleChantierFac(c))}</option>`).join('');
+  const optChantiers = cfGroupesAchat(_facChantiers, '');
   const dblFac = doublonsFacturesParId(_facsListe);
   const vis = {ech:colVisibleFac('ech'), tva:colVisibleFac('tva'), chantier:colVisibleFac('chantier'), codes:colVisibleFac('codes')};
   tbody.innerHTML = tous.length===0 ? `<tr><td colspan="${nbColsFac()}"><div class="empty"><div class="empty-icon"><i class="ti ti-file-invoice"></i></div><p>${_facsListe.length===0 ? 'Aucune facture enregistrée' : 'Aucune facture ne correspond aux filtres'}</p></div></td></tr>` :
@@ -9372,7 +9377,7 @@ function afficherFactures(){
         ${vis.tva ? `<td data-col="tva" style="white-space:nowrap">${fmtTvaFacture(r)}</td>` : ''}
         <td style="white-space:nowrap"><strong>${fmt(r.montant_ttc)}</strong></td>
         <td>${escHtml(r.purchase_orders_lyneo?.numero||'—')}</td>
-        ${vis.chantier ? `<td data-col="chantier">${cellChantier}</td>` : ''}
+        ${vis.chantier ? `<td data-col="chantier">${cellChantier}${r.imputation_multiple===true ? '<div class="fac-repartie" style="font-size:11px;font-weight:600;color:var(--orange)" title="Cette facture est répartie ligne par ligne entre plusieurs centres : ouvrez-la pour voir le détail">Répartie par ligne</div>' : ''}</td>` : ''}
         ${vis.codes ? `<td data-col="codes">${cellCodesFac(r)}</td>` : ''}
         <td data-col="paie">${cellPaiementFac(r)}</td>
         <td data-col="actions"><div class="td-actions">
@@ -9550,6 +9555,8 @@ function reinitialiserFiltresFactures(){
 
 // Affecte un chantier à plusieurs factures d'un coup (par paquets, pour ne pas dépasser la taille d'URL)
 async function affecterChantierFactures(ids, chantierId){
+  const multis = _facsListe.filter(f=>ids.includes(f.id) && f.imputation_multiple===true).map(f=>f.id);
+  if(multis.length){ const e2 = await imputRamenerAUn(multis); if(e2) return e2; }
   for(let i=0;i<ids.length;i+=50){
     const {error} = await sb.from('factures').update({chantier_id:chantierId}).in('id', ids.slice(i,i+50));
     if(error) return error;
@@ -9561,7 +9568,7 @@ async function affecterChantierFactures(ids, chantierId){
     const {error} = await sb.from('factures').update({intervention_id:null}).in('id', aDetacher.slice(i,i+50));
     if(error) return error;
   }
-  _facsListe.forEach(f=>{ if(ids.includes(f.id)){ f.chantier_id = chantierId; f.chantiers_lyneo = ch ? {numero:ch.numero, nom:ch.nom} : null; if(aDetacher.includes(f.id)) f.intervention_id = null; } });
+  _facsListe.forEach(f=>{ if(ids.includes(f.id)){ f.imputation_multiple = false; f.chantier_id = chantierId; f.chantiers_lyneo = ch ? {numero:ch.numero, nom:ch.nom} : null; if(aDetacher.includes(f.id)) f.intervention_id = null; } });
   return null;
 }
 async function affecterChantierSelection(){
@@ -9572,6 +9579,7 @@ async function affecterChantierSelection(){
   const ch = _facChantiers.find(c=>c.id===chantierId);
   const autres = _facsListe.filter(f=>_facSel.has(f.id) && f.chantier_id && f.chantier_id!==chantierId).length;
   if(autres && !confirm(`${autres} des factures sélectionnées ont déjà un autre chantier. Les affecter quand même à « ${libelleChantierFac(ch||{})} » ?`)) return;
+  if(!imputConfirmerRamener(ids, _facsListe)) return;
   const btn = el('fac-bulk-ok'); if(btn) btn.disabled = true;
   const err = await affecterChantierFactures(ids, chantierId);
   if(btn) btn.disabled = false;
@@ -9583,6 +9591,7 @@ async function affecterChantierSelection(){
 // Une seule facture, directement depuis la liste (menu « À affecter… »)
 async function affecterChantierFacture(id, chantierId){
   if(!chantierId) return;
+  if(!imputConfirmerRamener([id], _facsListe)){ afficherFactures(); return; }
   const err = await affecterChantierFactures([id], chantierId);
   if(err){ showToast('Erreur: '+err.message, 'error'); afficherFactures(); return; }
   _facSel.delete(id);
@@ -9696,6 +9705,7 @@ function tvaFicheCorrigee(fac, lignes, tot){
   return {corrigee, htOk, tva: corrigee ? centimesDe(st)/100 : tot.tva, ecart: corrigee ? (centimesDe(st)-centimesDe(tot.tva))/100 : 0};
 }
 function htmlLignesFactureDetail(fac, lignes, ok){
+  const rep = fac && fac.imputation_multiple===true;
   const boite = (corps)=>`<div id="fac-det-lignes" style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:8px"><i class="ti ti-list-details"></i> Lignes de la facture</div>${corps}</div>`;
   if(!ok) return boite(`<div class="alert alert-warning" id="fac-det-lignes-indispo"><i class="ti ti-alert-triangle"></i> Les lignes n'ont pas pu être lues pour le moment. Fermez et rouvrez la facture.</div>`);
   if(!lignes.length){
@@ -9711,7 +9721,7 @@ function htmlLignesFactureDetail(fac, lignes, ok){
       : `<span class="badge fac-codes fac-codes-a" title="Cette ligne n'a pas encore de code ressource">À coder</span>`}</td>`;
     return `<tr data-lf-id="${escHtml(l.id)}" style="border-top:1px solid var(--gray-2)">
       <td style="padding:7px 8px;white-space:nowrap;color:var(--gray-6)">${escHtml(l.reference_article||'—')}</td>
-      <td style="padding:7px 8px;white-space:pre-line">${escHtml(l.description||'')}</td>${code}
+      <td style="padding:7px 8px;white-space:pre-line">${escHtml(l.description||'')}</td>${rep ? `<td class="lf-centre" style="padding:7px 8px">${escHtml(imputLibCentre(l.chantier_id||fac.chantier_id))}${l.intervention_id ? ' · <strong>'+escHtml((_imput.refs||{})[l.intervention_id]||'')+'</strong>' : ''}</td>` : ''}${code}
       <td style="padding:7px 8px;text-align:right;white-space:nowrap">${escHtml(fmtQteLigne(l.quantite))}${l.unite&&l.unite!=='u'?' '+escHtml(l.unite):''}</td>
       <td style="padding:7px 8px;text-align:right;white-space:nowrap">${fmt(pu)}</td>
       <td style="padding:7px 8px;text-align:right;white-space:nowrap">${escHtml(String(tvaNum(l.taux_tva,0)).replace('.',','))} %</td>
@@ -9729,7 +9739,7 @@ function htmlLignesFactureDetail(fac, lignes, ok){
   const infoTva = tc.corrigee ? `<tr><td colspan="2" class="tva-info${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' warn':''}" id="fac-det-tva-info">TVA de la facture : ${fmt(tc.tva)} — calculée d'après les lignes : ${fmt(tot.tva)} (écart ${tc.ecart>=0?'+':'−'}${fmt(Math.abs(tc.ecart))})${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' — ⚠ écart important : vérifiez les taux de TVA des lignes':''}</td></tr>` : '';
   const avert = ecart ? `<div class="alert alert-warning" id="fac-det-ecart" style="margin-top:10px"><i class="ti ti-alert-triangle"></i> <span>Les lignes totalisent <strong>${fmt(tot.ht)} HT</strong> / <strong>${fmt(ttcAff)} TTC</strong>, mais la facture indique <strong>${htFac===null?'—':fmt(htFac)} HT</strong> / <strong>${isNaN(ttcFac)?'—':fmt(ttcFac)} TTC</strong>. Vérifiez avec « Modifier ».</span></div>` : '';
   return boite(`<div style="overflow-x:auto;max-width:100%"><table id="fac-det-table" style="width:100%;border-collapse:collapse;min-width:620px;font-size:13px">
-      <thead><tr style="background:var(--gray-1)">${th('Référence')}${th('Description')}${avecCodes?th('Code ressource'):''}${th('Qté','right')}${th('P.U. HT','right')}${th('TVA','right')}${th('Total HT','right')}</tr></thead>
+      <thead><tr style="background:var(--gray-1)">${th('Référence')}${th('Description')}${rep?th('Centre'):''}${avecCodes?th('Code ressource'):''}${th('Qté','right')}${th('P.U. HT','right')}${th('TVA','right')}${th('Total HT','right')}</tr></thead>
       <tbody>${lignesHtml}</tbody></table></div>
     <div style="display:flex;justify-content:flex-end;margin-top:10px"><table id="fac-det-totaux" style="font-size:13px;border-collapse:collapse;min-width:260px">
       <tr><td style="padding:3px 12px 3px 0;color:var(--gray-5)">Total HT</td><td style="padding:3px 0;text-align:right" id="fac-det-tot-ht">${fmt(tot.ht)}</td></tr>
@@ -9750,6 +9760,7 @@ async function openFacDetail(facId){
   try{
     const [lr] = await Promise.all([sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre'), chargerCodesRessource()]);
     if(lr.error) lignesOk = false; else lignesFac = lr.data||[];
+    if(fac.imputation_multiple===true){ await imputChargerCentres(); _imput.refs = await chargerRefsInterventions(lignesFac.map(l=>l.intervention_id)); }
   }catch(e){ lignesOk = false; }
 
   const iconeType = (tipo) => {
@@ -9993,6 +10004,7 @@ async function chargerAchatsInterventions(ids){
   if(okF){
     (await selectInChunks(sb,'factures','id,intervention_id,numero_facture_fournisseur,date_facture,montant_ht,statut,fournisseurs!fournisseur_id(nom)','intervention_id',ids))
       .forEach(f=>{ const r = res.parInterv[f.intervention_id]; if(!r) return; r.facs.push(f); r.achatsHT += montantAchatHT(f); });
+    (await tranchesInterventions(ids)).forEach(t=>{ const r = res.parInterv[t.intervention_id]; if(!r) return; r.facs.push(t); r.achatsHT += montantAchatHT(t); });
   }
   if(okP){
     (await selectInChunks(sb,'purchase_orders_lyneo','id,intervention_id,numero,statut,total_ht,fournisseurs!fournisseur_id(nom)','intervention_id',ids))
@@ -10160,6 +10172,7 @@ function fermerGestionCodesRes(){
 }
 async function crSauver(id, champ, inp){
   if(!peutGererCodesRes()) return;
+  if(currentPage==='documents' && !(await daPeutDefinir())){ await daRefuser(); return; }
   const c = _codesRes.find(x=>x.id===id); if(!c) return;
   let patch;
   if(champ==='code'){
@@ -10178,6 +10191,7 @@ async function crSauver(id, champ, inp){
 }
 async function crAjouter(){
   if(!peutGererCodesRes()) return;
+  if(currentPage==='documents' && !(await daPeutDefinir())){ await daRefuser(); return; }
   const zs = document.querySelectorAll('.cr-zone'), z = zs[zs.length-1];                  // la zone la plus récente = celle de la fenêtre ouverte par-dessus
   const inC = z && z.querySelector('.cr-new-code'), inD = z && z.querySelector('.cr-new-desc'); if(!inC) return;
   const code = inC.value.trim();
@@ -10193,6 +10207,7 @@ async function crAjouter(){
 }
 async function crSupprimer(id){
   if(!peutGererCodesRes()) return;
+  if(currentPage==='documents' && !(await daPeutDefinir())){ await daRefuser(); return; }
   const c = _codesRes.find(x=>x.id===id); if(!c) return;
   const u = await sb.from('lignes_facture').select('id').eq('code_ressource_id', id).limit(1);
   if(!u.error && (u.data||[]).length){ showToast('« '+c.code+' » est utilisé par des lignes de facture : décochez « Actif » pour ne plus le proposer', 'error'); return; }
@@ -10262,18 +10277,8 @@ const ndfLibIntervId = id => ndfLibInterv(_ndfInterventions.find(x=>String(x.id)
 const ndfHT = ls => ls.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0), 0);
 const ndfTVA = ls => ls.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*tvaNum(l.taux_tva)/100, 0);
 async function ndfLireInterventions(){ try{ return await lireTableComplete('interventions_sav','id'); }catch(e){ return []; } }
-// Genre d'un centre : « sav » (SAV 1/2/3…), « interne » (frais généraux, stock, heures improductives…) ou « chantier »
-function ndfGenre(c){
-  if(estCentreSav(c)) return 'sav';
-  if(c && (c.type_centre==='interne' || estCentreInterneNonPointable(c) || String(c.numero||'').trim().toUpperCase()===HI_CODE)) return 'interne';
-  return 'chantier';
-}
-const ndfOptCh = (c, courant) => '<option value="'+escHtml(c.id)+'"'+(String(c.id)===String(courant)?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>';
 function ndfOptionsChantier(courant, vide){
-  const GENRES = [['chantier','Chantiers'],['interne','Frais généraux et centres internes'],['sav','Centres SAV']];
-  return '<option value=""'+(!courant?' selected':'')+'>'+escHtml(vide)+'</option>'
-    + GENRES.map(([g,lib])=>{ const l = _ndfChantiers.filter(c=>ndfGenre(c)===g);
-        return l.length ? '<optgroup label="'+escHtml(lib)+'">'+l.map(c=>ndfOptCh(c,courant)).join('')+'</optgroup>' : ''; }).join('');
+  return cfOptionsAchat(_ndfChantiers, courant, vide);   // groupes : Chantiers · Frais généraux (F…) · Autres centres internes · Centres SAV
 }
 // Lignes regroupées par imputation (chantier + intervention) dans l'ordre d'apparition ; sans colonne intervention_id, l'intervention est ignorée
 function ndfGroupes(){
@@ -10340,7 +10345,7 @@ function ndfRepartitionHtml(){
   const man = window._tvaMan.facl, bloque = !!man && Math.abs(man.ref - ndfTVA(_facLignesLibre)) <= 0.004;
   const lignes = g.map(x=>{ const ht = ndfHT(x.lignes), tva = ndfTVA(x.lignes);
     return '<tr data-ndf-chantier="'+escHtml(x.chantierId)+'"'+(x.interventionId?' data-ndf-interv="'+escHtml(x.interventionId)+'"':'')+'><td'+(x.chantierId?'':' style="color:var(--red)"')+'>'+escHtml(ndfLibGroupe(x))+'</td><td>'+x.lignes.length+' ligne'+(x.lignes.length>1?'s':'')+'</td><td>'+fmt(ht)+'</td><td>'+fmt(tva)+'</td><td><strong>'+fmt(ht+tva)+'</strong></td></tr>'; }).join('');
-  return '<div class="ndf-repart" id="ndf-repart"><div class="ndf-repart-titre"><i class="ti ti-arrows-split"></i> '+g.length+' imputations : une facture fournisseur sera créée par imputation (n° de la note + n° du chantier)</div>'
+  return '<div class="ndf-repart" id="ndf-repart"><div class="ndf-repart-titre"><i class="ti ti-arrows-split"></i> '+g.length+' imputations : UNE seule facture sera créée (n° de la note), répartie ligne par ligne entre ces imputations</div>'
     +'<table><thead><tr><th>Imputation</th><th></th><th>HT</th><th>TVA</th><th>TTC</th></tr></thead><tbody>'+lignes+'</tbody></table>'
     +(bloque ? '<div class="alert alert-warning" id="ndf-repart-tva" style="margin:8px 0 0"><i class="ti ti-alert-triangle"></i><span>La TVA a été corrigée à la main (crayon) : elle ne peut pas être répartie entre plusieurs imputations. Cliquez sur « Recalculer » dans les totaux.</span></div>' : '')
     +'</div>';
@@ -10556,33 +10561,26 @@ async function saveNoteFraisCore(){
     const man = window._tvaMan.facl;
     if(man && Math.abs(man.ref - calcTVA) <= 0.004){ showToast("La TVA corrigée à la main (crayon) ne peut pas être répartie entre plusieurs imputations : cliquez sur « Recalculer » dans les totaux, ou mettez toutes les lignes sur le même chantier", 'error'); return rendre(); }
   }
-  const scinde = groupes.length>1 || _ndfScinde, suffixes = [];
-  groupes.forEach((g,gi)=>{
-    g.ht = ndfHT(g.lignes);
-    g.tva = groupes.length===1 ? tvaFinale('facl', calcTVA) : ndfTVA(g.lignes);
-    let suf = String((_ndfChantiers.find(c=>String(c.id)===String(g.chantierId))||{}).numero||'').trim().replace(/\s+/g,'') || String(gi+1);
-    if(g.interventionId && groupes.filter(x=>x.chantierId===g.chantierId).length>1){
-      const r = String(((_ndfInterventions.find(i=>String(i.id)===String(g.interventionId))||{}).ref)||'').trim().replace(/\s+/g,'');
-      if(r) suf += '-'+r;
-    }
-    if(suffixes.includes(suf)) suf += '-'+(gi+1);
-    suffixes.push(suf);
-    g.numero = scinde ? numero+'-'+suf : numero;
-  });
+  // UNE seule facture NDF-AAAAMM-NN, même répartie entre plusieurs centres : chaque ligne garde son centre, son intervention, son code et sa TVA
+  const multi = groupes.length>1;
+  if(multi && !(await imputDispo())){ showToast(IMPUT_MSG_SQL, 'error', 9000); return rendre(); }
+  groupes.forEach(g=>{ g.ht = ndfHT(g.lignes); g.tva = multi ? ndfTVA(g.lignes) : tvaFinale('facl', calcTVA); g.numero = numero; });
+  const lot = multi ? [{chantierId: imputCentrePrincipal(_facLignesLibre, ''), interventionId:'', lignes:_facLignesLibre, ht:totalHT, tva:calcTVA, numero, multi:true}] : groupes;
   if(!_facFilesNew.length && !confirm("Aucun justificatif (ticket, facture) n'est joint.\n\nSans justificatif, la TVA ne pourra pas être récupérée et la dépense n'est pas prouvée.\nEnregistrer quand même ?")){ return rendre(); }
 
   const four = await ndfResoudreFournisseur(emp);
   if(!four){ return rendre(); }
   // la même note du même salarié ne s'enregistre pas deux fois (un fournisseur tout juste créé n'a encore aucune facture)
   if(!four.neuf){
-    for(const g of groupes){ if(!(await controlerFactureFournisseur({fournisseurId:four.id, numero:g.numero, ttc:g.ht+g.tva, date}))){ return rendre(); } }
+    for(const g of lot){ if(!(await controlerFactureFournisseur({fournisseurId:four.id, numero:g.numero, ttc:g.ht+g.tva, date}))){ return rendre(); } }
   }
 
   const crees = [];
   let nbDocs = 0, attendus = 0, erreursLignes = 0;
-  for(const g of groupes){
+  for(const g of lot){
     const {data:fac, error} = await sb.from('factures').insert({
       po_id: null, chantier_id: g.chantierId, fournisseur_id: four.id,
+      ...(g.multi ? {imputation_multiple: true} : {}),
       numero_facture_fournisseur: g.numero,
       date_facture: date,
       date_echeance: el('facl-echeance').value||null,
@@ -10608,6 +10606,7 @@ async function saveNoteFraisCore(){
       description: l.description, reference_article: l.reference_article||'',
       quantite: parseFloat(l.quantite)||0, unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0, taux_tva: tvaNum(l.taux_tva),
+      ...(g.multi ? {chantier_id: l.chantier_id||null, intervention_id: l.intervention_id||null} : {}),
       ...crPayload(l)
     })));
     if(lr && lr.error){ erreursLignes++; showToast("Note créée, mais erreur en enregistrant les lignes ("+g.numero+") : "+lr.error.message, 'error'); }
@@ -10625,19 +10624,15 @@ async function saveNoteFraisCore(){
   }
   _facFilesNew = [];
   const docsTxt = attendus ? ' · '+nbDocs+'/'+attendus+' justificatif(s)' : '';
-  if(crees.length===1){
-    showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees[0].fac.numero_facture_fournisseur+nIntTxt(crees[0].fac)+docsTxt, nbDocs<attendus ? 'error' : undefined);
-  } else {
-    showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees.length+' factures, une par imputation (chantier / intervention) : '+crees.map(c=>c.fac.numero_facture_fournisseur+' ('+fmt(c.groupe.ht)+' HT)').join(' ; ')+docsTxt, nbDocs<attendus ? 'error' : undefined);
-  }
+  showToast('Note de frais enregistrée — '+emp.prenom+' '+emp.nom+' · '+crees[0].fac.numero_facture_fournisseur+nIntTxt(crees[0].fac)+(multi ? ' · répartie sur '+groupes.length+' imputations' : '')+docsTxt, nbDocs<attendus ? 'error' : undefined);
   closeModal();
   await rafraichirPage();
-  if(crees.length===1) openFacDetail(crees[0].fac.id);
+  openFacDetail(crees[0].fac.id);
 }
 
 async function openFacLibreModal(){
   const [{data:chantiersData},{data:foursData}] = await Promise.all([
-    sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom'),
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom'),
     sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
   ]);
   const chantiers = chantiersChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
@@ -10651,7 +10646,7 @@ async function openFacLibreModal(){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Chantier *</label>
-          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${chantiers.map(c=>`<option value="${c.id}">${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
+          <select id="facl-chantier" onchange="majInterventionAchat('facl','factures')"><option value="">— Sélectionner —</option>${cfGroupesAchat(chantiers, '')}</select>
         </div>
         ${htmlChampIntervention('facl')}
         <div class="form-group"><label class="field-label">Fournisseur *</label>
@@ -12346,7 +12341,7 @@ async function openClientDetail(clientId){
   const [facsVenteR, posR, facsFournR, interventionsR] = await Promise.all([
     sb.from('factures_vente').select('*').eq('client_id',client.id).order('date_creation',{ascending:false}),
     chantierIds.length>0 ? sb.from('purchase_orders_lyneo').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('created_at',{ascending:false}) : Promise.resolve({data:[]}),
-    chantierIds.length>0 ? sb.from('factures').select('*,fournisseurs!fournisseur_id(nom)').in('chantier_id',chantierIds).order('date_facture',{ascending:false}) : Promise.resolve({data:[]}),
+    chantierIds.length>0 ? facturesDesCentres(chantierIds, '*,fournisseurs!fournisseur_id(nom)', 'date_facture').then(d=>({data:d})) : Promise.resolve({data:[]}),
     sb.from('interventions_sav').select('*').eq('client_id',client.id).order('created_at',{ascending:false})
   ]);
   const facsVente = facsVenteR.data||[];
@@ -13296,10 +13291,10 @@ async function openDevisModal(d=null){
   const isEdit = !!d;
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
     sb.from('clients').select('id,nom,pays').eq('actif',true).order('nom'),
-    sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom')
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom')
   ]);
   const clients = clientsData||[];
-  const chantiers = chantiersChoix(chantiersData||[], d?.chantier_id);   // archivés masqués, sauf celui déjà lié au devis
+  const chantiers = chantiersVenteChoix(chantiersData||[], d?.chantier_id);   // archivés masqués, sauf celui déjà lié au devis
   // TVA par défaut du devis = celle du pays du client (17 % si Luxembourg ou non renseigné, 0 % sinon)
   const clientDevis = d ? clients.find(c=>c.id===d.client_id) : null;
   window._tvaDefautDoc = clientDevis ? tvaDefautPays(clientDevis.pays) : 17;
@@ -13684,13 +13679,13 @@ function ouvrirChantierDepuisDevis(d){
 async function ouvrirLierDevisChantier(devisId){
   const [rd, rc] = await Promise.all([
     sb.from('devis').select('id,numero,objet,client_id,chantier_id,statut').eq('id',devisId).single(),
-    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,client,statut').order('numero')
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,client,statut,type_centre').order('numero')
   ]);
   const d = rd.data;
   if(rd.error || !d){ showToast('Devis introuvable : '+((rd.error&&rd.error.message)||''), 'error'); return; }
   if(d.chantier_id){ showToast('Ce devis est déjà lié à un chantier : '+d.numero, 'error'); return; }
   if(rc.error){ showToast('Erreur: '+rc.error.message, 'error'); return; }
-  const liste = chantiersChoix(rc.data||[]);   // les chantiers archivés ne sont pas proposés
+  const liste = chantiersVenteChoix(rc.data||[]);   // les chantiers archivés et les centres internes ne sont pas proposés
   if(!liste.length){ showToast("Aucun chantier existant à choisir — utilisez « Créer le chantier »", 'error'); return; }
   const memeClient = c => !!d.client_id && String(c.client_id)===String(d.client_id);
   const tri = liste.slice().sort((a,b)=> (memeClient(b)?1:0)-(memeClient(a)?1:0) || String(a.numero||'').localeCompare(String(b.numero||''), 'fr', {numeric:true}));
@@ -14068,10 +14063,10 @@ async function openNewFactureVenteLibre(opts){
   opts = opts || {};
   const [{data:clientsData},{data:chantiersData}] = await Promise.all([
     sb.from('clients').select('id,nom,conditions_paiement,pays').eq('actif',true).order('nom'),
-    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,statut').order('nom')
+    sb.from('chantiers_lyneo').select('id,numero,nom,client_id,statut,type_centre').order('nom')
   ]);
   const clients = clientsData||[];
-  const chantiers = chantiersChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
+  const chantiers = chantiersVenteChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
   _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
   _venteLigneMode = 'libre';
   window._devisInfoForFv = null;   // pas de devis "hérité" d'une facture précédente
@@ -16692,6 +16687,7 @@ async function enregistrerEntreprise(){
     + "\n\nElles seront imprimées sur tous les NOUVEAUX devis, bons de commande, factures et fichiers Excel. Les documents déjà téléchargés ne changent pas. Cette modification est inscrite au journal."
     + (banque ? "\n\nATTENTION : vous modifiez les coordonnées bancaires imprimées sur les factures. Vérifiez-les avec votre banque." : '');
   if(!confirm(msg)) return;
+  if(!(await daPeutDefinir())){ await daRefuser(); return; }          // relu au moment d'écrire
   const b = el('btn-doc-save'); if(b) b.disabled = true;
   const r = await sb.from('parametres_app').upsert({cle:'entreprise', valeur_json:valeurs}, {onConflict:'cle'}).select('cle');
   if(r.error || !(r.data && r.data.length)){
@@ -16800,6 +16796,10 @@ async function renderDocuments(){
   if(!currentUser || currentUser.role!=='admin'){
     el('page-content').innerHTML = '<div class="card"><div class="empty"><p>Accès réservé aux administrateurs.</p></div></div>'; return; }
   el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><p>Chargement...</p></div>';
+  const acc = await daVerifier();                       // la liste est relue à chaque ouverture : un retrait prend effet tout de suite
+  if(currentPage !== 'documents') return;               // la personne a changé de page pendant la lecture
+  if(!acc.voir){ daMessageRefus(); return; }
+  if(!acc.definir){ await daRendreExports(); return; }  // personne « exports » : seulement la carte des exports
   await entrepriseChargee(true);
   const e = _entrepriseEtat, E = LyneoPDF.ENTREPRISE, D = LyneoPDF.ENTREPRISE_DEFAUT;
   const champ = c=>`<div class="form-group">
@@ -16817,6 +16817,8 @@ async function renderDocuments(){
     <div class="page-header">
       <div class="page-header-left"><h1>Documents</h1><p>Données de l’entreprise imprimées sur les fichiers générés, et contenu de chaque document</p></div>
     </div>
+
+    ${daBandeauHtml()}
 
     ${e.sqlOk===false?`<div class="card" style="padding:14px 18px;margin-bottom:16px;border-color:#FDE68A;background:var(--orange-light)" id="doc-sql">
       <p style="font-size:13px"><i class="ti ti-alert-triangle" style="color:var(--orange)"></i> <strong>Enregistrement pas encore possible.</strong> ${escHtml(SQL_DOCUMENTS)} En attendant, tous les documents utilisent les valeurs d’origine ci-dessous.</p></div>`:''}
@@ -16865,16 +16867,18 @@ async function renderDocuments(){
       <div class="cr-zone" id="cr-zone-doc"><p style="color:var(--gray-5)">Chargement…</p></div>
     </div>
 
+    ${cfCarteDocumentsHtml()}
+
     ${cvCarteDocumentsHtml()}
 
-    <div class="card" style="padding:20px;margin-bottom:16px" id="doc-exports">
-      <h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-file-spreadsheet"></i> Exports Excel des listes</h3>
-      <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Bouton « Exporter Excel » de chaque module : vous choisissez les colonnes, avec en option une feuille d’analyses et un tableau croisé. Chaque feuille porte en pied d’impression « ${escHtml(E.nom)} — ${escHtml(E.site)} » et la pagination.</p>
-      ${exportsCatalogueHtml()}
-    </div>`;
+    ${daCarteExports()}
+
+    <div id="da-zone"></div>`;
   majApercuEntreprise();
   rendreGestionCodesRes();
+  cfRendreGestion();
   cvRendreGestion();
+  daRendreGestion();
 }
 
 // ── CLÔTURE DE PÉRIODE, JOURNAL D'AUDIT, SAUVEGARDE ───────────
@@ -18996,7 +19000,7 @@ function masseMensuelleEmploye(emp, ctx){
 
 // ── Assistants de l'export « lignes de factures fournisseurs » ──
 const totalHtLigne = r => { const q = numOuVide(r.quantite), p = numOuVide(r.prix_unitaire_ht); return (q==='' || p==='') ? '' : Math.round(q*p*100)/100; };
-const chantierLigne = (r,c) => { const f = (c.facs||{})[r.facture_id] || {}; const id = f.chantier_id || ((c.pos||{})[f.po_id]||{}).chantier_id; return (c.chantiers||{})[id] || null; };
+const chantierLigne = (r,c) => { const f = (c.facs||{})[r.facture_id] || {}; const id = (f.imputation_multiple===true && r.chantier_id) || f.chantier_id || ((c.pos||{})[f.po_id]||{}).chantier_id; return (c.chantiers||{})[id] || null; };
 const libChantierLigne = (r,c) => { const ch = chantierLigne(r,c); return ch ? [ch.numero,ch.nom].filter(Boolean).join(' — ') : ''; };
 const codeLigne = (r,c) => r.code_ressource_id ? (((c.codes||{})[r.code_ressource_id]||{}).code||'') : '';
 
@@ -21357,6 +21361,7 @@ async function saveIntervention(id){
     if(data.chantier_id){
       try{
         await sb.from('factures').update({chantier_id:data.chantier_id}).eq('intervention_id',id);
+        if(await imputDispo()) await sb.from('lignes_facture').update({chantier_id:data.chantier_id}).eq('intervention_id',id);
         await sb.from('purchase_orders_lyneo').update({chantier_id:data.chantier_id}).eq('intervention_id',id);
       }catch(e){}
     }
@@ -21444,6 +21449,11 @@ async function deleteIntervention(id){
   try{
     const [f, q] = await Promise.all([sb.from('factures').select('id').eq('intervention_id',id), sb.from('purchase_orders_lyneo').select('id').eq('intervention_id',id)]);
     nF = (f.data||[]).length; nP = (q.data||[]).length;
+    if(await imputDispo()){
+      const lf = await sb.from('lignes_facture').select('facture_id').eq('intervention_id',id);
+      const deja = new Set((f.data||[]).map(x=>String(x.id)));
+      nF += new Set((lf.data||[]).map(x=>String(x.facture_id)).filter(x=>!deja.has(x))).size;
+    }
   }catch(e){}
   if(nF+nP>0){
     const morceaux = [nF ? nF+' facture'+(nF>1?'s':'')+' fournisseur' : '', nP ? nP+' commande'+(nP>1?'s':'')+' fournisseur' : ''].filter(Boolean).join(' et ');
@@ -23163,6 +23173,7 @@ async function cvRendreGestion(){
 // Lit la liste actuelle dans la base (un autre administrateur a pu la changer), applique fn (renvoie un message d'erreur ou rien) puis enregistre.
 async function cvModifierListe(fn){
   if(!currentUser || currentUser.role!=='admin') return {erreur:'Réservé aux administrateurs'};
+  if(!(await daPeutDefinir())) return {erreur:DA_MSG_REFUS};
   await cvCharger(true);
   if(_cv.sqlListe===false) return {erreur:SQL_DOCUMENTS};
   const copie = _cv.comptes.map(c=>Object.assign({}, c));
@@ -23966,6 +23977,473 @@ async function dfAnnuler(id){
   await dfEcrire(String(l.id), {statut:'annulee', traite_par_nom:nomPers(currentUser) || (currentUser && currentUser.email) || '', vu_le:new Date().toISOString()}, 'Demande ' + dfRef(l) + ' annulée');   // vu_le : le demandeur sait qu'il a annulé (pas de pastille pour sa propre annulation)
 }
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// CENTRES DE FRAIS INTERNES (13/11/2026)
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// Demande de la direction financière : les frais généraux se suivent par CENTRE DE FRAIS (F00001 Direction Générale … F00013 Management Fees,
+// fichier « REPORTING SEPTEMBRE 2026 »). Ce sont des centres de coûts de type « interne » (même table que les chantiers) qui ne servent qu'aux ACHATS
+// (commandes, factures fournisseurs, notes de frais) : ils n'apparaissent ni dans la liste des Chantiers, ni dans les listes de choix des devis et des
+// factures clients, ni dans les compteurs de chantiers, et ne sont jamais proposés dans les pointages (type « interne » = non pointable, voir
+// estCentreInterneNonPointable). Sans SQL : ce sont de simples lignes de chantiers_lyneo.
+const CF_CENTRES = [
+  ['F00001','Direction Générale'], ['F00002','Direction Production'], ['F00003','Commerce - Etude de Prix'], ['F00004','Finances'],
+  ['F00005','Comptabilité'], ['F00006','Ressources Humaines'], ['F00007','Achats'], ['F00008','Juridiques'], ['F00009','Assurances'],
+  ['F00010','Administration'], ['F00011','Immeubles /sièges'], ['F00012','Informatique'], ['F00013','Management Fees']
+];
+const CF_TYPES = {chantier:'Chantier', sav:'Centre SAV', interne:'Interne'};
+const cfNumero = c => String((c && c.numero) || '').trim();
+const cfTypeInterne = c => !!c && c.type_centre === 'interne';                       // marqué « interne » dans la base
+const cfEstFrais = c => cfTypeInterne(c) && /^F\d{5}$/i.test(cfNumero(c));           // centre de frais : F + 5 chiffres
+const cfEstHI = c => !!c && cfNumero(c).toUpperCase() === HI_CODE;                    // « Heures improductives » : le seul centre interne que les salariés pointent
+// Centre interne au sens large : type « interne », ou STOCK / FG / Frais généraux / HI même si le type n'a pas été renseigné (règle des pointages)
+const cfEstInterne = c => !!c && !estCentreSav(c) && (c.type_centre === 'interne' || estCentreInterneNonPointable(c) || cfNumero(c).toUpperCase() === HI_CODE);
+// Genre d'un centre dans les listes de choix d'ACHAT : chantier / frais (F…) / interne (HI, STOCK, FG…) / sav
+function cfGenre(c){
+  if(cfEstFrais(c)) return 'frais';
+  if(estCentreSav(c)) return 'sav';
+  return cfEstInterne(c) ? 'interne' : 'chantier';
+}
+const CF_GENRES = [['chantier','Chantiers'], ['frais','Frais généraux (centres de frais)'], ['interne','Autres centres internes'], ['sav','Centres SAV']];
+// <optgroup> des centres, groupés. opts.statut : ajoute « (Terminé) » aux centres qui ne sont pas en cours.
+// L'ordre dans chaque groupe est celui des autres listes de l'ERP (ordre naturel, accents ignorés : P00002, P00003, P00010) :
+// trierOptionsSelect() ne touche pas aux listes à groupes, on trie donc ici avec le même comparateur.
+function cfGroupesAchat(liste, courant, opts){
+  opts = opts || {};
+  const cur = (courant === undefined || courant === null) ? '' : String(courant);
+  const texte = c => (c.numero || '') + ' — ' + (c.nom || '')
+    + (cfNumero(c).toUpperCase() === 'FG' ? ' — ancien, à ventiler' : '')
+    + (opts.statut && c.statut && c.statut !== 'actif' ? ' (' + (STATUT_CH[c.statut] || c.statut) + ')' : '');
+  const opt = x => '<option value="' + escHtml(x.c.id) + '"' + (cur && String(x.c.id) === cur ? ' selected' : '') + '>' + escHtml(x.t) + '</option>';
+  return CF_GENRES.map(([g, lib]) => {
+    const l = (liste || []).filter(c => cfGenre(c) === g).map((c, i) => { const t = texte(c); return {c, t, i, k: cleTexteTri(t)}; })
+      .sort((a, b) => _collTri.compare(a.k, b.k) || a.i - b.i);
+    return l.length ? '<optgroup label="' + escHtml(lib) + '">' + l.map(opt).join('') + '</optgroup>' : '';
+  }).join('');
+}
+// Option vide + groupes (notes de frais)
+function cfOptionsAchat(liste, courant, vide, opts){
+  const cur = (courant === undefined || courant === null) ? '' : String(courant);
+  return '<option value=""' + (!cur ? ' selected' : '') + '>' + escHtml(vide) + '</option>' + cfGroupesAchat(liste, courant, opts);
+}
+// Centres proposables dans un document de VENTE (devis, facture client) : jamais un centre interne, sauf celui déjà lié au document.
+function chantiersVenteChoix(rows, garderId){
+  const garde = (garderId === undefined || garderId === null || garderId === '') ? null : String(garderId);
+  return chantiersChoix(rows, garderId).filter(c => !cfEstInterne(c) || (garde !== null && String(c.id) === garde));
+}
+// Ligne d'information sous le titre de la page Chantiers (comme pour les centres SAV)
+function cfInfoChantiersHtml(internes){
+  if(!internes || !internes.length) return '';
+  const admin = !!currentUser && currentUser.role === 'admin';
+  return '<div class="alert alert-info" id="ch-info-internes" style="margin-bottom:16px"><i class="ti ti-info-circle"></i><span>' + internes.length + ' centre' + (internes.length > 1 ? 's' : '') + ' interne' + (internes.length > 1 ? 's' : '')
+    + ' (frais généraux, heures improductives, stock…) — réservés aux achats'
+    + (admin ? ', gérés dans <a href="#" id="ch-lien-centres" onclick="navigate(\'documents\');return false" style="color:var(--blue);font-weight:600">Documents</a>.' : '.') + '</span></div>';
+}
+
+// ── Carte « Centres de frais » dans Documents (administrateurs) ────────────────────────────────────────────────
+let _cfEtat = {erreur:null, tous:[], occupe:false};
+function cfCarteDocumentsHtml(){
+  return '<div class="card" style="padding:20px;margin-bottom:16px" id="doc-centres-frais">'
+    + '<h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-building-community"></i> Centres de frais et centres internes</h3>'
+    + '<p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Les frais généraux se suivent par centre de frais (F00001 … F00013, comme dans le fichier de reporting de la direction financière). Ces centres ne servent qu’aux <strong>achats</strong> : commandes, factures fournisseurs et notes de frais. Ils n’apparaissent ni dans la liste des Chantiers, ni dans les devis et factures clients, ni dans les pointages.</p>'
+    + '<div id="cf-zone"><p style="color:var(--gray-5)">Chargement…</p></div></div>';
+}
+async function cfCharger(){
+  try{
+    const rows = await lirePagine('chantiers_lyneo', 'id,numero,nom,statut,type_centre,client,code_pointages');
+    _cfEtat.erreur = null; _cfEtat.tous = rows || [];
+  }catch(e){ _cfEtat.erreur = (e && e.message) || String(e); _cfEtat.tous = []; }
+}
+// Ce qu'il y a à faire : centres F absents (à créer), présents, ou en conflit (numéro déjà pris par un autre type de centre ou comme code pointages)
+function cfPlan(tous){
+  const parNum = new Map(), codes = new Set();
+  (tous || []).forEach(c => {
+    parNum.set(cfNumero(c).toUpperCase(), c);
+    String(c.code_pointages || '').split(/[,;]/).forEach(x => { x = x.trim().toUpperCase(); if(x) codes.add(x); });
+  });
+  const creer = [], conflits = [], presents = [];
+  CF_CENTRES.forEach(([num, nom]) => {
+    const c = parNum.get(num);
+    if(c) { if(cfTypeInterne(c)) presents.push(c); else conflits.push({numero:num, nom, raison:'existe déjà avec le type « ' + (CF_TYPES[c.type_centre || 'chantier'] || c.type_centre) + ' » (' + (c.nom || '') + ')'}); }
+    else if(codes.has(num)) conflits.push({numero:num, nom, raison:'déjà utilisé comme code pointages d’un autre centre'});
+    else creer.push({numero:num, nom});
+  });
+  return {creer, conflits, presents};
+}
+function cfDessiner(){
+  const z = el('cf-zone'); if(!z) return;
+  if(_cfEtat.erreur){ z.innerHTML = '<div class="alert alert-warning" id="cf-erreur"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les centres : ' + escHtml(_cfEtat.erreur) + '</span></div>'; return; }
+  const plan = cfPlan(_cfEtat.tous);
+  const internes = _cfEtat.tous.filter(cfEstInterne).sort((a, b) => {
+    const fa = cfEstFrais(a) ? 0 : 1, fb = cfEstFrais(b) ? 0 : 1;
+    return fa - fb || cfNumero(a).localeCompare(cfNumero(b), 'fr', {numeric:true, sensitivity:'base'});
+  });
+  const lignes = internes.map(c => {
+    const ok = cfTypeInterne(c), hi = cfEstHI(c);
+    return '<tr data-cf-id="' + escHtml(c.id) + '"><td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);white-space:nowrap;font-weight:600">' + escHtml(c.numero || '') + '</td>'
+      + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (hi
+          ? '<span class="cf-nom-hi">' + escHtml(c.nom || '') + '</span> <span class="badge badge-pause" style="margin-left:6px">utilisé par les pointages</span>'
+          : '<input class="cf-nom" value="' + escHtml(c.nom || '') + '" aria-label="Nom du centre ' + escHtml(c.numero || '') + '" onchange="cfRenommer(\'' + escHtml(String(c.id)) + '\', this)" style="width:100%;max-width:380px"/>') + '</td>'
+      + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);font-size:12.5px">' + (ok ? 'Interne' : '<span class="badge badge-pause">Type : ' + escHtml(CF_TYPES[c.type_centre || 'chantier'] || c.type_centre) + '</span>') + '</td>'
+      + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (ok ? '' : '<button class="btn btn-secondary btn-sm cf-passer" onclick="cfPasserInterne(\'' + escHtml(String(c.id)) + '\')" title="Ne plus le proposer dans les chantiers, les devis et les factures clients">Passer en centre interne</button>') + '</td></tr>';
+  }).join('');
+  z.innerHTML =
+    '<p style="font-size:13px;margin-bottom:10px" id="cf-resume"><strong>' + plan.presents.length + '</strong> centre' + (plan.presents.length > 1 ? 's' : '') + ' de frais sur ' + CF_CENTRES.length + ' (F00001 – F' + String(CF_CENTRES.length).padStart(5, '0') + ')'
+      + (plan.creer.length ? ' — <strong>' + plan.creer.length + '</strong> à créer' : ' — tous créés') + '.</p>'
+    + (plan.conflits.length ? '<div class="alert alert-warning" id="cf-conflits" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>Non créés : ' + plan.conflits.map(x => '<strong>' + escHtml(x.numero) + '</strong> ' + escHtml(x.raison)).join(' · ') + '</span></div>' : '')
+    + '<div style="margin-bottom:12px"><button class="btn btn-primary" id="cf-creer" onclick="cfCreerManquants()"' + (plan.creer.length && !_cfEtat.occupe ? '' : ' disabled') + '><i class="ti ti-plus"></i> Créer les ' + plan.creer.length + ' centre' + (plan.creer.length > 1 ? 's' : '') + ' de frais manquant' + (plan.creer.length > 1 ? 's' : '') + '</button></div>'
+    + (internes.length ? '<div style="overflow-x:auto"><table id="cf-table" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 8px">N°</th><th style="text-align:left;padding:6px 8px">Nom</th><th style="text-align:left;padding:6px 8px">Type</th><th></th></tr></thead><tbody>' + lignes + '</tbody></table></div>'
+        : '<p style="color:var(--gray-5)">Aucun centre interne pour le moment.</p>');
+}
+async function cfRendreGestion(){ await cfCharger(); cfDessiner(); }
+async function cfCreerManquants(){
+  if(_cfEtat.occupe) return;
+  if(!currentUser || currentUser.role !== 'admin'){ showToast('Réservé aux administrateurs', 'error'); return; }
+  _cfEtat.occupe = true; cfDessiner();               // verrou posé AVANT toute attente : un double clic ne passe pas deux fois
+  try{
+    if(!(await daPeutDefinir())){ _cfEtat.occupe = false; await daRefuser(); return; }   // relu au moment d'écrire
+    await cfCharger();                                 // relire juste avant d'écrire : un autre poste a pu les créer entre-temps
+    if(_cfEtat.erreur) throw new Error(_cfEtat.erreur);
+    const plan = cfPlan(_cfEtat.tous);
+    if(!plan.creer.length) showToast('Aucun centre à créer');
+    else {
+      const r = await sb.from('chantiers_lyneo').insert(plan.creer.map(o => ({numero:o.numero, nom:o.nom, client:'INTERNE - LYNEO', statut:'actif', type_centre:'interne'}))).select('id,numero');
+      if(r.error) throw new Error(r.error.message || String(r.error));
+      if(!r.data || r.data.length !== plan.creer.length) throw new Error('création refusée (droits insuffisants)');
+      showToast(plan.creer.length + ' centre' + (plan.creer.length > 1 ? 's' : '') + ' de frais créé' + (plan.creer.length > 1 ? 's' : ''));
+    }
+  }catch(e){ showToast(escHtml('Impossible de créer les centres : ' + ((e && e.message) || String(e))), 'error', 6000); }
+  _cfEtat.occupe = false;
+  await cfRendreGestion();
+}
+async function cfRenommer(id, input){
+  const c = (_cfEtat.tous || []).find(x => String(x.id) === String(id));
+  if(!c || !input) return;
+  if(!(await daPeutDefinir())){ input.value = c.nom || ''; await daRefuser(); return; }
+  if(cfEstHI(c)){ input.value = c.nom || ''; showToast('Le centre HI est utilisé par les pointages : son nom ne se modifie pas ici', 'error'); return; }
+  const nom = String(input.value || '').trim();
+  if(!nom){ input.value = c.nom || ''; showToast('Le nom ne peut pas être vide', 'error'); return; }
+  if(nom === String(c.nom || '')) return;
+  let err = null;
+  try{
+    const r = await sb.from('chantiers_lyneo').update({nom}).eq('id', id).select('id');
+    if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = 'modification refusée (droits insuffisants)';
+  }catch(e){ err = (e && e.message) || String(e); }
+  if(err){ input.value = c.nom || ''; showToast(escHtml('Impossible de renommer : ' + err), 'error'); return; }
+  c.nom = nom; input.value = nom;
+  showToast('Nom enregistré');
+}
+async function cfPasserInterne(id){
+  const c = (_cfEtat.tous || []).find(x => String(x.id) === String(id));
+  if(!c || cfTypeInterne(c)) return;
+  if(!currentUser || currentUser.role !== 'admin'){ showToast('Réservé aux administrateurs', 'error'); return; }
+  if(!(await daPeutDefinir())){ await daRefuser(); return; }
+  if(!confirm('Passer « ' + cfNumero(c) + ' — ' + (c.nom || '') + ' » en centre interne ?\n\nIl ne sera plus proposé dans la liste des Chantiers, les devis et les factures clients. Les achats déjà imputés à ce centre ne changent pas.')) return;
+  let err = null;
+  try{
+    const r = await sb.from('chantiers_lyneo').update({type_centre:'interne'}).eq('id', id).select('id');
+    if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = 'modification refusée (droits insuffisants)';
+  }catch(e){ err = (e && e.message) || String(e); }
+  if(err){ showToast(escHtml('Impossible de modifier le type : ' + err), 'error'); return; }
+  showToast('Centre interne enregistré');
+  await cfRendreGestion();
+}
+
+// ── DOCUMENTS : ACCÈS PAR LISTES NOMINALES (14/11/2026) ───────────────────────────────────────────────────────
+// Deux listes de personnes, enregistrées dans parametres_app (clé « documents_acces ») :
+//   • définitions : modifient tout ce qui se définit dans Documents (données de l'entreprise, codes ressource, comptes de vente, centres de frais, ces listes) ;
+//   • exports     : voient seulement la zone « Exports Excel des listes » (les personnes des définitions y ont aussi accès).
+// Seuls des administrateurs actifs peuvent figurer dans les listes. Tant que la liste n'est pas enregistrée — ou si elle est illisible —
+// le comportement d'avant s'applique (tous les administrateurs) avec un bandeau orange ; si la lecture échoue alors qu'une liste était déjà
+// connue dans cette session, on garde la dernière liste connue (une panne de réseau n'ouvre rien).
+// LIMITE : restriction d'INTERFACE (menu, page, chaque écriture relit la liste). La base ne la connaît pas encore : un administrateur
+// qui sait appeler l'API pourrait encore écrire. Étape suivante, recommandée : RLS en base sur parametres_app / codes_ressource.
+const DA_CLE = 'documents_acces';
+const DA_MSG_REFUS = 'Réservé aux personnes autorisées à modifier les définitions de Documents';
+const DA_PRE_DEF = ['vera'], DA_PRE_EXP = ['vera', 'corinne', 'jean baptiste'];   // proposition de départ (prénoms), à confirmer à l'enregistrement
+let _da = {charge:false, ok:true, configuree:false, definitions:[], exports:[], erreur:null, majPar:null, majLe:null};
+let _daOuvert = null, _daOccupe = false;      // _daOuvert : null = par défaut (carte ouverte seulement tant que la liste n'est pas enregistrée)
+
+const daMails = l => Array.isArray(l) ? Array.from(new Set(l.map(havNormEmail).filter(Boolean))) : [];
+const daPrenomNorm = p => sansAccentsPt(p).replace(/[-\s]+/g, ' ');
+
+async function daLire(){
+  try{
+    const {data, error} = await sb.from('parametres_app').select('valeur_json').eq('cle', DA_CLE);
+    if(error) return {ok:false, configuree:false, definitions:[], exports:[], erreur:error.message || String(error)};
+    const v = data && data[0] ? data[0].valeur_json : null;
+    if(v === null || v === undefined) return {ok:true, configuree:false, definitions:[], exports:[], erreur:null};   // jamais enregistrée
+    const definitions = v && typeof v === 'object' ? daMails(v.definitions) : [], exports = v && typeof v === 'object' ? daMails(v.exports) : [];
+    if(!definitions.length) return {ok:false, configuree:false, definitions:[], exports, erreur:'la liste des définitions est vide ou illisible'};
+    return {ok:true, configuree:true, definitions, exports, erreur:null, majPar:v.maj_par || null, majLe:v.maj_le || null};
+  }catch(e){ return {ok:false, configuree:false, definitions:[], exports:[], erreur:(e && e.message) || String(e)}; }
+}
+// Ce que la personne peut faire, d'après une liste. Hors administrateur : rien. Liste absente ou illisible : comme avant (tous les administrateurs).
+function daAcces(st, user){
+  user = user || currentUser;
+  if(!user || user.role !== 'admin') return {voir:false, definir:false, exporter:false};
+  if(!st || !st.ok || !st.configuree) return {voir:true, definir:true, exporter:true};
+  const m = havNormEmail(user.email);
+  const def = !!m && st.definitions.includes(m), exp = def || (!!m && st.exports.includes(m));
+  return {voir:exp, definir:def, exporter:exp};
+}
+// Synchrone (menu, adresse #/documents) : avant la première lecture on laisse passer les administrateurs ; la page, elle, relit la liste avant d'afficher quoi que ce soit.
+function daPeutVoirSync(){ return !!currentUser && currentUser.role === 'admin' && (_da.charge ? daAcces(_da).voir : true); }
+// Relit la liste dans la base (un autre poste a pu la changer) et renvoie les droits de la personne connectée.
+async function daVerifier(){
+  const u = currentUser;
+  const n = await daLire();
+  if(u !== currentUser) return {voir:false, definir:false, exporter:false};   // déconnexion / changement de personne pendant la lecture : on n'applique rien
+  if(n.ok || !_da.configuree) _da = Object.assign({charge:true}, n);
+  else _da.erreur = n.erreur;                                                  // lecture impossible : on garde la dernière liste connue
+  daMajNav();
+  return daAcces(_da);
+}
+const daPeutDefinir = async () => (await daVerifier()).definir;
+async function daRefuser(){ showToast(DA_MSG_REFUS, 'error'); if(currentPage === 'documents') await renderDocuments(); }
+function daMajNav(){
+  const n = document.getElementById('nav-documents'); if(!n) return;
+  n.classList.toggle('hidden', !(currentUser && currentUser.role === 'admin' && _da.charge && daAcces(_da).voir));   // caché tant que la liste n'est pas lue
+}
+function daDemarrer(){ daMajNav(); daVerifier().catch(() => {}); }
+function daReset(){
+  _da = {charge:false, ok:true, configuree:false, definitions:[], exports:[], erreur:null, majPar:null, majLe:null}; _daOuvert = null; _daOccupe = false;
+  const n = document.getElementById('nav-documents'); if(n) n.classList.add('hidden');
+}
+
+// ── Écrans ─────────────────────────────────────────────────────────────────────────────────────────────────
+function daCarteExports(){
+  const E = LyneoPDF.ENTREPRISE;
+  return `<div class="card" style="padding:20px;margin-bottom:16px" id="doc-exports">
+      <h3 style="font-size:15px;margin-bottom:6px"><i class="ti ti-file-spreadsheet"></i> Exports Excel des listes</h3>
+      <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Bouton « Exporter Excel » de chaque module : vous choisissez les colonnes, avec en option une feuille d’analyses et un tableau croisé. Chaque feuille porte en pied d’impression « ${escHtml(E.nom)} — ${escHtml(E.site)} » et la pagination.</p>
+      ${exportsCatalogueHtml()}
+    </div>`;
+}
+function daMessageRefus(){
+  el('page-content').innerHTML = '<div class="card" id="doc-refuse"><div class="empty"><p>Accès réservé aux personnes autorisées. Demandez-le à la direction.</p></div></div>';
+}
+async function daRendreExports(){
+  await entrepriseChargee();
+  el('page-content').innerHTML = '<div class="page-header"><div class="page-header-left"><h1>Documents</h1><p>Exports Excel des listes</p></div></div>'
+    + '<div class="alert alert-info" id="doc-exports-seuls" style="margin-bottom:16px"><i class="ti ti-info-circle"></i><span>Vous avez accès aux exports. Les définitions de Documents (données de l’entreprise, codes, comptes, centres de frais) sont réservées aux personnes désignées par la direction.</span></div>'
+    + daCarteExports();
+}
+function daBandeauHtml(){
+  if(_da.configuree) return '';
+  return '<div class="card" id="da-bandeau" style="padding:14px 18px;margin-bottom:16px;border-color:#FDE68A;background:var(--orange-light)"><p style="font-size:13px"><i class="ti ti-lock-open" style="color:var(--orange)"></i> <strong>Accès non restreint.</strong> Tous les administrateurs voient cette page et peuvent la modifier. <a href="#da-carte" onclick="daAller();return false" style="font-weight:600">Choisir qui y a accès</a> (carte en bas de page).</p></div>';
+}
+function daAller(){
+  _daOuvert = true;
+  const d = el('da-carte'); if(d){ d.open = true; try{ d.scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){ d.scrollIntoView(); } }
+}
+function daBascule(resume){ const d = resume && resume.parentNode; if(d) _daOuvert = !d.open; }   // appelé avant que le navigateur bascule : le nouvel état est l'inverse de l'actuel
+async function daLireAdmins(){
+  try{
+    const us = await lirePagine('utilisateurs', 'id,prenom,nom,email,role,actif');
+    const vus = new Set(), liste = [];
+    (us || []).forEach(u => { const m = havNormEmail(u.email); if(u.actif !== false && u.role === 'admin' && m && !vus.has(m)){ vus.add(m); liste.push({email:m, nom:nomPers(u) || u.email, prenom:u.prenom || ''}); } });
+    liste.sort((a, b) => _collTri.compare(cleTexteTri(a.nom), cleTexteTri(b.nom)) || a.email.localeCompare(b.email));
+    return {ok:true, liste};
+  }catch(e){ return {ok:false, liste:[], erreur:(e && e.message) || String(e)}; }
+}
+function daCarteHtml(adm){
+  const st = _da, moi = havNormEmail(currentUser && currentUser.email);
+  const preDef = new Set(), preExp = new Set();
+  if(st.configuree){ st.definitions.forEach(m => preDef.add(m)); st.exports.forEach(m => preExp.add(m)); }
+  else adm.liste.forEach(a => { const p = daPrenomNorm(a.prenom); if(DA_PRE_DEF.includes(p)) preDef.add(a.email); if(DA_PRE_EXP.includes(p)) preExp.add(a.email); });
+  preDef.forEach(m => preExp.add(m));                                                // qui définit voit aussi les exports
+  const nomDe = m => { const a = adm.liste.find(x => x.email === m); return a ? a.nom : m; };
+  const connus = new Set(adm.liste.map(a => a.email));
+  const orphelins = st.configuree ? Array.from(new Set(st.definitions.concat(st.exports))).filter(m => !connus.has(m)) : [];
+  const ouvert = _daOuvert === null ? !st.configuree : _daOuvert;
+  const resume = st.configuree
+    ? 'définitions : ' + (st.definitions.map(nomDe).join(', ') || 'personne') + ' · exports : ' + (st.exports.filter(m => !st.definitions.includes(m)).map(nomDe).join(', ') || 'aucune autre personne')
+    : 'non restreint — tous les administrateurs';
+  const lignes = adm.liste.map(a => {
+    const d = preDef.has(a.email), x = preExp.has(a.email), moiDef = st.configuree && a.email === moi && d;
+    return '<tr data-email="' + escHtml(a.email) + '"><td style="padding:5px 8px;border-bottom:1px solid var(--gray-2)">' + escHtml(a.nom) + ' <span style="color:#6B7280;font-size:12px">' + escHtml(a.email) + '</span>' + (a.email === moi ? ' <span class="badge badge-pause">vous</span>' : '') + '</td>'
+      + '<td style="padding:5px 8px;border-bottom:1px solid var(--gray-2);text-align:center"><input type="checkbox" class="da-def" aria-label="Définitions : ' + escHtml(a.nom) + '" style="width:auto;margin:0" value="' + escHtml(a.email) + '" ' + (d ? 'checked ' : '') + (moiDef ? 'disabled title="Vous restez dans cette liste" ' : '') + 'onchange="daCocher(this)"></td>'
+      + '<td style="padding:5px 8px;border-bottom:1px solid var(--gray-2);text-align:center"><input type="checkbox" class="da-exp" aria-label="Exports : ' + escHtml(a.nom) + '" style="width:auto;margin:0" value="' + escHtml(a.email) + '" ' + (x ? 'checked ' : '') + (d ? 'disabled ' : '') + '></td></tr>';
+  }).join('');
+  return '<details class="card" id="da-carte" ' + (ouvert ? 'open ' : '') + 'style="padding:0;margin-bottom:16px">'
+    + '<summary id="da-titre" onclick="daBascule(this)" style="cursor:pointer;padding:14px 20px;font-weight:700"><i class="ti ti-lock"></i> Qui accède à Documents ? <span style="font-weight:400;font-size:12.5px;color:#6B7280">— ' + escHtml(resume) + '</span></summary>'
+    + '<div style="padding:0 20px 18px">'
+    + '<p style="font-size:13px;color:var(--gray-6);margin-bottom:10px"><strong>Définitions</strong> : modifient les données de l’entreprise, les codes ressource, les comptes de vente, les centres de frais et cette liste. <strong>Exports</strong> : voient seulement la zone « Exports Excel des listes » ; les personnes des définitions y ont aussi accès. Les autres administrateurs ne voient plus « Documents » dans le menu.</p>'
+    + (st.configuree ? '' : '<div class="alert alert-warning" id="da-defaut" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span><strong>Pas encore enregistré</strong> : en attendant, tous les administrateurs ont accès. Les personnes proposées ci-dessous sont à confirmer, puis « Enregistrer ».</span></div>')
+    + (st.erreur ? '<div class="alert alert-warning" id="da-erreur" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>La liste n’a pas pu être lue (' + escHtml(st.erreur) + ')' + (st.configuree ? ' : la dernière liste connue reste appliquée.' : ' : les administrateurs gardent l’accès en attendant.') + '</span></div>' : '')
+    + (adm.ok ? '' : '<div class="alert alert-error" id="da-admins-erreur" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les administrateurs (' + escHtml(adm.erreur || 'erreur') + ') : rien ne peut être enregistré pour le moment.</span></div>')
+    + (orphelins.length ? '<div class="alert alert-info" id="da-orphelins" style="margin-bottom:10px"><i class="ti ti-info-circle"></i><span>Adresses de la liste sans compte administrateur actif (retirées à l’enregistrement) : ' + orphelins.map(escHtml).join(', ') + '.</span></div>' : '')
+    + '<div style="overflow-x:auto"><table id="da-table" style="width:100%;max-width:640px;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:5px 8px">Administrateur</th><th style="padding:5px 8px">Définitions</th><th style="padding:5px 8px">Exports</th></tr></thead><tbody>'
+    + (lignes || '<tr><td colspan="3" style="padding:8px;color:#6B7280">Aucun administrateur actif trouvé.</td></tr>') + '</tbody></table></div>'
+    + '<div style="margin-top:12px"><button class="btn btn-primary" id="da-enregistrer" onclick="daEnregistrer()"' + (adm.ok && adm.liste.length ? '' : ' disabled') + '><i class="ti ti-device-floppy"></i> Enregistrer</button></div>'
+    + '</div></details>';
+}
+function daCocher(cb){
+  const tr = cb && cb.closest('tr'), x = tr && tr.querySelector('.da-exp'); if(!x) return;
+  if(cb.checked){ x.checked = true; x.disabled = true; } else x.disabled = false;
+}
+async function daRendreGestion(){
+  const z = el('da-zone'); if(!z) return;
+  const adm = await daLireAdmins();
+  const z2 = el('da-zone'); if(!z2) return;                  // la page a pu changer pendant la lecture
+  z2.innerHTML = daCarteHtml(adm);
+}
+async function daEnregistrer(){
+  if(_daOccupe) return;
+  const zone = el('da-zone'); if(!zone) return;
+  const moi = havNormEmail(currentUser && currentUser.email);
+  const def = daMails(Array.from(zone.querySelectorAll('.da-def')).filter(c => c.checked).map(c => c.value));
+  const exp = daMails(Array.from(zone.querySelectorAll('.da-exp')).filter(c => c.checked).map(c => c.value).concat(def));
+  if(!def.length){ showToast('Cochez au moins une personne pour les définitions : sans elle, plus personne ne pourrait modifier Documents', 'error', 6000); return; }
+  if(!moi || !def.includes(moi)){ showToast('Vous devez rester dans la liste des définitions : cochez votre nom', 'error', 6000); return; }
+  _daOccupe = true;
+  const btn = el('da-enregistrer'); if(btn) btn.disabled = true;
+  let err = null;
+  try{
+    if(!(await daPeutDefinir())) err = DA_MSG_REFUS;           // relu au moment d'écrire : un retrait fait entre-temps est respecté
+    else{
+      const v = {definitions:def, exports:exp, maj_par:(currentUser && currentUser.email) || null, maj_le:new Date().toISOString()};
+      const r = await sb.from('parametres_app').upsert({cle:DA_CLE, valeur_json:v}, {onConflict:'cle'}).select('cle');
+      if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = 'enregistrement refusé (droits insuffisants)';
+      else _da = {charge:true, ok:true, configuree:true, definitions:def, exports:exp, erreur:null, majPar:v.maj_par, majLe:v.maj_le};
+    }
+  }catch(e){ err = (e && e.message) || String(e); }
+  _daOccupe = false;
+  if(err){
+    if(btn) btn.disabled = false;
+    if(err === DA_MSG_REFUS){ await daRefuser(); return; }
+    showToast(escHtml('Impossible d’enregistrer : ' + err), 'error', 6000); return;
+  }
+  showToast('Accès à Documents enregistré');
+  _daOuvert = false; daMajNav();
+  await renderDocuments();
+}
+
+// ── IMPUTATION PAR LIGNE (15/11/2026) ──────────────────────────────────────────────────────────────────────────
+// Une note de frais (ou une facture fournisseur) peut être REPARTIE par ligne : UNE seule facture NDF-AAAAMM-NN (jamais de suffixe), chaque ligne
+// porte son centre (chantier / frais généraux / centre SAV), son intervention, son code ressource et son taux de TVA.
+// Base : lignes_facture.chantier_id / intervention_id + factures.imputation_multiple (migration-ndf-imputation-ligne.sql).
+// Règle de lecture : une facture imputation_multiple = false se lit comme toujours (cabeçalho). Une facture imputation_multiple = true se lit par
+// « tranches » : une tranche par destination (centre + intervention), avec le HT / TVA / TTC de ses lignes. L'en-tête garde le centre de plus
+// grand montant (listes, filtres) et AUCUNE intervention (sinon double compte). Une seule fonction (ndfTranches) calcule le coût par destination ;
+// tous les lecteurs de coûts passent par elle.
+const IMPUT_MSG_SQL = "Pour répartir une note entre plusieurs centres, exécutez une fois « migration-ndf-imputation-ligne.sql » dans Supabase → SQL Editor (projet de l'ERP). En attendant, mettez toutes les lignes sur le même centre.";
+const IMPUT_ID_NUL = '00000000-0000-0000-0000-000000000000';
+const _imput = {ok:null, centres:null};
+async function imputDispo(){
+  if(_imput.ok === true) return true;
+  try{
+    const a = await sb.from('lignes_facture').select('id').eq('chantier_id', IMPUT_ID_NUL).limit(1);
+    const b = await sb.from('factures').select('id').eq('imputation_multiple', true).limit(1);
+    if(!a.error && !b.error){ _imput.ok = true; return true; }
+  }catch(e){}
+  return false;
+}
+const imputR2 = x => Math.round((Number(x) || 0) * 100) / 100;
+// Tranches d'une facture : [facture] telle quelle (imputation simple) ou une pseudo-facture par destination (imputation multiple).
+// La somme des tranches égale le HT / la TVA / le TTC de l'en-tête (l'écart d'arrondi va à la dernière tranche).
+function ndfTranches(fac, lignes){
+  if(!fac || fac.imputation_multiple !== true) return [fac];
+  const m = new Map();
+  (lignes || []).forEach(l => {
+    const ch = String(l.chantier_id || fac.chantier_id || ''), iv = String(l.intervention_id || ''), k = ch + '|' + iv;
+    const q = parseFloat(l.quantite) || 0, pu = parseFloat(l.prix_unitaire_ht) || 0, tx = parseFloat(l.taux_tva) || 0, ht = q * pu;
+    const o = m.get(k) || {ch, iv, ht:0, tva:0}; o.ht += ht; o.tva += ht * tx / 100; m.set(k, o);
+  });
+  const T = Array.from(m.values());
+  if(!T.length) return [fac];
+  T.forEach(o => { o.ht = imputR2(o.ht); o.tva = imputR2(o.tva); });
+  const dHt = imputR2((parseFloat(fac.montant_ht) || 0) - T.reduce((a, o) => a + o.ht, 0)), dTva = imputR2((parseFloat(fac.montant_tva) || 0) - T.reduce((a, o) => a + o.tva, 0));
+  if(Math.abs(dHt) < 0.05) T[T.length - 1].ht = imputR2(T[T.length - 1].ht + dHt);
+  if(Math.abs(dTva) < 0.05) T[T.length - 1].tva = imputR2(T[T.length - 1].tva + dTva);
+  return T.map(o => Object.assign({}, fac, {chantier_id:o.ch || null, intervention_id:o.iv || null, montant_ht:o.ht, montant_tva:o.tva, montant_ttc:imputR2(o.ht + o.tva), _tranche:true, _nbTranches:T.length}));
+}
+// Centre de plus grand montant (cabeçalho d'une facture répartie) : à égalité, le premier dans l'ordre des lignes
+function imputCentrePrincipal(lignes, defaut){
+  const m = new Map();
+  (lignes || []).forEach(l => { const ch = String(l.chantier_id || defaut || ''); if(!ch) return; m.set(ch, (m.get(ch) || 0) + (parseFloat(l.quantite) || 0) * (parseFloat(l.prix_unitaire_ht) || 0)); });
+  let best = '', max = -Infinity;
+  m.forEach((v, k) => { if(v > max + 1e-9){ max = v; best = k; } });
+  return best || String(defaut || '');
+}
+const _imputCols = 'id,facture_id,chantier_id,intervention_id,quantite,prix_unitaire_ht,taux_tva';
+// Factures fournisseur d'un ou plusieurs centres, lues PAR TRANCHES (les factures réparties ne comptent que pour la part de ces centres).
+async function facturesDesCentres(chantierIds, cols, tri){
+  cols = cols || '*'; tri = tri || 'created_at';
+  const ids = Array.from(new Set((chantierIds || []).map(String).filter(Boolean)));
+  if(!ids.length) return [];
+  const base = await selectInChunks(sb, 'factures', cols, 'chantier_id', ids);
+  let res = base;
+  if(await imputDispo()){
+    const multiBase = base.filter(f => f.imputation_multiple === true);
+    const lignesCentre = await selectInChunks(sb, 'lignes_facture', 'facture_id,chantier_id', 'chantier_id', ids);
+    const dejaLa = new Set(base.map(f => String(f.id)));
+    const extraIds = Array.from(new Set(lignesCentre.map(l => String(l.facture_id)).filter(i => !dejaLa.has(i))));
+    const extras = extraIds.length ? await chargerParIds('factures', cols, extraIds) : [];
+    const multi = multiBase.concat(extras.filter(f => f.imputation_multiple === true));
+    const lignes = multi.length ? await selectInChunks(sb, 'lignes_facture', _imputCols, 'facture_id', multi.map(f => f.id)) : [];
+    const parFac = new Map();
+    lignes.forEach(l => { const k = String(l.facture_id); (parFac.get(k) || parFac.set(k, []).get(k)).push(l); });
+    const set = new Set(ids), tranches = [];
+    multi.forEach(f => ndfTranches(f, parFac.get(String(f.id)) || []).forEach(t => { if(!t._tranche || set.has(String(t.chantier_id))) tranches.push(t); }));
+    res = base.filter(f => f.imputation_multiple !== true).concat(tranches);
+  }
+  return res.sort((a, b) => String(b[tri] || '') < String(a[tri] || '') ? -1 : String(b[tri] || '') > String(a[tri] || '') ? 1 : 0);
+}
+// Achats d'interventions : tranches des factures réparties dont une ligne porte l'une de ces interventions
+async function tranchesInterventions(interventionIds){
+  const ids = Array.from(new Set((interventionIds || []).map(String).filter(Boolean)));
+  if(!ids.length || !(await imputDispo())) return [];
+  const lignesIv = await selectInChunks(sb, 'lignes_facture', 'facture_id,intervention_id', 'intervention_id', ids);
+  const facIds = Array.from(new Set(lignesIv.map(l => String(l.facture_id))));
+  if(!facIds.length) return [];
+  const facs = (await chargerParIds('factures', '*,fournisseurs!fournisseur_id(nom)', facIds)).filter(f => f.imputation_multiple === true);
+  const lignes = facs.length ? await selectInChunks(sb, 'lignes_facture', _imputCols, 'facture_id', facs.map(f => f.id)) : [];
+  const parFac = new Map();
+  lignes.forEach(l => { const k = String(l.facture_id); (parFac.get(k) || parFac.set(k, []).get(k)).push(l); });
+  const set = new Set(ids), out = [];
+  facs.forEach(f => ndfTranches(f, parFac.get(String(f.id)) || []).forEach(t => { if(t._tranche && t.intervention_id && set.has(String(t.intervention_id))) out.push(t); }));
+  return out;
+}
+// Centres (pour afficher le centre de chaque ligne dans la fiche d'une facture répartie)
+async function imputChargerCentres(){
+  if(_imput.centres) return _imput.centres;
+  const m = {};
+  try{ (await lirePagine('chantiers_lyneo', 'id,numero,nom')).forEach(c => { m[String(c.id)] = c; }); }catch(e){}
+  _imput.centres = m; return m;
+}
+function imputLibCentre(id){ const c = (_imput.centres || {})[String(id || '')]; return c ? ((c.numero || '') + ' — ' + (c.nom || '')) : '—'; }
+// Facture(s) en lot : « Affecter au chantier… » ramène une facture répartie à UN seul centre (les destinations de ses lignes sont effacées)
+async function imputRamenerAUn(ids){
+  if(!ids.length || !(await imputDispo())) return null;
+  for(let i = 0; i < ids.length; i += 50){
+    const part = ids.slice(i, i + 50);
+    let r = await sb.from('lignes_facture').update({chantier_id:null, intervention_id:null}).in('facture_id', part);
+    if(r.error) return r.error;
+    r = await sb.from('factures').update({imputation_multiple:false}).in('id', part);
+    if(r.error) return r.error;
+  }
+  return null;
+}
+// Avant « Affecter au chantier… » en lot : une facture répartie par ligne devient une facture d'UN seul centre (confirmation)
+function imputConfirmerRamener(ids, liste){
+  const set = new Set((ids || []).map(String));
+  const n = (liste || []).filter(f => set.has(String(f.id)) && f.imputation_multiple === true).length;
+  if(!n) return true;
+  return confirm(n + ' facture' + (n > 1 ? 's' : '') + ' répartie' + (n > 1 ? 's' : '') + ' par ligne entre plusieurs centres ' + (n > 1 ? 'vont' : 'va') + ' être ramenée' + (n > 1 ? 's' : '') + ' à UN seul centre : la répartition des lignes sera effacée.\nContinuer ?');
+}
+// Modifier une facture répartie : centre + intervention de chaque ligne
+const imputOuvert = () => window._efacMulti === true;
+function efacCellCentre(l, i){
+  const iv = l.chantier_id ? ndfIntervDe(l.chantier_id) : [];
+  const sous = !iv.length ? '' : '<select class="efac-ligne-interv" aria-label="Intervention SAV de la ligne ' + (i + 1) + '" onchange="efacUpdInterv(' + i + ',this.value)" style="width:100%;margin-top:4px;font-size:12px"><option value="">— Aucune intervention —</option>'
+    + iv.map(x => '<option value="' + escHtml(x.id) + '"' + (String(x.id) === String(l.intervention_id || '') ? ' selected' : '') + '>' + escHtml(ndfLibInterv(x)) + '</option>').join('') + '</select>';
+  return '<td><select class="efac-ligne-chantier' + (l.chantier_id ? '' : ' ndf-manque') + '" aria-label="Centre de la ligne ' + (i + 1) + '" onchange="efacUpdCentre(' + i + ',this.value)" style="width:100%;min-width:180px">'
+    + ndfOptionsChantier(l.chantier_id || '', '— Choisir —') + '</select>' + sous + '</td>';
+}
+function efacUpdCentre(i, v){ const l = _efacLignes[i]; if(!l) return; if(String(l.chantier_id || '') !== String(v || '')) l.intervention_id = ''; l.chantier_id = v; renderEfacLignes(); }
+function efacUpdInterv(i, v){ const l = _efacLignes[i]; if(!l) return; l.intervention_id = v; renderEfacLignes(); }
+
 // ── INIT ─────────────────────────────────────────────────────
 function toggleSidebar(){
   const sidebar = document.querySelector('.sidebar');
@@ -24024,7 +24502,7 @@ async function rcCharger(){
   const [lignes, facs, fours, chantiers, pos, codes] = await Promise.all([
     lireTableComplete('lignes_facture'), lireTableComplete('factures'), lireOptionnelle('fournisseurs'),
     lireOptionnelle('chantiers_lyneo'), lireOptionnelle('purchase_orders_lyneo'), lireOptionnelle('codes_ressource')]);
-  const interv = await chargerRefsInterventions(facs.map(f=>f.intervention_id));
+  const interv = await chargerRefsInterventions(facs.map(f=>f.intervention_id).concat(lignes.map(l=>l.intervention_id)));
   return {lignes, facs:parIdExport(facs), fours:parIdExport(fours), chantiers:parIdExport(chantiers), pos:parIdExport(pos), codes:parIdExport(codes), interv,
           codesOk: lignes.length ? ('code_ressource_id' in lignes[0]) : true, chargeLe: new Date()};
 }
@@ -24039,11 +24517,17 @@ function rcFacturePasse(f, D, F){
   const date = jourISO(f.date_facture);
   if(!date) return false;
   if((F.du && date<F.du) || (F.au && date>F.au)) return false;
-  const ch = rcChantierFacture(f, D), cKey = ch ? String(ch.id) : RC_SANS_CENTRE;
+  if(f.imputation_multiple===true) return true;      // facture répartie : le centre se juge ligne par ligne (rcCentrePasse)
+  return rcCentrePasse(rcChantierFacture(f, D), F);
+}
+function rcCentrePasse(ch, F){
+  const cKey = ch ? String(ch.id) : RC_SANS_CENTRE;
   if(F.centre && F.centre!==cKey) return false;
   if(F.type && (!ch || (ch.type_centre||'chantier')!==F.type)) return false;
   return true;
 }
+// Centre d'une LIGNE : celui de la ligne si la facture est répartie, sinon celui de la facture
+function rcCentreLigne(l, f, D){ return (f.imputation_multiple===true && l.chantier_id) ? ((D.chantiers||{})[l.chantier_id]||null) : rcChantierFacture(f, D); }
 
 function rcCalculer(D, F){
   const retenues = []; let sansDate = 0; const centsFacTous = new Map();
@@ -24053,10 +24537,12 @@ function rcCalculer(D, F){
     const f = D.facs[l.facture_id]; if(!f || f.statut==='annulee') continue;
     if(!jourISO(f.date_facture)){ sansDate++; continue; }
     if(!passe(f)) continue;
-    centsFacTous.set(String(f.id), (centsFacTous.get(String(f.id))||0) + rcCents(l));      // toutes les lignes de la facture, quel que soit le code filtré
+    centsFacTous.set(String(f.id), (centsFacTous.get(String(f.id))||0) + rcCents(l));      // toutes les lignes de la facture, quel que soit le code (ou le centre) filtré
     const kCode = l.code_ressource_id ? String(l.code_ressource_id) : RC_SANS_CODE;
     if(F.code && F.code!==kCode) continue;
-    const ch = rcChantierFacture(f, D), code = l.code_ressource_id ? D.codes[l.code_ressource_id] : null;
+    const ch = rcCentreLigne(l, f, D);
+    if(f.imputation_multiple===true && !rcCentrePasse(ch, F)) continue;
+    const code = l.code_ressource_id ? D.codes[l.code_ressource_id] : null;
     const date = jourISO(f.date_facture);
     retenues.push({
       id:l.id, facId:f.id, date, mois:date.slice(0,7), cents:rcCents(l),
@@ -24064,12 +24550,12 @@ function rcCalculer(D, F){
       codeKey:kCode, codeLib: code ? (code.code||'') : (l.code_ressource_id ? 'Code inconnu' : 'Sans code'), codeDesc: code ? (code.description||'') : '',
       four: ((D.fours||{})[f.fournisseur_id]||{}).nom || '', numInt:f.numero_interne||'', numFour:f.numero_facture_fournisseur||'',
       desc:l.description||'', ref:l.reference_article||'', qte:numOuVide(l.quantite), pu:numOuVide(l.prix_unitaire_ht),
-      statut:f.statut||'', interv:(D.interv||{})[f.intervention_id]||'', ordreLigne:Number(l.ordre)||0
+      statut:f.statut||'', interv:(D.interv||{})[f.imputation_multiple===true ? l.intervention_id : f.intervention_id]||'', ordreLigne:Number(l.ordre)||0
     });
   }
   // Le contrôle se fait sur les VRAIES lignes ; ensuite, l'écart de chaque facture (facture sans lignes — importation — ou lignes ≠ HT de l'en-tête)
   // est repris dans « Sans code » : le total du rapport est ainsi égal au HT des factures, et « Sans code » = la liste de ce qu'il reste à classer.
-  const controle = rcControle(D, F, retenues, passe);
+  const controle = rcControle(D, F, retenues, passe, centsFacTous);
   if(!F.code || F.code===RC_SANS_CODE){
     Object.values(D.facs).forEach(f=>{
       if(!passe(f)) return;
@@ -24077,6 +24563,7 @@ function rcCalculer(D, F){
       const reste = Math.round(ht*100) - (centsFacTous.get(String(f.id))||0);
       if(Math.abs(reste)<1) return;
       const ch = rcChantierFacture(f, D), date = jourISO(f.date_facture);
+      if(f.imputation_multiple===true && !rcCentrePasse(ch, F)) return;       // l'écart d'une facture répartie reste au centre de son en-tête
       retenues.push({
         id:'ecart-'+f.id, facId:f.id, date, mois:date.slice(0,7), cents:reste, synthetique:true,
         centreKey: ch ? String(ch.id) : RC_SANS_CENTRE, centreLib: rcLibCentre(ch), centreType: ch ? (ch.type_centre||'chantier') : '',
@@ -24150,10 +24637,11 @@ function rcArbreFactures(retenues){
 }
 
 // Contrôle : pour chaque facture retenue, le total des lignes doit être égal au HT de la facture (sinon : lignes manquantes, import…)
-function rcControle(D, F, retenues, passe){
+function rcControle(D, F, retenues, passe, toutesLignes){
   if(F.code) return {actif:false, raison:'Contrôle indisponible quand un code est filtré.'};
   const parFac = new Map();
   retenues.forEach(r=>parFac.set(String(r.facId), (parFac.get(String(r.facId))||0) + r.cents));
+  if(toutesLignes) toutesLignes.forEach((v, k)=>parFac.set(k, v));       // lignes de TOUS les centres : une facture répartie se contrôle en entier
   const ecarts = []; let nbFacs = 0, sansHt = 0;
   Object.values(D.facs).forEach(f=>{
     if(!passe(f)) return;
@@ -24763,10 +25251,10 @@ async function openEditPO(poId){
   // Le chantier déjà lié à la commande reste proposé même s'il est terminé ou archivé (sinon la commande perdrait son chantier)
   let chantsPo = _chantiersActive;
   if(po.chantier_id && !chantsPo.some(c=>String(c.id)===String(po.chantier_id))){
-    const {data:chPo} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut').eq('id',po.chantier_id).single();
+    const {data:chPo} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').eq('id',po.chantier_id).single();
     if(chPo) chantsPo = [chPo, ...chantsPo];
   }
-  const chantsOpts = chantsPo.map(c=>'<option value="'+escHtml(c.id)+'"'+(String(po.chantier_id)===String(c.id)?' selected':'')+'>'+escHtml(c.numero)+' — '+escHtml(c.nom)+(c.statut && c.statut!=='actif' ? ' ('+escHtml(STATUT_CH[c.statut]||c.statut)+')' : '')+'</option>').join('');
+  const chantsOpts = cfGroupesAchat(chantsPo, po.chantier_id, {statut:true});
   const foursOpts = _foursActive.filter(f=>!f.employe_id || po.fournisseur_id===f.id).map(f=>'<option value="'+escHtml(f.id)+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+escHtml(f.nom)+'</option>').join('');
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
@@ -25155,9 +25643,10 @@ async function openEditFacLignes(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
   window._efacOrig = fac;
+  window._efacMulti = fac.imputation_multiple===true;
 
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
-  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut').order('nom');
+  const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom');
 
   // Rétro-compatibilité : si la facture n'a pas encore de chantier_id propre
   // (créée avant cette fonctionnalité), on récupère celui de la commande liée
@@ -25167,6 +25656,7 @@ async function openEditFacLignes(facId){
     chantierIdActuel = poRow?.chantier_id||null;
   }
   const chantiers = chantiersChoix(chantiersData||[], chantierIdActuel);   // archivés masqués, sauf celui déjà lié à la facture
+  if(window._efacMulti){ _ndfChantiers = chantiersChoix(chantiersData||[], null); _ndfInterventions = await ndfLireInterventions(); _ndfIntervDispo = true; }
 
   const sgEfac = efacSigne();
   if((lignesData||[]).length===0 && (sgEfac*(parseFloat(fac.montant_ht)||0)>0 || sgEfac*(parseFloat(fac.montant_ttc)||0)>0)){
@@ -25194,7 +25684,8 @@ async function openEditFacLignes(facId){
       unite: l.unite||'u',
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
-      code_ressource_id: l.code_ressource_id || null
+      code_ressource_id: l.code_ressource_id || null,
+      chantier_id: l.chantier_id || '', intervention_id: l.intervention_id || ''
     }));
   }
   await chargerCodesRessource();
@@ -25211,10 +25702,10 @@ async function openEditFacLignes(facId){
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+escHtml(fac.numero_facture_fournisseur)+'"/></div>'
-    +    '<div class="form-group"><label class="field-label">Chantier *</label>'
+    +    '<div class="form-group"'+(window._efacMulti ? ' style="display:none"' : '')+'><label class="field-label">Chantier *</label>'
     +      '<select id="efac-chantier" onchange="majInterventionAchat(\'efac\',\'factures\')">'
     +        '<option value="">— Sélectionner —</option>'
-    +        chantiers.map(c=>'<option value="'+c.id+'"'+(chantierIdActuel===c.id?' selected':'')+'>'+escHtml(c.numero||'')+' — '+escHtml(c.nom)+'</option>').join('')
+    +        cfGroupesAchat(chantiers, chantierIdActuel)
     +      '</select>'
     +    '</div>'
     +    htmlChampIntervention('efac')
@@ -25231,11 +25722,13 @@ async function openEditFacLignes(facId){
     +    '<button class="btn btn-secondary btn-sm" onclick="addEfacLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
     +  (sgEfac<0 ? '<div class="alert alert-info" id="efac-avoir-info" style="margin-bottom:10px"><i class="ti ti-info-circle"></i> <strong>Note de crédit</strong> : les lignes sont celles de la facture d\'origine, en positif (comme dans Odoo). Pour un crédit partiel, réduisez une quantité ou supprimez une ligne. Les montants sont enregistrés en négatif.</div>' : '')
+    +  (window._efacMulti ? '<div class="alert alert-info" id="efac-multi-info" style="margin-bottom:10px"><i class="ti ti-arrows-split"></i> <span>Facture <strong>répartie par ligne</strong> : chaque ligne a son centre (chantier / frais généraux / centre SAV) et, au besoin, son intervention. Si toutes les lignes vont au même endroit, la facture redevient une facture simple.</span></div>' : '')
     +  '<div id="cr-tous-zone"></div>'
     +  '<div style="overflow-x:auto;max-width:100%">'
     +    '<table class="lignes-table" id="efac-lignes-table" style="min-width:580px">'
     +      '<thead><tr>'
     +        '<th style="min-width:180px">Description *</th>'
+    +        (window._efacMulti ? '<th style="min-width:200px">Centre *</th>' : '')
     +        crTh('min-width:140px')
     +        '<th style="width:100px">Référence</th>'
     +        '<th style="width:70px">Qté</th>'
@@ -25257,7 +25750,7 @@ async function openEditFacLignes(facId){
     +  '</div>'
     +'</div></div></div>');
   renderEfacLignes();
-  majInterventionAchat('efac', 'factures', fac.intervention_id||'');
+  if(!window._efacMulti) majInterventionAchat('efac', 'factures', fac.intervention_id||'');
   (async()=>{ let fid = fac.fournisseur_id || '';
     if(!fid && fac.po_id){ try{ const r = await sb.from('purchase_orders_lyneo').select('fournisseur_id').eq('id',fac.po_id).maybeSingle(); fid = (r.data && r.data.fournisseur_id) || ''; }catch(e){} }
     majEcheanceFourn('efac', fid); })();
@@ -25268,7 +25761,7 @@ function renderEfacLignes(){
   const body = el('efac-lignes-body');
   if(!body) return;
   morphLignes(body, _efacLignes.map((l,i)=>`<tr>
-    <td><input value="${escHtml(l.description)}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>
+    <td><input value="${escHtml(l.description)}" onchange="updEfacLigne(${i},'description',this.value)" placeholder="Description..."/></td>${imputOuvert() ? efacCellCentre(l, i) : ''}
     ${crTd(l.code_ressource_id, "updEfacLigne("+i+",'code_ressource_id',this.value)", '')}
     <td><input value="${escHtml(l.reference_article)}" onchange="updEfacLigne(${i},'reference_article',this.value)" list="dl-refs-fourn" placeholder="Réf."/></td>
     <td><input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="${l.quantite}" onchange="updEfacLigne(${i},'quantite',this.value)"/></td>
@@ -25291,18 +25784,25 @@ function renderEfacLignes(){
 function efacTvaCalculee(){ return _efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(parseFloat(l.taux_tva)||0)/100,0); }
 
 function updEfacLigne(i,k,v){ _efacLignes[i][k]=v; renderEfacLignes(); if(k==='reference_article') proposerDescriptionReference(_efacLignes, i, window._efacOrig && window._efacOrig.fournisseur_id, renderEfacLignes, {code:true}); }
-function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderEfacLignes(); focusDerniereLigne('efac-lignes-body'); }
+function addEfacLigne(){ _efacLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17, ...(imputOuvert() ? {chantier_id:(_efacLignes[_efacLignes.length-1]||{}).chantier_id||'', intervention_id:''} : {})}); renderEfacLignes(); focusDerniereLigne('efac-lignes-body'); }
 function delEfacLigne(i){ _efacLignes.splice(i,1); renderEfacLignes(); }
 
 function saveEditFac(facId){ return gardeEnvoi('facture-fournisseur', ()=>saveEditFacCore(facId)); }
 async function saveEditFacCore(facId){
   if(_efacLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
-  const chantierId = el('efac-chantier').value;
-  if(!chantierId){ showToast("Chantier obligatoire", 'error'); return; }
+  const multi = imputOuvert();
+  let chantierId = el('efac-chantier').value, garde = multi, collapseInterv = '';
+  if(multi){
+    const sans = _efacLignes.map((l,i)=>l.chantier_id ? 0 : i+1).filter(Boolean);
+    if(sans.length){ renderEfacLignes(); showToast('Choisissez le centre '+(sans.length===1 ? 'de la ligne '+sans[0] : 'des lignes '+sans.slice(0,8).join(', ')+(sans.length>8?'…':'')), 'error'); return; }
+    if(new Set(_efacLignes.map(l=>String(l.chantier_id)+'|'+String(l.intervention_id||''))).size===1){ garde = false; chantierId = String(_efacLignes[0].chantier_id); collapseInterv = _efacLignes[0].intervention_id || ''; }   // une seule destination : facture simple
+    else chantierId = imputCentrePrincipal(_efacLignes, '');
+  } else if(!chantierId){ showToast("Chantier obligatoire", 'error'); return; }
+  const imputLigne = l => multi ? (garde ? {chantier_id:l.chantier_id||null, intervention_id:l.intervention_id||null} : {chantier_id:null, intervention_id:null}) : {};
 
   const sgBase = efacSigne();   // -1 : note de crédit (écran en positif, base en négatif)
   const totalHT = sgBase*_efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
-  const totalTVA = sgBase*tvaFinale('efac', efacTvaCalculee());
+  const totalTVA = sgBase*(multi ? efacTvaCalculee() : tvaFinale('efac', efacTvaCalculee()));
 
   // si le n° de facture change : il ne doit pas déjà exister chez le même fournisseur
   {
@@ -25335,6 +25835,7 @@ async function saveEditFacCore(facId){
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
+      ...imputLigne(l),
       ...crPayload(l)
     }).eq('id', l._db_id);
     if(updErr){ showToast('Erreur: '+updErr.message, 'error'); return; }
@@ -25350,6 +25851,7 @@ async function saveEditFacCore(facId){
       unite: l.unite,
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
+      ...imputLigne(l),
       ...crPayload(l)
     })));
     if(insErr){ showToast('Erreur: '+insErr.message, 'error'); return; }
@@ -25358,7 +25860,7 @@ async function saveEditFacCore(facId){
   const {error} = await sb.from('factures').update({
     numero_facture_fournisseur: el('efac-num').value,
     chantier_id: chantierId,
-    ...achatIntervPayload('efac', window._efacOrig||null),
+    ...(multi ? {intervention_id: collapseInterv||null, imputation_multiple: garde} : achatIntervPayload('efac', window._efacOrig||null)),
     date_facture: el('efac-date').value,
     date_echeance: el('efac-echeance').value||null,
     montant_ht: totalHT,
@@ -25403,6 +25905,7 @@ async function creerNoteCredit(facId){
     chantier_id: chantierId,
     fournisseur_id: fournisseurId,
     ...(fac.intervention_id ? {intervention_id: fac.intervention_id} : {}),
+    ...(fac.imputation_multiple===true ? {imputation_multiple:true} : {}),
     ...(ni ? {numero_interne: ni} : {}),
     numero_facture_fournisseur: 'AVOIR — '+(fac.numero_facture_fournisseur||''),
     date_facture: today(),
@@ -25434,6 +25937,7 @@ async function creerNoteCredit(facId){
       unite: l.unite,
       prix_unitaire_ht: l.prix_unitaire_ht,
       taux_tva: l.taux_tva,
+      ...(fac.imputation_multiple===true ? {chantier_id:l.chantier_id||null, intervention_id:l.intervention_id||null} : {}),
       ...crCopie(l)
     })));
     if(lignesErr){ showToast("Note créée, mais erreur en copiant les lignes: "+lignesErr.message, 'error'); }
@@ -25476,6 +25980,7 @@ async function duplicateFacture(facId){
     chantier_id: chantierId,
     fournisseur_id: fournisseurId,
     ...(fac.intervention_id ? {intervention_id: fac.intervention_id} : {}),
+    ...(fac.imputation_multiple===true ? {imputation_multiple:true} : {}),
     numero_facture_fournisseur: (fac.numero_facture_fournisseur||'')+' (copie)',
     date_facture: dateCopie,
     date_echeance: await echeanceCopieFacture(fac, fournisseurId, dateCopie),
@@ -25497,6 +26002,7 @@ async function duplicateFacture(facId){
       unite: l.unite,
       prix_unitaire_ht: l.prix_unitaire_ht,
       taux_tva: l.taux_tva,
+      ...(fac.imputation_multiple===true ? {chantier_id:l.chantier_id||null, intervention_id:l.intervention_id||null} : {}),
       ...crCopie(l)
     })));
     if(lignesErr){ showToast("Copie créée, mais erreur en dupliquant les lignes: "+lignesErr.message, 'error'); }
