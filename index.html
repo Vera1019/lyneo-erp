@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-16-c8f59eb"/>
+<meta name="lyneo-build" content="BUILD:2026-11-16-acac7a3"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1569,7 +1569,7 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     // ── Bandeau de référence (ex: Référence | Lieu | Type | Modalité) ──
     drawRefStrip(items){
       if(!items || items.length===0) return;
-      const w = (this.W - 2*this.margin) / items.length, maxW = w - 16, TAILLE = 9, INTERLIGNE = 11, MAXL = 4;
+      const w = (this.W - 2*this.margin) / items.length, maxW = w - 16, TAILLE = 9.5, INTERLIGNE = 11, MAXL = 4;
       // Chaque valeur passe à la ligne (mots, puis coupure des mots plus longs que la case) : plus rien n'est caché. 4 lignes au plus (la dernière finit par « … »).
       const casser = (valeur) => {
         const brut = String(valeur == null || valeur === '' ? '—' : valeur).replace(/\r/g, '');
@@ -2819,7 +2819,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-16-c8f59eb';
+const APP_BUILD = 'BUILD:2026-11-16-acac7a3';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -4025,7 +4025,6 @@ async function renderChantiers(search=''){
   }
   // Les centres de coûts SAV (SAV 1, SAV 2...) vivent dans le module Interventions : ils ne sont pas listés ici.
   const centresSav = _chantiers.filter(c=>c.type_centre==='sav');
-  const centresInternes = _chantiers.filter(cfEstInterne);   // frais généraux, HI, STOCK… : réservés aux achats, gérés dans Documents
   const baseTous = _chantiers.filter(c=>c.type_centre!=='sav' && !cfEstInterne(c));
   const archives = baseTous.filter(chEstArchive);
   const actifs = baseTous.filter(c=>!chEstArchive(c));
@@ -4046,7 +4045,6 @@ async function renderChantiers(search=''){
       </div>
     </div>
     ${centresSav.length?`<div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${centresSav.length} centre${centresSav.length>1?'s':''} de coûts SAV (${centresSav.map(c=>escHtml(c.numero)).sort().join(', ')}) — gérés dans <a href="#" onclick="navigate('interventions_sav');return false" style="color:var(--blue);font-weight:600">Interventions</a>, avec leurs interventions.</div>`:''}
-    ${cfInfoChantiersHtml(centresInternes)}
     <div style="display:flex;border-bottom:1px solid var(--gray-3);margin-bottom:16px">
       ${ongletCh('actifs', '<i class="ti ti-building-factory-2"></i> Chantiers', actifs.length)}
       ${ongletCh('archives', '<i class="ti ti-archive"></i> Chantiers archivés', archives.length)}
@@ -24071,14 +24069,6 @@ function chantiersVenteChoix(rows, garderId){
   const garde = (garderId === undefined || garderId === null || garderId === '') ? null : String(garderId);
   return chantiersChoix(rows, garderId).filter(c => !cfEstInterne(c) || (garde !== null && String(c.id) === garde));
 }
-// Ligne d'information sous le titre de la page Chantiers (comme pour les centres SAV)
-function cfInfoChantiersHtml(internes){
-  if(!internes || !internes.length) return '';
-  const admin = !!currentUser && currentUser.role === 'admin';
-  return '<div class="alert alert-info" id="ch-info-internes" style="margin-bottom:16px"><i class="ti ti-info-circle"></i><span>' + internes.length + ' centre' + (internes.length > 1 ? 's' : '') + ' interne' + (internes.length > 1 ? 's' : '')
-    + ' (frais généraux, heures improductives, stock…) — réservés aux achats'
-    + (admin ? ', gérés dans <a href="#" id="ch-lien-centres" onclick="navigate(\'documents\');return false" style="color:var(--blue);font-weight:600">Documents</a>.' : '.') + '</span></div>';
-}
 
 // ── Carte « Centres de frais » dans Documents (administrateurs) ────────────────────────────────────────────────
 let _cfEtat = {erreur:null, tous:[], occupe:false};
@@ -24114,7 +24104,8 @@ function cfDessiner(){
   const z = el('cf-zone'); if(!z) return;
   if(_cfEtat.erreur){ z.innerHTML = '<div class="alert alert-warning" id="cf-erreur"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les centres : ' + escHtml(_cfEtat.erreur) + '</span></div>'; return; }
   const plan = cfPlan(_cfEtat.tous);
-  const internes = _cfEtat.tous.filter(cfEstInterne).sort((a, b) => {
+  const retires = _cfEtat.tous.filter(c => cfEstInterne(c) && chEstArchive(c)).sort((a, b) => cfNumero(a).localeCompare(cfNumero(b), 'fr', {numeric:true, sensitivity:'base'}));
+  const internes = _cfEtat.tous.filter(c => cfEstInterne(c) && !chEstArchive(c)).sort((a, b) => {
     const fa = cfEstFrais(a) ? 0 : 1, fb = cfEstFrais(b) ? 0 : 1;
     return fa - fb || cfNumero(a).localeCompare(cfNumero(b), 'fr', {numeric:true, sensitivity:'base'});
   });
@@ -24125,7 +24116,8 @@ function cfDessiner(){
           ? '<span class="cf-nom-hi">' + escHtml(c.nom || '') + '</span> <span class="badge badge-pause" style="margin-left:6px">utilisé par les pointages</span>'
           : '<input class="cf-nom" value="' + escHtml(c.nom || '') + '" aria-label="Nom du centre ' + escHtml(c.numero || '') + '" onchange="cfRenommer(\'' + escHtml(String(c.id)) + '\', this)" style="width:100%;max-width:380px"/>') + '</td>'
       + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);font-size:12.5px">' + (ok ? 'Interne' : '<span class="badge badge-pause">Type : ' + escHtml(CF_TYPES[c.type_centre || 'chantier'] || c.type_centre) + '</span>') + '</td>'
-      + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (ok ? '' : '<button class="btn btn-secondary btn-sm cf-passer" onclick="cfPasserInterne(\'' + escHtml(String(c.id)) + '\')" title="Ne plus le proposer dans les chantiers, les devis et les factures clients">Passer en centre interne</button>') + '</td></tr>';
+      + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (ok ? '' : '<button class="btn btn-secondary btn-sm cf-passer" onclick="cfPasserInterne(\'' + escHtml(String(c.id)) + '\')" title="Ne plus le proposer dans les chantiers, les devis et les factures clients">Passer en centre interne</button>')
+        + (hi ? '' : ' <button class="btn btn-secondary btn-sm cf-retirer" onclick="cfRetirer(\'' + escHtml(String(c.id)) + '\')" title="Ne plus proposer ce centre dans les listes de choix (achats, notes de frais). Rien n\'est supprimé.">Retirer de la liste</button>') + '</td></tr>';
   }).join('');
   z.innerHTML =
     '<p style="font-size:13px;margin-bottom:10px" id="cf-resume"><strong>' + plan.presents.filter(cfEstFrais).length + '</strong> centre' + (plan.presents.filter(cfEstFrais).length > 1 ? 's' : '') + ' de frais sur ' + CF_CENTRES.length + ' (F00001 – F' + String(CF_CENTRES.length).padStart(5, '0') + ') et <strong>' + plan.presents.filter(c => !cfEstFrais(c)).length + '</strong> sur ' + CF_AUTRES.length + ' autres centres (' + CF_AUTRES.map(a => a[0]).join(', ') + ')'
@@ -24133,7 +24125,63 @@ function cfDessiner(){
     + (plan.conflits.length ? '<div class="alert alert-warning" id="cf-conflits" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>Non créés : ' + plan.conflits.map(x => '<strong>' + escHtml(x.numero) + '</strong> ' + escHtml(x.raison)).join(' · ') + '</span></div>' : '')
     + '<div style="margin-bottom:12px"><button class="btn btn-primary" id="cf-creer" onclick="cfCreerManquants()"' + (plan.creer.length && !_cfEtat.occupe ? '' : ' disabled') + '><i class="ti ti-plus"></i> Créer les ' + plan.creer.length + ' centre' + (plan.creer.length > 1 ? 's' : '') + ' de frais manquant' + (plan.creer.length > 1 ? 's' : '') + '</button></div>'
     + (internes.length ? '<div style="overflow-x:auto"><table id="cf-table" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 8px">N°</th><th style="text-align:left;padding:6px 8px">Nom</th><th style="text-align:left;padding:6px 8px">Type</th><th></th></tr></thead><tbody>' + lignes + '</tbody></table></div>'
-        : '<p style="color:var(--gray-5)">Aucun centre interne pour le moment.</p>');
+        : '<p style="color:var(--gray-5)">Aucun centre interne pour le moment.</p>')
+    + (retires.length ? '<details id="cf-retires" style="margin-top:12px;font-size:13px"><summary style="cursor:pointer;color:var(--gray-6)">Centres retirés de la liste (' + retires.length + ')</summary>'
+        + retires.map(c => '<div class="cf-retire" data-cf-id="' + escHtml(String(c.id)) + '" style="display:flex;gap:10px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--gray-2)"><strong>' + escHtml(cfNumero(c)) + '</strong><span style="flex:1">' + escHtml(c.nom || '') + '</span>'
+            + '<button class="btn btn-secondary btn-sm cf-remettre" onclick="cfRemettre(\'' + escHtml(String(c.id)) + '\')">Remettre dans la liste</button></div>').join('') + '</details>' : '');
+}
+// « Retirer de la liste » = archiver le centre (rien n'est supprimé : les anciens documents gardent leur centre). Refusé tant que des achats y sont encore imputés.
+async function cfImputations(id){
+  const res = {factures:0, lignes:0, commandes:0, erreur:null};
+  const lire = async (table, cle) => {
+    const r = await sb.from(table).select('id').eq('chantier_id', id).limit(1000);
+    if(r.error){ const m = r.error.message || String(r.error);
+      if(cle === 'lignes' && /chantier_id|column|does not exist|schema cache/i.test(m)) return;      // imputation par ligne pas encore installée : aucune ligne ne peut porter ce centre
+      res.erreur = res.erreur || m; return; }
+    res[cle] = (r.data || []).length;
+  };
+  try{ await lire('factures', 'factures'); await lire('lignes_facture', 'lignes'); await lire('purchase_orders_lyneo', 'commandes'); }
+  catch(e){ res.erreur = res.erreur || (e && e.message) || String(e); }
+  return res;
+}
+async function cfChangerStatut(id, statut, confirmer, msgOk){
+  if(_cfEtat.occupe) return;
+  _cfEtat.occupe = true;                                     // verrou posé AVANT toute attente (double clic)
+  try{
+    const c = (_cfEtat.tous || []).find(x => String(x.id) === String(id));
+    if(!c || !cfEstInterne(c) || cfEstHI(c)) return;
+    if(!currentUser || currentUser.role !== 'admin'){ showToast('Réservé aux administrateurs', 'error'); return; }
+    if(!(await daPeutDefinir())){ await daRefuser(); return; }
+    if(statut === 'archive'){
+      const u = await cfImputations(id);
+      if(u.erreur){ showToast(escHtml("Impossible de vérifier les achats imputés à ce centre : " + u.erreur), 'error', 7000); return; }
+      const reste = [];
+      const plus = n => n >= 1000 ? '1000+' : String(n);
+      if(u.factures) reste.push(plus(u.factures) + ' facture' + (u.factures > 1 ? 's' : '') + ' fournisseur / note' + (u.factures > 1 ? 's' : '') + ' de frais');
+      if(u.lignes) reste.push(plus(u.lignes) + ' ligne' + (u.lignes > 1 ? 's' : '') + ' de facture');
+      if(u.commandes) reste.push(plus(u.commandes) + ' commande' + (u.commandes > 1 ? 's' : ''));
+      if(reste.length){ showToast(escHtml('« ' + cfNumero(c) + ' » ne peut pas être retiré : encore ' + reste.join(', ') + ' imputé' + '(e)s à ce centre. Ventilez-les d\'abord (Factures fournisseurs → « Affecter au chantier… »).'), 'error', 9000); return; }
+    }
+    if(!confirm(confirmer(c))) return;
+    let err = null;
+    try{
+      const r = await sb.from('chantiers_lyneo').update({statut:statut}).eq('id', id).select('id');
+      if(r.error) err = r.error.message || String(r.error); else if(!r.data || !r.data.length) err = 'modification refusée (droits insuffisants)';
+    }catch(e){ err = (e && e.message) || String(e); }
+    if(err){ showToast(escHtml('Impossible de modifier le centre : ' + err), 'error'); return; }
+    showToast(escHtml(msgOk(c)));
+  }finally{ _cfEtat.occupe = false; }
+  await cfRendreGestion();
+}
+function cfRetirer(id){
+  return cfChangerStatut(id, 'archive',
+    c => 'Retirer « ' + cfNumero(c) + ' — ' + (c.nom || '') + ' » de la liste ?\n\nIl ne sera plus proposé dans les achats ni les notes de frais. Rien n\'est supprimé : vous pouvez le remettre plus tard (« Centres retirés de la liste »).',
+    c => 'Centre « ' + cfNumero(c) + ' » retiré de la liste');
+}
+function cfRemettre(id){
+  return cfChangerStatut(id, 'actif',
+    c => 'Remettre « ' + cfNumero(c) + ' — ' + (c.nom || '') + ' » dans la liste ?',
+    c => 'Centre « ' + cfNumero(c) + ' » remis dans la liste');
 }
 async function cfRendreGestion(){ await cfCharger(); cfDessiner(); }
 async function cfCreerManquants(){
@@ -24632,10 +24680,11 @@ const CR_PLAN = {
   renommer: [['BUREAU FOURNITURE', 'BUREAU FOURNITURES'], ['FOURNITURE', 'FOURNITURES'], ['LOCATION MATERIEL', 'LOCATION MAT EXPLOITATION'], ['LOCATION VEHICULE', 'LOCATION VEHICULES'],
              ['PRESTATION SERVICES', 'PRESTATIONS DE SERVICES'], ['TELEPHONE', 'TELEPHONE INTERNET']],
   fusionner: [['BUREAU CONSOMMABLE', 'BUREAU FOURNITURES'], ['BUREAU EQUIPEMENTS', 'BUREAU FOURNITURES'], ['LOCATION', 'LOCATION MAT EXPLOITATION']],
-  desactiver: ['MATERIEL STOCK', 'TIMBRES'],
+  desactiver: ['MATERIEL STOCK'],
   manuel: [['INFORMATIQUE', 'à répartir ligne à ligne : CONTRATS DE MAINTENANCE, LICENCES, ABONNEMENTS ou PRESTATIONS DE SERVICES, puis désactiver'],
            ['FLOTTE', 'à répartir ligne à ligne : CARBURANT, LOCATION VEHICULES ou DIVERS, puis désactiver'],
-           ['SALAIRE', "à garder pour l'instant : demander au directeur où vont UP, EPI et FLEET", true]]
+           ['SALAIRE', "à garder pour l'instant : demander au directeur où vont UP, EPI et FLEET", true],
+           ['TIMBRES', 'à garder (décision de Vera, 16/11/2026)', true]]
 };
 const crNorm = v => String(v == null ? '' : v).trim().toLowerCase().replace(/\s+/g, ' ');
 // Calcul pur du plan (sur une copie : l'ordre compte — on renomme avant de fusionner dans le code renommé)
