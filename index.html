@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-15-bf09066"/>
+<meta name="lyneo-build" content="BUILD:2026-11-16-c8f59eb"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -122,6 +122,7 @@ input:disabled,select:disabled,textarea:disabled{background:var(--gray-1);color:
 .nav-item.active{background:rgba(37,99,235,.25);color:#fff}
 .nav-item.active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:var(--blue);border-radius:0 3px 3px 0}
 .nav-item i{font-size:18px;width:22px;text-align:center;flex-shrink:0}
+.nav-item.df-urgent{background:#FEF3C7;color:#92400E;font-weight:700}
 .nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center}
 .sidebar-user{padding:14px 16px;border-top:1px solid rgba(255,255,255,.06)}
 .sidebar-user-info{display:flex;align-items:center;gap:10px;margin-bottom:10px}
@@ -1568,20 +1569,43 @@ const LYNEO_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAV4AAAC5CAYAAABgHVeUAACm3ElEQVR4
     // ── Bandeau de référence (ex: Référence | Lieu | Type | Modalité) ──
     drawRefStrip(items){
       if(!items || items.length===0) return;
-      const h = 32;
+      const w = (this.W - 2*this.margin) / items.length, maxW = w - 16, TAILLE = 9, INTERLIGNE = 11, MAXL = 4;
+      // Chaque valeur passe à la ligne (mots, puis coupure des mots plus longs que la case) : plus rien n'est caché. 4 lignes au plus (la dernière finit par « … »).
+      const casser = (valeur) => {
+        const brut = String(valeur == null || valeur === '' ? '—' : valeur).replace(/\r/g, '');
+        const lignes = [];
+        brut.split('\n').forEach(par => {
+          let cur = '';
+          const pousser = () => { lignes.push(cur); cur = ''; };
+          par.split(/\s+/).filter(Boolean).forEach(mot => {
+            const essai = cur ? cur + ' ' + mot : mot;
+            if(this.font.widthOfTextAtSize(essai, TAILLE) <= maxW){ cur = essai; return; }
+            if(cur) pousser();
+            while(this.font.widthOfTextAtSize(mot, TAILLE) > maxW && mot.length > 1){
+              let k = mot.length - 1; while(k > 1 && this.font.widthOfTextAtSize(mot.slice(0,k), TAILLE) > maxW) k--;
+              lignes.push(mot.slice(0,k)); mot = mot.slice(k);
+            }
+            cur = mot;
+          });
+          lignes.push(cur);
+        });
+        if(lignes.length > MAXL){
+          lignes.length = MAXL;
+          let d = lignes[MAXL-1];
+          while(d.length > 1 && this.font.widthOfTextAtSize(d + '…', TAILLE) > maxW) d = d.slice(0,-1).trimEnd();
+          lignes[MAXL-1] = d + '…';
+        }
+        return lignes;
+      };
+      const blocs = items.map(it => casser(it.value));
+      const nbMax = Math.max(1, ...blocs.map(b => b.length));
+      const h = 24 + nbMax * INTERLIGNE - (nbMax === 1 ? 3 : 0);     // 1 ligne → 32 pt comme avant ; chaque ligne en plus ajoute 11 pt
       this.ensureSpace(h+10);
-      const w = (this.W - 2*this.margin) / items.length;
       this.rect(this.margin, this.y-h, this.W-2*this.margin, h, 'brand');
       items.forEach((it,i)=>{
         const bx = this.margin + i*w;
         this.page.drawText(it.label.toUpperCase(), {x:bx+10, y:this.y-13, size:7.5, font:this.fontBold, color:this.color('accent')});
-        // Valeur tronquée avec « … » si elle dépasse la largeur de sa case (la bande peut avoir 3 ou 4 cases)
-        let txt = String(it.value||'—');
-        const maxW = w - 16;
-        let taille = 9.5;
-        while(taille>7.5 && this.font.widthOfTextAtSize(txt, taille) > maxW) taille -= 0.5;     // on réduit un peu le texte avant de le couper
-        while(txt.length>1 && this.font.widthOfTextAtSize(txt, taille) > maxW) txt = txt.slice(0,-2).trimEnd()+'…';
-        this.page.drawText(txt, {x:bx+10, y:this.y-26, size:taille, font:this.font, color:this.color('white')});
+        blocs[i].forEach((ligne, k) => this.page.drawText(ligne, {x:bx+10, y:this.y-26-k*INTERLIGNE, size:TAILLE, font:this.font, color:this.color('white')}));
       });
       this.y -= h + 18;
     }
@@ -2679,7 +2703,7 @@ function showModal(html) {
     if(e.target === this) closeModal();
   });
 }
-function closeModal(){ razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; const gv = el('envoi-fv-container'); if(gv && gv.innerHTML){ gv.innerHTML = ''; _envFV = null; } const gr = el('relance-container'); if(gr && gr.innerHTML){ gr.innerHTML = ''; _relance = null; } }
+function closeModal(){ if(typeof dfApresModal==='function') dfApresModal(); razTri('M'); el('modal-container').innerHTML = ''; if(_ap && _ap.local) fermerApercu(); const g = el('code-res-container'); if(g && g.innerHTML){ g.innerHTML = ''; _crRafraichir = ''; } const ge = el('envoi-po-container'); if(ge && ge.innerHTML){ ge.innerHTML = ''; _envPO = null; } const gf = el('four-rapide-container'); if(gf && gf.innerHTML) gf.innerHTML = ''; const gv = el('envoi-fv-container'); if(gv && gv.innerHTML){ gv.innerHTML = ''; _envFV = null; } const gr = el('relance-container'); if(gr && gr.innerHTML){ gr.innerHTML = ''; _relance = null; } }
 // ── Fond sombre des fenêtres : ne se ferme que sur un VRAI clic (appui ET relâchement sur le fond) ──────────────
 // Quand on sélectionne du texte dans un champ en glissant la souris puis qu'on relâche hors de la fenêtre, le navigateur
 // envoie un « clic » au fond sombre (ancêtre commun) : toutes les fenêtres se fermaient en perdant la saisie.
@@ -2795,7 +2819,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-15-bf09066';
+const APP_BUILD = 'BUILD:2026-11-16-c8f59eb';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3435,6 +3459,7 @@ async function renderDashboard(){
       <h1>${greeting}, ${currentUser.prenom} 👋</h1>
       <p>${new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
     </div>
+    <div id="df-dash">${typeof dfAlerteHtml==='function' ? dfAlerteHtml(_df) : ''}</div>
 
     ${alertes.length>0?`
     <div style="margin-bottom:24px;display:flex;flex-direction:column;gap:8px">
@@ -10129,10 +10154,10 @@ function htmlGestionCodesRes(usage){
       +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2)"><input class="cr-in-code" aria-label="Code" value="'+escHtml(c.code)+'" maxlength="40" onchange="crSauver(\''+id+'\',\'code\',this)" style="'+ch+';font-weight:600"/></td>'
       +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2)"><input class="cr-in-desc" aria-label="Description" value="'+escHtml(c.description||'')+'" maxlength="200" onchange="crSauver(\''+id+'\',\'description\',this)" style="'+ch+'"/></td>'
       +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:center"><input type="checkbox" class="cr-in-actif" aria-label="Actif" '+(c.actif!==false?'checked':'')+' onchange="crSauver(\''+id+'\',\'actif\',this)" title="Décoché : le code n\'est plus proposé dans les listes (l\'historique est conservé)"/></td>'
-      +'<td class="cr-usage" style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-6)">'+n+'</td>'
+      +'<td class="cr-usage" style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:right;color:var(--gray-6)">'+n+(n && currentPage==='documents' ? '<button type="button" class="cr-repartir" onclick="crRepartirOuvrir(\''+id+'\')" title="Répartir ou déplacer ces '+n+' ligne(s) vers d\'autres codes" aria-label="Répartir les lignes" style="background:none;border:1px solid var(--gray-3);border-radius:4px;cursor:pointer;color:var(--blue);padding:1px 5px;margin-left:4px"><i class="ti ti-arrows-split"></i></button>' : '')+'</td>'
       +'<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:center"><button type="button" class="cr-suppr" onclick="crSupprimer(\''+id+'\')" title="'+(n?'Utilisé par '+n+' ligne(s) : désactivez-le':'Supprimer ce code')+'" style="background:none;border:none;cursor:pointer;color:'+(n?'var(--gray-4)':'var(--red)')+'"><i class="ti ti-trash"></i></button></td></tr>';
   }).join('');
-  return '<div class="cr-ajout" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+  return (currentPage==='documents' ? crPlanHtml(_codesRes, usage) : '') + '<div class="cr-ajout" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
     +'<input id="cr-new-code" class="cr-new-code" aria-label="Nouveau code" placeholder="Nouveau code (ex. FOURNITURE)" maxlength="40" autocomplete="off" onkeydown="if(event.key===\'Enter\'){event.preventDefault();crAjouter();}" style="'+ch+';flex:1 1 180px;width:auto"/>'
     +'<input id="cr-new-desc" class="cr-new-desc" aria-label="Description du nouveau code" placeholder="Description (facultatif)" maxlength="200" autocomplete="off" onkeydown="if(event.key===\'Enter\'){event.preventDefault();crAjouter();}" style="'+ch+';flex:2 1 240px;width:auto"/>'
     +'<button type="button" class="btn btn-primary btn-sm cr-add" id="cr-add" onclick="crAjouter()"><i class="ti ti-plus"></i> Ajouter</button></div>'
@@ -21562,6 +21587,7 @@ async function openInterventionDetail(interventionId){
         <button class="btn ${i.statut==='facturee'?'btn-secondary':'btn-primary'}" id="int-btn-facturer" onclick="closeModal();openFactureSAVModal('${i.id}')" title="Créer la facture client de cette intervention"><i class="ti ti-receipt"></i> Facturer</button>
         ${typeof dfBtnHtml==='function' ? dfBtnHtml('intervention', i.id, i.statut!=='facturee', 'btn-secondary') : ''}
         <button class="btn btn-ghost" onclick="closeModal();editInterventionById('${i.id}')"><i class="ti ti-edit"></i> Modifier</button>
+        <button class="btn btn-secondary" id="int-btn-pdf-client" onclick="downloadPDF_InterventionSav('${i.id}')" title="PDF pour le client : lignes, totaux et total (sans coûts ni remarques internes)"><i class="ti ti-file-type-pdf"></i> PDF client</button>
         <button class="btn btn-secondary" onclick="emailClientIntervention('${i.id}')"><i class="ti ti-mail"></i> Email client</button>
         <button class="btn btn-secondary" onclick="emailTechnicienIntervention('${i.id}')"><i class="ti ti-mail"></i> Email technicien</button>
         <button class="btn btn-danger" onclick="deleteIntervention('${i.id}')"><i class="ti ti-trash"></i> Supprimer</button>
@@ -23583,6 +23609,8 @@ async function dfCharger(force){
         d.admins = us.filter(u => u.actif !== false && u.role === 'admin' && havNormEmail(u.email)).map(u => ({email:havNormEmail(u.email), nom:nomPers(u) || u.email, direction:dfContexte(u, d).superviseur}));
       }catch(e){ /* la carte « qui traite » restera vide */ }
     }
+    d.facturesAuto = {};
+    if(ctx.peutTraiter && !d.sqlManque){ try{ d.facturesAuto = await dfFacturesCreees(d.lignes.filter(l => l.statut === 'demandee')); }catch(e){ /* la détection est un confort : la fenêtre « Terminé » relit les factures */ } }
     return {t:Date.now(), ctx, d, resume:dfResume(d.lignes, ctx)};
   })();
   _dfPromesse = p;
@@ -23601,13 +23629,17 @@ function dfMajChrome(){
   const visible = !!(ctx.peutDemander || ctx.peutTraiter);
   const nav = document.getElementById('nav-demandes_facturation');
   const n = (ctx.peutTraiter ? r.aTraiter : 0) + r.resultats;
+  dfMajDash(df);
+  try{ document.title = (visible && !d.sqlManque && n > 0 ? '(' + n + ') ' : '') + DF_TITRE_BASE; }catch(e){}
   if(nav){
     nav.classList.toggle('hidden', !visible);
+    nav.classList.toggle('df-urgent', !!(visible && !d.sqlManque && ctx.peutTraiter && r.aTraiter > 0));
     let badge = document.getElementById('df-badge');
     if(!badge){ badge = document.createElement('span'); badge.id = 'df-badge'; badge.style.cssText = 'margin-left:auto;background:#3B82F6;color:#fff;border-radius:9px;padding:0 7px;font-size:11px;font-weight:700;line-height:18px'; nav.appendChild(badge); }
     const nb = d.sqlManque ? 0 : n;
     badge.textContent = nb ? String(nb) : '';
     badge.style.display = nb ? '' : 'none';
+    badge.style.background = ctx.peutTraiter && r.aTraiter > 0 ? '#DC2626' : '#3B82F6';   // rouge = à traiter ; bleu = réponse à une de MES demandes
   }
   const main = document.querySelector('.main'), page = document.getElementById('page-content');
   let b = document.getElementById('df-bandeau');
@@ -23638,11 +23670,14 @@ function dfReset(){
   const b = document.getElementById('df-bandeau'); if(b) b.remove();
   const n = document.getElementById('nav-demandes_facturation'); if(n) n.classList.add('hidden');
   const g = document.getElementById('df-badge'); if(g){ g.textContent = ''; g.style.display = 'none'; }
+  if(n) n.classList.remove('df-urgent');
+  try{ document.title = DF_TITRE_BASE; }catch(e){}
+  const dd = document.getElementById('df-dash'); if(dd) dd.innerHTML = '';
 }
 async function dfDemarrer(){
   try{ await dfCharger(false); dfMajChrome(); }catch(e){}
   if(!_dfMinuteur){
-    _dfMinuteur = setInterval(() => { dfCharger(true).then(dfMajChrome).catch(() => {}); }, 3 * 60 * 1000);
+    _dfMinuteur = setInterval(() => { dfCharger(true).then(dfMajChrome).catch(() => {}); }, 60 * 1000);
   }
   if(!_dfEcouteur){
     _dfEcouteur = true;
@@ -23778,8 +23813,9 @@ function dfCarte(l, ctx, onglet){
   else if(l.statut === 'annulee') resultat = '<div class="df-resultat" style="margin-top:6px;font-size:12.5px;color:#4B5563">Annulée par ' + escHtml(l.traite_par_nom || l.traite_par_email || '') + ' le ' + escHtml(dfDateFr(l.traite_le)) + '</div>';
   let actions = '';
   if(ouv && ctx.peutTraiter && onglet === 'traiter'){
+    if(!propre) actions += '<button class="btn btn-secondary btn-sm df-creer-facture" onclick="dfCreerFacture(\'' + escHtml(String(l.id)) + '\')" title="Ouvre la facturation de cette fiche, préremplie avec la demande"><i class="ti ti-file-plus"></i> Créer la facture</button>';
     actions += propre ? '<span class="df-propre" style="font-size:12px;color:#6B7280">Votre propre demande : une autre personne de la direction doit la traiter.</span>'
-      : '<button class="btn btn-primary btn-sm df-facturee" onclick="dfOuvrirTraiter(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-check"></i> Facturée</button>'
+      : '<button class="btn btn-primary btn-sm df-facturee" onclick="dfOuvrirTraiter(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-check"></i> Terminé</button>'
       + '<button class="btn btn-secondary btn-sm df-refuser" onclick="dfOuvrirRefus(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-x"></i> Refuser</button>';
   }
   if(ouv && propre) actions += '<button class="btn btn-ghost btn-sm df-annuler" onclick="dfAnnuler(\'' + escHtml(String(l.id)) + '\')"><i class="ti ti-ban"></i> Annuler ma demande</button>';
@@ -23792,6 +23828,7 @@ function dfCarte(l, ctx, onglet){
     + '<div style="margin-top:2px;font-size:13.5px"><strong>' + escHtml(DF_TYPES[l.type_facturation] || '') + '</strong>' + montant + (onglet !== 'mes' ? ' <span style="color:#6B7280">· demandé par ' + escHtml(l.demandeur_nom || l.demandeur_email || '') + '</span>' : '') + '</div>'
     + (l.message ? '<div class="df-message" style="margin-top:6px;font-size:13px;color:#374151;background:var(--gray-1);border-radius:6px;padding:6px 10px;white-space:pre-wrap">' + escHtml(l.message) + '</div>' : '')
     + resultat
+    + (ouv && ctx.peutTraiter && onglet === 'traiter' && !propre ? dfHintFacture(l) : '')
     + (actions ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + actions + '</div>' : '') + '</div>';
 }
 function dfListeHtml(df, onglet){
@@ -23843,7 +23880,7 @@ async function dfDessiner(){
   const page = el('page-content'); if(!page || currentPage !== 'demandes_facturation') return;
   const entete = '<div class="page-header"><div class="page-header-left"><h1>Demandes de facturation</h1><p>Les responsables demandent, la direction facture ou refuse (motif obligatoire) ; chacun est prévenu du résultat.</p></div></div>';
   let df;
-  try{ df = await dfCharger(false); }
+  try{ df = await dfCharger(!!_df && Date.now() - _df.t > 15000); }   // une page ouverte depuis plus de 15 s se relit (facture créée entre-temps → « Terminé » proposé)
   catch(e){ page.innerHTML = entete + '<div class="alert alert-error"><i class="ti ti-alert-triangle"></i><span>Impossible de lire les demandes : ' + escHtml((e && e.message) || String(e)) + '</span></div>'; return; }
   if(!df){ page.innerHTML = entete; return; }
   const {ctx, d} = df;
@@ -23925,6 +23962,8 @@ async function dfOuvrirTraiter(id){
     }catch(e){ erreurF = (e && e.message) || String(e); }
   }
   _dfTraiter = {id:String(l.id), factures};
+  const nouvelles = factures.filter(f => String(f.created_at || '') >= String(l.created_at || '') && f.statut !== 'brouillon');
+  const preselection = nouvelles.length === 1 ? String(nouvelles[0].id) : '';   // une seule facture créée depuis la demande : préchoisie
   const lib = f => (f.numero || 'Brouillon') + ' · ' + dfDateFr(f.created_at) + ' · ' + fmt(f.total_ht || 0) + ' HT' + (f.statut === 'brouillon' ? ' (brouillon)' : '');
   showModal(`<div class="modal-overlay"><div class="modal" style="max-width:560px">
     <div class="modal-header"><h3>Demande ${escHtml(dfRef(l))} — facturée</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -23932,7 +23971,7 @@ async function dfOuvrirTraiter(id){
       <p style="font-size:13px;margin-bottom:10px"><strong>${escHtml(DF_TYPES[l.type_facturation] || '')}</strong>${l.pourcentage != null ? ' ' + escHtml(dfPct(l.pourcentage)) + ' %' : ''}${l.montant_ht != null ? ' ' + escHtml(fmt(l.montant_ht)) + ' HT' : ''} — ${escHtml(l.origine_ref || '')} · demandé par ${escHtml(l.demandeur_nom || l.demandeur_email || '')}</p>
       ${erreurF ? '<div class="alert alert-warning" id="df-factures-erreur"><i class="ti ti-alert-triangle"></i><span>Les factures de cette fiche n\'ont pas pu être lues (' + escHtml(erreurF) + ').</span></div>' : ''}
       <div class="form-group"><label>Facture créée pour cette demande</label>
-        <select id="df-facture"><option value="">— choisir la facture —</option>${factures.map(f => '<option value="' + escHtml(String(f.id)) + '">' + escHtml(lib(f)) + '</option>').join('')}</select>
+        <select id="df-facture"><option value="">— choisir la facture —</option>${factures.map(f => '<option value="' + escHtml(String(f.id)) + '"' + (String(f.id) === preselection ? ' selected' : '') + '>' + escHtml(lib(f)) + '</option>').join('')}</select>
         ${factures.length ? '' : '<div id="df-pas-de-facture" style="font-size:12.5px;color:#B45309;margin-top:4px">Aucune facture trouvée pour cette fiche : créez d\'abord la facture (bouton « Ouvrir »), puis revenez ici.</div>'}</div>
       <label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;text-transform:none;letter-spacing:0"><input type="checkbox" id="df-sans-facture"> Aucune facture à lier (facturé en dehors de l'ERP)</label>
       <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-secondary" onclick="dfOuvrirOrigine('${escHtml(String(l.id))}')">Ouvrir ${escHtml(DF_ORIGINES[l.origine_type] || '')}</button><button class="btn btn-primary" id="df-confirmer" onclick="dfConfirmerTraiter()"><i class="ti ti-check"></i> Marquer comme facturée</button></div>
@@ -24445,6 +24484,431 @@ function efacCellCentre(l, i){
 }
 function efacUpdCentre(i, v){ const l = _efacLignes[i]; if(!l) return; if(String(l.chantier_id || '') !== String(v || '')) l.intervention_id = ''; l.chantier_id = v; renderEfacLignes(); }
 function efacUpdInterv(i, v){ const l = _efacLignes[i]; if(!l) return; l.intervention_id = v; renderEfacLignes(); }
+
+
+// ── Alerte « Demandes de facturation » : tableau de bord, pastille rouge, titre de l'onglet (16/11/2026) ─────────────
+// Rien ne doit rester sans facturer parce que personne n'a vu la demande : la carte reste là TANT QUE la demande est ouverte.
+const DF_TITRE_BASE = document.title || 'Lyneo ERP';
+function dfAlerteEtat(df){
+  if(!df) return null;
+  const {ctx, d, resume:r} = df, L = d.lignes || [];
+  const ouvertes = L.filter(l => l.statut === 'demandee').sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));   // les plus anciennes d'abord
+  const aTraiter = ctx.peutTraiter ? ouvertes.filter(l => !dfMienne(l, ctx)) : [];
+  const attenteAdmin = ctx.admin && !ctx.peutTraiter ? ouvertes.filter(l => !dfMienne(l, ctx)) : [];
+  const cfg = d.cfg || null;
+  return {ctx, d, aTraiter, attenteAdmin, plusAncien:Math.max(0, ...(aTraiter.length ? aTraiter : attenteAdmin).map(l => dfJours(l.created_at))),
+    nonVus:r.nonVus || [], traitants:cfg && cfg.configuree ? cfg.traitants : []};
+}
+function dfAlerteLigne(l){
+  const j = dfJours(l.created_at);
+  return '<div class="df-dash-ligne" style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;padding:4px 0;border-top:1px solid rgba(0,0,0,.08);font-size:13px">'
+    + '<strong>' + escHtml(dfRef(l)) + '</strong><span>' + escHtml(l.origine_ref || '—') + (l.client_nom ? ' · ' + escHtml(l.client_nom) : '') + '</span>'
+    + '<span>' + escHtml(DF_TYPES[l.type_facturation] || '') + (l.pourcentage != null ? ' ' + escHtml(dfPct(l.pourcentage)) + ' %' : '') + (l.montant_ht != null ? ' ' + escHtml(fmt(l.montant_ht)) + ' HT' : '') + '</span>'
+    + '<span style="opacity:.8">· ' + escHtml(l.demandeur_nom || l.demandeur_email || '') + '</span>'
+    + '<span style="margin-left:auto;font-weight:' + (j >= 2 ? '700' : '400') + '">' + (j === 0 ? "aujourd'hui" : 'il y a ' + j + ' j') + '</span></div>';
+}
+function dfAlerteHtml(df){
+  const e = dfAlerteEtat(df); if(!e) return '';
+  const {ctx, d} = e, carte = (cls, fond, bord, texte, icone, titre, corps, bouton) =>
+    '<div class="df-dash-carte ' + cls + '" role="status" style="background:' + fond + ';border:1px solid ' + bord + ';border-left:5px solid ' + bord + ';color:' + texte + ';border-radius:8px;padding:12px 16px;margin-bottom:12px">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><i class="ti ' + icone + '" style="font-size:22px"></i><strong style="font-size:15px">' + titre + '</strong>'
+    + (bouton ? '<button class="btn btn-primary btn-sm df-dash-btn" style="margin-left:auto" onclick="dfAller()">' + bouton + '</button>' : '') + '</div>' + (corps || '') + '</div>';
+  let h = '';
+  if(ctx.admin && d.sqlManque) h += carte('df-dash-sql', '#FEE2E2', '#DC2626', '#7F1D1D', 'ti-alert-triangle', 'Les demandes de facturation ne sont pas actives', '<div style="font-size:13px;margin-top:4px">Le script <strong>migration-demandes-facturation.sql</strong> n\'a pas été exécuté sur la base : les demandes des chefs de projet ne peuvent ni être envoyées ni être vues.</div>');
+  else if(ctx.admin && d.erreur) h += carte('df-dash-erreur', '#FEE2E2', '#DC2626', '#7F1D1D', 'ti-alert-triangle', 'Impossible de lire les demandes de facturation', '<div style="font-size:13px;margin-top:4px">Des demandes peuvent être en attente sans que vous les voyiez : ' + escHtml(d.erreur) + '</div>');
+  if(!d.sqlManque){
+    const n = e.aTraiter.length, urgent = e.plusAncien >= 2;
+    if(n > 0){
+      h += carte('df-dash-traiter', urgent ? '#FEE2E2' : '#FEF3C7', urgent ? '#DC2626' : '#F59E0B', urgent ? '#7F1D1D' : '#78350F', 'ti-receipt-2',
+        n + ' demande' + (n > 1 ? 's' : '') + ' de facturation à traiter' + (urgent ? ' — la plus ancienne attend depuis ' + e.plusAncien + ' j' : ''),
+        e.aTraiter.slice(0, 5).map(dfAlerteLigne).join('') + (n > 5 ? '<div style="font-size:12.5px;padding-top:4px">+ ' + (n - 5) + ' autre' + (n - 5 > 1 ? 's' : '') + '</div>' : ''), 'Traiter');
+    }else if(e.attenteAdmin.length > 0){
+      const m = e.attenteAdmin.length;
+      h += carte('df-dash-attente', '#FEF3C7', '#F59E0B', '#78350F', 'ti-receipt-2', m + ' demande' + (m > 1 ? 's' : '') + ' de facturation en attente',
+        '<div style="font-size:13px;margin:4px 0">Vous n\'êtes pas dans la liste « Qui traite les demandes ? »' + (e.traitants.length ? ' (' + e.traitants.map(escHtml).join(', ') + ')' : '') + ' : une autre personne doit les facturer, mais vous pouvez les suivre.</div>' + e.attenteAdmin.slice(0, 5).map(dfAlerteLigne).join(''), 'Voir');
+    }
+    if(e.nonVus.length > 0){
+      const k = e.nonVus.length;
+      h += carte('df-dash-reponse', '#DBEAFE', '#3B82F6', '#1E3A8A', 'ti-bell-ringing', k === 1 ? 'Votre demande ' + escHtml(dfRef(e.nonVus[0])) + (e.nonVus[0].statut === 'traitee' ? ' a été facturée' : e.nonVus[0].statut === 'refusee' ? ' a été refusée' : ' a été annulée') : k + ' de vos demandes de facturation ont une réponse', '', 'Voir');
+    }
+  }
+  return h;
+}
+
+// ── « Terminé » en un clic : la facture créée pour la fiche APRÈS la demande est repérée automatiquement (16/11/2026) ─────────
+async function dfFacturesCreees(ouvertes){
+  const res = {};
+  for(const type of Object.keys(DF_COL)){
+    const col = DF_COL[type], L = ouvertes.filter(l => l.origine_type === type && l[col]); if(!L.length) continue;
+    const ids = Array.from(new Set(L.map(l => String(l[col]))));
+    for(let i = 0; i < ids.length; i += 100){
+      const r = await sb.from('factures_vente').select('id,numero,statut,total_ht,type_facture,created_at,' + col).in(col, ids.slice(i, i + 100));
+      if(r.error) throw r.error;
+      (r.data || []).filter(f => f.type_facture !== 'avoir' && f.statut !== 'annulee').forEach(f => {
+        L.filter(l => String(l[col]) === String(f[col]) && String(f.created_at || '') >= String(l.created_at || '')).forEach(l => { (res[String(l.id)] = res[String(l.id)] || []).push(f); });
+      });
+    }
+  }
+  return res;
+}
+function dfHintFacture(l){
+  const c = ((_df && _df.d.facturesAuto) || {})[String(l.id)] || []; if(!c.length) return '';
+  const lib = f => escHtml(f.numero || 'Brouillon') + ' (' + escHtml(fmt(f.total_ht || 0)) + ' HT, ' + escHtml(dfDateFr(f.created_at)) + ')';
+  const base = 'margin-top:8px;border-radius:6px;padding:8px 10px;font-size:13px;';
+  if(c.length === 1 && c[0].statut !== 'brouillon')
+    return '<div class="df-hint df-hint-une" style="' + base + 'background:#D1FAE5;color:#065F46">✔ Facture <strong>' + lib(c[0]) + '</strong> créée pour cette fiche depuis la demande. <button type="button" class="btn btn-primary btn-sm df-termine-direct" style="margin-left:8px" onclick="dfTerminerAvec(\'' + escHtml(String(l.id)) + '\',\'' + escHtml(String(c[0].id)) + '\')"><i class="ti ti-check"></i> Terminé : lier cette facture</button></div>';
+  if(c.length === 1)
+    return '<div class="df-hint df-hint-brouillon" style="' + base + 'background:#FEF3C7;color:#78350F">Brouillon <strong>' + lib(c[0]) + '</strong> créé pour cette fiche : finalisez-le, puis cliquez sur « Terminé ».</div>';
+  return '<div class="df-hint df-hint-plusieurs" style="' + base + 'background:#FEF3C7;color:#78350F">' + c.length + ' factures créées pour cette fiche depuis la demande (' + c.map(lib).join(' · ') + ') : cliquez sur « Terminé » et choisissez celle qui répond à la demande.</div>';
+}
+let _dfTermEnCours = false;
+async function dfTerminerAvec(id, factureId){
+  if(_dfTermEnCours) return;
+  _dfTermEnCours = true;
+  try{
+    const l = dfControlerTraitement(id); if(!l) return;
+    const f = (((_df && _df.d.facturesAuto) || {})[String(id)] || []).find(x => String(x.id) === String(factureId));
+    if(!f || f.statut === 'brouillon'){ showToast('Facture introuvable : actualisez la page', 'error'); return; }
+    await dfEcrire(String(id), {statut:'traitee', traite_par_nom:nomPers(currentUser) || (currentUser && currentUser.email) || '', facture_vente_id:f.id, facture_ref:f.numero || 'Brouillon'}, 'Demande ' + dfRef(l) + ' terminée : facture ' + (f.numero || '') + ' liée');
+  }finally{ _dfTermEnCours = false; }
+}
+
+// ── « Créer la facture » directement depuis la demande (16/11/2026) ──────────────────────────────────────────────────
+let _dfFactureDepuis = null, _dfCreerEnCours = false;
+function dfApresModal(){
+  if(!_dfFactureDepuis) return;
+  _dfFactureDepuis = null;
+  setTimeout(() => { if(currentPage === 'demandes_facturation' && _df) dfRafraichir(); }, 700);   // la facture créée → le repère « Terminé : lier cette facture » apparaît
+}
+function dfRappelHtml(l){
+  const montant = (l.pourcentage != null ? ' ' + dfPct(l.pourcentage) + ' %' : '') + (l.montant_ht != null ? ' ' + fmt(l.montant_ht) + ' HT' : '');
+  return '<div class="alert alert-info df-rappel-demande" style="margin-bottom:12px"><i class="ti ti-receipt-2"></i><span><strong>Demande ' + escHtml(dfRef(l)) + '</strong> : ' + escHtml(DF_TYPES[l.type_facturation] || '') + escHtml(montant)
+    + ' — demandé par ' + escHtml(l.demandeur_nom || l.demandeur_email || '') + (l.message ? ' · « ' + escHtml(l.message) + ' »' : '') + '</span></div>';
+}
+async function dfCreerFacture(id){
+  if(_dfCreerEnCours) return;
+  _dfCreerEnCours = true;
+  try{
+    const l = dfControlerTraitement(id); if(!l) return;
+    const cible = l[DF_COL[l.origine_type]];
+    if(!cible){ showToast("La fiche d'origine de cette demande a été supprimée : refusez la demande ou cochez « Aucune facture à lier »", 'error', 7000); return; }
+    const type = l.type_facturation === 'totale' ? 'solde' : l.type_facturation;
+    closeModal();
+    if(l.origine_type === 'intervention') await openFactureSAVModal(cible);
+    else{
+      let chantierId = cible, devisId = null;
+      if(l.origine_type === 'devis'){
+        const r = await sb.from('devis').select('id,chantier_id').eq('id', cible).single();
+        if(!r.data || !r.data.chantier_id){ showToast("Ce devis n'est lié à aucun chantier : ouvrez-le (bouton « Ouvrir ») pour le lier ou le facturer", 'error', 7000); return; }
+        chantierId = r.data.chantier_id; devisId = r.data.id;
+      }
+      await openGenerateFactureVente(chantierId, devisId, type);
+    }
+    const corps = document.querySelector('#modal-container .modal-body');
+    if(!corps){ return; }                                    // la fenêtre n'a pas pu s'ouvrir (message déjà affiché) : rien à préremplir
+    _dfFactureDepuis = String(l.id);
+    corps.insertAdjacentHTML('afterbegin', dfRappelHtml(l));
+    if(l.origine_type !== 'intervention'){
+      let pct = l.pourcentage != null ? Number(l.pourcentage) : null;
+      const di = window._devisInfoForFv;
+      if(pct == null && l.montant_ht != null && di && Number(di.montant_ht) > 0) pct = Math.round(Number(l.montant_ht) / Number(di.montant_ht) * 10000) / 100;
+      if(pct != null && pct > 0 && pct <= 100){
+        if(type === 'acompte' && el('fv-acompte-pct')){ el('fv-acompte-pct').value = pct; try{ updateAcompteMontant(); }catch(e){} }
+        else if(type === 'situation' && el('fv-avanc-pct') && el('fv-avanc-block') && el('fv-avanc-block').style.display !== 'none'){ el('fv-avanc-pct').value = pct; try{ appliquerAvancement(); }catch(e){} }
+      }
+    }
+  }finally{ _dfCreerEnCours = false; }
+}
+function dfMajDash(df){ const z = document.getElementById('df-dash'); if(z) z.innerHTML = dfAlerteHtml(df || _df); }
+
+
+// ── CODES RESSOURCE : alignement sur la liste de la direction financière (16/11/2026) ─────────────────────────────────
+// La direction financière a donné sa liste de codes. Le plan crée / renomme / fusionne / désactive ; les codes à répartir ligne à ligne
+// (FLOTTE, INFORMATIQUE) passent par « Répartir ». Rien n'est supprimé : un code fusionné est seulement désactivé (ses anciennes lignes sont déplacées).
+const CR_PLAN = {
+  creer: [['BUREAU LOCATION MAT', 'Location matériel de bureau (copieur, imprimantes)'], ['CONTRATS DE MAINTENANCE', 'Contrats de maintenance'], ['LICENCES, ABONNEMENTS', 'Licences et abonnements (Microsoft 365, logiciels…)'],
+          ['ENTRETIEN BUREAU', "Produits et fournitures d'entretien, réparation bâtiment"], ['LOYER', 'Loyer'], ['CHARGES LOCATIVES', 'Eau, gaz, électricité, parkings bureau'],
+          ['FRAIS REPRESENTATIONS', 'Restaurants, voyages, hôtels'], ['MARKETING', 'Publicité, communication']],
+  renommer: [['BUREAU FOURNITURE', 'BUREAU FOURNITURES'], ['FOURNITURE', 'FOURNITURES'], ['LOCATION MATERIEL', 'LOCATION MAT EXPLOITATION'], ['LOCATION VEHICULE', 'LOCATION VEHICULES'],
+             ['PRESTATION SERVICES', 'PRESTATIONS DE SERVICES'], ['TELEPHONE', 'TELEPHONE INTERNET']],
+  fusionner: [['BUREAU CONSOMMABLE', 'BUREAU FOURNITURES'], ['BUREAU EQUIPEMENTS', 'BUREAU FOURNITURES'], ['LOCATION', 'LOCATION MAT EXPLOITATION']],
+  desactiver: ['MATERIEL STOCK', 'TIMBRES'],
+  manuel: [['INFORMATIQUE', 'à répartir ligne à ligne : CONTRATS DE MAINTENANCE, LICENCES, ABONNEMENTS ou PRESTATIONS DE SERVICES, puis désactiver'],
+           ['FLOTTE', 'à répartir ligne à ligne : CARBURANT, LOCATION VEHICULES ou DIVERS, puis désactiver'],
+           ['SALAIRE', "à garder pour l'instant : demander au directeur où vont UP, EPI et FLEET", true]]
+};
+const crNorm = v => String(v == null ? '' : v).trim().toLowerCase().replace(/\s+/g, ' ');
+// Calcul pur du plan (sur une copie : l'ordre compte — on renomme avant de fusionner dans le code renommé)
+function crPlanCalculer(codes, usage){
+  const sim = (codes || []).map(c => ({id:String(c.id), code:String(c.code), actif:c.actif !== false, n:(usage || {})[c.id] || 0}));
+  const trouver = nom => sim.find(c => crNorm(c.code) === crNorm(nom));
+  const etapes = [];
+  CR_PLAN.creer.forEach(([code, desc]) => {
+    if(trouver(code)) etapes.push({type:'creer', vers:code, desc, etat:'fait'});
+    else{ sim.push({id:'~' + code, code, actif:true, n:0}); etapes.push({type:'creer', vers:code, desc, etat:'afaire'}); }
+  });
+  CR_PLAN.renommer.forEach(([de, vers]) => {
+    const a = trouver(de), b = trouver(vers);
+    if(!a) etapes.push({type:'renommer', de, vers, etat:'fait', note:b ? '' : 'code absent'});
+    else if(b){ etapes.push({type:'fusionner', de:a.code, vers:b.code, n:a.n, etat:'afaire', note:'« ' + vers + ' » existe déjà'}); b.n += a.n; a.n = 0; a.actif = false; }
+    else{ etapes.push({type:'renommer', de:a.code, vers, n:a.n, etat:'afaire'}); a.code = vers; }
+  });
+  CR_PLAN.fusionner.forEach(([de, vers]) => {
+    const a = trouver(de), b = trouver(vers);
+    if(!a) etapes.push({type:'fusionner', de, vers, n:0, etat:'fait', note:'code absent'});
+    else if(!b) etapes.push({type:'fusionner', de:a.code, vers, n:a.n, etat:'bloque', note:'code cible « ' + vers + ' » introuvable'});
+    else if(a.n === 0 && !a.actif) etapes.push({type:'fusionner', de:a.code, vers:b.code, n:0, etat:'fait'});
+    else{ etapes.push({type:'fusionner', de:a.code, vers:b.code, n:a.n, etat:'afaire'}); b.n += a.n; a.n = 0; a.actif = false; }
+  });
+  CR_PLAN.desactiver.forEach(code => {
+    const a = trouver(code);
+    if(!a) etapes.push({type:'desactiver', de:code, etat:'fait', note:'code absent'});
+    else if(!a.actif) etapes.push({type:'desactiver', de:a.code, etat:'fait'});
+    else{ etapes.push({type:'desactiver', de:a.code, n:a.n, etat:'afaire'}); a.actif = false; }
+  });
+  CR_PLAN.manuel.forEach(([code, texte, garder]) => { const a = trouver(code); etapes.push({type:'manuel', de:a ? a.code : code, texte, n:a ? a.n : 0, actif:a ? a.actif : false, id:a && !a.id.startsWith('~') ? a.id : null, etat:!a || garder ? 'fait' : (a.n > 0 && a.actif ? 'afaire' : 'fait')}); });
+  return {etapes, restant:etapes.filter(e => e.etat === 'afaire' && e.type !== 'manuel').length, manuel:etapes.filter(e => e.type === 'manuel' && e.etat === 'afaire').length, bloques:etapes.filter(e => e.etat === 'bloque').length};
+}
+const crPlanLib = e => e.type === 'creer' ? 'Créer « ' + e.vers + ' »'
+  : e.type === 'renommer' ? 'Renommer « ' + e.de + ' » en « ' + e.vers + ' »'
+  : e.type === 'fusionner' ? 'Fusionner « ' + e.de + ' » dans « ' + e.vers + ' »' + (e.n ? ' (' + e.n + ' ligne' + (e.n > 1 ? 's' : '') + ')' : '')
+  : e.type === 'desactiver' ? 'Désactiver « ' + e.de + ' »' + (e.n ? ' (' + e.n + ' ligne' + (e.n > 1 ? 's' : '') + ' gardent ce code)' : '')
+  : '« ' + e.de + ' » (' + e.n + ' ligne' + (e.n > 1 ? 's' : '') + ') : ' + e.texte;
+function crPlanHtml(codes, usage){
+  const p = crPlanCalculer(codes, usage);
+  const badge = (e) => e.type === 'manuel' ? (e.etat === 'afaire' ? ['#92400E', '#FEF3C7', 'À répartir'] : ['#065F46', '#D1FAE5', e.n ? 'Gardé' : 'Rien à faire'])
+    : e.etat === 'fait' ? ['#065F46', '#D1FAE5', 'Déjà fait'] : e.etat === 'bloque' ? ['#991B1B', '#FEE2E2', 'Bloqué'] : ['#92400E', '#FEF3C7', 'À faire'];
+  const lignes = p.etapes.map(e => {
+    const b = badge(e);
+    return '<tr class="cr-plan-ligne" data-etat="' + escHtml(e.etat) + '" data-type="' + escHtml(e.type) + '"><td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);font-size:13px">' + escHtml(crPlanLib(e)) + (e.note ? ' <span style="color:var(--gray-5)">— ' + escHtml(e.note) + '</span>' : '')
+      + (e.type === 'manuel' && e.etat === 'afaire' && e.id && e.n > 0 ? ' <button type="button" class="btn btn-secondary btn-sm cr-plan-repartir" onclick="crRepartirOuvrir(\'' + escHtml(e.id) + '\')"><i class="ti ti-arrows-split"></i> Répartir</button>' : '')
+      + '</td><td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);text-align:right;white-space:nowrap"><span style="background:' + b[1] + ';color:' + b[0] + ';border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600">' + b[2] + '</span></td></tr>';
+  }).join('');
+  const total = p.etapes.filter(e => e.type === 'fusionner' && e.etat === 'afaire').reduce((a, e) => a + (e.n || 0), 0);
+  return '<details class="cr-plan" id="cr-plan"' + (p.restant || p.manuel ? ' open' : '') + ' style="margin-bottom:14px;border:1px solid var(--gray-3);border-radius:8px;padding:10px 14px;background:#F8FAFC"><summary style="cursor:pointer;font-weight:700;font-size:14px"><i class="ti ti-list-check"></i> Aligner sur la liste de la direction financière — '
+    + (p.restant ? p.restant + ' étape' + (p.restant > 1 ? 's' : '') + ' à faire' : 'tout est aligné') + (p.manuel ? ' · ' + p.manuel + ' code' + (p.manuel > 1 ? 's' : '') + ' à répartir à la main' : '') + '</summary>'
+    + '<p style="font-size:12.5px;color:var(--gray-6);margin:8px 0">Les codes sont créés, renommés, fusionnés (les lignes sont déplacées) ou désactivés dans cet ordre. <strong>Rien n\'est supprimé</strong> ; relancer le plan est sans risque (il ne refait pas ce qui est fait). Faites une sauvegarde (Documents) avant de fusionner.</p>'
+    + '<table style="width:100%;border-collapse:collapse"><tbody>' + lignes + '</tbody></table>'
+    + '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn btn-primary btn-sm" id="cr-plan-appliquer" onclick="crPlanAppliquer()"' + (p.restant ? '' : ' disabled') + '><i class="ti ti-player-play"></i> Appliquer le plan' + (p.restant ? ' (' + p.restant + ')' : '') + '</button>'
+    + (total ? '<span style="font-size:12.5px;color:var(--gray-6)">' + total + ' ligne' + (total > 1 ? 's' : '') + ' de facture changeront de code</span>' : '') + '</div></details>';
+}
+let _crPlanEnCours = false;
+const crPar = nom => _codesRes.find(c => crNorm(c.code) === crNorm(nom));
+async function crPlanEtape(e){
+  if(e.type === 'creer'){
+    const {error} = await sb.from('codes_ressource').insert({code:e.vers, description:e.desc || null, actif:true});
+    if(error) return crErreur(error);
+    await chargerCodesRessource(); return '';
+  }
+  const a = crPar(e.de); if(!a) return 'code « ' + e.de + ' » introuvable';
+  if(e.type === 'renommer'){
+    const r = await sb.from('codes_ressource').update({code:e.vers}).eq('id', a.id).select('id');
+    if(r.error) return crErreur(r.error);
+    if(!r.data || !r.data.length) return 'modification refusée par la base (droits ?)';
+    a.code = e.vers; return '';
+  }
+  if(e.type === 'fusionner'){
+    const b = crPar(e.vers); if(!b) return 'code « ' + e.vers + ' » introuvable';
+    const m = await sb.from('lignes_facture').update({code_ressource_id:b.id}).eq('code_ressource_id', a.id).select('id');
+    if(m.error) return crErreur(m.error);
+    const reste = await sb.from('lignes_facture').select('id').eq('code_ressource_id', a.id).limit(1);
+    if(reste.error) return crErreur(reste.error);
+    if((reste.data || []).length) return 'des lignes n\'ont pas pu être déplacées (droits ?)';
+  }
+  const d = await sb.from('codes_ressource').update({actif:false}).eq('id', a.id).select('id');
+  if(d.error) return crErreur(d.error);
+  if(!d.data || !d.data.length) return 'désactivation refusée par la base (droits ?)';
+  a.actif = false; return '';
+}
+async function crPlanAppliquer(){
+  if(_crPlanEnCours || !peutGererCodesRes()) return;
+  _crPlanEnCours = true;                                    // verrou posé AVANT toute attente : deux clics rapides = une seule exécution
+  try{
+    if(currentPage === 'documents' && !(await daPeutDefinir())){ await daRefuser(); return; }
+    if(!(await chargerCodesRessource())){ showToast(SQL_CODES_RESSOURCE, 'error'); return; }
+    const plan = crPlanCalculer(_codesRes, await lireUsageCodesRes()), aFaire = plan.etapes.filter(e => e.etat === 'afaire' && e.type !== 'manuel');
+    if(!aFaire.length){ showToast('Rien à faire : les codes sont déjà alignés'); await rendreGestionCodesRes(); return; }
+    const nl = aFaire.filter(e => e.type === 'fusionner').reduce((a, e) => a + (e.n || 0), 0);
+    if(!confirm('Appliquer le plan (' + aFaire.length + ' étape' + (aFaire.length > 1 ? 's' : '') + ') ?\n' + (nl ? nl + ' ligne(s) de facture changeront de code. ' : '') + 'Rien n\'est supprimé.')) return;
+    let fait = 0;
+    for(const e of aFaire){
+      const err = await crPlanEtape(e);
+      if(err){ showToast('Plan interrompu à « ' + crPlanLib(e) + ' » : ' + err + ' (' + fait + ' étape' + (fait > 1 ? 's' : '') + ' déjà faite' + (fait > 1 ? 's' : '') + ')', 'error'); await rendreGestionCodesRes(); return; }
+      fait++;
+    }
+    showToast('Plan appliqué : ' + fait + ' étape' + (fait > 1 ? 's' : '') + (nl ? ', ' + nl + ' ligne(s) déplacée(s)' : ''));
+    await rendreGestionCodesRes();
+  }finally{ _crPlanEnCours = false; }
+}
+
+// ── « Répartir » : ligne à ligne (FLOTTE, INFORMATIQUE…) ou tout vers un autre code ────────────────────────────────────
+function crSuggerer(codeSource, description){
+  const src = crNorm(codeSource), d = crNorm(description);
+  if(src === 'flotte'){
+    if(/carburant|gasoil|diesel|essence|mazout|fuel|shell|esso|q8|aral|lukoil|total ?energ/.test(d)) return 'CARBURANT';
+    if(/parking/.test(d)) return 'PARKING';
+    if(/location|leasing|loxam|louage|lld/.test(d)) return 'LOCATION VEHICULES';
+    return 'DIVERS';
+  }
+  if(src === 'informatique'){
+    if(/licen|microsoft|office|365|abonnement|claude|chatgpt|openai|adobe|google|zoom|dropbox|saas|antivirus/.test(d)) return 'LICENCES, ABONNEMENTS';
+    if(/maintenance|contrat/.test(d)) return 'CONTRATS DE MAINTENANCE';
+    return 'PRESTATIONS DE SERVICES';
+  }
+  return '';
+}
+let _crRep = null;
+async function crRepartirOuvrir(codeId){
+  if(!peutGererCodesRes()) return;
+  if(currentPage === 'documents' && !(await daPeutDefinir())){ await daRefuser(); return; }
+  const c = _codesRes.find(x => String(x.id) === String(codeId)); if(!c) return;
+  let lignes = [], facs = new Map(), fours = new Map();
+  try{
+    lignes = await lirePagine('lignes_facture', 'id,facture_id,description,quantite,prix_unitaire_ht,taux_tva,code_ressource_id', q => q.eq('code_ressource_id', c.id));
+    const ids = Array.from(new Set(lignes.map(l => String(l.facture_id)).filter(Boolean)));
+    for(let i = 0; i < ids.length; i += 150){
+      const r = await sb.from('factures').select('id,numero_facture_fournisseur,date_facture,fournisseur_id,statut').in('id', ids.slice(i, i + 150));
+      if(r.error) throw r.error; (r.data || []).forEach(f => facs.set(String(f.id), f));
+    }
+    const fr = await lirePagine('fournisseurs', 'id,nom'); fr.forEach(f => fours.set(String(f.id), f.nom));
+  }catch(e){ showToast('Lecture impossible : ' + ((e && e.message) || e), 'error'); return; }
+  if(!lignes.length){ showToast('« ' + c.code + ' » n\'a plus aucune ligne'); return; }
+  lignes.sort((a, b) => String((facs.get(String(a.facture_id)) || {}).date_facture || '').localeCompare(String((facs.get(String(b.facture_id)) || {}).date_facture || '')) || String(a.id).localeCompare(String(b.id)));
+  _crRep = {code:c, lignes, facs, fours};
+  let k = el('crrep-container'); if(!k){ k = document.createElement('div'); k.id = 'crrep-container'; document.body.appendChild(k); }
+  const cibles = _codesRes.filter(x => x.actif !== false && x.id !== c.id);
+  const opts = sel => '<option value="">— ne pas changer —</option>' + cibles.map(x => '<option value="' + escHtml(x.id) + '"' + (x.id === sel ? ' selected' : '') + '>' + escHtml(x.code) + '</option>').join('');
+  const lib = l => { const f = facs.get(String(l.facture_id)) || {}; return escHtml(f.numero_facture_fournisseur || '—') + ' <span style="color:var(--gray-5)">' + escHtml(f.date_facture ? fmtDate(f.date_facture) : '') + '</span>'; };
+  let sug = 0;
+  const corps = lignes.map(l => {
+    const sg = crPar(crSuggerer(c.code, l.description)), pre = sg && sg.actif !== false && sg.id !== c.id ? sg.id : ''; if(pre) sug++;
+    const f = facs.get(String(l.facture_id)) || {};
+    return '<tr class="crrep-ligne" data-id="' + escHtml(l.id) + '"><td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);font-size:12.5px;white-space:nowrap">' + lib(l) + '</td>'
+      + '<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);font-size:12.5px">' + escHtml(fours.get(String(f.fournisseur_id)) || '') + '</td>'
+      + '<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);font-size:12.5px">' + escHtml(l.description || '') + '</td>'
+      + '<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2);font-size:12.5px;text-align:right;white-space:nowrap">' + escHtml(fmt((Number(l.quantite) || 0) * (Number(l.prix_unitaire_ht) || 0))) + '</td>'
+      + '<td style="padding:5px 6px;border-bottom:1px solid var(--gray-2)"><select class="crrep-sel" data-sug="' + (pre ? '1' : '') + '" onchange="crRepartirMaj()" style="width:100%;min-width:170px;padding:4px;border:1px solid var(--gray-3);border-radius:4px;font-size:12.5px' + (pre ? ';background:#FFFBEB' : '') + '">' + opts(pre) + '</select></td></tr>';
+  }).join('');
+  k.innerHTML = '<div class="modal-overlay" style="z-index:310" onclick="if(event.target===this)crRepartirFermer()"><div class="modal" style="max-width:1000px">'
+    + '<div class="modal-header"><h3><i class="ti ti-arrows-split"></i> Répartir « ' + escHtml(c.code) + ' » — ' + lignes.length + ' ligne' + (lignes.length > 1 ? 's' : '') + '</h3><button class="modal-close" onclick="crRepartirFermer()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>'
+    + '<div class="modal-body"><p style="font-size:13px;color:var(--gray-6);margin:0 0 10px">Choisissez le nouveau code de chaque ligne' + (sug ? ' (les ' + sug + ' lignes à fond jaune ont une <strong>suggestion</strong> à vérifier)' : '') + '. Les lignes laissées sur « ne pas changer » gardent « ' + escHtml(c.code) + ' ».</p>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px"><span style="font-size:13px;font-weight:600">Tout mettre dans</span><select id="crrep-tous" style="padding:5px;border:1px solid var(--gray-3);border-radius:4px;min-width:200px">' + opts('') + '</select><button type="button" class="btn btn-secondary btn-sm" id="crrep-tous-btn" onclick="crRepartirTous()">Appliquer à toutes les lignes</button></div>'
+    + '<div style="overflow:auto;max-height:55vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:var(--gray-1)"><th style="padding:6px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray-5)">Facture</th><th style="padding:6px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray-5)">Fournisseur</th><th style="padding:6px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray-5)">Description</th><th style="padding:6px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray-5)">Total HT</th><th style="padding:6px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray-5)">Nouveau code</th></tr></thead><tbody>' + corps + '</tbody></table></div>'
+    + '<div class="form-actions"><span id="crrep-nb" style="margin-right:auto;font-size:13px;color:var(--gray-6)"></span><button class="btn btn-secondary" onclick="crRepartirFermer()">Annuler</button><button class="btn btn-primary" id="crrep-enregistrer" onclick="crRepartirEnregistrer()"><i class="ti ti-check"></i> Enregistrer</button></div></div></div></div>';
+  crRepartirMaj();
+}
+function crRepartirChoix(){ return Array.from(document.querySelectorAll('#crrep-container .crrep-ligne')).map(tr => ({id:tr.dataset.id, vers:tr.querySelector('.crrep-sel').value})).filter(x => x.vers); }
+function crRepartirMaj(){ const n = crRepartirChoix().length, z = document.getElementById('crrep-nb'), b = document.getElementById('crrep-enregistrer'); if(z) z.textContent = n ? n + ' ligne' + (n > 1 ? 's' : '') + ' à déplacer' : 'Aucun changement'; if(b) b.disabled = !n; }
+function crRepartirTous(){
+  const v = (document.getElementById('crrep-tous') || {}).value;
+  if(!v){ showToast('Choisissez le code de destination', 'error'); return; }
+  document.querySelectorAll('#crrep-container .crrep-sel').forEach(sl => { sl.value = v; sl.style.background = ''; });
+  crRepartirMaj();
+}
+function crRepartirFermer(){ const k = el('crrep-container'); if(k) k.innerHTML = ''; _crRep = null; }
+let _crRepEnCours = false;
+async function crRepartirEnregistrer(){
+  if(_crRepEnCours || !_crRep || !peutGererCodesRes()) return;
+  _crRepEnCours = true;                                     // verrou posé AVANT toute attente (double clic)
+  let fait = 0;
+  const src = _crRep.code, parCible = new Map();
+  try{
+    if(currentPage === 'documents' && !(await daPeutDefinir())){ await daRefuser(); return; }
+    const choix = crRepartirChoix(); if(!choix.length){ showToast('Aucun changement', 'error'); return; }
+    choix.forEach(x => { if(!parCible.has(x.vers)) parCible.set(x.vers, []); parCible.get(x.vers).push(x.id); });
+    for(const v of parCible.keys()){ const t = _codesRes.find(c => String(c.id) === String(v)); if(!t || t.actif === false){ showToast('Un des codes de destination n\'existe plus ou est désactivé', 'error'); return; } }
+    for(const [v, ids] of parCible){
+      for(let i = 0; i < ids.length; i += 150){
+        const part = ids.slice(i, i + 150);
+        const r = await sb.from('lignes_facture').update({code_ressource_id:v}).in('id', part).select('id');
+        if(r.error){ showToast(crErreur(r.error) + ' (' + fait + ' ligne(s) déjà déplacée(s))', 'error'); await rendreGestionCodesRes(); return; }
+        if(!r.data || r.data.length !== part.length){ showToast('La base n\'a modifié que ' + ((r.data || []).length) + ' ligne(s) sur ' + part.length + ' (droits ?) — ' + fait + ' déjà déplacée(s)', 'error'); await rendreGestionCodesRes(); return; }
+        fait += part.length;
+      }
+    }
+  }finally{ _crRepEnCours = false; }
+  crRepartirFermer();
+  showToast(fait + ' ligne' + (fait > 1 ? 's' : '') + ' déplacée' + (fait > 1 ? 's' : '') + ' de « ' + src.code + ' »');
+  const u = await lireUsageCodesRes();
+  if(!(u[src.id] || 0) && src.actif !== false && confirm('« ' + src.code + ' » n\'a plus aucune ligne. Le désactiver maintenant ?')){
+    const d = await sb.from('codes_ressource').update({actif:false}).eq('id', src.id).select('id');
+    if(d.error || !d.data || !d.data.length) showToast(d.error ? crErreur(d.error) : 'désactivation refusée par la base (droits ?)', 'error'); else { src.actif = false; showToast('« ' + src.code + ' » désactivé'); }
+  }
+  await rendreGestionCodesRes();
+}
+
+
+// ── PDF « Récapitulatif d'intervention » pour le client (16/11/2026) ──────────────────────────────────────────────────
+// Seulement ce que le client doit voir : qui, où, quand, les lignes avec leurs totaux, et le total. Jamais de coûts, de marge, de remarques internes ni de pointages.
+function configPdfInterventionSav(i, lignes, client, devis){
+  const lieu = [i.nom_site, i.adresse_site].map(x => String(x == null ? '' : x).trim()).filter(Boolean);
+  const tot = totauxFacture(lignes), avecRef = (lignes || []).some(l => l.reference_article && String(l.reference_article).trim());
+  return {
+    docType: "RÉCAPITULATIF D'INTERVENTION",
+    dates: [
+      {label:'N° Intervention', value:i.ref || '—'},
+      {label:"Date d'intervention", value:i.date_intervention ? fmtDate(i.date_intervention) : '—'},
+      {label:'Date émission', value:fmtDate(today())}
+    ],
+    boxes: [
+      {label:'Émetteur', lines:LyneoPDF.emetteurLignes()},
+      {label:'Client', lines:[client.nom || '—', client.adresse || '', ((client.code_postal || '') + ' ' + (client.ville || '')).trim()].concat(tvaClientPdf(client) ? ['TVA : ' + tvaClientPdf(client)] : [], [client.email || ''])}
+    ],
+    refRow: [
+      {label:'Référence', value:i.ref || '—'},
+      {label:'Devis', value:(devis && devis.numero) || '—'},
+      {label:'Technicien', value:(i.employes_rh ? nomPers(i.employes_rh) : (i.technicien_nom || '')) || '—'}
+    ],
+    boxesBas: lieu.length ? [{label:"Lieu d'intervention", lines:lieu}] : null,
+    sectionTitle: 'Détail des prestations & fournitures',
+    table: {
+      columns: (avecRef ? [{header:'Réf. article', width:80, align:'left'}] : []).concat([
+        {header:'Description', width:avecRef ? 210 : 280, align:'left'},
+        {header:'Qté', width:70, align:'right'},
+        {header:'P.U. HT', width:90, align:'right'},
+        {header:'Total HT', width:90, align:'right'}
+      ]),
+      rows: (lignes || []).map(l => ({cells:(avecRef ? [l.reference_article || ''] : []).concat([l.description, (String(l.quantite).replace('.', ',') + ' ' + ((l.unite === '%' || l.unite === 'u') ? '' : (l.unite || ''))).trim(), fmtPU(l.prix_unitaire_ht), fmt(totalLigneFV(l))])}))
+    },
+    totals: [
+      {label:'Sous-total HT', value:fmt(tot.ht)},
+      {label:libelleTvaLignes(lignes), value:fmt(tot.tva)},
+      {label:'TOTAL', value:fmt(tot.ttc), bold:true}
+    ],
+    notesBlock: null, paymentBlock: null, extraPages: []
+  };
+}
+async function pdfBytesInterventionSav(interventionId){
+  await entrepriseChargee();
+  const {data:i} = await sb.from('interventions_sav').select('*,clients(nom,email,adresse,code_postal,ville,numero_tva),employes_rh(nom,prenom,email)').eq('id', interventionId).single();
+  if(!i) return {erreur:'Intervention introuvable'};
+  let devis = null, lignes = [];
+  if(i.devis_id){
+    const dv = await sb.from('devis').select('id,numero').eq('id', i.devis_id).single(); devis = dv.data || null;
+    const r = await sb.from('lignes_devis').select('*').eq('devis_id', i.devis_id).eq('bloc', 'principal').eq('type', 'ligne').order('ordre');
+    if(r.error) return {erreur:'Lignes du devis illisibles : ' + r.error.message};
+    lignes = r.data || [];
+  }else{
+    const li = await lireLignesIntervention(i.id);
+    if(!li.ok) return {erreur:'Lignes illisibles : ' + li.erreur};
+    lignes = li.rows;
+  }
+  if(!lignes.length) return {erreur:"Aucune ligne à imprimer : ajoutez d'abord les lignes (déplacement, main d'œuvre, matériel…) à l'intervention"};
+  const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, configPdfInterventionSav(i, lignes, i.clients || {}, devis));
+  return {i, bytes, nom:'Recapitulatif-' + String(i.ref || 'intervention').replace(/[^A-Za-z0-9._-]+/g, '_') + '.pdf'};
+}
+let _svPdfEnCours = false;
+async function downloadPDF_InterventionSav(interventionId){
+  if(_svPdfEnCours) return;
+  _svPdfEnCours = true;
+  try{
+    showToast('Génération du PDF...');
+    const r = await pdfBytesInterventionSav(interventionId);
+    if(r.erreur){ showToast(r.erreur, 'error'); return; }
+    await baixarPdfBytes(r.bytes, r.nom);
+  }catch(e){ showToast('Erreur génération PDF : ' + ((e && e.message) || e), 'error'); }
+  finally{ _svPdfEnCours = false; }
+}
 
 // ── INIT ─────────────────────────────────────────────────────
 function toggleSidebar(){
