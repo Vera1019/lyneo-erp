@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-15-af4a7e1"/>
+<meta name="lyneo-build" content="BUILD:2026-11-15-bf09066"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2795,7 +2795,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-15-af4a7e1';
+const APP_BUILD = 'BUILD:2026-11-15-bf09066';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -25645,7 +25645,7 @@ async function openEditFacLignes(facId){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
   window._efacOrig = fac;
-  window._efacMulti = fac.imputation_multiple===true;
+  window._efacMulti = fac.imputation_multiple===true || (/^NDF-\d{6}-\d+$/.test(String(fac.numero_facture_fournisseur||'')) && await imputDispo());   // une NOTE DE FRAIS (NDF-AAAAMM-NN) s'ouvre toujours par ligne (si le SQL est passé) ; une seule destination = facture simple
 
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
   const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom');
@@ -25658,7 +25658,7 @@ async function openEditFacLignes(facId){
     chantierIdActuel = poRow?.chantier_id||null;
   }
   const chantiers = chantiersChoix(chantiersData||[], chantierIdActuel);   // archivés masqués, sauf celui déjà lié à la facture
-  if(window._efacMulti){ _ndfChantiers = chantiersChoix(chantiersData||[], null); _ndfInterventions = await ndfLireInterventions(); _ndfIntervDispo = true; }
+  if(window._efacMulti){ _ndfChantiers = chantiersChoix(chantiersData||[], chantierIdActuel); _ndfInterventions = await ndfLireInterventions(); _ndfIntervDispo = true; }
 
   const sgEfac = efacSigne();
   if((lignesData||[]).length===0 && (sgEfac*(parseFloat(fac.montant_ht)||0)>0 || sgEfac*(parseFloat(fac.montant_ttc)||0)>0)){
@@ -25687,7 +25687,7 @@ async function openEditFacLignes(facId){
       prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
       taux_tva: tvaNum(l.taux_tva),
       code_ressource_id: l.code_ressource_id || null,
-      chantier_id: l.chantier_id || '', intervention_id: l.intervention_id || ''
+      chantier_id: l.chantier_id || (window._efacMulti ? (fac.chantier_id||'') : ''), intervention_id: l.intervention_id || (window._efacMulti && fac.imputation_multiple!==true ? (fac.intervention_id||'') : '')
     }));
   }
   await chargerCodesRessource();
