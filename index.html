@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-16-acac7a3"/>
+<meta name="lyneo-build" content="BUILD:2026-11-17-3c0bd1e"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2819,7 +2819,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-16-acac7a3';
+const APP_BUILD = 'BUILD:2026-11-17-3c0bd1e';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -5986,6 +5986,10 @@ function avisarSincronizacaoPointages(resultado){
 const HI_CODE = 'HI', HI_NOM = 'Heures improductives';
 const SQL_PT_ACTIF = 'migration-pointages-chantiers-actifs.sql';
 const estCodeHI = c => String(c==null?'':c).trim().toUpperCase()===HI_CODE;
+// Centre « Formation » (17/11/2026) : la formation est du temps de travail, pas une absence. Code permanent comme HI : toujours proposé, jamais masqué.
+const FO_CODE = 'FORMATION', FO_NOM = 'Formation';
+const estCodeFO = c => String(c==null?'':c).trim().toUpperCase()===FO_CODE;
+const estCodePermanent = c => estCodeHI(c) || estCodeFO(c);
 // Un chantier n'est plus proposé quand il est en pause / terminé / archivé (jamais à cause de la facturation) ;
 // une intervention SAV, quand elle est terminée / facturée OU qu'elle a une facture émise. Un doute (données illisibles) ne ferme jamais un code.
 const MOTIF_STATUT = {pause:'en pause', termine:'terminé', archive:'archivé'};
@@ -6027,9 +6031,9 @@ const nomPointagesVoulu = c => { const num = String((c&&c.numero)||'').trim(), l
 // Centres internes qui ne se pointent jamais (STOCK, frais généraux…) ; « Heures improductives » (HI) est le seul centre interne pointable
 const estNomInterneNonPointable = s => { const t = sansAccentsPt(s); return t==='stock' || t==='fg' || /^frais generaux?(\s|$)/.test(t); };
 const estCentreInterneNonPointable = c => !!c
-  && String(c.numero||'').trim().toUpperCase()!==HI_CODE && !codesPointagesDe(c).some(estCodeHI)
+  && !estCodePermanent(c.numero) && !codesPointagesDe(c).some(estCodePermanent)
   && (c.type_centre==='interne' || [c.numero, c.nom].some(estNomInterneNonPointable));
-const estLignePtInterneNonPointable = p => !!p && !estCodeHI(p.code) && [p.code, nomSansCodePt(p)].some(estNomInterneNonPointable);
+const estLignePtInterneNonPointable = p => !!p && !estCodePermanent(p.code) && [p.code, nomSansCodePt(p)].some(estNomInterneNonPointable);
 // Centre SAV : son code visible = celui de la liste qui porte le NUMÉRO du centre (SAV 1…) ET qui existe dans les pointages ; sinon null
 function codePrincipalSav(c, ptRows){
   if(!estCentreSav(c)) return null;
@@ -6060,7 +6064,7 @@ function planAlignementPointages(chs, ptRows){
   const reclame = new Map();                      // id d'une ligne des pointages → centre de l'ERP qui la revendique (champ « Code pointages »)
   (chs||[]).forEach(c=>codesPointagesDe(c).forEach(code=>{ const r = trouverChantierPointages(rows, code); if(r && !reclame.has(String(r.id))) reclame.set(String(r.id), c); }));
   const vises = new Map();                        // clé de code visée → centre (deux centres ne peuvent pas viser le même code)
-  const centres = (chs||[]).filter(c=>String(c.numero||'').trim() && String(c.numero).trim().toUpperCase()!==HI_CODE && !codesPointagesDe(c).some(estCodeHI))
+  const centres = (chs||[]).filter(c=>String(c.numero||'').trim() && !estCodePermanent(c.numero) && !codesPointagesDe(c).some(estCodePermanent))
     .sort((a,b)=>String(a.numero).localeCompare(String(b.numero),'fr',{numeric:true,sensitivity:'base'}));
   for(const c of centres){
     const cible = String(c.numero).trim(), cle = cleCodePt(cible);
@@ -6271,7 +6275,7 @@ async function majPointagesEtats(etats, ptDeja){
   const pt = ptDeja || await lireChantiersPointagesActif();
   if(!pt.colonne){ out.ok = false; out.erreur = 'sql'; return out; }
   for(const e of etats){
-    if(estCodeHI(e.code)) continue;
+    if(estCodePermanent(e.code)) continue;
     const p = trouverChantierPointages(pt.rows, e.code);
     if(!p){ out.absents.push(e.code); continue; }
     if((p.actif!==false)===e.ouvert) continue;
@@ -6371,7 +6375,7 @@ function lancerMajPointagesFacturation(info){
 // restent intacts). Un code encore revendiqué par un autre chantier / une autre intervention n'est jamais touché (on relit l'ERP).
 async function majPointagesCodesSupprimes(codes){
   try{
-    const liste = (codes||[]).filter(c=>c && !estCodeHI(c));
+    const liste = (codes||[]).filter(c=>c && !estCodePermanent(c));
     if(!liste.length) return {ok:true, ouverts:[], fermes:[], absents:[], vide:true};
     const [chs, ivs] = await Promise.all([lireTableComplete('chantiers_lyneo'), lireOptionnelle('interventions_sav')]);
     const pris = new Set();
@@ -6398,7 +6402,7 @@ async function planSynchroPointages(opts){
   const voulu = new Map(), absents = [];
   // sur = le code est proposé par un CHANTIER (décision qui ne dépend pas de la lecture de la facturation) ; une intervention « ouverte » en dépend
   const noter = (code, ouvert, source, chantier, motif)=>{
-    if(estCodeHI(code)) return;
+    if(estCodePermanent(code)) return;
     const p = trouverChantierPointages(pt.rows, code);
     if(!p){ if(chantier || ouvert) absents.push({code, source}); return; }
     const k = String(p.id), v = voulu.get(k), sur = !!(chantier && ouvert);
@@ -6418,7 +6422,7 @@ async function planSynchroPointages(opts){
     if(i.ref && motif==='' && trouverChantierPointages(pt.rows, i.ref)) ivsSansCentre.push(i);
   });
   // Centres internes sans lien avec l'ERP (STOCK, frais généraux…) : jamais proposés
-  pt.rows.forEach(p=>{ if(!estCodeHI(p.code) && !voulu.has(String(p.id)) && estLignePtInterneNonPointable(p)) voulu.set(String(p.id), {p, ouvert:false, sur:false, sources:[p.code], motifs:['centre interne : non pointable']}); });
+  pt.rows.forEach(p=>{ if(!estCodePermanent(p.code) && !voulu.has(String(p.id)) && estLignePtInterneNonPointable(p)) voulu.set(String(p.id), {p, ouvert:false, sur:false, sources:[p.code], motifs:['centre interne : non pointable']}); });
   let aOuvrir = [], aFermer = [], dejaOuverts = [], dejaFermes = [];
   voulu.forEach(v=>{
     if(!pt.colonne) return;               // état inconnu : rien à calculer tant que le SQL n'est pas exécuté
@@ -6431,10 +6435,51 @@ async function planSynchroPointages(opts){
   // Facturation SAV illisible (réseau, droits) : on ne sait pas si l'intervention est facturée ⇒ un code qui ne dépend que d'interventions n'est pas ROUVERT
   // (il reste masqué) ; un chantier « En cours » est rouvert quoi qu'il arrive (son statut suffit). On masque encore selon le statut.
   if(!fin.ok){ dejaFermes = dejaFermes.concat(aOuvrir.filter(l=>!l.sur)); aOuvrir = aOuvrir.filter(l=>l.sur); }
-  const sansLien = pt.rows.filter(p=>!estCodeHI(p.code) && !voulu.has(String(p.id)));
+  const sansLien = pt.rows.filter(p=>!estCodePermanent(p.code) && !voulu.has(String(p.id)));
   const hiPt = pt.rows.find(p=>estCodeHI(p.code)) || null;
   const hiErp = chs.find(c=>_txt(c.numero).trim().toUpperCase()===HI_CODE || codesPointagesDe(c).some(estCodeHI)) || null;
-  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp, alignement, ivsSansCentre, financeErreur: fin.ok ? null : (fin.erreur||'erreur')};
+  const foPt = pt.rows.find(p=>estCodeFO(p.code)) || null;
+  const foErp = chs.find(c=>estCodeFO(c.numero) || codesPointagesDe(c).some(estCodeFO)) || null;
+  return {pt, chs, aOuvrir, aFermer, dejaOuverts, dejaFermes, sansLien, absents, hiPt, hiErp, foPt, foErp, alignement, ivsSansCentre, financeErreur: fin.ok ? null : (fin.erreur||'erreur')};
+}
+// Crée / relie le centre « Formation » des deux côtés, comme HI (sans doublon : relecture avant chaque création). Le centre FORMATION de l'ERP
+// (créé par la carte « Centres de frais ») n'a pas de code de pointages : on le relie ; un code masqué dans les pointages est proposé de nouveau.
+async function assurerCentreFormation(plan){
+  const r = {pt:'deja', erp:'deja', erreurs:[]};
+  if(!plan.foPt){
+    try{
+      const {data:ex,error:e0} = await sbPT.from('chantiers').select('id,code').ilike('code', FO_CODE);
+      if(e0) throw e0;
+      if(!(ex||[]).some(x=>estCodeFO(x.code))){
+        const {error} = await sbPT.from('chantiers').insert({code:FO_CODE, nom:FO_NOM});
+        if(error) throw error;
+        r.pt = 'cree';
+      }
+    }catch(e){ r.pt = 'erreur'; r.erreurs.push('Pointages (Formation) : '+((e&&e.message)||e)); }
+  } else if(plan.pt.colonne && plan.foPt.actif===false){
+    const w = await ecrireActifPointages(plan.foPt, true);
+    if(w==='ok') r.pt = 'rouvert'; else { r.pt = 'erreur'; r.erreurs.push('Pointages (Formation) : '+(w==='droits' ? 'droits insuffisants dans la base des pointages' : w)); }
+  }
+  if(!plan.foErp){
+    try{
+      const {data:ex,error:e0} = await sb.from('chantiers_lyneo').select('id,numero,code_pointages');
+      if(e0) throw e0;
+      const dejaLa = (ex||[]).some(c=>estCodeFO(c.numero) || codesPointagesDe(c).some(estCodeFO));
+      if(!dejaLa){
+        const {error} = await sb.from('chantiers_lyneo').insert({numero:FO_CODE, nom:'Frais de Formation, Cotisation Formation Continue', client:'INTERNE - LYNEO', statut:'actif', type_centre:'interne', code_pointages:FO_CODE});
+        if(error) throw error;
+        r.erp = 'cree';
+      }
+    }catch(e){ r.erp = 'erreur'; r.erreurs.push('ERP (Formation) : '+((e&&e.message)||e)); }
+  } else if(!codesPointagesDe(plan.foErp).length && estCodeFO(plan.foErp.numero)){
+    try{
+      const {data,error} = await sb.from('chantiers_lyneo').update({code_pointages:FO_CODE}).eq('id',plan.foErp.id).select('id');
+      if(error) throw error;
+      if(!data || !data.length) throw new Error('modification refusée (droits insuffisants)');
+      r.erp = 'lie';
+    }catch(e){ r.erp = 'erreur'; r.erreurs.push('ERP (Formation) : '+((e&&e.message)||e)); }
+  }
+  return r;
 }
 // Crée / relie le centre « Heures improductives » des deux côtés (sans doublon : relecture avant chaque création)
 async function assurerCentreHI(plan){
@@ -6496,9 +6541,11 @@ async function appliquerSynchroPointages(){
     }
     res.hi = await assurerCentreHI(plan);
     res.erreurs.push(...res.hi.erreurs);
+    res.fo = await assurerCentreFormation(plan);
+    res.erreurs.push(...res.fo.erreurs);
     const apres = await planSynchroPointages();
     el('sync-pt-corps').innerHTML = htmlResultatSynchroPointages(res) + htmlPlanSynchroPointages(apres, true);
-    if(((res.hi && res.hi.erp!=='deja' && res.hi.erp!=='erreur') || res.align.fait) && currentPage==='chantiers') renderChantiers('');
+    if(((res.hi && res.hi.erp!=='deja' && res.hi.erp!=='erreur') || (res.fo && res.fo.erp!=='deja' && res.fo.erp!=='erreur') || res.align.fait) && currentPage==='chantiers') renderChantiers('');
   }catch(e){
     el('sync-pt-corps').innerHTML = `<div class="alert alert-error" id="sync-pt-erreur"><i class="ti ti-alert-circle"></i><span>Synchronisation impossible : ${escHtml((e&&e.message)||String(e))}</span></div>`;
   }finally{ _syncPtEnCours = false; }
@@ -6519,6 +6566,12 @@ function htmlResultatSynchroPointages(res){
     if(res.hi.pt==='cree') l.push(`Centre « ${HI_NOM} » créé dans les pointages`);
     if(res.hi.erp==='cree') l.push(`Centre de coûts « ${HI_NOM} » (${HI_CODE}) créé dans l'ERP`);
     if(res.hi.erp==='lie') l.push(`Centre « ${HI_CODE} » de l'ERP relié au code ${HI_CODE} des pointages`);
+  }
+  if(res.fo){
+    if(res.fo.pt==='cree') l.push(`Centre « ${FO_NOM} » (code ${FO_CODE}) créé dans les pointages`);
+    if(res.fo.pt==='rouvert') l.push(`Centre « ${FO_NOM} » de nouveau proposé dans les pointages`);
+    if(res.fo.erp==='cree') l.push(`Centre de coûts « ${FO_CODE} » créé dans l'ERP`);
+    if(res.fo.erp==='lie') l.push(`Centre « ${FO_CODE} » de l'ERP relié au code ${FO_CODE} des pointages`);
   }
   let h = '';
   if(l.length) h += `<div class="alert alert-success" id="sync-pt-resultat" style="margin-bottom:12px"><i class="ti ti-check"></i><span>${l.join('<br>')}</span></div>`;
@@ -6549,10 +6602,14 @@ function htmlPlanSynchroPointages(plan, apresApplication){
   if(plan.absents.length) h += `<div id="sync-pt-absents" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:var(--orange);margin-bottom:4px"><i class="ti ti-alert-circle"></i> Codes de l'ERP introuvables dans les pointages (${plan.absents.length})</div><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${plan.absents.map(a=>`<li><strong>${escHtml(a.code)}</strong> <span style="color:var(--gray-5)">— ${escHtml(a.source)}</span></li>`).join('')}</ul></div>`;
   const hiTxt = (plan.hiPt ? '<span style="color:var(--green)">✓ pointages</span>' : '<span style="color:var(--orange)">à créer dans les pointages</span>') + ' · ' + (plan.hiErp ? '<span style="color:var(--green)">✓ ERP</span>' : '<span style="color:var(--orange)">à créer dans l\'ERP (centre interne, code HI)</span>');
   h += `<div id="sync-pt-hi" style="font-size:13px;margin-bottom:6px"><strong>Centre « ${HI_NOM} »</strong> (code ${HI_CODE}, toujours proposé aux salariés) : ${hiTxt}</div>`;
+  const foLie = !!plan.foErp && codesPointagesDe(plan.foErp).some(estCodeFO), foOk = !!plan.foPt && plan.foPt.actif!==false && foLie;
+  const foTxt = (plan.foPt ? (plan.foPt.actif===false ? '<span style="color:var(--orange)">masqué dans les pointages : à proposer de nouveau</span>' : '<span style="color:var(--green)">✓ pointages</span>') : '<span style="color:var(--orange)">à créer dans les pointages</span>')
+    + ' · ' + (foLie ? '<span style="color:var(--green)">✓ ERP</span>' : plan.foErp ? '<span style="color:var(--orange)">à relier dans l\'ERP (code FORMATION)</span>' : '<span style="color:var(--orange)">à créer dans l\'ERP (centre interne, code FORMATION)</span>');
+  h += `<div id="sync-pt-fo" style="font-size:13px;margin-bottom:6px"><strong>Centre « ${FO_NOM} »</strong> (code ${FO_CODE}, toujours proposé : la formation est du temps de travail, pas une absence) : ${foTxt}</div>`;
   const rienAligner = !al.maj.length && !al.creer.length && !al.creerErp.length;
-  const rien = !plan.aFermer.length && !plan.aOuvrir.length && rienAligner && plan.hiPt && plan.hiErp;
+  const rien = !plan.aFermer.length && !plan.aOuvrir.length && rienAligner && plan.hiPt && plan.hiErp && foOk;
   if(!apresApplication){
-    h += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button>${rien||(!plan.pt.colonne&&rienAligner&&plan.hiPt&&plan.hiErp)?'':`<button class="btn btn-primary" id="btn-sync-pt-appliquer" onclick="appliquerSynchroPointages()"><i class="ti ti-check"></i> Appliquer</button>`}</div>`;
+    h += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button>${rien||(!plan.pt.colonne&&rienAligner&&plan.hiPt&&plan.hiErp&&foOk)?'':`<button class="btn btn-primary" id="btn-sync-pt-appliquer" onclick="appliquerSynchroPointages()"><i class="ti ti-check"></i> Appliquer</button>`}</div>`;
     if(rien) h = `<div class="alert alert-info" id="sync-pt-rien" style="margin-bottom:12px"><i class="ti ti-check"></i><span>Les pointages sont déjà à jour : rien à appliquer.</span></div>` + h;
   } else h += `<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>`;
   return h;
@@ -9224,6 +9281,7 @@ async function renderFactures(){
       <button class="btn btn-primary" onclick="openFacModal()"><i class="ti ti-plus"></i> Saisir une facture</button>
       <button class="btn btn-secondary" onclick="openFacLibreModal()"><i class="ti ti-plus"></i> Facture sans commande</button>
       <button class="btn btn-secondary" id="btn-note-frais" onclick="openNoteFraisModal()" title="Dépense avancée par un salarié (ticket, facture…) : s'encode comme une facture fournisseur dont le fournisseur est le salarié"><i class="ti ti-receipt-2"></i> Note de frais</button>
+      <button class="btn btn-secondary" id="btn-nc-fourn" onclick="ncfOuvrir()" title="Note de crédit reçue d'un fournisseur, avec ou sans facture d'origine"><i class="ti ti-receipt-refund"></i> Nouvelle note de crédit</button>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <div class="search-wrap"><i class="ti ti-search"></i><input id="fac-recherche" placeholder="Rechercher partout (n°, fournisseur, chantier...)" oninput="majFiltreFactures('search',this.value)" value="${escHtml(F.search)}"/></div>
@@ -13880,6 +13938,7 @@ async function renderFacturesVente(){
         <button class="btn btn-secondary" id="btn-cv-lot" style="display:none" onclick="cvOuvrirLot()" title="Affecter un compte de vente aux factures cochées"><i class="ti ti-report-money"></i> Affecter un compte<span class="cv-lot-n"></span></button>
         <button class="btn btn-secondary" id="btn-relances" onclick="openRelances()" title="Relancer les clients dont des factures sont échues"><i class="ti ti-bell-ringing"></i> Relances${(()=>{ const n = new Set(_facturesVente.filter(f=>joursRetardFv(f)>0).map(f=>String(f.client_id||''))).size; return n ? ` <span class="badge badge-litige" id="fv-rel-badge">${n}</span>` : ''; })()}</button>
         <button class="btn btn-secondary" id="btn-cgv-liste" onclick="openCGV(&quot;navigate('factures_vente')&quot;)" title="${CGV_JOINDRE_AUX_FACTURES ? 'Conditions générales de vente jointes aux factures' : 'Conditions générales de vente (en cours de validation — non jointes aux factures)'}"><i class="ti ti-scale"></i> CGV</button>
+        <button class="btn btn-secondary" id="btn-nc-vente" onclick="ncvOuvrir()" title="Note de crédit sur une facture émise, sans passer par la fiche de la facture"><i class="ti ti-receipt-refund"></i> Nouvelle note de crédit</button>
         <button class="btn btn-primary" onclick="openNewFactureVenteLibre()"><i class="ti ti-plus"></i> Nouvelle facture</button>
       </div>
     </div>
@@ -24033,6 +24092,7 @@ const CF_TYPES = {chantier:'Chantier', sav:'Centre SAV', interne:'Interne'};
 const cfNumero = c => String((c && c.numero) || '').trim();
 const cfTypeInterne = c => !!c && c.type_centre === 'interne';                       // marqué « interne » dans la base
 const cfEstFrais = c => cfTypeInterne(c) && /^F\d{5}$/i.test(cfNumero(c));           // centre de frais : F + 5 chiffres
+const cfEstPointe = c => !!c && estCodePermanent(cfNumero(c));                            // HI et FORMATION : pointés par les salariés
 const cfEstHI = c => !!c && cfNumero(c).toUpperCase() === HI_CODE;                    // « Heures improductives » : le seul centre interne que les salariés pointent
 // Centre interne au sens large : type « interne », ou STOCK / FG / Frais généraux / HI même si le type n'a pas été renseigné (règle des pointages)
 const cfEstInterne = c => !!c && !estCentreSav(c) && (c.type_centre === 'interne' || estCentreInterneNonPointable(c) || cfNumero(c).toUpperCase() === HI_CODE);
@@ -24110,14 +24170,14 @@ function cfDessiner(){
     return fa - fb || cfNumero(a).localeCompare(cfNumero(b), 'fr', {numeric:true, sensitivity:'base'});
   });
   const lignes = internes.map(c => {
-    const ok = cfTypeInterne(c), hi = cfEstHI(c);
+    const ok = cfTypeInterne(c), hi = cfEstHI(c), pointe = cfEstPointe(c);
     return '<tr data-cf-id="' + escHtml(c.id) + '"><td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);white-space:nowrap;font-weight:600">' + escHtml(c.numero || '') + '</td>'
       + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (hi
           ? '<span class="cf-nom-hi">' + escHtml(c.nom || '') + '</span> <span class="badge badge-pause" style="margin-left:6px">utilisé par les pointages</span>'
-          : '<input class="cf-nom" value="' + escHtml(c.nom || '') + '" aria-label="Nom du centre ' + escHtml(c.numero || '') + '" onchange="cfRenommer(\'' + escHtml(String(c.id)) + '\', this)" style="width:100%;max-width:380px"/>') + '</td>'
+          : '<input class="cf-nom" value="' + escHtml(c.nom || '') + '" aria-label="Nom du centre ' + escHtml(c.numero || '') + '" onchange="cfRenommer(\'' + escHtml(String(c.id)) + '\', this)" style="width:100%;max-width:380px"/>' + (pointe ? ' <span class="badge badge-pause cf-pointe" style="margin-left:6px">utilisé par les pointages</span>' : '')) + '</td>'
       + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);font-size:12.5px">' + (ok ? 'Interne' : '<span class="badge badge-pause">Type : ' + escHtml(CF_TYPES[c.type_centre || 'chantier'] || c.type_centre) + '</span>') + '</td>'
       + '<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2)">' + (ok ? '' : '<button class="btn btn-secondary btn-sm cf-passer" onclick="cfPasserInterne(\'' + escHtml(String(c.id)) + '\')" title="Ne plus le proposer dans les chantiers, les devis et les factures clients">Passer en centre interne</button>')
-        + (hi ? '' : ' <button class="btn btn-secondary btn-sm cf-retirer" onclick="cfRetirer(\'' + escHtml(String(c.id)) + '\')" title="Ne plus proposer ce centre dans les listes de choix (achats, notes de frais). Rien n\'est supprimé.">Retirer de la liste</button>') + '</td></tr>';
+        + (pointe ? '' : ' <button class="btn btn-secondary btn-sm cf-retirer" onclick="cfRetirer(\'' + escHtml(String(c.id)) + '\')" title="Ne plus proposer ce centre dans les listes de choix (achats, notes de frais). Rien n\'est supprimé.">Retirer de la liste</button>') + '</td></tr>';
   }).join('');
   z.innerHTML =
     '<p style="font-size:13px;margin-bottom:10px" id="cf-resume"><strong>' + plan.presents.filter(cfEstFrais).length + '</strong> centre' + (plan.presents.filter(cfEstFrais).length > 1 ? 's' : '') + ' de frais sur ' + CF_CENTRES.length + ' (F00001 – F' + String(CF_CENTRES.length).padStart(5, '0') + ') et <strong>' + plan.presents.filter(c => !cfEstFrais(c)).length + '</strong> sur ' + CF_AUTRES.length + ' autres centres (' + CF_AUTRES.map(a => a[0]).join(', ') + ')'
@@ -24149,7 +24209,7 @@ async function cfChangerStatut(id, statut, confirmer, msgOk){
   _cfEtat.occupe = true;                                     // verrou posé AVANT toute attente (double clic)
   try{
     const c = (_cfEtat.tous || []).find(x => String(x.id) === String(id));
-    if(!c || !cfEstInterne(c) || cfEstHI(c)) return;
+    if(!c || !cfEstInterne(c) || cfEstPointe(c)) return;
     if(!currentUser || currentUser.role !== 'admin'){ showToast('Réservé aux administrateurs', 'error'); return; }
     if(!(await daPeutDefinir())){ await daRefuser(); return; }
     if(statut === 'archive'){
@@ -26190,6 +26250,8 @@ async function openEditFacLignes(facId){
       taux_tva: [17,14,8,3,0].includes(tauxApprox) ? tauxApprox : 17,
       code_ressource_id: null
     }];
+  } else if((lignesData||[]).length===0 && fac.statut==='avoir'){
+    _efacLignes = [{_db_id:null, description:'', reference_article:'', quantite:1, unite:'u', prix_unitaire_ht:0, taux_tva:17, code_ressource_id:null}];   // nouvelle note de crédit sans facture d'origine (17/11/2026)
   } else {
     _efacLignes = (lignesData||[]).map(l=>({
       _db_id: l.id,
@@ -26402,7 +26464,132 @@ async function annulerFacture(facId){
 }
 
 // ── NOTE DE CRÉDIT (AVOIR) ────────────────────────────────────
-async function creerNoteCredit(facId){
+
+// ── NOUVELLE NOTE DE CRÉDIT sans partir de la facture (17/11/2026) ──────────────────────────────────────────
+// Client : une note de crédit corrige TOUJOURS une facture émise (mention obligatoire, contrainte de la base) → on choisit client puis facture.
+let _ncvFactures = [], _ncvEnCours = false;
+async function ncvOuvrir(){
+  if(_ncvEnCours) return; _ncvEnCours = true;
+  try{
+    const r = await sb.from('factures_vente').select('id,numero,client_id,date_creation,total_ht,total_ttc,statut,type_facture,clients(nom)').in('statut', ['envoyee','payee_partiel','payee']).order('date_creation', {ascending:false}).limit(1000);
+    if(r.error){ showToast(escHtml('Impossible de lire les factures : ' + (r.error.message || r.error)), 'error'); return; }
+    _ncvFactures = (r.data || []).filter(f => f.type_facture !== 'avoir');
+    const clients = new Map();
+    _ncvFactures.forEach(f => { const k = String(f.client_id || ''); if(k && !clients.has(k)) clients.set(k, (f.clients && f.clients.nom) || '—'); });
+    const opts = [...clients.entries()].sort((a, b) => a[1].localeCompare(b[1], 'fr', {sensitivity:'base'}));
+    showModal(`<div class="modal-overlay"><div class="modal">
+      <div class="modal-header"><h3>Nouvelle note de crédit client</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+      <div class="modal-body">
+        <div class="alert alert-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>Une note de crédit client corrige toujours une facture émise : elle doit en indiquer le numéro (obligation légale). Choisissez le client puis la facture ; les lignes sont pré-remplies et modifiables (avoir partiel, remise, ligne libre).</span></div>
+        <div class="form-group" style="margin-bottom:12px"><label class="field-label">Client *</label>
+          <select id="ncv-client" onchange="ncvMajFactures()"><option value="">— Sélectionner —</option>${opts.map(([id, nom]) => `<option value="${escHtml(id)}">${escHtml(nom)}</option>`).join('')}</select></div>
+        <div class="form-group" style="margin-bottom:12px"><label class="field-label">Facture d'origine *</label>
+          <select id="ncv-facture" disabled><option value="">— Choisissez d'abord le client —</option></select></div>
+        ${opts.length ? '' : '<p id="ncv-vide" style="color:var(--gray-5);font-size:13px">Aucune facture émise : une note de crédit ne se fait que sur une facture émise.</p>'}
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+          <button class="btn btn-primary" id="ncv-continuer" onclick="ncvContinuer()"><i class="ti ti-arrow-right"></i> Continuer</button>
+        </div>
+      </div></div></div>`);
+  }finally{ _ncvEnCours = false; }
+}
+function ncvMajFactures(){
+  const c = String((el('ncv-client') || {}).value || ''), s = el('ncv-facture'); if(!s) return;
+  const L = _ncvFactures.filter(f => String(f.client_id || '') === c);
+  s.disabled = !c;
+  s.innerHTML = !c ? '<option value="">— Choisissez d\'abord le client —</option>'
+    : '<option value="">— Sélectionner (' + L.length + ' facture' + (L.length > 1 ? 's' : '') + ') —</option>'
+      + L.map(f => '<option value="' + escHtml(String(f.id)) + '">' + escHtml(f.numero || '') + ' — ' + escHtml(f.date_creation ? fmtDate(f.date_creation) : '') + ' — ' + escHtml(fmt(f.total_ttc)) + ' TTC</option>').join('');
+}
+async function ncvContinuer(){
+  const id = String((el('ncv-facture') || {}).value || '');
+  if(!String((el('ncv-client') || {}).value || '')){ showToast('Choisissez le client', 'error'); return; }
+  if(!id){ showToast("Choisissez la facture d'origine", 'error'); return; }
+  closeModal();
+  await openNewAvoirVente(id);        // la fenêtre habituelle : contrôles (facture émise, déjà créditée…), lignes, numéro AV…
+}
+
+// Fournisseur : la note reçue peut ne pas citer de facture → facture d'origine facultative.
+let _ncfFactures = [], _ncfEnCours = false;
+async function ncfOuvrir(){
+  const [{data:chantiersData}, {data:foursData}] = await Promise.all([
+    sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom'),
+    sb.from('fournisseurs').select('id,nom,employe_id').eq('actif', true).order('nom')
+  ]);
+  const chantiers = chantiersChoix(chantiersData || []);
+  const fours = (foursData || []).filter(f => !f.employe_id);
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>Nouvelle note de crédit fournisseur</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="form-group"><label class="field-label">Fournisseur *</label>
+          <select id="ncf-fournisseur" onchange="ncfMajFactures()"><option value="">— Sélectionner —</option>${fours.map(f => `<option value="${escHtml(String(f.id))}">${escHtml(f.nom)}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="field-label">Facture d'origine <span style="font-weight:400;text-transform:none">(facultatif)</span></label>
+          <select id="ncf-facture" disabled onchange="ncfMajOrigine()"><option value="">— Aucune —</option></select></div>
+        <div class="form-group"><label class="field-label">N° de la note de crédit du fournisseur *</label><input id="ncf-num" placeholder="Ex : AV-2026-0042"/></div>
+        <div class="form-group"><label class="field-label">Date</label><input type="date" id="ncf-date" value="${today()}"/></div>
+        <div class="form-group" id="ncf-chantier-wrap"><label class="field-label">Chantier / centre *</label>
+          <select id="ncf-chantier"><option value="">— Sélectionner —</option>${cfGroupesAchat(chantiers, '')}</select></div>
+      </div>
+      <p id="ncf-aide" style="font-size:12.5px;color:var(--gray-6);margin-bottom:12px">Sans facture d'origine : la note est créée vide (n° interne NC…) et l'écran des lignes s'ouvre pour saisir les montants <strong>en positif</strong> (ils sont enregistrés en négatif).</p>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="ncf-creer" onclick="ncfCreer()"><i class="ti ti-check"></i> Créer la note de crédit</button>
+      </div>
+    </div></div></div>`);
+}
+async function ncfMajFactures(){
+  const f = String((el('ncf-fournisseur') || {}).value || ''), s = el('ncf-facture'); if(!s) return;
+  _ncfFactures = [];
+  if(f){
+    const r = await sb.from('factures').select('id,numero_facture_fournisseur,numero_interne,date_facture,montant_ttc,statut,chantier_id').eq('fournisseur_id', f).neq('statut', 'avoir').order('date_facture', {ascending:false}).limit(500);
+    _ncfFactures = r.error ? [] : (r.data || []);
+  }
+  if(String((el('ncf-fournisseur') || {}).value || '') !== f) return;     // l'utilisateur a changé de fournisseur entre-temps
+  s.disabled = !f;
+  s.innerHTML = '<option value="">— Aucune —</option>' + _ncfFactures.map(x => '<option value="' + escHtml(String(x.id)) + '">' + escHtml(x.numero_facture_fournisseur || x.numero_interne || '—') + (x.date_facture ? ' — ' + escHtml(fmtDate(x.date_facture)) : '') + ' — ' + escHtml(fmt(x.montant_ttc)) + ' TTC</option>').join('');
+  ncfMajOrigine();
+}
+function ncfMajOrigine(){
+  const avec = !!String((el('ncf-facture') || {}).value || '');
+  const w = el('ncf-chantier-wrap'); if(w) w.style.display = avec ? 'none' : '';        // avec facture d'origine : centre et lignes repris de la facture
+  const a = el('ncf-aide'); if(a) a.innerHTML = avec ? "Avec facture d'origine : la note reprend son centre et ses lignes (comme le bouton « Note de crédit » de la facture), à ajuster ensuite." : "Sans facture d'origine : la note est créée vide (n° interne NC…) et l'écran des lignes s'ouvre pour saisir les montants <strong>en positif</strong> (ils sont enregistrés en négatif).";
+}
+async function ncfCreer(){
+  if(_ncfEnCours) return;
+  _ncfEnCours = true;                                    // verrou posé avant toute attente (double clic)
+  const btn = el('ncf-creer'); if(btn) btn.disabled = true;
+  try{
+    const four = String((el('ncf-fournisseur') || {}).value || ''), orig = String((el('ncf-facture') || {}).value || '');
+    const num = String((el('ncf-num') || {}).value || '').trim(), date = (el('ncf-date') || {}).value || today();
+    const ch = String((el('ncf-chantier') || {}).value || '');
+    if(!four){ showToast('Choisissez le fournisseur', 'error'); return; }
+    if(!num){ showToast('Indiquez le n° de la note de crédit du fournisseur', 'error'); return; }
+    const {data:dup} = await sb.from('factures').select('id').eq('fournisseur_id', four).eq('numero_facture_fournisseur', num).limit(1);
+    if(dup && dup.length){ showToast(escHtml('Le n° ' + num + ' existe déjà pour ce fournisseur'), 'error'); return; }
+    if(orig){
+      closeModal();
+      await creerNoteCredit(orig, {numero:num, date});    // mêmes lignes que la facture d'origine
+      return;
+    }
+    if(!ch){ showToast('Choisissez le chantier / centre', 'error'); return; }
+    const charge = ni => ({chantier_id:ch, fournisseur_id:four, ...(ni ? {numero_interne:ni} : {}), numero_facture_fournisseur:num, date_facture:date, date_echeance:null,
+      montant_ht:0, montant_tva:0, montant_ttc:0, statut:'avoir', saisie_par:currentUser.id, observations:"Note de crédit fournisseur (sans facture d'origine)"});
+    let ni = await prochainNumeroNCFournisseur(date), fac = null, error = null;
+    for(let essai = 0; essai < 5; essai++){
+      ({data:fac, error} = await sb.from('factures').insert(charge(ni)).select().single());
+      if(!error) break;
+      if(ni && erreurNumeroDejaPris(error)){ ni = await prochainNumeroNCFournisseur(date); if(ni) continue; }
+      if(ni && /numero_interne/i.test(error.message || '')){ ni = null; continue; }
+      break;
+    }
+    if(error){ if(toastErreurStatutFacture(error, 'avoir')) return; showToast(escHtml(erreurNumeroDejaPris(error) ? "Ce numéro vient d'être pris par une autre saisie : réessayez" : 'Erreur : ' + (error.message || error)), 'error'); return; }
+    showToast('Note de crédit créée' + nIntTxt(fac) + ' — saisissez les lignes (en positif)');
+    closeModal();
+    await openEditFacLignes(fac.id);
+  }finally{ _ncfEnCours = false; const b = el('ncf-creer'); if(b) b.disabled = false; }
+}
+async function creerNoteCredit(facId, opts){
   const {data:fac} = await sb.from('factures').select('*').eq('id',facId).single();
   if(!fac){ showToast("Facture introuvable", 'error'); return; }
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
@@ -26422,8 +26609,8 @@ async function creerNoteCredit(facId){
     ...(fac.intervention_id ? {intervention_id: fac.intervention_id} : {}),
     ...(fac.imputation_multiple===true ? {imputation_multiple:true} : {}),
     ...(ni ? {numero_interne: ni} : {}),
-    numero_facture_fournisseur: 'AVOIR — '+(fac.numero_facture_fournisseur||''),
-    date_facture: today(),
+    numero_facture_fournisseur: (opts && opts.numero) ? opts.numero : 'AVOIR — '+(fac.numero_facture_fournisseur||''),
+    date_facture: (opts && opts.date) || today(),
     date_echeance: null,
     montant_ht: -(parseFloat(fac.montant_ht)||0),
     montant_tva: -(parseFloat(fac.montant_tva)||0),
@@ -26433,11 +26620,11 @@ async function creerNoteCredit(facId){
     observations: `Note de crédit relative à la facture ${fac.numero_facture_fournisseur}`
   });
   // N° interne NC2026-NNN calculé ici ; si la colonne n'existe pas encore (script de numérotation pas exécuté) : comme avant, sans n° interne
-  let ni = await prochainNumeroNCFournisseur(today()), newFac = null, error = null;
+  let ni = await prochainNumeroNCFournisseur((opts && opts.date) || today()), newFac = null, error = null;
   for(let essai=0; essai<5; essai++){
     ({data:newFac, error} = await sb.from('factures').insert(chargeNC(ni)).select().single());
     if(!error) break;
-    if(ni && erreurNumeroDejaPris(error)){ ni = await prochainNumeroNCFournisseur(today()); if(ni) continue; }
+    if(ni && erreurNumeroDejaPris(error)){ ni = await prochainNumeroNCFournisseur((opts && opts.date) || today()); if(ni) continue; }
     if(ni && /numero_interne/i.test(error.message||'')){ ni = null; continue; }
     break;
   }
