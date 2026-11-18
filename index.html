@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-17-3c0bd1e"/>
+<meta name="lyneo-build" content="BUILD:2026-11-18-52f421a"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2819,7 +2819,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-17-3c0bd1e';
+const APP_BUILD = 'BUILD:2026-11-18-52f421a';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -11101,6 +11101,8 @@ function openFacModal(){
     +    '<select id="fac-po" data-ordre="fixe" onchange="loadLignesPourFac(this.value);majEcheanceFourn(\'fac\',((_posPourFac.find(p=>p.id===this.value)||{}).fournisseur_id)||\'\')">'
     +    '<option value="">— Sélectionner une commande —</option>'+opts
     +    '</select></div>'
+    +  '<div class="form-group"><label class="field-label">Chantier / centre * <span style="font-weight:400;text-transform:none">(celui de la commande ; modifiable)</span></label>'
+    +    '<div id="fac-chantier-zone"><select id="fac-chantier" disabled><option value="">— Choisissez d\'abord la commande —</option></select></div></div>'
     +  '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label>'
     +    '<input id="fac-num" placeholder="FA-2026-XXXX"/></div>'
     +  '<div class="form-group"><label class="field-label">Date de facture *</label>'
@@ -11182,6 +11184,9 @@ async function loadLignesPourFac(poId){
   }
 
   section.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray-5)"><i class="ti ti-loader" style="font-size:24px"></i><p style="margin-top:6px">Chargement...</p></div>';
+  { const po = _posPourFac.find(p=>String(p.id)===String(poId)); let chPo = po ? po.chantier_id : null;
+    if(!po || po.chantier_id===undefined){ const r = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',poId).single(); chPo = r.data ? r.data.chantier_id : null; }
+    await pofLireChantiers(); const z = el('fac-chantier-zone'); const vPo = String((el('fac-po')||{}).value||''); if(z && (vPo==='' || vPo===String(poId))) z.innerHTML = pofSelectHtml('fac-chantier', chPo); }
 
   const {data:lignes} = await sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre');
 
@@ -11379,11 +11384,12 @@ async function saveFacCore(){
   const mTTC = parseFloat(el('fac-ttc')?.value)||(mHT+mTVA);
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('*').eq('id',po_id).single();
+  const imput = pofImputation('fac-chantier', poRow);
+  if(!imput.chantier_id){ showToast('Choisissez le chantier / centre de la facture', 'error'); return; }
   if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:mTTC, date}))) return;
 
   const {data:fac,error} = await sb.from('factures').insert({
-    po_id, chantier_id: poRow?.chantier_id||null, fournisseur_id: poRow?.fournisseur_id||null, numero_facture_fournisseur:num,
-    ...(poRow?.intervention_id ? {intervention_id: poRow.intervention_id} : {}),
+    po_id, ...imput, fournisseur_id: poRow?.fournisseur_id||null, numero_facture_fournisseur:num,
     date_facture:date, date_echeance:el('fac-echeance')?.value||null,
     montant_ht:mHT, montant_tva:mTVA, montant_ttc:mTTC,
     statut:'validee', saisie_par:currentUser.id,
@@ -25985,6 +25991,30 @@ async function saveEditPO(poId){
 // Like Odoo: creates a facture from a PO with editable lines
 let _facFromPoLignes = [];
 
+
+// ── Chantier / centre d'une facture créée depuis une commande (18/11/2026) ─────────────────────────────
+// Le centre de la commande est montré et pré-choisi ; on peut le changer (ex. commande passée sur le mauvais chantier).
+// Changer de centre efface l'intervention SAV de la commande (elle appartient à l'ancien centre).
+let _pofChantiers = null;
+async function pofLireChantiers(){
+  const {data} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom');
+  _pofChantiers = data || [];
+  return _pofChantiers;
+}
+function pofSelectHtml(id, courant){
+  const liste = chantiersChoix(_pofChantiers || [], courant);
+  const cur = courant == null ? '' : String(courant);
+  const absent = cur && !(_pofChantiers || []).some(c => String(c.id) === cur);   // centre de la commande illisible (droits, supprimé) : on le garde tel quel, jamais perdu
+  return '<select id="' + id + '"><option value="">— Sélectionner —</option>' + (absent ? '<option value="' + escHtml(cur) + '" selected>Centre de la commande</option>' : '') + cfGroupesAchat(liste, absent ? '' : cur) + '</select>';
+}
+// Valeurs à enregistrer : chantier choisi (ou celui de la commande), intervention gardée seulement si le centre n'a pas changé
+function pofImputation(selId, poRow){
+  const s = el(selId), choisi = s ? String(s.value || '') : '';
+  const poCh = poRow && poRow.chantier_id != null ? String(poRow.chantier_id) : '';
+  const ch = s ? choisi : poCh;
+  const garderInterv = !!(poRow && poRow.intervention_id) && ch === poCh;
+  return {chantier_id: ch || null, ...(garderInterv ? {intervention_id: poRow.intervention_id} : {})};
+}
 async function openFacFromPO(poId){
   let po = _pos.find(p=>p.id===poId);
   if(!po){
@@ -26023,6 +26053,8 @@ async function openFacFromPO(poId){
   }
   const four = _foursActive.find(f=>f.id===po.fournisseur_id);
   await chargerCodesRessource();
+  await pofLireChantiers();
+  { const r = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',poId).single(); if(r.data) po = Object.assign({}, po, {chantier_id:r.data.chantier_id}); }   // le cache de la liste peut être ancien : le centre est relu
 
   const renderFacLines = () => {
     const totalHT = _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
@@ -26083,6 +26115,7 @@ async function openFacFromPO(poId){
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur *</label><input id="fac-gen-num" placeholder="FA-2026-XXXX"/></div>'
     +    '<div class="form-group"><label class="field-label">Date de facture *</label><input type="date" id="fac-gen-date" value="'+today()+'" onchange="majEcheanceFourn(\'fac-gen\')"/></div>'
     +    '<div class="form-group"><label class="field-label">Date échéance <span style="font-weight:400;text-transform:none">(auto = conditions du fournisseur ; modifiable)</span></label><input type="date" id="fac-gen-echeance" oninput="this.dataset.auto=\'0\';majEcheanceFourn(\'fac-gen\')"/><div id="fac-gen-echeance-info" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>'
+    +    '<div class="form-group"><label class="field-label">Chantier / centre * <span style="font-weight:400;text-transform:none">(celui de la commande ; modifiable)</span></label>' + pofSelectHtml('fac-gen-chantier', po.chantier_id) + '</div>'
     +    '<div class="form-group"><label class="field-label">Observations</label><input id="fac-gen-obs" placeholder="Notes..."/></div>'
     +  '</div>'
     +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
@@ -26153,13 +26186,14 @@ async function saveFacFromPOCore(poId){
   const totalTVA = tvaFinale('facgen', _facFromPoLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0)*(tvaNum(l.taux_tva))/100,0));
 
   const {data:poRow} = await sb.from('purchase_orders_lyneo').select('*').eq('id',poId).single();
+  const imput = pofImputation('fac-gen-chantier', poRow);
+  if(!imput.chantier_id){ showToast('Choisissez le chantier / centre de la facture', 'error'); return; }
   if(!(await controlerFactureFournisseur({fournisseurId:poRow?.fournisseur_id, numero:num, ttc:totalHT+totalTVA, date}))) return;
 
   const {data:fac,error} = await sb.from('factures').insert({
     po_id: poId,
-    chantier_id: poRow?.chantier_id||null,
+    ...imput,
     fournisseur_id: poRow?.fournisseur_id||null,
-    ...(poRow?.intervention_id ? {intervention_id: poRow.intervention_id} : {}),
     numero_facture_fournisseur: num,
     date_facture: date,
     date_echeance: el('fac-gen-echeance')?.value||null,
@@ -26205,7 +26239,8 @@ async function saveFacFromPOCore(poId){
   }
   _facFilesNew = [];
   closeModal();
-  rafraichirPage();
+  await rafraichirPage();
+  if(fac) await openFacDetail(fac.id);
 }
 
 // ── EDIT FACTURE FOURNISSEUR ──────────────────────────────────
@@ -26449,7 +26484,8 @@ async function saveEditFacCore(facId){
   if(error){ showToast(erreurDoublonBase(error)||('Erreur: '+error.message), 'error'); return; }
   showToast("Facture mise à jour");
   closeModal();
-  rafraichirPage();
+  await rafraichirPage();
+  await openFacDetail(facId);
 }
 
 async function annulerFacture(facId){
