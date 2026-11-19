@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-19-78fe6d4"/>
+<meta name="lyneo-build" content="BUILD:2026-11-19-fc039ad"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2854,6 +2854,7 @@ function afficherEcranConnexion(){
 
 async function doLogout(){
   ptJetonOublier();
+  { const mo = document.getElementById('mdp-obligatoire'); if(mo) mo.remove(); }
   afficherEcranConnexion();
   try{ await sb.auth.signOut(); }catch(e){}
   try{ if(_canalSession) _canalSession.postMessage({t:'deconnexion', de:_idOnglet}); }catch(e){}
@@ -2866,7 +2867,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-19-78fe6d4';
+const APP_BUILD = 'BUILD:2026-11-19-fc039ad';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -2954,7 +2955,7 @@ function initApp(){
   el('sidebar-role').textContent = {admin:'Administrateur',acheteur:'Acheteur',reception:'Réception',comptabilite:'Comptabilité'}[currentUser.role]||currentUser.role;
   const av = el('sidebar-avatar');
   if(av) av.textContent = (currentUser.prenom||'?')[0].toUpperCase();
-  if(currentUser.role==='admin') el('nav-admin-section').classList.remove('hidden');
+  if(currentUser.role==='admin'){ el('nav-admin-section').classList.remove('hidden'); daMajNav(); }   // les liens eux-mêmes suivent la liste de la direction
   if(peutVoirSalaires()) el('nav-rh-section').classList.remove('hidden');   // administrateurs + personnes avec « Accès aux salaires » : module Employés
   const dateEl = el('topbar-date');
   if(dateEl) dateEl.innerHTML = '<i class="ti ti-calendar" style="font-size:13px"></i>'+new Date().toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
@@ -2968,8 +2969,102 @@ function initApp(){
   setTimeout(()=>{ if(typeof havDemarrer==='function') havDemarrer().catch(()=>{}); }, 700);
   setTimeout(()=>{ if(typeof dfDemarrer==='function') dfDemarrer().catch(()=>{}); }, 1100);   // « Demandes de facturation » : à traiter (direction) / réponses (chefs de projet)   // « Vous avez N h à valider » (responsables de chantier)
   setTimeout(()=>{ if(typeof ptiDemarrer==='function') ptiDemarrer().catch(()=>{}); }, 1500);   // « Pointages incomplets de la semaine précédente » (direction, à partir du lundi 12 h)
+  if(currentUser && currentUser.mdp_provisoire === true) mdpObligatoireOuvrir();   // mot de passe provisoire : à changer avant tout
 }
 
+// ── Mot de passe d'un autre utilisateur (administrateurs) : fonction Edge « erp-utilisateur-mdp » ────────────────────────
+// Le mot de passe provisoire est tiré par le serveur ; il n'est affiché qu'une fois ; la personne doit le changer à sa connexion suivante.
+let _umdpOccupe = false;
+async function umdpOuvrir(id){
+  const {data:u} = await sb.from('utilisateurs').select('*').eq('id', id).maybeSingle();
+  if(!u){ showToast('Utilisateur introuvable', 'error'); return; }
+  const nom = escHtml(nomPers(u) || u.email || '');
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:480px">
+    <div class="modal-header"><h3><i class="ti ti-key"></i> Mot de passe — ${nom}</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="umdp-corps">
+      <p style="margin-bottom:10px">Un <strong>mot de passe provisoire</strong> va être créé pour <strong>${escHtml(u.email||'')}</strong>.</p>
+      <ul style="margin:0 0 12px 18px;font-size:13px;color:var(--gray-6);line-height:1.6">
+        <li>Si la personne n'a pas encore de compte de connexion, il est créé.</li>
+        <li>Son mot de passe actuel ne fonctionnera plus.</li>
+        <li>Elle devra choisir son propre mot de passe à sa prochaine connexion.</li>
+      </ul>
+      ${u.actif===false ? '<div class="alert alert-warning"><i class="ti ti-alert-triangle"></i><span>Cette fiche est <strong>inactive</strong> : activez-la d’abord.</span></div>' : ''}
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="umdp-go" ${u.actif===false?'disabled':''} onclick="umdpCreer('${escHtml(String(u.id))}')"><i class="ti ti-key"></i> Créer le mot de passe provisoire</button>
+      </div>
+    </div>
+  </div></div>`);
+}
+function umdpMessageErreur(error, data){
+  const st = error && error.context && typeof error.context.status === 'number' ? error.context.status : null;
+  if(data && data.erreur) return data.erreur;
+  if(st === 404 || /not found|FunctionsFetchError|Failed to send a request/i.test(String(error && (error.name + ' ' + error.message)))) return "La fonction « erp-utilisateur-mdp » n'est pas encore installée dans Supabase. En attendant : Supabase → Authentication → Users.";
+  if(st === 403) return 'Réservé aux administrateurs.';
+  return (error && error.message) || 'erreur inconnue';
+}
+async function umdpCreer(id){
+  if(_umdpOccupe) return; _umdpOccupe = true;
+  const b = el('umdp-go'); if(b){ b.disabled = true; b.innerHTML = '<i class="ti ti-loader"></i> Création…'; }
+  try{
+    let data = null, error = null;
+    try{ ({data, error} = await sb.functions.invoke('erp-utilisateur-mdp', {body:{utilisateur_id:id}})); }catch(e){ error = e; }
+    if(error && !data && error.context && typeof error.context.json === 'function'){ try{ data = await error.context.json(); }catch(e){} }
+    if(error || !data || !data.mot_de_passe){
+      showToast('Mot de passe non créé : ' + umdpMessageErreur(error, data), 'error');
+      if(b){ b.disabled = false; b.innerHTML = '<i class="ti ti-key"></i> Créer le mot de passe provisoire'; }
+      return;
+    }
+    const lien = location.origin + location.pathname;
+    const msg = `Bonjour,\n\nVoici vos accès à l'ERP Lyneo :\nAdresse : ${lien}\nE-mail : ${data.email}\nMot de passe provisoire : ${data.mot_de_passe}\n\nÀ la première connexion, vous choisirez votre propre mot de passe.`;
+    const corps = el('umdp-corps'); if(!corps) return;
+    corps.innerHTML = `<div class="alert alert-success" style="margin-bottom:12px"><i class="ti ti-check"></i><span>${data.action==='cree' ? 'Compte de connexion <strong>créé</strong>.' : 'Mot de passe <strong>réinitialisé</strong>.'}</span></div>
+      <div class="form-group"><label class="field-label">Mot de passe provisoire</label>
+        <div id="umdp-mdp" style="font-family:ui-monospace,Consolas,monospace;font-size:20px;letter-spacing:2px;padding:10px 12px;background:var(--gray-1);border-radius:8px;user-select:all">${escHtml(data.mot_de_passe)}</div></div>
+      <div class="form-group"><label class="field-label">Message à envoyer (SMS, WhatsApp, Teams…)</label><textarea id="umdp-msg" rows="7" readonly style="width:100%;font-size:13px">${escHtml(msg)}</textarea></div>
+      ${data.provisoire===false ? '<div class="alert alert-warning" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>Exécutez <b>migration-utilisateurs-mdp-provisoire.sql</b> pour obliger la personne à changer ce mot de passe.</span></div>' : ''}
+      <p style="font-size:12px;color:var(--gray-5);margin-bottom:12px">Ce mot de passe ne sera plus affiché. Envoyez-le par un autre moyen que l’e-mail si possible.</p>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="umdpCopier()"><i class="ti ti-copy"></i> Copier le message</button><button class="btn btn-primary" onclick="closeModal();if(currentPage==='utilisateurs')renderUtilisateurs();">Terminé</button></div>`;
+  } finally { _umdpOccupe = false; }
+}
+async function umdpCopier(){
+  const t = el('umdp-msg'); if(!t) return;
+  try{ await navigator.clipboard.writeText(t.value); showToast('Message copié'); }catch(e){ t.focus(); t.select(); showToast('Sélectionné : faites Ctrl+C'); }
+}
+// ── Mot de passe provisoire : changement obligatoire à la connexion ──────────────────────────────────────────
+function mdpObligatoireOuvrir(){
+  if(document.getElementById('mdp-obligatoire')) return;
+  const d = document.createElement('div'); d.id = 'mdp-obligatoire';
+  d.style.cssText = 'position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px';
+  d.innerHTML = `<div class="modal" style="max-width:420px;width:100%">
+    <div class="modal-header"><h3><i class="ti ti-lock"></i> Choisissez votre mot de passe</h3></div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--gray-6);margin-bottom:12px">Vous vous êtes connecté avec un mot de passe <strong>provisoire</strong>. Choisissez maintenant le vôtre (10 caractères minimum). Vous seul le connaîtrez.</p>
+      <div class="form-group"><label class="field-label" for="mdpo-1">Nouveau mot de passe</label><input type="password" id="mdpo-1" autocomplete="new-password"/></div>
+      <div class="form-group"><label class="field-label" for="mdpo-2">Confirmer</label><input type="password" id="mdpo-2" autocomplete="new-password"/></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="doLogout()">Se déconnecter</button><button class="btn btn-primary" id="mdpo-go" onclick="mdpObligatoireEnregistrer()"><i class="ti ti-check"></i> Enregistrer</button></div>
+    </div></div>`;
+  document.body.appendChild(d);
+  setTimeout(()=>{ const i = el('mdpo-1'); if(i) i.focus(); }, 50);
+}
+let _mdpoOccupe = false;
+async function mdpObligatoireEnregistrer(){
+  if(_mdpoOccupe) return;
+  const a = el('mdpo-1').value, b = el('mdpo-2').value;
+  if(a.length < 10){ showToast('Le mot de passe doit contenir au moins 10 caractères','error'); return; }
+  if(a !== b){ showToast('Les deux mots de passe ne correspondent pas','error'); return; }
+  const idf = currentUser && currentUser.email ? String(currentUser.email).split('@')[0].toLowerCase() : '';
+  if(idf.length >= 3 && a.toLowerCase().includes(idf)){ showToast('Le mot de passe ne doit pas contenir votre identifiant','error'); return; }
+  _mdpoOccupe = true; const btn = el('mdpo-go'); if(btn) btn.disabled = true;
+  try{
+    const {error} = await sb.auth.updateUser({password:a});
+    if(error){ showToast('Erreur : '+error.message,'error'); return; }
+    try{ await sb.rpc('utilisateur_mdp_definitif'); }catch(e){}
+    if(currentUser) currentUser.mdp_provisoire = false;
+    const d = document.getElementById('mdp-obligatoire'); if(d) d.remove();
+    showToast('Mot de passe enregistré');
+  } finally { _mdpoOccupe = false; if(btn) btn.disabled = false; }
+}
 // Mon mot de passe (chaque utilisateur change le sien)
 function openMotDePasse(){
   showModal(`<div class="modal-overlay"><div class="modal" style="max-width:420px">
@@ -2991,6 +3086,7 @@ async function saveMotDePasse(){
   const btn = el('btn-mdp'); if(btn) btn.disabled = true;
   const {error} = await sb.auth.updateUser({password:a});
   if(error){ showToast('Erreur: '+error.message,'error'); if(btn) btn.disabled=false; return; }
+  if(currentUser && currentUser.mdp_provisoire === true){ try{ await sb.rpc('utilisateur_mdp_definitif'); }catch(e){} currentUser.mdp_provisoire = false; }
   showToast('Mot de passe modifié');
   closeModal();
 }
@@ -3137,7 +3233,7 @@ function pageDepuisHash(){ const m = String(location.hash||'').match(/^#\/([a-z_
 function pageAutorisee(p){
   const R = pageRenderers();
   if(!p || !Object.prototype.hasOwnProperty.call(R,p) || typeof R[p]!=='function') return false;   // refuse __proto__, constructor…
-  if(p==='documents') return daPeutVoirSync();   // administrateurs figurant dans l'une des deux listes (ou tous, tant que la liste n'est pas enregistrée)
+  if(p==='documents' || p==='utilisateurs' || p==='controle') return daPeutVoirSync();   // direction = liste « Qui accède à Documents ? »   // administrateurs figurant dans l'une des deux listes (ou tous, tant que la liste n'est pas enregistrée)
   if(PAGES_ADMIN.includes(p)) return !!currentUser && currentUser.role==='admin';
   if(p==='employes_rh' || p==='formations' || p==='astreintes') return !!currentUser && peutVoirSalaires();
   return true;
@@ -7261,15 +7357,27 @@ async function renderPOS(search='', filterStatut=''){
   afficherPOS();
 }
 
-function openNewPO(){
+// Centres internes dans les commandes : seulement la direction (= qui traite les demandes de facturation et encode les factures).
+// En cas de doute (configuration illisible), on ne bloque pas le travail : tous les centres restent proposés.
+async function poPeutCentresInternes(){
+  try{ const df = _df || await dfCharger(); return !!(df && df.ctx && df.ctx.peutTraiter); }catch(e){ return true; }
+}
+function poCentresPermis(liste, interne, garderId){
+  if(interne) return liste || [];
+  const g = (garderId === undefined || garderId === null) ? '' : String(garderId);
+  return (liste || []).filter(c => { const k = cfGenre(c); return k === 'chantier' || k === 'sav' || (g && String(c.id) === g); });
+}
+const PO_NOTE_INTERNES = '<div class="po-note-internes" style="font-size:11.5px;color:var(--gray-5);margin-top:3px">Centres internes (F…, HI, Formation) : réservés à la direction.</div>';
+async function openNewPO(){
+  const interne = await poPeutCentresInternes();
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
-  const chantsOpts = cfGroupesAchat(_chantiersActive, '');
+  const chantsOpts = cfGroupesAchat(poCentresPermis(_chantiersActive, interne, ''), '');
   const foursOpts = _foursActive.filter(f=>!f.employe_id).map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');   // pas de salariés (notes de frais)
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier" onchange="majInterventionAchat('po','purchase_orders_lyneo')"><option value="">— Sélectionner —</option>${chantsOpts}</select></div>
+        <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier" onchange="majInterventionAchat('po','purchase_orders_lyneo')"><option value="">— Sélectionner —</option>${chantsOpts}</select>${interne ? '' : PO_NOTE_INTERNES}</div>
         ${htmlChampIntervention('po')}
         <div class="form-group"><label class="field-label">Fournisseur *</label><div style="display:flex;gap:6px"><select id="po-four" style="flex:1"><option value="">— Sélectionner —</option>${foursOpts}</select>${boutonsFournisseurRapide('po-four')}</div></div>
       </div>
@@ -12277,11 +12385,14 @@ function openClientModal(r=null, selectId=null){
         <div class="form-group"><label class="field-label">E-mail de facturation <span style="font-weight:400;color:var(--gray-5)">(factures et relances — vide = l'email ci-dessus)</span></label><input type="text" id="cl-email-fact" value="${escHtml(r?.email_facturation||'')}" placeholder="comptabilite@client.com ; autre@client.com" autocomplete="off"/></div>
         <div class="form-group"><label class="field-label">Téléphone</label><input id="cl-tel" value="${escHtml(r?.telephone||'')}" placeholder="+352 ..."/></div>
         <div class="form-group"><label class="field-label">N° TVA</label><input id="cl-tva" value="${escHtml(r?.numero_tva||'')}" placeholder="LU12345678"/></div>
-        <div class="form-group full"><label class="field-label">Adresse</label><input id="cl-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Rue et numéro"/></div>
-        <div class="form-group full"><label class="field-label">Adresse de livraison / intervention (si différente)</label><input id="cl-adresse-livraison" value="${escHtml(r?.adresse_livraison||'')}" placeholder="Complément affiché sur les factures, si différent de l'adresse principale"/></div>
+<div class="form-group full" style="margin-top:6px;padding-bottom:4px;border-bottom:1px solid var(--gray-2)"><span style="font-weight:700;font-size:13px;color:var(--gray-7)">Adresse principale (facturation)</span></div>
+        <div class="form-group full"><label class="field-label">Rue et numéro</label><input id="cl-adresse" value="${escHtml(r?.adresse||'')}" placeholder="Ex : 12, rue de la Gare"/></div>
         <div class="form-group"><label class="field-label">Code postal</label><input id="cl-cp" value="${escHtml(r?.code_postal||'')}" placeholder="L-1234"/></div>
         <div class="form-group"><label class="field-label">Ville</label><input id="cl-ville" value="${escHtml(r?.ville||'')}" placeholder="Luxembourg"/></div>
         <div class="form-group"><label class="field-label">Pays</label><input id="cl-pays" value="${escHtml(r?.pays||'Luxembourg')}"/></div>
+        <div class="form-group"></div>
+<div class="form-group full" style="margin-top:6px;padding-bottom:4px;border-bottom:1px solid var(--gray-2)"><span style="font-weight:700;font-size:13px;color:var(--gray-7)">Adresse de livraison / intervention</span> <span style="font-weight:400;font-size:12px;color:var(--gray-5)">— seulement si différente de l’adresse principale</span></div>
+        <div class="form-group full"><label class="field-label">Adresse complète</label><input id="cl-adresse-livraison" value="${escHtml(r?.adresse_livraison||'')}" placeholder="Rue, numéro, code postal et ville — affichée sur les factures"/></div>
         <div class="form-group"><label class="field-label">Conditions paiement</label>
           <select id="cl-cond">
             ${optionsConditionsPaiement(r?.conditions_paiement,'30 jours')}
@@ -17269,6 +17380,7 @@ let _journalRows = [];
 async function renderControle(){
   if(!currentUser || currentUser.role!=='admin'){
     el('page-content').innerHTML = '<div class="card"><div class="empty"><p>Accès réservé aux administrateurs.</p></div></div>'; return; }
+  if(!(await daVerifier()).voir){ daMessageRefus(); return; }
   el('page-content').innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><p>Chargement...</p></div>';
   await chargerCloture();
   let journalOk = true;
@@ -19043,6 +19155,8 @@ const CLASSES_IMPOT = ['1','1A','2'];
 const TYPES_VEHICULE = {fonction:'Véhicule de fonction', service:'Véhicule de service'};
 const TYPES_REMUNERATION = {traitement:'Traitement (mensuel)', horaire:'Horaire'};
 let _empPaysOk = false;   // colonne pays_residence présente (employes-pays-residence.sql exécuté)
+let _empProOk = false;    // colonnes email_pro / telephone_pro présentes (migration-employes-contact-pro.sql exécuté)
+async function empDetecterContactPro(){ if(!_empProOk){ try{ const t = await sb.from('employes_rh').select('email_pro,telephone_pro').limit(1); _empProOk = !t.error; }catch(e){ _empProOk = false; } } return _empProOk; }
 let _empRemEtat = 'ok';   // 'ok' · 'absente' (SQL pas encore exécuté) · 'refusee' (la base refuse l'accès) · 'masquee' (pas d'accès aux salaires)
 
 // Colonnes / table de migration-employes-fiche-complete.sql pas encore créées ?
@@ -19997,6 +20111,7 @@ function majFormRemuneration(){
 async function openEmployeModal(r=null){
   const isEdit = !!r;
   if(!_empPaysOk){ try{ const t = await sb.from('employes_rh').select('pays_residence').limit(1); _empPaysOk = !t.error; }catch(e){ _empPaysOk = false; } }
+  await empDetecterContactPro();
   let pointageEmployes = [], pointageListeOk = true;
   try{
     const {data, error} = await sbPT.from('employes').select('*');
@@ -20074,8 +20189,12 @@ async function openEmployeModal(r=null){
         ${champ('Ville','emp-ville',r?.ville)}
         ${_empPaysOk ? `<div class="form-group"><label class="field-label" for="emp-pays">Pays de résidence</label>
           <select id="emp-pays"><option value="">— Non renseigné —</option>${PAYS_RESIDENCE.map(p=>`<option${r?.pays_residence===p?' selected':''}>${p}</option>`).join('')}</select></div>` : ''}
-        <div class="form-group"><label class="field-label" for="emp-email">Email</label><input type="email" id="emp-email" value="${escHtml(r?.email)}"/></div>
-        ${champ('Téléphone','emp-tel',r?.telephone)}
+        <div class="form-group"><label class="field-label" for="emp-email">Email personnel</label><input type="email" id="emp-email" value="${escHtml(r?.email)}"/></div>
+        ${champ('GSM personnel','emp-tel',r?.telephone)}
+        ${_empProOk ? `<div class="form-group"><label class="field-label" for="emp-email-pro">Email professionnel</label><input type="email" id="emp-email-pro" value="${escHtml(r?.email_pro||'')}" placeholder="prenom.nom@lyneo.lu"/></div>
+        ${champ('GSM professionnel','emp-tel-pro',r?.telephone_pro||'')}
+        <div class="form-group full" style="font-size:12px;color:var(--gray-5);margin-top:-6px">Les interventions SAV sont envoyées à l'email professionnel (à défaut, à l'email personnel).</div>`
+        : `<div class="form-group full" style="font-size:12px;color:var(--gray-5)">Email et GSM professionnels : exécuter <b>migration-employes-contact-pro.sql</b> dans Supabase pour activer ces champs.</div>`}
       </div>`)}
 
       ${empSection("Carte d'identité et permis de conduire", 'id', `<div class="form-grid">
@@ -20454,6 +20573,16 @@ async function saveEmployeCore(id){
       if(pErr) showToast("⚠ Le pays de résidence n'a pas pu être enregistré : "+pErr.message, 'error');
     }
   }
+  const champEmailPro = el('emp-email-pro'), champTelPro = el('emp-tel-pro');
+  if(champEmailPro && champTelPro){
+    const ePro = champEmailPro.value.trim(), tPro = champTelPro.value.trim();
+    const avE = (savedRow && savedRow.email_pro) || '', avT = (savedRow && savedRow.telephone_pro) || '';
+    if(ePro && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ePro)) showToast("⚠ Email professionnel non enregistré : l'adresse n'est pas valide", 'error');
+    else if(ePro !== avE || tPro !== avT){
+      const {error:cErr} = await sb.from('employes_rh').update({email_pro: ePro||null, telephone_pro: tPro||null}).eq('id', employeId);
+      if(cErr) showToast("⚠ L'email / le GSM professionnel n'a pas pu être enregistré : "+cErr.message, 'error');
+    }
+  }
   const caseAnniv = el('emp-anniv-visible');
   if(caseAnniv){
     const avant = savedRow && 'anniversaire_visible' in savedRow ? savedRow.anniversaire_visible!==false : true;
@@ -20607,8 +20736,9 @@ async function openEmployeDetail(employeId){
     </div>
     <div class="modal-body">
       ${profileSection('Contact', 
-        profileRow('Email', emp.email) +
-        profileRow('Téléphone', emp.telephone) +
+        ('email_pro' in emp ? profileRow('Email professionnel', emp.email_pro) + profileRow('GSM professionnel', emp.telephone_pro) : '') +
+        profileRow('Email personnel', emp.email) +
+        profileRow('GSM personnel', emp.telephone) +
         profileRow('Adresse', [emp.adresse, emp.code_postal, emp.ville].filter(Boolean).join(' ')) +
         ('pays_residence' in emp ? profileRow('Pays de résidence', emp.pays_residence) : '')
       )}
@@ -21266,7 +21396,7 @@ async function openInterventionModal(r=null){
   await intChargerLignes(r);          // lignes propres de l'intervention (état de l'éditeur) ; sans effet sans le script SQL
   const [{data:clientsData},{data:employesData},{data:devisData},{data:centresData},{data:devisPris}] = await Promise.all([
     sb.from('clients').select('id,nom,email,telephone,adresse,code_postal,ville').eq('actif',true).order('nom'),
-    sb.from('employes_rh').select('id,nom,prenom,email').eq('actif',true).order('nom'),
+    (async()=>{ const a = await sb.from('employes_rh').select('id,nom,prenom,email,email_pro').eq('actif',true).order('nom'); return a.error ? sb.from('employes_rh').select('id,nom,prenom,email').eq('actif',true).order('nom') : a; })(),
     sb.from('devis').select('id,numero,objet,client_id,montant_ht,statut').neq('statut','refuse').order('numero',{ascending:false}),
     sb.from('chantiers_lyneo').select('id,numero,nom,client_id').eq('type_centre','sav').neq('statut','termine').order('numero'),
     sb.from('interventions_sav').select('id,ref,devis_id').not('devis_id','is',null)
@@ -21329,11 +21459,11 @@ async function openInterventionModal(r=null){
         <div class="form-group"><label class="field-label">Technicien (employé)</label>
           <select id="int-technicien-id" onchange="prefillTechnicienIntervention()">
             <option value="">— Aucun / non listé —</option>
-            ${employesList.map(e=>`<option value="${e.id}" data-email="${escHtml(e.email||'')}" ${r?.technicien_id===e.id?'selected':''}>${escHtml(nomPers(e))}</option>`).join('')}
+            ${employesList.map(e=>`<option value="${e.id}" data-email="${escHtml(e.email_pro||e.email||'')}" ${r?.technicien_id===e.id?'selected':''}>${escHtml(nomPers(e))}</option>`).join('')}
           </select>
         </div>
         <div class="form-group"><label class="field-label">Nom technicien (si non listé)</label><input id="int-technicien-nom" value="${escHtml(r?.technicien_nom||'')}"/></div>
-        <div class="form-group"><label class="field-label">Email technicien</label><input id="int-email-technicien" value="${escHtml(r?.email_technicien||'')}"/></div>
+        <div class="form-group"><label class="field-label">Email technicien <span style="font-weight:400;color:var(--gray-5)">(professionnel si renseigné)</span></label><input id="int-email-technicien" value="${escHtml(r?.email_technicien||'')}"/></div>
       </div>
 
       <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:12px;${r?.astreinte?'background:#FEF2F2;border-color:var(--red)':''}">
@@ -21955,6 +22085,7 @@ async function saveFactureSAV(interventionId, clientId){
 }
 
 async function renderUtilisateurs(){
+  if(!(await daVerifier()).voir){ daMessageRefus(); return; }
   _tracUP = null;      // les noms affichés dans les fiches/listes seront relus
   const {data} = await sb.from('utilisateurs').select('*').order('nom');
   const users = data||[];
@@ -21964,7 +22095,7 @@ async function renderUtilisateurs(){
       <div class="page-header-left"><h1>Utilisateurs</h1><p>Gestion des accès et rôles</p></div>
       <div class="page-actions">${btnExport('utilisateurs')}<button class="btn btn-primary" onclick="openUserModal()"><i class="ti ti-plus"></i> Nouvel utilisateur</button></div>
     </div>
-    <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i><span>Chaque personne se connecte avec <strong>son propre mot de passe</strong>. Créer une fiche ici ne crée pas le compte de connexion : ajoutez aussi la personne dans <strong>Supabase → Authentication → Users</strong> (« Add user », avec le <strong>même e-mail</strong>, « Auto Confirm User » coché). Une fiche <strong>inactive</strong> coupe immédiatement l'accès aux données.</span></div>
+    <div class="alert alert-info" style="margin-bottom:16px"><i class="ti ti-shield-lock"></i><span>Chaque personne se connecte avec <strong>son propre mot de passe</strong>. Après avoir créé la fiche, cliquez sur la clé <i class="ti ti-key"></i> de sa ligne : le compte de connexion est créé (ou le mot de passe réinitialisé) avec un <strong>mot de passe provisoire</strong>, que la personne change à sa première connexion. Une fiche <strong>inactive</strong> coupe immédiatement l'accès aux données.</span></div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="utilisateurs">
@@ -21975,7 +22106,9 @@ async function renderUtilisateurs(){
               <td><span class="badge badge-envoyee">${ROLES[r.role]||r.role}</span></td>
               <td>${r.role==='admin' ? '<span class="text-muted text-sm">toujours</span>' : (r.acces_salaires===true ? '<span class="badge badge-oui">Autorisé</span>' : '<span class="text-muted text-sm">—</span>')}</td>
               <td><span class="badge badge-${r.actif?'oui':'non'}">${r.actif?'Actif':'Inactif'}</span></td>
-              <td><button class="btn btn-secondary btn-sm" onclick='openUserModal(${attrJson(r)})'><i class="ti ti-edit"></i></button></td>
+              <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick='openUserModal(${attrJson(r)})'><i class="ti ti-edit"></i></button>
+                ${(currentUser && String(currentUser.id)===String(r.id)) ? '' : `<button class="btn btn-secondary btn-sm umdp-btn" title="Mot de passe : créer le compte de connexion ou réinitialiser" aria-label="Mot de passe de ${escHtml(nomPers(r)||r.email||'')}" onclick="umdpOuvrir('${escHtml(String(r.id))}')"><i class="ti ti-key"></i></button>`}
+                ${r.mdp_provisoire===true ? '<span class="badge" style="margin-left:4px;background:#fff7ed;color:#c2410c" title="Mot de passe provisoire : à changer à la prochaine connexion" >Provisoire</span>' : ''}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -24403,13 +24536,14 @@ async function daVerifier(){
 const daPeutDefinir = async () => (await daVerifier()).definir;
 async function daRefuser(){ showToast(DA_MSG_REFUS, 'error'); if(currentPage === 'documents') await renderDocuments(); }
 function daMajNav(){
-  const n = document.getElementById('nav-documents'); if(!n) return;
-  n.classList.toggle('hidden', !(currentUser && currentUser.role === 'admin' && _da.charge && daAcces(_da).voir));   // caché tant que la liste n'est pas lue
+  const ok = !!(currentUser && currentUser.role === 'admin' && _da.charge && daAcces(_da).voir);   // caché tant que la liste n'est pas lue
+  ['nav-documents','nav-utilisateurs','nav-controle'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.toggle('hidden', !ok); });
+  const sec = document.getElementById('nav-admin-section'); if(sec) sec.classList.toggle('hidden', !ok);
 }
 function daDemarrer(){ daMajNav(); daVerifier().catch(() => {}); }
 function daReset(){
   _da = {charge:false, ok:true, configuree:false, definitions:[], exports:[], erreur:null, majPar:null, majLe:null}; _daOuvert = null; _daOccupe = false;
-  const n = document.getElementById('nav-documents'); if(n) n.classList.add('hidden');
+  ['nav-documents','nav-utilisateurs','nav-controle'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.add('hidden'); });
 }
 
 // ── Écrans ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -25882,7 +26016,8 @@ async function openEditPO(poId){
     const {data:chPo} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').eq('id',po.chantier_id).single();
     if(chPo) chantsPo = [chPo, ...chantsPo];
   }
-  const chantsOpts = cfGroupesAchat(chantsPo, po.chantier_id, {statut:true});
+  const interne = await poPeutCentresInternes();
+  const chantsOpts = cfGroupesAchat(poCentresPermis(chantsPo, interne, po.chantier_id), po.chantier_id, {statut:true});
   const foursOpts = _foursActive.filter(f=>!f.employe_id || po.fournisseur_id===f.id).map(f=>'<option value="'+escHtml(f.id)+'"'+(po.fournisseur_id===f.id?' selected':'')+'>'+escHtml(f.nom)+'</option>').join('');
 
   showModal('<div class="modal-overlay"><div class="modal modal-lg">'
@@ -25894,7 +26029,7 @@ async function openEditPO(poId){
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
     +    '<div class="form-group"><label class="field-label">Chantier *</label>'
-    +      '<select id="po-chantier" onchange="majInterventionAchat(\'po\',\'purchase_orders_lyneo\')"><option value="">— Sélectionner —</option>'+chantsOpts+'</select></div>'
+    +      '<select id="po-chantier" onchange="majInterventionAchat(\'po\',\'purchase_orders_lyneo\')"><option value="">— Sélectionner —</option>'+chantsOpts+'</select>'+(interne ? '' : PO_NOTE_INTERNES)+'</div>'
     +    htmlChampIntervention('po')
     +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
     +      '<div style="display:flex;gap:6px"><select id="po-four" style="flex:1"><option value="">— Sélectionner —</option>'+foursOpts+'</select>'+boutonsFournisseurRapide('po-four')+'</div></div>'
