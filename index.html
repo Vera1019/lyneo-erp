@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-18-52f421a"/>
+<meta name="lyneo-build" content="BUILD:2026-11-18-fbe0366"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1047,9 +1047,45 @@ const sb = supabase.createClient(SUPA_URL, SUPA_KEY, {
 // Supabase Pointages (base séparée)
 const SB_PT_URL = 'https://eqnidlvbmbfzauevhcnb.supabase.co';
 const SB_PT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxbmlkbHZibWJmemF1ZXZoY25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0MDYyNDAsImV4cCI6MjA5Nzk4MjI0MH0.Hi_rCmkmZ8eBBa3b7Ti0XvC-G27Q7G0mNAulpftL2MU';
+// Jeton d'accès aux pointages (12 h), demandé à la fonction « pointages-jeton » ; renouvelé 30 min avant la fin.
+// Fonction absente ou refus : pas de jeton (nouvel essai 5 min plus tard) — l'ERP marche comme avant tant que les pointages ne l'exigent pas.
+let _ptJeton = {j:null, exp:0, attendreJusqua:0, p:null, erreur:null, pour:null};
+function ptJetonOublier(){ _ptJeton = {j:null, exp:0, attendreJusqua:0, p:null, erreur:null, pour:null}; }
+async function ptJetonObtenir(){
+  if(!currentUser) return null;
+  const qui = String(currentUser.email || currentUser.id || '');
+  if(_ptJeton.pour !== null && _ptJeton.pour !== qui) ptJetonOublier();          // autre utilisateur : jamais le jeton du précédent
+  const now = Date.now();
+  if(_ptJeton.j && _ptJeton.exp - now > 30*60*1000) return _ptJeton.j;
+  if(_ptJeton.attendreJusqua > now) return (_ptJeton.j && _ptJeton.exp > now) ? _ptJeton.j : null;
+  if(_ptJeton.p) return _ptJeton.p;
+  _ptJeton.pour = qui;
+  _ptJeton.p = (async () => {
+    try{
+      if(!sb.functions || typeof sb.functions.invoke !== 'function'){ _ptJeton.attendreJusqua = Date.now() + 10*60*1000; _ptJeton.erreur = 'fonctions indisponibles'; return null; }
+      const {data, error} = await sb.functions.invoke('pointages-jeton', {body:{}});
+      if(error || !data || !data.jeton){ _ptJeton.attendreJusqua = Date.now() + 5*60*1000; _ptJeton.erreur = (error && error.message) || (data && data.erreur) || 'pas de jeton'; return null; }
+      if(_ptJeton.pour !== qui) return null;                                     // déconnexion pendant la demande
+      _ptJeton.j = String(data.jeton); _ptJeton.exp = Date.parse(data.expire_le) || (Date.now() + 11*3600*1000); _ptJeton.erreur = null;
+      return _ptJeton.j;
+    }catch(e){ _ptJeton.attendreJusqua = Date.now() + 5*60*1000; _ptJeton.erreur = (e && e.message) || String(e); return null; }
+    finally{ _ptJeton.p = null; }
+  })();
+  return _ptJeton.p;
+}
+async function fetchPointages(input, init){
+  const j = await ptJetonObtenir();
+  if(j){
+    init = Object.assign({}, init || {});
+    const h = new Headers(init.headers || (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined));
+    h.set('x-pt-jeton', j);
+    init.headers = h;
+  }
+  return fetchResilient(input, init);
+}
 const sbPT = supabase.createClient(SB_PT_URL, SB_PT_KEY, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  global: { fetch: fetchResilient }
+  global: { fetch: fetchPointages }
 });
 
 // ── ÉTAT GLOBAL ──────────────────────────────────────────────
@@ -2807,6 +2843,7 @@ function afficherEcranConnexion(){
 }
 
 async function doLogout(){
+  ptJetonOublier();
   afficherEcranConnexion();
   try{ await sb.auth.signOut(); }catch(e){}
   try{ if(_canalSession) _canalSession.postMessage({t:'deconnexion', de:_idOnglet}); }catch(e){}
@@ -2819,7 +2856,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-18-52f421a';
+const APP_BUILD = 'BUILD:2026-11-18-fbe0366';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
