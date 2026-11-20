@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-19-fc039ad"/>
+<meta name="lyneo-build" content="BUILD:2026-11-20-eb21021"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2867,7 +2867,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-19-fc039ad';
+const APP_BUILD = 'BUILD:2026-11-20-eb21021';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7490,11 +7490,11 @@ function htmlImputationFacPO(x){
   return `<div class="po-fac-imput po-fac-imput-diff" style="font-size:11.5px;color:#b45309;font-weight:600;margin-top:2px" title="Cette facture n'est pas imputée au même centre que la commande">⚠ Imputée à : ${escHtml(txt)} <span style="font-weight:400">(commande : ${escHtml(cmd)})</span></div>`;
 }
 async function openPODetail(poId){
-  let po = _pos.find(p=>p.id===poId);
-  if(!po){
-    const {data} = await sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom,client,numero),fournisseurs!fournisseur_id(nom,email)').eq('id',poId).single();
-    po = data;
-  }
+  // Toujours relue dans la base : le statut a pu changer (réception, facture) depuis le chargement de la liste.
+  let po = null;
+  try{ const {data} = await sb.from('purchase_orders_lyneo').select('*,chantiers_lyneo!chantier_id(nom,client,numero),fournisseurs!fournisseur_id(nom,email)').eq('id',poId).single(); po = data; }catch(e){}
+  if(!po) po = _pos.find(p=>String(p.id)===String(poId)) || null;     // réseau coupé : la dernière version connue
+  else { const k = _pos.findIndex(p=>String(p.id)===String(poId)); if(k>=0) _pos[k] = Object.assign({}, _pos[k], po); }
   if(!po){ showToast("Commande introuvable", 'error'); return; }
   const [lignesR,blsR,facsR,lignesBlR] = await Promise.all([
     sb.from('lignes_po').select('*').eq('po_id',poId).order('ordre'),
@@ -7683,19 +7683,40 @@ function lienOutlookWeb({destinataires, sujet, corps}){
 }
 function ouvrirLienWeb(url){ window.open(url, '_blank', 'noopener'); }
 let _envPO = null;
-function envoyerPOParEmail(poId){
+// « Chantier : P00012 - Belval — livraison : 12 rue X, Esch. » (intervention SAV : son site et son adresse) ; vide si rien de connu
+async function envpoLigneChantier(po, ch){
+  const t = x => String(x == null ? '' : x).trim();
+  let lib = libChantierAchat(ch), adr = t(ch && ch.adresse);
+  try{
+    if(po.chantier_id && !adr){
+      const r = await sb.from('chantiers_lyneo').select('numero,nom,adresse').eq('id', po.chantier_id).maybeSingle();
+      if(r && r.data){ lib = lib || libChantierAchat(r.data); adr = t(r.data.adresse); }
+    }
+    if(po.intervention_id){
+      const r = await sb.from('interventions_sav').select('ref,nom_site,adresse_site').eq('id', po.intervention_id).maybeSingle();
+      if(r && r.data){
+        const a = [t(r.data.nom_site), t(r.data.adresse_site)].filter(Boolean).join(' - ');
+        if(a) adr = a;
+        if(t(r.data.ref)) lib = [lib, 'intervention ' + t(r.data.ref)].filter(Boolean).join(' — ');
+      }
+    }
+  }catch(e){}
+  if(!lib && !adr) return '';
+  return (lib ? 'Chantier : ' + lib : '') + (adr ? (lib ? ' — livraison : ' : 'Livraison : ') + adr : '') + '.';
+}
+async function envoyerPOParEmail(poId){
   if(!window._detailPO) return;
-  const {po, fournisseur} = window._detailPO;
+  const {po, fournisseur, chantier} = window._detailPO;
   const dest = (fournisseur && fournisseur.email) || '';
   const sujet = `Bon de commande ${po.numero} — LYNEO`;
+  const ligneChantier = await envpoLigneChantier(po, chantier);
   const corps = `Bonjour,
 
-Veuillez trouver ci-joint notre bon de commande ${po.numero}.
+Veuillez trouver ci-joint notre bon de commande ${po.numero}.${ligneChantier ? '\n' + ligneChantier : ''}
 
-Merci de bien vouloir nous confirmer la bonne réception de cette commande ainsi que le délai de livraison prévu.
+Merci de bien vouloir nous confirmer la bonne réception de cette commande.
 
-Cordialement,
-LYNEO`;
+${signatureEmail()}`;
   const mon = _envPO = {poId, pdf:null, erreur:null, pret:null};
   // le PDF est préparé dès l'ouverture : les boutons répondent tout de suite (le partage exige un clic « récent »)
   mon.pret = pdfBytesPO().then(r=>{ mon.pdf = r; const e = el('envpo-pj'); if(_envPO===mon && e) e.innerHTML = '<i class="ti ti-paperclip"></i> <strong>'+escHtml(r.nom)+'</strong> — '+Math.max(1,Math.round(r.bytes.length/1024))+' Ko — joint automatiquement'; })
@@ -7713,7 +7734,9 @@ LYNEO`;
       <div class="form-group"><label class="field-label" for="envpo-sujet">Objet</label><input id="envpo-sujet" value="${escHtml(sujet)}" autocomplete="off"/></div>
       <div class="form-group"><label class="field-label" for="envpo-corps">Message</label><textarea id="envpo-corps" rows="8">${escHtml(corps)}</textarea></div>
       <div id="envpo-pj" style="font-size:13px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px"><i class="ti ti-loader"></i> Préparation du PDF…</div>
-      ${bouton('envpo-brouillon','btn-primary','ti-mail-opened','Créer le brouillon Outlook (PDF joint)',brouillonAide(),'envpoBrouillon()')}
+      ${bouton('envpo-envoyer','btn-primary','ti-send','Envoyer maintenant (PDF joint)',envoiAide(),'envpoEnvoyer()')}
+      ${htmlEnvoiStatut('envpo')}
+      ${bouton('envpo-brouillon','btn-secondary','ti-mail-opened','Créer le brouillon Outlook (PDF joint)',brouillonAide(),'envpoBrouillon()')}
       ${htmlBrouillonStatut('envpo')}
       ${bouton('envpo-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF joint)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et le PDF déjà joints." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).",'envpoEml()')}
       ${partage ? bouton('envpo-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF.",'envpoPartager()') : ''}
@@ -7795,6 +7818,9 @@ const MS_CONF = {
   portee: 'https://graph.microsoft.com/Mail.ReadWrite', graph: 'https://graph.microsoft.com/v1.0',
   delai: 300000, graceFermeture: 1500
 };
+// Envoi direct (20/11/2026) : portée demandée SEULEMENT au clic « Envoyer maintenant » ; le brouillon garde la portée Mail.ReadWrite seule
+// (ainsi, tant que l'administrateur n'a pas accordé Mail.Send, le brouillon continue de fonctionner).
+const MS_PORTEE_ENVOI = 'https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send';
 const MS_AUTORITE = 'https://login.microsoftonline.com/' + MS_CONF.tenantId + '/oauth2/v2.0';
 const MS_GROS_FICHIER = 3000000, MS_MORCEAU = 3276800;                       // au-delà de 3 Mo : session d'envoi par morceaux (multiples de 320 Kio)
 const MS_HOTES_LIEN = /(^|\.)(office\.com|office365\.com|outlook\.com|live\.com)$/i;
@@ -7802,15 +7828,34 @@ const MS_HOTES_ENVOI = /(^|\.)(office\.com|office365\.com|outlook\.com|microsoft
 let _msJeton = null, _msConnexion = null;
 // Expéditeur des brouillons = l'e-mail de l'entreprise (source unique : Administration → Documents) ; vide si absent ou invalide → le brouillon part de l'adresse de la personne
 const msExpediteur = () => { const m = String((window.LyneoPDF && LyneoPDF.ENTREPRISE && LyneoPDF.ENTREPRISE.mail) || '').trim(); return EMAIL_RE.test(m) ? m : ''; };
+// ── SIGNATURE DES E-MAILS (20/11/2026) ── « Cordialement, / Prénom Nom / LYNEO … — adresse / Tél. · e-mail ». Source : la personne connectée
+// et Administration → Documents (LyneoPDF.ENTREPRISE). Collègues (pointages, technicien) : e-mail de la personne au lieu de facturation@.
+function signatureEmail(sansCordialement, collegue){
+  const E = (window.LyneoPDF && LyneoPDF.ENTREPRISE) || {};
+  const t = x => String(x == null ? '' : x).trim();
+  const nom = (typeof currentUser !== 'undefined' && currentUser) ? [currentUser.prenom, currentUser.nom].map(t).filter(Boolean).join(' ') : '';
+  const adresse = [t(E.rue_doc || E.adresse), t(E.cp_ville)].filter(Boolean).join(', ');
+  const societe = [t(E.nom_doc || E.nom) || 'LYNEO', adresse].filter(Boolean).join(' — ');
+  const mail = collegue ? t(typeof currentUser !== 'undefined' && currentUser && currentUser.email) : (msExpediteur() || t(E.mail));
+  const contact = [t(E.tel) ? 'Tél. ' + t(E.tel) : '', mail].filter(Boolean).join(' · ');
+  return [sansCordialement ? '' : 'Cordialement,', nom, societe, contact].filter(Boolean).join('\n');
+}
+// Coordonnées bancaires dans les e-mails (Administration → Documents) ; vide si l'IBAN manque
+function ibanEmail(){
+  const E = (window.LyneoPDF && LyneoPDF.ENTREPRISE) || {};
+  const iban = String(E.iban || '').trim(), bic = String(E.bic || '').trim();
+  return iban ? iban + (bic ? ' (BIC ' + bic + ')' : '') : '';
+}
 function msRedirectUri(){ return location.origin + location.pathname.replace(/index\.html$/i, ''); }
 const msHoteSur = (u, re) => { try{ const x = new URL(String(u)); return x.protocol === 'https:' && re.test(x.hostname); }catch(e){ return false; } };
-const msJetonValide = () => !!(_msJeton && _msJeton.expire > Date.now() + 60000);
+const msJetonValide = envoi => !!(_msJeton && _msJeton.expire > Date.now() + 60000 && (!envoi || _msJeton.envoi));
 const msBase64Url = o => btoa(String.fromCharCode.apply(null, o)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const msAleatoire = n => { const a = new Uint8Array(n); crypto.getRandomValues(a); return msBase64Url(a); };
 async function msChallenge(verifier){ return msBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))); }
 function msBase64(octets){ let bin = ''; for(let k=0; k<octets.length; k+=0x8000) bin += String.fromCharCode.apply(null, octets.subarray(k, k+0x8000)); return btoa(bin); }
-function msMessageAuth(code, desc, redirect){
+function msMessageAuth(code, desc, redirect, envoi){
   const t = String(desc||'').split(/\r?\n/)[0].trim(), tout = String(code||'') + ' ' + t;
+  if(envoi && /AADSTS65001|consent_required|invalid_scope|AADSTS650|AADSTS70011/i.test(tout)) return "L'envoi direct n'est pas encore autorisé : dans Entra ID, l'administrateur doit ajouter la permission Microsoft Graph « Mail.Send » (déléguée) à l'application « ERP LYNEO — brouillons Outlook » et accorder le consentement. En attendant, utilisez « Créer le brouillon Outlook »";
   if(/AADSTS65001|consent_required/i.test(tout)) return "Microsoft demande le consentement de l'administrateur pour l'application « ERP LYNEO — brouillons Outlook » (Entra ID → API autorisées → Accorder un consentement d'administrateur)";
   if(/AADSTS50011|redirect_uri/i.test(tout)) return "L'adresse de redirection n'est pas enregistrée dans Entra ID : ajoutez « "+redirect+" » (plateforme « Application monopage ») dans Authentication";
   if(/AADSTS9002326/i.test(tout)) return "Dans Entra ID, l'adresse de redirection doit être de type « Application monopage » (SPA)";
@@ -7824,8 +7869,8 @@ function msMessageGraph(statut, code, texte){
   return 'Microsoft a refusé la demande ('+statut+(code ? ' '+code : '')+')'+(texte ? ' : '+texte : '');
 }
 // Ouvre la fenêtre de connexion TOUT DE SUITE (dans le clic de la personne : sinon le navigateur la bloque) ; null si déjà connecté
-function msOuvrirFenetre(){
-  if(msJetonValide()) return null;
+function msOuvrirFenetre(envoi){
+  if(msJetonValide(envoi)) return null;
   const fen = window.open('about:blank', 'lyneo-ms-connexion', 'popup,width=520,height=700');
   if(!fen) throw new Error("Le navigateur a bloqué la fenêtre de connexion Microsoft : autorisez les fenêtres pop-up pour l'ERP, puis recommencez");
   return fen;
@@ -7860,26 +7905,27 @@ function msAttendreRetour(fen, state){
     }, 300);
   });
 }
-async function msConnecter(fen){
-  if(msJetonValide()) return _msJeton.token;
+async function msConnecter(fen, envoi){
+  if(msJetonValide(envoi)) return _msJeton.token;
   if(_msConnexion) return _msConnexion;
   _msConnexion = (async()=>{
     try{
-      fen = fen || msOuvrirFenetre();
+      fen = fen || msOuvrirFenetre(envoi);
       if(!(window.crypto && crypto.subtle)) throw new Error('Ce navigateur ne permet pas la connexion Microsoft (page non sécurisée)');
+      const portee = envoi ? MS_PORTEE_ENVOI : MS_CONF.portee;
       const verifier = msAleatoire(48), state = 'lyneo-ms.' + msAleatoire(16), redirect = msRedirectUri();
       const challenge = await msChallenge(verifier);
       const retour = msAttendreRetour(fen, state); retour.catch(()=>{});
-      fen.location.href = MS_AUTORITE + '/authorize?' + new URLSearchParams({client_id: MS_CONF.clientId, response_type: 'code', redirect_uri: redirect, response_mode: 'query', scope: MS_CONF.portee, state, code_challenge: challenge, code_challenge_method: 'S256'}).toString();
+      fen.location.href = MS_AUTORITE + '/authorize?' + new URLSearchParams({client_id: MS_CONF.clientId, response_type: 'code', redirect_uri: redirect, response_mode: 'query', scope: portee, state, code_challenge: challenge, code_challenge_method: 'S256'}).toString();
       const p = await retour;
-      if(p.get('error')) throw new Error(msMessageAuth(p.get('error'), p.get('error_description'), redirect));
+      if(p.get('error')) throw new Error(msMessageAuth(p.get('error'), p.get('error_description'), redirect, envoi));
       const code = p.get('code'); if(!code) throw new Error('Réponse Microsoft incomplète : recommencez');
       let rep;
-      try{ rep = await fetch(MS_AUTORITE + '/token', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({client_id: MS_CONF.clientId, grant_type: 'authorization_code', code, redirect_uri: redirect, code_verifier: verifier, scope: MS_CONF.portee}).toString()}); }
+      try{ rep = await fetch(MS_AUTORITE + '/token', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({client_id: MS_CONF.clientId, grant_type: 'authorization_code', code, redirect_uri: redirect, code_verifier: verifier, scope: portee}).toString()}); }
       catch(e){ throw new Error('Impossible de joindre Microsoft (réseau ou bloqueur de publicité) : '+((e&&e.message)||e)); }
       const j = await rep.json().catch(()=>({}));
-      if(!rep.ok || !j.access_token) throw new Error(msMessageAuth(j.error, j.error_description, redirect));
-      _msJeton = {token: j.access_token, expire: Date.now() + (parseInt(j.expires_in, 10) || 3600) * 1000};
+      if(!rep.ok || !j.access_token) throw new Error(msMessageAuth(j.error, j.error_description, redirect, envoi));
+      _msJeton = {token: j.access_token, expire: Date.now() + (parseInt(j.expires_in, 10) || 3600) * 1000, envoi: !!envoi};
       return _msJeton.token;
     } finally { _msConnexion = null; }
   })();
@@ -7951,7 +7997,77 @@ async function brouillonOutlook({destinataires, cc, sujet, corps, pieces}){
     return await msCreerBrouillon({destinataires, cc, sujet, corps, pieces: liste});
   }catch(e){ if(fen) try{ if(!fen.closed) fen.close(); }catch(e2){} throw e; }
 }
-const brouillonAide = () => "<strong>Recommandé.</strong> Crée le message dans vos « Brouillons » Outlook (classique, nouveau ou web) avec le destinataire, l'objet, le texte et les pièces jointes"+(msExpediteur() ? ", expéditeur <strong>"+escHtml(msExpediteur())+"</strong>" : "")+" : il ne reste qu'à vérifier et envoyer. La première fois, une fenêtre de connexion Microsoft s'ouvre.";
+// ── ENVOI DIRECT (20/11/2026) ── Même message que le brouillon (destinataires, Cc, objet, texte, pièces jointes, expéditeur facturation@),
+// créé dans les Brouillons puis envoyé (POST /me/messages/{id}/send). Une copie va dans les « Éléments envoyés » de la personne connectée.
+// Échec à l'envoi : le message complet reste dans les « Brouillons » — rien n'est perdu, rien n'est envoyé deux fois.
+async function msEnvoyerMessage(args){
+  const r = await msCreerBrouillon(args);
+  try{ await msGraph('POST', '/me/messages/' + encodeURIComponent(r.id) + '/send'); }
+  catch(e){
+    const raison = (e && e.status === 403 && e.code !== 'ErrorSendAsDenied')
+      ? "Microsoft refuse l'envoi direct (permission « Mail.Send » pas encore accordée par l'administrateur dans Entra ID)"
+      : (e && e.code === 'ErrorSendAsDenied') ? "Vous n'avez pas le droit « Envoyer en tant que » sur l'adresse de l'entreprise"
+      : String((e && e.message) || e).replace(/[.\s]+$/, '');
+    const err = new Error(raison + ". Rien n'a été envoyé : le message complet est resté dans vos « Brouillons » Outlook");
+    err.brouillon = r; err.status = e && e.status; err.code = e && e.code;
+    throw err;
+  }
+  return r;
+}
+// À appeler DIRECTEMENT depuis le clic (la fenêtre de connexion est ouverte avant tout « await »). pieces : comme brouillonOutlook.
+async function envoiDirectOutlook({destinataires, cc, sujet, corps, pieces}){
+  let fen = msOuvrirFenetre(true);
+  try{
+    const liste = await pieces();
+    if(!liste){ if(fen) try{ fen.close(); }catch(e){} return null; }
+    await msConnecter(fen, true); fen = null;
+    if(!msJetonValide(true)) throw new Error("La connexion Microsoft pour l'envoi n'a pas abouti : recommencez");
+    return await msEnvoyerMessage({destinataires, cc, sujet, corps, pieces: liste});
+  }catch(e){ if(fen) try{ if(!fen.closed) fen.close(); }catch(e2){} throw e; }
+}
+// Confirmation sans fenêtre « confirm » (elle ferait bloquer la fenêtre de connexion) : 1er clic → le bouton affiche les destinataires,
+// 2e clic dans les 8 s (mêmes destinataires) → envoi. Changer d'adresse entre les deux redemande la confirmation.
+const ENVOI_DELAI_CONFIRMATION = 8000;
+const _envoiArme = {};
+function envoiDesarmer(p){
+  delete _envoiArme[p];
+  const b = el(p + '-envoyer'); if(!b) return;
+  clearTimeout(b._minuteur);
+  if(b.dataset.libelle){ b.innerHTML = b.dataset.libelle; delete b.dataset.libelle; }
+  b.removeAttribute('data-arme'); b.style.background = ''; b.style.borderColor = '';
+}
+function envoiConfirme(p, dest){
+  const b = el(p + '-envoyer'); if(!b) return false;
+  const cle = dest.map(x=>String(x).toLowerCase()).join(',');
+  const a = _envoiArme[p];
+  if(a && a.cle === cle && Date.now() - a.t < ENVOI_DELAI_CONFIRMATION){ envoiDesarmer(p); return true; }
+  envoiDesarmer(p);
+  _envoiArme[p] = {cle, t: Date.now()};
+  b.dataset.libelle = b.innerHTML;
+  b.innerHTML = '<i class="ti ti-alert-triangle"></i> Confirmer l\'envoi à ' + escHtml(dest.join(', ')) + ' : cliquez encore';
+  b.setAttribute('data-arme', '1'); b.style.background = 'var(--orange)'; b.style.borderColor = 'var(--orange)';
+  b._minuteur = setTimeout(()=>envoiDesarmer(p), ENVOI_DELAI_CONFIRMATION);
+  return false;
+}
+const envoiAide = () => "<strong>Recommandé.</strong> Envoie le message tout de suite"+(msExpediteur() ? " depuis <strong>"+escHtml(msExpediteur())+"</strong>" : "")+", avec les pièces jointes ; une copie reste dans vos « Éléments envoyés » Outlook. Deux clics : le premier affiche les destinataires à confirmer.";
+const htmlEnvoiStatut = p => `<div id="${p}-envoi-statut" style="display:none;margin:-4px 0 10px;font-size:13px;color:var(--green)"></div>`;
+const heureCourte = d => String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+function afficherEnvoiStatut(p, r, dest){
+  const e = el(p + '-envoi-statut'); if(!e) return;
+  const t = new Date();
+  e.style.display = '';
+  e.innerHTML = '<i class="ti ti-circle-check"></i> <strong>E-mail envoyé</strong> à ' + escHtml(dest.join(', ')) + ' le ' + escHtml(fmtDate(today())) + ' à ' + heureCourte(t)
+    + (r.expediteur ? ' (expéditeur ' + escHtml(r.expediteur) + ')' : '') + '. Copie dans vos « Éléments envoyés » Outlook.'
+    + (r.avertissement ? `<div style="color:var(--orange);margin-top:3px"><i class="ti ti-alert-triangle"></i> ${escHtml(r.avertissement)}</div>` : '');
+  const b = el(p + '-envoyer'); if(b) b.setAttribute('data-envoye', '1');
+}
+const msgEnvoi = (r, dest) => 'E-mail envoyé à ' + dest.join(', ') + (r.avertissement ? ' — ' + r.avertissement : '');
+function envoiEchec(p, e){
+  envoiDesarmer(p);
+  if(e && e.brouillon) afficherBrouillonStatut(p, e.brouillon);
+  showToast('Erreur : ' + ((e && e.message) || e), 'error');
+}
+const brouillonAide = () => "Pour relire dans Outlook avant d'envoyer. Crée le message dans vos « Brouillons » Outlook (classique, nouveau ou web) avec le destinataire, l'objet, le texte et les pièces jointes"+(msExpediteur() ? ", expéditeur <strong>"+escHtml(msExpediteur())+"</strong>" : "")+" : il ne reste qu'à vérifier et envoyer. La première fois, une fenêtre de connexion Microsoft s'ouvre.";
 const htmlBrouillonStatut = p => `<div id="${p}-brouillon-statut" style="display:none;margin:-4px 0 10px;font-size:13px;color:var(--green)"></div>`;
 function afficherBrouillonStatut(p, r){
   const e = el(p + '-brouillon-statut'); if(!e) return;
@@ -7972,6 +8088,53 @@ async function envpoBrouillon(){
     afficherBrouillonStatut('envpo', r); showToast(msgBrouillon(r)); ouvrirBrouillonWeb(r);
   }catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); }
   finally{ const b2 = el('envpo-brouillon'); if(b2) b2.disabled = false; }
+}
+// Bon de commande envoyé : un brouillon passe à « Envoyée » (comme « Marquer envoyée »)
+async function envpoApresEnvoi(){
+  const D = window._detailPO; if(!D || !D.po || D.po.statut !== 'brouillon') return;
+  const {error} = await sb.from('purchase_orders_lyneo').update({statut:'envoyee', envoye_le:new Date().toISOString()}).eq('id', D.po.id);
+  if(error){ showToast("E-mail envoyé, mais la commande n'a pas pu passer à « Envoyée » : " + (error.message||error), 'error'); return; }
+  D.po.statut = 'envoyee';
+  const c = (typeof _pos !== 'undefined' && Array.isArray(_pos)) ? _pos.find(p=>String(p.id)===String(D.po.id)) : null; if(c) c.statut = 'envoyee';
+}
+async function envpoEnvoyer(){
+  const d = envpoLire(true); if(!d) return;
+  if(!envoiConfirme('envpo', d.a)) return;
+  const b = el('envpo-envoyer'); if(b) b.disabled = true;
+  try{
+    const r = await envoiDirectOutlook({destinataires: d.a, cc: [], sujet: d.sujet, corps: d.corps,
+      pieces: async()=>{ const pdf = await envpoPdf(); return pdf ? [{nom: pdf.nom, type: 'application/pdf', octets: pdf.bytes}] : null; }});
+    if(!r) return;
+    afficherEnvoiStatut('envpo', r, d.a); showToast(msgEnvoi(r, d.a));
+    await envpoApresEnvoi();
+  }catch(e){ envoiEchec('envpo', e); }
+  finally{ const b2 = el('envpo-envoyer'); if(b2) b2.disabled = false; }
+}
+async function envfvEnvoyer(){
+  const d = envfvLire(true); if(!d) return;
+  if(!envoiConfirme('envfv', d.a)) return;
+  const b = el('envfv-envoyer'); if(b) b.disabled = true;
+  try{
+    const r = await envoiDirectOutlook({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: d.corps, pieces: envfvPieces});
+    if(!r) return;
+    afficherEnvoiStatut('envfv', r, d.a); showToast(msgEnvoi(r, d.a));
+    await envfvApres();
+  }catch(e){ envoiEchec('envfv', e); }
+  finally{ const b2 = el('envfv-envoyer'); if(b2) b2.disabled = false; }
+}
+async function relEnvoyer(){
+  const d = relLire(true); if(!d) return;
+  if(!envoiConfirme('rel', d.a)) return;
+  await relAgir('rel-envoyer', async()=>{
+    let pieces = null, r;
+    try{
+      r = await envoiDirectOutlook({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: relCorpsEmail(d.corps, d.lignes),
+        pieces: async()=>{ pieces = await relPieces(d); return pieces; }});
+    }catch(e){ envoiDesarmer('rel'); if(e && e.brouillon) afficherBrouillonStatut('rel', e.brouillon); throw e; }
+    if(!r) return;
+    afficherEnvoiStatut('rel', r, d.a); showToast(msgEnvoi(r, d.a));
+    await relApres(d, 'eml', {bytes: pieces[0].octets, nom: pieces[0].nom});
+  });
 }
 async function envfvBrouillon(){
   const d = envfvLire(true); if(!d) return;
@@ -8708,6 +8871,14 @@ function configPdfDevis(d, client, lignesData){
   return config;
 }
 
+async function pdfBytesDevis(devisId){
+  await entrepriseChargee();
+  const {data:d} = await sb.from('devis').select('*,clients(nom,email,adresse,code_postal,ville,numero_tva),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
+  if(!d) throw new Error('Devis introuvable');
+  const {data:lignesData} = await sb.from('lignes_devis').select('*').eq('devis_id',devisId).order('ordre');
+  const bytes = await LyneoPDF.generateDevis(window.PDFLib, LYNEO_LOGO_B64, configPdfDevis(d, d.clients||{}, lignesData));
+  return {bytes, nom: nomPieceJointe(`${d.numero}.pdf`)};
+}
 async function downloadPDF_Devis(devisId){
   await entrepriseChargee();
   const {data:d} = await sb.from('devis').select('*,clients(nom,email,adresse,code_postal,ville,numero_tva),chantiers_lyneo!chantier_id(nom,numero)').eq('id',devisId).single();
@@ -9196,14 +9367,16 @@ async function saveBL(){
     return (l.deja_recu + nouvQte) >= parseFloat(l.quantite);
   });
   const newStatut = toutRecu ? 'rec_totale' : 'rec_partielle';
-  await sb.from('purchase_orders_lyneo').update({statut:newStatut}).eq('id',poId);
+  const {error:errStatutPO} = await sb.from('purchase_orders_lyneo').update({statut:newStatut}).eq('id',poId);
+  if(errStatutPO) showToast("⚠ Réception enregistrée, mais le statut de la commande n'a pas pu être mis à jour : "+errStatutPO.message, 'error');
+  else { const k = _pos.findIndex(p=>String(p.id)===String(poId)); if(k>=0) _pos[k] = Object.assign({}, _pos[k], {statut:newStatut}); }
   let docsOk = 0;
   if(_blFilesNew.length){ const rd = await uploadAnnexesBL(_blFilesNew, bl.id, {silencieux:true}); docsOk = rd.reussis; }
   _blFilesNew = [];
   showToast((toutRecu ? 'Réception complète enregistrée ✓' : 'Réception partielle enregistrée') + (docsOk ? ` — ${docsOk} document${docsOk>1?'s joints':' joint'}` : ''));
   const retourPO = window._blRetourPO; window._blRetourPO = null;
   closeModal();
-  if(retourPO){ if(currentPage==='pos') renderPOS(); openPODetail(retourPO); }   // ouvert depuis la commande : on y retourne (la liste se rafraîchit derrière)
+  if(retourPO){ if(currentPage==='pos') renderPOS(); await openPODetail(retourPO); }   // ouvert depuis la commande : on y retourne (la liste se rafraîchit derrière)
   else renderReceptions();
 }
 
@@ -10184,7 +10357,7 @@ async function interventionsDuCentre(chantierId){
 }
 // p = préfixe des champs du formulaire : 'facl' (facture sans commande), 'efac' (modifier une facture), 'po' (commande)
 function htmlChampIntervention(p){
-  return `<div class="form-group" id="${p}-int-wrap" style="display:none"><label class="field-label">Intervention SAV <span style="font-weight:400;color:var(--gray-5)">(facultatif)</span></label><select id="${p}-intervention"></select><div id="${p}-int-note" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>`;
+  return `<div class="form-group" id="${p}-int-wrap" style="display:none"><label class="field-label">Intervention SAV <span style="font-weight:400;color:var(--gray-5)">(facultatif)</span></label><input type="search" id="${p}-int-recherche" placeholder="Rechercher : n° ou site (ex. 039, Strassen)…" autocomplete="off" style="display:none;margin-bottom:6px" oninput="intAchatFiltrer('${p}')"/><select id="${p}-intervention" data-ordre="fixe"></select><div id="${p}-int-note" style="font-size:12px;margin-top:4px;color:var(--gray-5)"></div></div>`;
 }
 async function majInterventionAchat(p, table, valeur){
   const chSel = el(p+'-chantier'), wrap = el(p+'-int-wrap'), sel = el(p+'-intervention'), note = el(p+'-int-note');
@@ -10202,9 +10375,34 @@ async function majInterventionAchat(p, table, valeur){
   }
   sel.disabled = false;
   note.textContent = "Sert à calculer le coût réel et la marge de l'intervention. Vide = coût du centre seulement.";
-  sel.innerHTML = '<option value="">— Centre seulement (aucune intervention précise) —</option>'
-    + liste.map(i=>`<option value="${i.id}"${i.id===courant?' selected':''}>${escHtml(i.ref)}${i.nom_site?' — '+escHtml(i.nom_site):''}</option>`).join('');
+  _intAchatListes[p] = liste;
+  const rech = el(p+'-int-recherche');
+  if(rech){ rech.value = ''; rech.style.display = liste.length > 8 ? '' : 'none'; }
+  intAchatOptions(p, courant, '');
   wrap.dataset.pret = '1';
+}
+// Les plus récentes d'abord (numéro décroissant) ; ouvertes en haut, facturées dans un groupe à part ; filtre par n° ou site.
+const _intAchatListes = {};
+const intAchatNum = i => parseInt((String(i.ref||'').match(/(\d+)\D*$/)||['','0'])[1], 10) || 0;
+const intAchatNorm = t => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function intAchatOptions(p, courant, filtre){
+  const sel = el(p+'-intervention'); if(!sel) return;
+  const cur = (courant === undefined || courant === null) ? '' : String(courant);
+  const f = intAchatNorm(filtre).trim();
+  const tout = (_intAchatListes[p] || []).slice().sort((a,b)=>intAchatNum(b)-intAchatNum(a) || String(b.ref||'').localeCompare(String(a.ref||'')));
+  const garde = i => !f || String(i.id) === cur || intAchatNorm((i.ref||'')+' '+(i.nom_site||'')).includes(f);
+  const opt = i => `<option value="${escHtml(String(i.id))}"${String(i.id)===cur?' selected':''}>${escHtml(i.ref)}${i.nom_site?' — '+escHtml(i.nom_site):''}${i.statut==='facturee'?'':(STATUT_SAV[i.statut]?' ('+escHtml(STATUT_SAV[i.statut])+')':'')}</option>`;
+  const ouvertes = tout.filter(i=>i.statut!=='facturee' && garde(i)), facturees = tout.filter(i=>i.statut==='facturee' && garde(i));
+  sel.innerHTML = '<option value="">— Centre seulement (aucune intervention précise) —</option>'
+    + (ouvertes.length ? '<optgroup label="En cours / à facturer">' + ouvertes.map(opt).join('') + '</optgroup>' : '')
+    + (facturees.length ? '<optgroup label="Facturées">' + facturees.map(opt).join('') + '</optgroup>' : '')
+    + (f && !tout.some(i=>String(i.id)!==cur && intAchatNorm((i.ref||'')+' '+(i.nom_site||'')).includes(f)) ? '<option value="" disabled>Aucune intervention ne correspond à « ' + escHtml(filtre) + ' »</option>' : '');
+}
+function intAchatFiltrer(p){
+  const sel = el(p+'-intervention'), rech = el(p+'-int-recherche'); if(!sel || !rech) return;
+  intAchatOptions(p, sel.value, rech.value);
+  const vis = Array.from(sel.options).filter(o=>o.value && !o.disabled);
+  if(rech.value.trim() && vis.length === 1 && !sel.value){ sel.value = vis[0].value; sel.dispatchEvent(new Event('change')); }   // une seule réponse : choisie
 }
 // Ce qu'il faut ajouter à l'enregistrement (insert/update). `existant` = la ligne chargée pour une modification
 // (elle ne contient la clé intervention_id que si la colonne existe : on ne touche rien sinon).
@@ -13872,6 +14070,7 @@ async function openDevisDetail(devisId){
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
         <button class="btn btn-secondary" onclick="downloadPDF_Devis('${d.id}')"><i class="ti ti-file-download"></i> PDF</button>
+        <button class="btn btn-secondary" id="dv-btn-envoyer" onclick="envoyerDevisParEmail('${escHtml(d.id)}')" title="Envoyer le devis au client par e-mail (PDF joint)"><i class="ti ti-mail"></i> Envoyer</button>
         <button class="btn btn-secondary" id="btn-excel-dv" onclick="downloadExcel_Devis('${d.id}')" title="Exporter le devis au format Excel (même présentation que votre modèle : Page initial, DEVIS, Modalités)"><i class="ti ti-file-spreadsheet"></i> Excel</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
         ${typeof dfBtnHtml==='function' ? (interventionLiee ? dfBtnHtml('intervention', interventionLiee.id, d.statut==='accepte' && interventionLiee.statut!=='facturee', 'btn-secondary') : dfBtnHtml('devis', d.id, d.statut==='accepte', 'btn-secondary')) : ''}
@@ -13898,6 +14097,105 @@ async function deleteDevis(devisId, numero){
   rafraichirPage();
 }
 
+// ── ENVOI D'UN DEVIS PAR E-MAIL (20/11/2026) — mêmes voies que le bon de commande et la facture ──────────────────────────
+let _envDV = null;
+const envdvObjet = d => { const o = String((d && (d.objet_court || d.objet)) || '').replace(/\s+/g, ' ').trim(); return o.length > 80 ? o.slice(0, 79).trim() + '…' : o; };
+function envdvSujet(d){ const o = envdvObjet(d); return 'Devis ' + d.numero + (o ? ' — ' + o : '') + ' — LYNEO'; }
+function envdvMessage(d){
+  const ht = envfvSansEspaceInsecable(fmt(parseFloat(d.montant_ht)||0)), ttc = envfvSansEspaceInsecable(fmt(parseFloat(d.montant_ttc)||0)), o = envdvObjet(d);
+  return `Bonjour,\n\nSuite à votre demande, veuillez trouver ci-joint notre devis ${d.numero} du ${fmtDate(d.date_devis || d.created_at)}${o ? ' pour « ' + o + ' »' : ''}, d'un montant de ${ht} HT (${ttc} TTC).\n\nCe devis est valable ${devisValiditeTexte(d.validite_jours)}. Pour nous confirmer votre accord, il vous suffit de nous le retourner signé avec la mention « Bon pour accord ».\n\nNous restons à votre disposition pour toute question.\n\n${signatureEmail()}`;
+}
+async function envoyerDevisParEmail(devisId){
+  const {data:d} = await sb.from('devis').select('*,clients(nom,email)').eq('id', devisId).single();
+  if(!d){ showToast('Devis introuvable', 'error'); return; }
+  const dest = String((d.clients && d.clients.email) || '').trim();
+  const mon = _envDV = {devisId, d, pdf:null, erreur:null, pret:null, statutChange:false};
+  mon.pret = pdfBytesDevis(devisId).then(r=>{ mon.pdf = r; const e = el('envdv-pj'); if(_envDV===mon && e) e.innerHTML = '<i class="ti ti-paperclip"></i> <strong>'+escHtml(r.nom)+'</strong> — '+envfvTaille(r.bytes.length)+' — joint automatiquement'; })
+                     .catch(err=>{ mon.erreur = err; const e = el('envdv-pj'); if(_envDV===mon && e) e.innerHTML = '<span style="color:var(--red)"><i class="ti ti-alert-circle"></i> Le PDF n\'a pas pu être généré : '+escHtml(err.message||err)+'</span>'; });
+  let c = el('envoi-dv-container');
+  if(!c){ c = document.createElement('div'); c.id = 'envoi-dv-container'; document.body.appendChild(c); }
+  const bouton = (id, cls, icone, titre, aide, clic) => `<div style="margin-bottom:10px"><button type="button" class="btn ${cls}" id="${id}" onclick="${clic}" style="width:100%;justify-content:center"><i class="ti ${icone}"></i> ${titre}</button><div style="font-size:12px;color:var(--gray-6);margin-top:3px">${aide}</div></div>`;
+  c.innerHTML = `<div class="modal-overlay" style="z-index:300" onclick="if(event.target===this)fermerEnvoiDV()"><div class="modal" style="max-width:660px">
+    <div class="modal-header"><h3><i class="ti ti-mail"></i> Envoyer le devis ${escHtml(d.numero)}</h3><button class="modal-close" onclick="fermerEnvoiDV()" aria-label="Fermer"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="field-label" for="envdv-a">À (e-mail du client${d.clients&&d.clients.nom ? ' — '+escHtml(d.clients.nom) : ''}${d.correspondant ? ' — à l\'attention de '+escHtml(d.correspondant) : ''})</label>
+        <input id="envdv-a" type="text" value="${escHtml(dest)}" placeholder="contact@client.lu" autocomplete="off"/>
+        ${dest ? '' : '<div id="envdv-sans-adresse" style="font-size:12px;color:var(--orange);margin-top:4px"><i class="ti ti-alert-triangle"></i> Aucune adresse e-mail sur la fiche de ce client : saisissez-la ici (et ajoutez-la dans Clients pour la prochaine fois).</div>'}</div>
+      <div class="form-group"><label class="field-label" for="envdv-cc">Cc (facultatif — plusieurs adresses séparées par « ; » ou une virgule)</label><input id="envdv-cc" type="text" value="" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="envdv-sujet">Objet</label><input id="envdv-sujet" value="${escHtml(envdvSujet(d))}" autocomplete="off"/></div>
+      <div class="form-group"><label class="field-label" for="envdv-corps">Message</label><textarea id="envdv-corps" rows="11">${escHtml(envdvMessage(d))}</textarea></div>
+      <div id="envdv-pj" style="font-size:13px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px"><i class="ti ti-loader"></i> Préparation du PDF…</div>
+      ${d.statut==='brouillon' ? '<div style="font-size:12.5px;color:var(--gray-6);margin:-6px 0 12px"><i class="ti ti-info-circle"></i> Une fois le devis envoyé, il passe à « Envoyé ».</div>' : ''}
+      ${bouton('envdv-envoyer','btn-primary','ti-send','Envoyer maintenant (PDF joint)',envoiAide(),'envdvEnvoyer()')}
+      ${htmlEnvoiStatut('envdv')}
+      ${bouton('envdv-brouillon','btn-secondary','ti-mail-opened','Créer le brouillon Outlook (PDF joint)',brouillonAide(),'envdvBrouillon()')}
+      ${htmlBrouillonStatut('envdv')}
+      ${bouton('envdv-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF joint)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie l'ouvre avec le destinataire, l'objet, le texte et le PDF déjà joints. Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong>.",'envdvEml()')}
+      <div class="form-actions" style="margin-top:4px"><button class="btn btn-secondary" onclick="fermerEnvoiDV()">Fermer</button></div>
+    </div></div></div>`;
+  const a = el('envdv-a'); if(a && !dest) a.focus();
+}
+function fermerEnvoiDV(){
+  const c = el('envoi-dv-container'); if(c) c.innerHTML = '';
+  const mon = _envDV; _envDV = null;
+  if(mon && mon.statutChange){ try{ rafraichirPage(); }catch(e){} openDevisDetail(mon.devisId); }   // la fiche montre le nouveau statut
+}
+function envdvLire(exigerAdresse){
+  const a = adressesEmail((el('envdv-a')||{}).value), cc = adressesEmail((el('envdv-cc')||{}).value);
+  if(exigerAdresse && !a.length){ showToast("Saisissez l'adresse e-mail du client", 'error'); const i = el('envdv-a'); if(i) i.focus(); return null; }
+  const mauvaise = a.find(x=>!EMAIL_RE.test(x));
+  if(mauvaise){ showToast('Adresse e-mail invalide : '+mauvaise, 'error'); const i = el('envdv-a'); if(i) i.focus(); return null; }
+  const mauvaiseCc = cc.find(x=>!EMAIL_RE.test(x));
+  if(mauvaiseCc){ showToast('Adresse e-mail invalide (Cc) : '+mauvaiseCc, 'error'); const i = el('envdv-cc'); if(i) i.focus(); return null; }
+  return {a, cc, sujet: ((el('envdv-sujet')||{}).value||'').replace(/[\r\n]+/g,' ').trim() || envdvSujet(_envDV.d), corps: (el('envdv-corps')||{}).value||''};
+}
+async function envdvPieces(){
+  const mon = _envDV; if(!mon) return null;
+  await mon.pret.catch(()=>{});
+  if(mon.erreur || !mon.pdf){ showToast('Erreur génération PDF: '+((mon.erreur&&mon.erreur.message)||'inconnue'), 'error'); return null; }
+  return [{nom: mon.pdf.nom, type: 'application/pdf', octets: mon.pdf.bytes}];
+}
+// Devis brouillon envoyé → « Envoyé » (sans fermer la fenêtre d'envoi ; la fiche se met à jour à la fermeture)
+async function envdvApres(){
+  const mon = _envDV; if(!mon || mon.d.statut !== 'brouillon') return;
+  const {error} = await sb.from('devis').update({statut:'envoye'}).eq('id', mon.devisId);
+  if(error){ showToast("E-mail fait, mais le devis n'a pas pu passer à « Envoyé » : "+(error.message||error), 'error'); return; }
+  mon.d.statut = 'envoye'; mon.statutChange = true;
+  showToast('Devis marqué : Envoyé');
+}
+async function envdvEnvoyer(){
+  const d = envdvLire(true); if(!d) return;
+  if(!envoiConfirme('envdv', d.a)) return;
+  const b = el('envdv-envoyer'); if(b) b.disabled = true;
+  try{
+    const r = await envoiDirectOutlook({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: d.corps, pieces: envdvPieces});
+    if(!r) return;
+    afficherEnvoiStatut('envdv', r, d.a); showToast(msgEnvoi(r, d.a));
+    await envdvApres();
+  }catch(e){ envoiEchec('envdv', e); }
+  finally{ const b2 = el('envdv-envoyer'); if(b2) b2.disabled = false; }
+}
+async function envdvBrouillon(){
+  const d = envdvLire(true); if(!d) return;
+  const b = el('envdv-brouillon'); if(b) b.disabled = true;
+  try{
+    const r = await brouillonOutlook({destinataires: d.a, cc: d.cc, sujet: d.sujet, corps: d.corps, pieces: envdvPieces});
+    if(!r) return;
+    afficherBrouillonStatut('envdv', r); showToast(msgBrouillon(r)); ouvrirBrouillonWeb(r);
+  }catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); }
+  finally{ const b2 = el('envdv-brouillon'); if(b2) b2.disabled = false; }
+}
+async function envdvEml(){
+  const d = envdvLire(true); if(!d) return;
+  const b = el('envdv-eml'); if(b) b.disabled = true;
+  try{
+    const pieces = await envdvPieces(); if(!pieces) return;
+    const nomEml = pieces[0].nom.replace(/\.pdf$/i,'') + '-email.eml';
+    await baixarBytes(construireEmlPJ({destinataires:d.a, cc:d.cc, sujet:d.sujet, corps:d.corps, pieces}), nomEml, 'message/rfc822');
+    showToast('E-mail créé : ouvrez le fichier « '+nomEml+' » (double-clic) — le PDF est déjà joint, il ne reste qu\'à envoyer');
+  }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
+  finally{ const b2 = el('envdv-eml'); if(b2) b2.disabled = false; }
+}
 async function changerStatutDevis(devisId, statut){
   const {data:d} = await sb.from('devis').select('*').eq('id',devisId).single();
   const {error} = await sb.from('devis').update({statut}).eq('id',devisId);
@@ -15753,11 +16051,11 @@ function envfvMessage(f){
   const avoir = f.type_facture==='avoir', ttc = envfvSansEspaceInsecable(fmt(Math.abs(parseFloat(f.total_ttc)||0)));
   const ech = (!avoir && f.date_echeance) ? ', à régler pour le ' + fmtDate(f.date_echeance) : '';
   if(estRefProvisoire(f.numero)) return avoir
-    ? `Bonjour,\n\nVeuillez trouver ci-joint un projet de note de crédit du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nCe document est provisoire : il ne constitue pas une note de crédit définitive.\n\nCordialement,\nLYNEO`
-    : `Bonjour,\n\nVeuillez trouver ci-joint notre facture proforma du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nCe document est établi à titre d'information : il ne constitue pas une facture. La facture définitive vous sera adressée ultérieurement.\n\nCordialement,\nLYNEO`;
+    ? `Bonjour,\n\nVeuillez trouver ci-joint un projet de note de crédit du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nCe document est provisoire : il ne constitue pas une note de crédit définitive.\n\n${signatureEmail()}`
+    : `Bonjour,\n\nVeuillez trouver ci-joint notre facture proforma du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nCe document est établi à titre d'information : il ne constitue pas une facture. La facture définitive vous sera adressée ultérieurement.\n\n${signatureEmail()}`;
   return avoir
-    ? `Bonjour,\n\nVeuillez trouver ci-joint notre note de crédit n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nNous restons à votre disposition pour toute question.\n\nCordialement,\nLYNEO`
-    : `Bonjour,\n\nVeuillez trouver ci-joint notre facture n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC${ech}.\n\nNous restons à votre disposition pour toute question.\n\nCordialement,\nLYNEO`;
+    ? `Bonjour,\n\nVeuillez trouver ci-joint notre note de crédit n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC.\n\nNous restons à votre disposition pour toute question.\n\n${signatureEmail()}`
+    : `Bonjour,\n\nVeuillez trouver ci-joint notre facture n° ${f.numero} du ${fmtDate(f.date_creation)}, d'un montant de ${ttc} TTC${ech}.${ibanEmail() ? `\n\nMerci d'effectuer le virement sur le compte ${ibanEmail()} en indiquant la référence ${f.numero}.` : ''}\n\nNous restons à votre disposition pour toute question.\n\n${signatureEmail()}`;
 }
 async function envoyerFactureParEmail(facId){
   const r = await avecEmailFact(avec=>sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation,date_echeance,total_ttc,clients(nom,email'+(avec?',email_facturation':'')+')').eq('id', facId).single());
@@ -15795,7 +16093,9 @@ async function envoyerFactureParEmail(facId){
         <span id="envfv-total" style="font-size:12px;color:var(--gray-5)"></span>
       </div>
       ${estRefProvisoire(f.numero) ? `<div class="alert alert-info" id="envfv-proforma-info" style="margin:10px 0 14px"><i class="ti ti-info-circle"></i> <span>Brouillon sans numéro définitif : le PDF joint est une <strong>proforma</strong>. Pour envoyer la facture définitive, validez-la d'abord (bouton « Valider » de la fiche).</span></div>` : f.statut==='brouillon' ? `<label id="envfv-marquer-lib" style="display:flex;gap:8px;align-items:center;font-size:13px;margin:10px 0 14px"><input type="checkbox" id="envfv-marquer"/> ${avoir?'Marquer la note de crédit comme émise':'Marquer la facture comme envoyée (statut « Envoyée »)'} une fois l'e-mail créé</label>` : '<div style="height:10px"></div>'}
-      ${bouton('envfv-brouillon','btn-primary','ti-mail-opened','Créer le brouillon Outlook (PDF + pièces jointes)',brouillonAide(),'envfvBrouillon()')}
+      ${bouton('envfv-envoyer','btn-primary','ti-send','Envoyer maintenant (PDF + pièces jointes)',envoiAide(),'envfvEnvoyer()')}
+      ${htmlEnvoiStatut('envfv')}
+      ${bouton('envfv-brouillon','btn-secondary','ti-mail-opened','Créer le brouillon Outlook (PDF + pièces jointes)',brouillonAide(),'envfvBrouillon()')}
       ${htmlBrouillonStatut('envfv')}
       ${bouton('envfv-eml','btn-secondary','ti-mail-forward','E-mail prêt à envoyer (PDF + pièces jointes)',"Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie (Outlook, Thunderbird, Mail…) l'ouvre avec le destinataire, l'objet, le texte et toutes les pièces jointes déjà en place." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).",'envfvEml()')}
       ${partage ? bouton('envfv-partage','btn-secondary','ti-share','Partager… (Mail, Outlook, Teams)',"Ouvre le menu de partage de votre appareil avec le PDF et les pièces jointes.",'envfvPartager()') : ''}
@@ -16033,11 +16333,12 @@ function relMessage(niveau, g, lignes, jour){
   const total = envfvSansEspaceInsecable(fmt(relArr(lignes.reduce((a,x)=>a+x.montant, 0))));
   const prec = g && g.derniere ? fmtDate(g.derniere.date_relance) : '';
   const debut = niveau === 3 ? 'Madame, Monsieur,' : 'Bonjour,';
-  const fin = niveau === 3 ? 'Veuillez agréer, Madame, Monsieur, nos salutations distinguées.\nLYNEO' : 'Cordialement,\nLYNEO';
+  const fin = niveau === 3 ? 'Veuillez agréer, Madame, Monsieur, nos salutations distinguées.\n' + signatureEmail(true) : signatureEmail();
+  const vir = ibanEmail() ? ', par virement sur notre compte ' + ibanEmail() + ', en indiquant le numéro des factures en communication' : '';
   let corps;
-  if(niveau === 1) corps = `Sauf erreur ou omission de notre part, les factures ci-dessous demeurent impayées à ce jour alors que leur échéance est dépassée.\n\n${RELANCE_TOKEN}\n\nNous vous remercions de bien vouloir procéder à leur règlement dans les meilleurs délais. Si votre paiement a été effectué entre-temps, veuillez ne pas tenir compte de ce message et nous en excuser.`;
-  else if(niveau === 2) corps = `${prec ? 'Malgré notre précédent rappel du '+prec : 'Malgré notre précédent rappel'}, nous n'avons pas reçu le règlement des factures ci-dessous.\n\n${RELANCE_TOKEN}\n\nNous vous prions de bien vouloir régler la somme de ${total} TTC dans un délai de 8 jours. À défaut, des intérêts de retard pourront être appliqués conformément à nos conditions générales de vente et à la loi.\n\nSi le paiement a été effectué entre-temps, merci de nous en transmettre la preuve.`;
-  else corps = `Malgré nos rappels précédents, les factures ci-dessous restent impayées.\n\n${RELANCE_TOKEN}\n\nPar la présente, nous vous mettons en demeure de nous régler la somme de ${total} TTC dans un délai de 8 jours à compter de la réception de ce courrier. À défaut, nous nous réservons le droit d'engager sans autre avis toute procédure de recouvrement, et de réclamer les intérêts de retard et frais prévus par la loi et par nos conditions générales de vente.`;
+  if(niveau === 1) corps = `Sauf erreur ou omission de notre part, les factures ci-dessous demeurent impayées à ce jour alors que leur échéance est dépassée.\n\n${RELANCE_TOKEN}\n\nNous vous remercions de bien vouloir procéder à leur règlement dans les meilleurs délais${vir}. Si votre paiement a été effectué entre-temps, veuillez ne pas tenir compte de ce message et nous en excuser.`;
+  else if(niveau === 2) corps = `${prec ? 'Malgré notre précédent rappel du '+prec : 'Malgré notre précédent rappel'}, nous n'avons pas reçu le règlement des factures ci-dessous.\n\n${RELANCE_TOKEN}\n\nNous vous prions de bien vouloir régler la somme de ${total} TTC dans un délai de 8 jours${vir}. À défaut, des intérêts de retard pourront être appliqués conformément à nos conditions générales de vente et à la loi.\n\nSi le paiement a été effectué entre-temps, merci de nous en transmettre la preuve.`;
+  else corps = `Malgré nos rappels précédents, les factures ci-dessous restent impayées.\n\n${RELANCE_TOKEN}\n\nPar la présente, nous vous mettons en demeure de nous régler la somme de ${total} TTC dans un délai de 8 jours à compter de la réception de ce courrier${vir}. À défaut, nous nous réservons le droit d'engager sans autre avis toute procédure de recouvrement, et de réclamer les intérêts de retard et frais prévus par la loi et par nos conditions générales de vente.`;
   return debut + '\n\n' + corps + '\n\n' + fin;
 }
 const relObjet = (niveau, lignes) => lignes.length === 1
@@ -16123,7 +16424,9 @@ function htmlRelanceClient(mon){
         <label><input type="checkbox" id="rel-consigner"${sansSql ? ' disabled' : ' checked'}/> Enregistrer cette relance dans l'historique (après l'envoi ou le téléchargement)</label>
         <div id="rel-consigne-ok" style="display:none;color:var(--green);font-size:12.5px"><i class="ti ti-circle-check"></i> Relance enregistrée dans l'historique.</div>
       </div>
-      ${bouton('rel-brouillon', 'btn-primary', 'ti-mail-opened', 'Créer le brouillon Outlook (lettre PDF + factures)', brouillonAide(), 'relBrouillon()')}
+      ${bouton('rel-envoyer', 'btn-primary', 'ti-send', 'Envoyer maintenant (lettre PDF + factures)', envoiAide(), 'relEnvoyer()')}
+      ${htmlEnvoiStatut('rel')}
+      ${bouton('rel-brouillon', 'btn-secondary', 'ti-mail-opened', 'Créer le brouillon Outlook (lettre PDF + factures)', brouillonAide(), 'relBrouillon()')}
       ${htmlBrouillonStatut('rel')}
       ${bouton('rel-eml', 'btn-secondary', 'ti-mail-forward', 'E-mail prêt à envoyer (lettre PDF + factures)', "Télécharge un fichier <strong>.eml</strong> : double-cliquez dessus et votre messagerie l'ouvre avec le destinataire, l'objet, le texte et les pièces jointes ; il ne reste qu'à envoyer." + " Fonctionne avec Outlook classique, Thunderbird et Mail ; <strong>pas avec le nouvel Outlook ni Outlook web</strong> (utilisez le brouillon Outlook ci-dessus).", 'relEml()')}
       ${partage ? bouton('rel-partage', 'btn-secondary', 'ti-share', 'Partager… (Mail, Outlook, Teams)', "Ouvre le menu de partage de votre appareil avec les PDF.", 'relPartager()') : ''}
@@ -19683,7 +19986,7 @@ function definitionsExport(){
         colX('client','Client','txt',(r,c)=>nomLieu(c.clients,r.client_id),{g:'Identification'}),
         colX('site','Site','txt',r=>r.nom_site,{g:'Identification'}), colX('adresse','Adresse du site','txt',r=>r.adresse_site,{g:'Identification',d:false}),
         colX('desc','Description','txt',r=>r.description,{g:'Identification'}),
-        colX('tech','Technicien','txt',(r,c)=>(r.technicien_id && c.emps[r.technicien_id]) ? nomPers(c.emps[r.technicien_id]) : (r.technicien_nom||''),{g:'Suivi'}),
+        colX('tech','Technicien','txt',(r,c)=>[(r.technicien_id && c.emps[r.technicien_id]) ? nomPers(c.emps[r.technicien_id]) : (r.technicien_nom||'')].concat(intTechsIds(r).map(x=>c.emps[x] ? nomPers(c.emps[x]) : '')).filter(Boolean).join(', '),{g:'Suivi'}),
         colX('statut','Statut','txt',r=>STATUT_SAV[r.statut]||r.statut,{g:'Suivi'}),
         colX('astreinte','Astreinte','txt',r=>ouiNon(r.astreinte===true),{g:'Suivi'}),
         colX('offre_req','Offre requise','txt',r=>ouiNon(r.offre_requise===true),{g:'Offre'}), colX('offre_st','Statut de l\'offre','txt',r=>OFFRE_SAV[r.offre_statut]||r.offre_statut||'',{g:'Offre'}),
@@ -21391,6 +21694,31 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
 
 // Ouvre le formulaire d'intervention. `r` peut être une intervention existante (avec id)
 // ou simplement des valeurs de départ (ex: depuis un devis : client, description, devis_id...).
+// ── Plusieurs techniciens par intervention ─────────────────────────────────────────────────────────
+let _intTechsOk = null;          // colonne techniciens_supplementaires présente ?
+async function intTechsDispo(){
+  if(_intTechsOk === null){ try{ const t = await sb.from('interventions_sav').select('techniciens_supplementaires').limit(1); _intTechsOk = !t.error; }catch(e){ _intTechsOk = false; } }
+  return _intTechsOk;
+}
+const intTechsIds = i => (i && Array.isArray(i.techniciens_supplementaires) ? i.techniciens_supplementaires.map(String).filter(Boolean) : []);
+let _intTechsListe = [];         // employés proposés dans le formulaire ouvert
+function intTechLigneHtml(id){
+  return `<div class="int-tech-extra" style="display:flex;gap:6px;margin-top:6px"><select class="int-tech-extra-sel" style="flex:1"><option value="">— Choisir —</option>${_intTechsListe.map(e=>`<option value="${escHtml(String(e.id))}" data-email="${escHtml(e.email_pro||e.email||'')}"${String(e.id)===String(id)?' selected':''}>${escHtml(nomPers(e))}</option>`).join('')}</select><button type="button" class="btn btn-secondary btn-sm" title="Retirer ce technicien" onclick="this.parentNode.remove()"><i class="ti ti-x"></i></button></div>`;
+}
+function intTechAjouter(){
+  const z = el('int-tech-extras'); if(!z) return;
+  if(_intTechsOk === false){ showToast("Plusieurs techniciens : exécutez d'abord migration-intervention-techniciens.sql dans Supabase.", 'error'); return; }
+  z.insertAdjacentHTML('beforeend', intTechLigneHtml(''));
+}
+function intTechsLus(){
+  const principal = el('int-technicien-id') ? String(el('int-technicien-id').value||'') : '';
+  const ids = [...document.querySelectorAll('#int-tech-extras .int-tech-extra-sel')].map(x=>String(x.value||'')).filter(Boolean);
+  return [...new Set(ids)].filter(x=>x!==principal);
+}
+async function intTechsNoms(ids){
+  ids = [...new Set((ids||[]).map(String).filter(Boolean))]; if(!ids.length) return [];
+  try{ return await chargerParIds('employes_rh','id,nom,prenom,email,email_pro',ids); }catch(e){ try{ return await chargerParIds('employes_rh','id,nom,prenom,email',ids); }catch(e2){ return []; } }
+}
 async function openInterventionModal(r=null){
   const isEdit = !!(r && r.id);
   await intChargerLignes(r);          // lignes propres de l'intervention (état de l'éditeur) ; sans effet sans le script SQL
@@ -21403,6 +21731,7 @@ async function openInterventionModal(r=null){
   ]);
   const clientsList = clientsData||[];
   const employesList = employesData||[];
+  _intTechsListe = employesList; await intTechsDispo();
   const devisList = devisData||[];
   const centresList = centresData||[];
   // Un devis déjà lié à une autre intervention n'est plus proposé (une intervention par devis)
@@ -21428,7 +21757,7 @@ async function openInterventionModal(r=null){
             ${boutonsClientRapide('int-client')}
           </div>
         </div>
-        <div class="form-group"><label class="field-label">Date / heure prévue</label><input type="datetime-local" id="int-date" value="${r?.date_intervention?r.date_intervention.slice(0,16):''}"/></div>
+        <div class="form-group"><label class="field-label">Date prévue <span style="font-weight:400;color:var(--gray-5)">et heure (facultative, 08:00 par défaut)</span></label><div style="display:flex;gap:8px"><input type="date" id="int-date-j" value="${escHtml(intDateChamps(r?.date_intervention).j)}" style="flex:1 1 60%"/><input type="time" id="int-date-h" value="${escHtml(intDateChamps(r?.date_intervention).h)}" style="flex:1 1 40%"/></div></div>
         <div class="form-group"><label class="field-label">Téléphone</label><input id="int-tel" value="${escHtml(r?.telephone||'')}"/></div>
         <div class="form-group"><label class="field-label">Email</label><input id="int-email" value="${escHtml(r?.email||'')}"/></div>
         <div class="form-group full"><label class="field-label">Adresse du client (siège)</label>
@@ -21456,11 +21785,13 @@ async function openInterventionModal(r=null){
       ${htmlEditeurLignesIntervention()}
 
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label class="field-label">Technicien (employé)</label>
+        <div class="form-group"><label class="field-label">Technicien principal (employé)</label>
           <select id="int-technicien-id" onchange="prefillTechnicienIntervention()">
             <option value="">— Aucun / non listé —</option>
             ${employesList.map(e=>`<option value="${e.id}" data-email="${escHtml(e.email_pro||e.email||'')}" ${r?.technicien_id===e.id?'selected':''}>${escHtml(nomPers(e))}</option>`).join('')}
           </select>
+          <div id="int-tech-extras">${intTechsIds(r).map(intTechLigneHtml).join('')}</div>
+          <button type="button" class="btn btn-secondary btn-sm" id="int-tech-ajouter" style="margin-top:6px" onclick="intTechAjouter()"><i class="ti ti-plus"></i> Ajouter un technicien</button>
         </div>
         <div class="form-group"><label class="field-label">Nom technicien (si non listé)</label><input id="int-technicien-nom" value="${escHtml(r?.technicien_nom||'')}"/></div>
         <div class="form-group"><label class="field-label">Email technicien <span style="font-weight:400;color:var(--gray-5)">(professionnel si renseigné)</span></label><input id="int-email-technicien" value="${escHtml(r?.email_technicien||'')}"/></div>
@@ -21586,9 +21917,29 @@ function prefillTechnicienIntervention(){
   if(opt && opt.value) el('int-email-technicien').value = opt.dataset.email||'';
 }
 
+// Date prévue : champs « date » + « heure » (heure locale de l'appareil, Luxembourg) ↔ timestamptz en base (ISO avec fuseau)
+const _pad2 = n => String(n).padStart(2,'0');
+function intDateChamps(v){
+  if(!v) return {j:'', h:''};
+  const d = new Date(v); if(isNaN(d)) return {j:'', h:''};
+  return {j: d.getFullYear()+'-'+_pad2(d.getMonth()+1)+'-'+_pad2(d.getDate()), h: _pad2(d.getHours())+':'+_pad2(d.getMinutes())};
+}
+function intDateLire(){
+  const ej = el('int-date-j'), eh = el('int-date-h');
+  if(!ej) return {iso: undefined};
+  if((ej.validity && ej.validity.badInput) || (eh && eh.validity && eh.validity.badInput)) return {erreur: 'Date ou heure prévue incomplète : complétez-la ou effacez-la.'};
+  const j = ej.value, h = (eh && eh.value) || '';
+  if(!j){ return h ? {erreur: 'Indiquez aussi la date (une heure seule ne suffit pas).'} : {iso: null}; }
+  const d = new Date(j + 'T' + (h || '08:00') + ':00');
+  if(isNaN(d)) return {erreur: 'Date prévue invalide.'};
+  return {iso: d.toISOString()};
+}
 async function saveIntervention(id){
+  let idFiche = id || null;
   const clientId = el('int-client').value;
   if(!clientId){ showToast("Client obligatoire", 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+  const dateIntervention = intDateLire();
+  if(dateIntervention.erreur){ showToast(dateIntervention.erreur, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
   // Lignes de l'intervention : validées AVANT d'écrire quoi que ce soit (rien n'est enregistré à moitié). Avec un devis lié, les lignes propres ne sont pas touchées.
   let lignesOk = null, lignesErreur = '';
   if(_intLignesCtx.actif && !(el('int-devis') && el('int-devis').value)){
@@ -21605,8 +21956,9 @@ async function saveIntervention(id){
     nom_site: el('int-nom-site').value,
     adresse_site: el('int-adresse-site').value,
     description: el('int-description').value,
-    date_intervention: el('int-date').value||null,
+    date_intervention: dateIntervention.iso,
     technicien_id: el('int-technicien-id').value||null,
+    ...(_intTechsOk ? {techniciens_supplementaires: intTechsLus()} : {}),
     technicien_nom: el('int-technicien-nom').value,
     email_technicien: el('int-email-technicien').value,
     astreinte: el('int-astreinte').checked,
@@ -21641,11 +21993,13 @@ async function saveIntervention(id){
 
     // Plus de code par intervention dans les pointages : les salariés pointent sur le centre SAV (SAV 1, SAV 2, SAV 3).
     // Une intervention n'a donc plus de code à créer ; on rappelle seulement de choisir le centre.
+    idFiche = nouvelle.id;
     showToast('Intervention créée — '+ref + (data.chantier_id ? ' (les heures se pointent sur le centre SAV)' : ' — choisissez un centre SAV (Modifier) : les heures se pointent sur SAV 1, SAV 2 ou SAV 3'));
   }
   if(lignesErreur) showToast("⚠ L'intervention est enregistrée, mais ses lignes ne l'ont pas toutes été : "+lignesErreur+". Rouvrez « Modifier » pour vérifier les lignes.", 'error');
   closeModal();
-  rafraichirPage();
+  try{ await rafraichirPage(); }catch(e){}
+  if(idFiche) await openInterventionDetail(idFiche);     // la fiche s'ouvre : passer « En cours », joindre un document, envoyer au technicien
 }
 
 async function changerStatutIntervention(id, statut){
@@ -21661,20 +22015,27 @@ async function emailClientIntervention(interventionId){
   if(!i){ showToast("Intervention introuvable", 'error'); return; }
   if(!i.email){ showToast("Aucun email enregistré pour ce client", 'error'); return; }
   const sujet = `${i.clients?.nom||''} - Prise en compte de votre demande d'intervention n° ${i.ref}`;
-  const corps = `Bonjour,\n\nVotre demande d'intervention n° ${i.ref} a bien été prise en compte.\nAdresse concernée : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}\n${i.date_intervention?'Date prévue : '+new Date(i.date_intervention).toLocaleString('fr-FR')+'\n':''}\nMerci pour votre confiance.`;
-  window.location.href = `mailto:${i.email}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+  const corps = `Bonjour,\n\nVotre demande d'intervention n° ${i.ref} a bien été prise en compte.\nAdresse concernée : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}\n${i.date_intervention?'Date prévue : '+new Date(i.date_intervention).toLocaleString('fr-FR')+'\n':''}\nMerci pour votre confiance.\n\n${signatureEmail()}`;
+  ouvrirLienMailto(`mailto:${i.email}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`);
   await sb.from('interventions_sav').update({notif_client:true}).eq('id',i.id);
   openInterventionDetail(i.id);
+}
+// Lien Google Maps vers l'adresse du site (s'ouvre d'un clic sur le téléphone) ; vide sans adresse
+function lienMapsIntervention(i){
+  const a = String((i && i.adresse_site) || '').trim();
+  return a ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(a) : '';
 }
 async function emailTechnicienIntervention(interventionId){
   const {data:i} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').eq('id',interventionId).single();
   if(!i){ showToast("Intervention introuvable", 'error'); return; }
-  const emailTech = i.email_technicien;
+  const autresTechs = await intTechsNoms(intTechsIds(i));
+  const emailsTechs = [...new Set([i.email_technicien].concat(autresTechs.map(e=>e.email_pro||e.email)).map(x=>String(x||'').trim()).filter(x=>EMAIL_RE.test(x)))];
+  const emailTech = emailsTechs.join(',');
   if(!emailTech){ showToast("Aucun email enregistré pour le technicien", 'error'); return; }
   const sujet = `${i.astreinte?'[ASTREINTE] ':''}Nouvelle intervention à planifier - n° ${i.ref}`;
-  const technom = i.employes_rh ? (i.employes_rh.prenom+' '+i.employes_rh.nom) : (i.technicien_nom||'');
-  const corps = `Bonjour ${technom},\n\nUne intervention vous a été attribuée :\n\nClient : ${i.clients?.nom||''}\nTéléphone : ${i.telephone||'non renseigné'}\nAdresse : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}\nDate prévue : ${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'à confirmer'}\n${i.astreinte?'\n⚠ Intervention en astreinte - traitement prioritaire requis.\n':''}\nDescription :\n${i.description||'non renseignée'}`;
-  window.location.href = `mailto:${emailTech}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+  const technom = autresTechs.length ? 'à tous' : (i.employes_rh ? (i.employes_rh.prenom+' '+i.employes_rh.nom) : (i.technicien_nom||''));
+  const corps = `Bonjour ${technom},\n\nUne intervention vous a été attribuée :\n\nClient : ${i.clients?.nom||''}\nTéléphone : ${i.telephone||'non renseigné'}\nAdresse : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}${lienMapsIntervention(i) ? '\nItinéraire : '+lienMapsIntervention(i) : ''}\nDate prévue : ${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'à confirmer'}\n${i.astreinte?'\n⚠ Intervention en astreinte - traitement prioritaire requis.\n':''}\nDescription :\n${i.description||'non renseignée'}\n\n${signatureEmail(false, true)}`;
+  ouvrirLienMailto(`mailto:${emailTech}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`);
   await sb.from('interventions_sav').update({notif_technicien:true, statut: 'attribuee'}).eq('id',i.id);
   lancerMajPointagesIntervention(i.id);
   openInterventionDetail(i.id);
@@ -21794,7 +22155,8 @@ async function openInterventionDetail(interventionId){
     factureHT: (facturesLiees||[]).filter(f=>f.statut!=='annulee').reduce((a,f)=>a+(parseFloat(f.total_ht)||0),0),
     ach: achatsInterv.parInterv[i.id], dispo: achatsInterv.dispo, coutMO: coutMOInterv, heuresSansCout: heuresSansCoutInterv
   });
-  const technicienLabel = escHtml(i.employes_rh ? nomPers(i.employes_rh) : (i.technicien_nom||'—'));
+  const techsAutres = await intTechsNoms(intTechsIds(i));
+  const technicienLabel = escHtml([i.employes_rh ? nomPers(i.employes_rh) : (i.technicien_nom||'')].concat(techsAutres.map(nomPers)).filter(Boolean).join(', ') || '—');
   const statusOrder = ['nouvelle','attribuee','encours','terminee','facturee_partiel','facturee'];
 
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
@@ -21812,7 +22174,7 @@ async function openInterventionDetail(interventionId){
         <div class="info-item"><label>Téléphone / Email</label><span>${escHtml(i.telephone||'—')} ${i.email?' · '+escHtml(i.email):''}</span></div>
         <div class="info-item"><label>Site d'intervention</label><span>${i.nom_site?escHtml(i.nom_site)+' — ':''}${escHtml(i.adresse_site||'—')}</span></div>
         <div class="info-item"><label>Date prévue</label><span>${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'—'}</span></div>
-        <div class="info-item"><label>Technicien</label><span>${technicienLabel}</span></div>
+        <div class="info-item"><label>${techsAutres.length ? 'Techniciens' : 'Technicien'}</label><span>${technicienLabel}</span></div>
         <div class="info-item"><label>Notifications</label><span>${i.notif_client?'✓ Client notifié':'○ Client non notifié'} · ${i.notif_technicien?'✓ Technicien notifié':'○ Technicien non notifié'}</span></div>
         <div class="info-item"><label>Devis</label><span>${devisLie?`<a href="#" onclick="closeModal();openDevisDetail('${devisLie.id}');return false" style="color:var(--blue);font-weight:600">${devisLie.numero}</a> — ${fmt(devisLie.montant_ht)} HT ${bDV(devisLie.statut)}`:'—'}</span></div>
         <div class="info-item"><label>Centre de coûts</label><span>${centreSav?(centreSav.numero||'')+' — '+centreSav.nom:'—'}</span></div>
