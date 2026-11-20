@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-20-c37f7ac"/>
+<meta name="lyneo-build" content="BUILD:2026-11-20-42dee66"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2867,7 +2867,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-20-c37f7ac';
+const APP_BUILD = 'BUILD:2026-11-20-42dee66';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7386,6 +7386,8 @@ async function openNewPO(){
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <label class="btn btn-secondary btn-sm" for="po-import-fichier" id="po-import-btn" style="cursor:pointer" title="Colonnes : Description *, Référence, Qté, Unité, P.U. HT €, TVA %, Total HT"><i class="ti ti-file-spreadsheet"></i> Importer Excel</label>
           <input type="file" id="po-import-fichier" accept=".xlsx,.xls,.csv" onchange="poImporterFichier(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"/>
+          <label class="btn btn-secondary btn-sm" for="po-pdf-fichier" id="po-pdf-btn" style="cursor:pointer" title="Confirmation de commande PDF du fournisseur (Minusines)"><i class="ti ti-file-type-pdf"></i> Importer PDF fournisseur</label>
+          <input type="file" id="po-pdf-fichier" accept=".pdf,application/pdf" onchange="poImporterPdf(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"/>
           <button type="button" class="btn btn-ghost btn-sm" id="po-import-modele" onclick="poModeleImport()" title="Fichier Excel vide avec les bonnes colonnes"><i class="ti ti-download"></i> Modèle</button>
           <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
         </div>
@@ -7546,6 +7548,164 @@ function poImporterFichier(input){
   };
   lecteur.onerror = () => poAfficherImport('<i class="ti ti-alert-circle"></i> Lecture du fichier impossible', false);
   lecteur.readAsArrayBuffer(f);
+}
+// ── IMPORT D'UNE CONFIRMATION DE COMMANDE PDF DU FOURNISSEUR (20/11/2026) ─────────────────────────────────────────
+// pdf.js n'est chargé qu'au premier import (≈ 1,4 Mo) : version exacte + empreinte SRI, comme les autres bibliothèques.
+// Le « worker » est chargé comme script : pdf.js travaille alors dans la page (aucun Worker d'une autre origine).
+const PDFJS_LIBS = [
+  {src:'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js', sri:'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e', ok:()=>!!window.pdfjsLib},
+  {src:'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js', sri:'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2', ok:()=>!!(window.pdfjsWorker && window.pdfjsWorker.WorkerMessageHandler)}
+];
+let _pdfjsPret = null;
+function chargerPdfJs(){
+  if(window.pdfjsLib && window.pdfjsWorker) return Promise.resolve(window.pdfjsLib);
+  if(_pdfjsPret) return _pdfjsPret;
+  const un = lib => lib.ok() ? Promise.resolve() : new Promise((ok, ko)=>{
+    const sc = document.createElement('script'); sc.src = lib.src; sc.integrity = lib.sri; sc.crossOrigin = 'anonymous'; sc.referrerPolicy = 'no-referrer';
+    sc.onload = () => lib.ok() ? ok() : ko(new Error('bibliothèque PDF incomplète'));
+    sc.onerror = () => ko(new Error('bibliothèque PDF non chargée (réseau, bloqueur ou fichier modifié)'));
+    document.head.appendChild(sc);
+  });
+  _pdfjsPret = un(PDFJS_LIBS[0]).then(()=>un(PDFJS_LIBS[1])).then(()=>window.pdfjsLib).catch(e=>{ _pdfjsPret = null; throw e; });
+  return _pdfjsPret;
+}
+// Texte du PDF regroupé en lignes (par page) : [{y, it:[{x, s}]}], de haut en bas puis de gauche à droite
+async function pdfLignesTexte(octets){
+  const lib = await chargerPdfJs();
+  const doc = await lib.getDocument({data: octets, isEvalSupported:false, disableFontFace:true}).promise;
+  const pages = [];
+  for(let p = 1; p <= doc.numPages; p++){
+    const pg = await doc.getPage(p), vp = pg.getViewport({scale:1}), tc = await pg.getTextContent();
+    const its = tc.items.filter(i=>i && typeof i.str === 'string' && i.str.trim()).map(i=>({s:i.str.trim(), x:Math.round(i.transform[4]), y:Math.round(vp.height - i.transform[5])}));
+    pages.push(pdfGrouperLignes(its));
+  }
+  try{ doc.destroy(); }catch(e){}
+  return pages;
+}
+function pdfGrouperLignes(its){
+  const lignes = [];
+  its.slice().sort((a,b)=>a.y-b.y || a.x-b.x).forEach(it=>{ const l = lignes.find(l=>Math.abs(l.y-it.y) <= 2); if(l) l.it.push(it); else lignes.push({y:it.y, it:[it]}); });
+  lignes.forEach(l=>l.it.sort((a,b)=>a.x-b.x));
+  return lignes.sort((a,b)=>a.y-b.y);
+}
+// « mm » + « ², » → « mm², » (exposants et ponctuation collés au mot précédent)
+const pdfJoindre = items => items.map(i=>i.s).reduce((t, s)=> !t ? s : (/^[²³,.;:)]/.test(s) ? t + s : t + ' ' + s), '');
+const pdfMontant = t => { const v = poNombre(t); return (v === null || isNaN(v)) ? NaN : v; };
+const arr2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
+// ── Format MINUSINES (confirmation de commande du portail) ──
+// Ligne d'article : Pos. | Code article | Dénomination (x ≈ 123) | Quantité | UA | Prix EUR | PM (EIN/HDT/TSD) | Prix eff. | TOTAL | TVA %
+const PDF_PM = {EIN:1, HDT:100, TSD:1000};
+function pdfAnalyserMinusines(pages){
+  const res = {fournisseur:'Minusines', lignes:[], erreurs:[], avert:[], doc:'', date:'', totaux:null};
+  const tout = pages.flat();
+  const apres = lib => { for(const l of tout){ const k = l.it.findIndex(i=>i.s === lib); if(k >= 0 && l.it[k+1]) return l.it[k+1].s; } return ''; };
+  res.doc = apres('N° document:'); res.date = apres('Date de cde.:');
+  let cur = null, fin = false;
+  const fermer = () => { if(cur){ res.lignes.push(cur); cur = null; } };
+  pages.forEach(lignes=>{
+    const k0 = lignes.findIndex(l=>l.it.some(i=>i.s === 'Pos.') && l.it.some(i=>/^Dénomination$/.test(i.s)));
+    if(k0 < 0) return;
+    const xDesc = (lignes[k0].it.find(i=>i.s === 'Dénomination') || {x:123}).x, xQte = (lignes[k0].it.find(i=>/^Quantit/.test(i.s)) || {x:337}).x - 10;
+    for(let k = k0 + 1; k < lignes.length; k++){
+      const l = lignes[k], it = l.it, t0 = it[0];
+      const tot = it.findIndex(i=>i.s === 'Total:');
+      if(tot >= 0 && it.length >= tot + 4 && t0.x > 300){ fermer(); fin = true; const v = it.slice(tot+1, tot+4).map(i=>pdfMontant(i.s)); if(v.every(isFinite)) res.totaux = {ht:v[0], tva:v[1], ttc:v[2]}; continue; }
+      if(it.some(i=>/^MINUSINES S\.A\.$/.test(i.s))) break;                  // pied de page
+      if(fin || it.some(i=>i.s === 'Report')) continue;
+      if(t0.x < xDesc - 20 && /^\d+$/.test(t0.s) && it[1] && /^\d{5,}$/.test(it[1].s)){
+        fermer();
+        const desc = pdfJoindre(it.filter(i=>i.x >= xDesc - 5 && i.x < xQte)), droite = it.filter(i=>i.x >= xQte);
+        if(droite.length !== 7){ res.erreurs.push(`Position ${t0.s} (${desc.slice(0,40)}) : colonnes illisibles (${droite.map(i=>i.s).join(' ')})`); continue; }
+        const [q, ua, prix, pm, eff, total, tva] = droite.map(i=>i.s);
+        cur = {pos:t0.s, code:it[1].s, desc, suite:[], han:'', q:pdfMontant(q), ua, prix:pdfMontant(prix), pm, eff:pdfMontant(eff), total:pdfMontant(total), tva:pdfMontant(tva)};
+        continue;
+      }
+      if(t0.x < xDesc - 20){ fermer(); if(/^(Unsere|Nos prix)/.test(t0.s)) fin = true; continue; }       // texte hors tableau (conditions…) : fin des articles, les totaux suivent
+      if(it.some(i=>/Remise/i.test(i.s))){ fermer(); res.avert.push('Remise du fournisseur reprise dans les prix (« '+pdfJoindre(it)+' »)'); continue; }
+      if(!cur) continue;
+      const txt = pdfJoindre(it);
+      if(/^HAN:/.test(txt)) cur.han = txt.replace(/^HAN:\s*/, '');
+      else if(!/^(Votre commande|Montant net)/i.test(txt)) cur.suite.push(txt);
+    }
+  });
+  fermer();                                   // une description peut continuer sur la page suivante
+  return res;
+}
+// Contrôles + conversion en lignes de commande ; ajuste au centime la remise globale arrondie par le fournisseur (≤ 5 cts)
+function pdfVersLignesPO(a){
+  const out = {lignes:[], erreurs:a.erreurs.slice(), avert:a.avert.slice(), total:0};
+  const nets = [];
+  a.lignes.forEach(l=>{
+    const lib = `Position ${l.pos} (${l.desc.slice(0,40)})`, f = PDF_PM[l.pm];
+    if(!f){ out.erreurs.push(`${lib} : unité de prix « ${l.pm} » inconnue (EIN, HDT, TSD)`); return; }
+    if(![l.q, l.prix, l.eff, l.total, l.tva].every(isFinite) || l.q <= 0){ out.erreurs.push(`${lib} : nombres illisibles`); return; }
+    if(Math.abs(arr2(l.q * l.prix / f) - l.total) > 0.011){ out.erreurs.push(`${lib} : ${l.q} × ${fmt(l.prix)} / ${f} ≠ ${fmt(l.total)} — lecture du PDF douteuse`); return; }
+    if(!PO_IMPORT_TVA.includes(l.tva)){ out.erreurs.push(`${lib} : TVA ${l.tva} % refusée`); return; }
+    const unite = PO_IMPORT_UNITES[poNorm(l.ua).replace(/\s/g,'')] || 'u';
+    if(!PO_IMPORT_UNITES[poNorm(l.ua).replace(/\s/g,'')]) out.avert.push(`${lib} : unité « ${l.ua} » → « u »`);
+    const han = l.han && !l.desc.includes(l.han) ? ` (HAN ${l.han})` : '';
+    nets.push({l, unite, net: arr2(l.q * l.eff / f), exact: l.q * l.eff / f, remise: l.eff !== l.prix, desc: (l.desc + (l.suite.length ? ' ' + l.suite.join(' ') : '') + han).replace(/\s+/g,' ').trim().slice(0, 500)});
+  });
+  if(!a.lignes.length) out.erreurs.push("Aucune ligne d'article trouvée dans ce PDF.");
+  if(!a.totaux) out.erreurs.push('Totaux du PDF (« Total: » montant net, TVA, total) introuvables : contrôle impossible.');
+  if(out.erreurs.length) return out;
+  let somme = arr2(nets.reduce((t,x)=>t + x.net, 0));
+  const ecart = arr2(somme - a.totaux.ht);
+  if(Math.abs(ecart) > 0.001){
+    // la ligne dont l'arrondi a le plus « tiré » dans le sens de l'écart (ajustement le plus petit possible), à défaut la plus grosse
+    const remisees = nets.filter(x=>x.remise).sort((x,y)=>Math.sign(ecart)*((y.net - y.exact) - (x.net - x.exact)) || (y.net - x.net));
+    if(Math.abs(ecart) <= 0.05 && remisees.length){
+      remisees[0].net = arr2(remisees[0].net - ecart);
+      out.avert.push(`Arrondi de la remise du fournisseur : ${fmt(-ecart)} sur la position ${remisees[0].l.pos} pour que le total HT soit exactement ${fmt(a.totaux.ht)}`);
+      somme = a.totaux.ht;
+    } else { out.erreurs.push(`Total des lignes ${fmt(somme)} ≠ montant net du PDF ${fmt(a.totaux.ht)} : rien n'a été importé (envoyez ce PDF à l'administrateur de l'ERP)`); return out; }
+  }
+  nets.forEach(x=>{
+    let pu = Math.round(x.net / x.l.q * 1e6) / 1e6;
+    if(Math.abs(pu * x.l.q - x.net) > 1e-9) pu = Math.round(x.net / x.l.q * 1e4) / 1e4;
+    out.lignes.push({description: x.desc, reference_article: x.l.code, quantite: x.l.q, unite: x.unite, prix_unitaire_ht: pu, taux_tva: x.l.tva});
+  });
+  const tva = arr2(out.lignes.reduce((t,l)=>t + l.quantite * l.prix_unitaire_ht * l.taux_tva / 100, 0));
+  if(Math.abs(tva - a.totaux.tva) > 0.02) out.avert.push(`TVA calculée ${fmt(tva)} ≠ TVA du PDF ${fmt(a.totaux.tva)} : vérifiez`);
+  out.total = somme;
+  return out;
+}
+const PDF_FORMATS = [{nom:'Minusines', reconnait: txt => /MINUSINES/i.test(txt) && /Code article/.test(txt) && /Prix eff\./.test(txt), analyser: pdfAnalyserMinusines}];
+async function poImporterPdf(input){
+  const f = input && input.files && input.files[0]; if(input) input.value = '';
+  if(!f) return;
+  const b = el('po-pdf-btn'); if(b) b.style.opacity = '.6';
+  poAfficherImport('<i class="ti ti-loader"></i> Lecture du PDF « '+escHtml(f.name)+' »…', true);
+  try{
+    if(f.size > 15*1024*1024) throw new Error('PDF trop volumineux (15 Mo maximum)');
+    const pages = await pdfLignesTexte(new Uint8Array(await f.arrayBuffer()));
+    const texte = pages.flat().map(l=>l.it.map(i=>i.s).join(' ')).join('\n');
+    const fmtPdf = PDF_FORMATS.find(x=>x.reconnait(texte));
+    if(!fmtPdf){
+      poAfficherImport(`<i class="ti ti-alert-circle"></i> <strong>Format de PDF non reconnu</strong> (« ${escHtml(f.name)} »). Formats connus : ${PDF_FORMATS.map(x=>x.nom).join(', ')}. ${texte.trim() ? "Pour ajouter ce fournisseur, envoyez un exemple de ce PDF à l'administrateur de l'ERP ; en attendant, utilisez « Importer Excel »." : "Ce PDF ne contient pas de texte (document scanné) : utilisez « Importer Excel »."}`, false);
+      return;
+    }
+    const a = fmtPdf.analyser(pages), r = pdfVersLignesPO(a);
+    if(r.erreurs.length){
+      poAfficherImport(`<div><i class="ti ti-alert-circle"></i> <strong>Rien n'a été importé</strong> (« ${escHtml(f.name)} », ${escHtml(fmtPdf.nom)}).</div><ul style="margin:6px 0 0 18px">${r.erreurs.slice(0,12).map(x=>'<li>'+escHtml(x)+'</li>').join('')}</ul>`, false);
+      return;
+    }
+    const vide = l => !String(l.description||'').trim() && !String(l.reference_article||'').trim() && !(parseFloat(l.prix_unitaire_ht)>0);
+    const remplace = poLignes.every(vide);
+    poLignes = (remplace ? [] : poLignes.filter(l=>!vide(l))).concat(r.lignes);
+    renderPoLignes();
+    // fournisseur et observations, seulement s'ils sont encore vides
+    const sel = el('po-four'), four = (_foursActive||[]).find(x=>new RegExp(fmtPdf.nom, 'i').test(x.nom||''));
+    if(sel && !sel.value && four) sel.value = four.id;
+    const ref = `Confirmation ${fmtPdf.nom} n° ${a.doc}${a.date ? ' du ' + a.date.replace(/\./g,'/') : ''}`;
+    const obs = el('po-obs'); if(obs && !obs.value.trim() && a.doc) obs.value = ref;
+    const deja = a.doc ? (_pos||[]).filter(p=>String(p.observations||'').includes(a.doc)) : [];
+    poAfficherImport(`<div><i class="ti ti-circle-check"></i> <strong>${r.lignes.length} ligne${r.lignes.length>1?'s':''} importée${r.lignes.length>1?'s':''}</strong> — ${escHtml(ref)}${remplace?'':' (ajoutées après les lignes déjà saisies)'} — Total HT ${fmt(r.total)} = PDF, TTC du PDF ${fmt(a.totaux.ttc)}.${sel && four && String(sel.value)===String(four.id) ? '' : ' <strong>Choisissez le fournisseur.</strong>'} Vérifiez puis « Créer la commande ».</div>`
+      + (deja.length ? `<div style="color:var(--red);margin-top:4px"><i class="ti ti-alert-triangle"></i> Cette confirmation semble déjà importée : ${deja.map(p=>escHtml(p.numero)).join(', ')}</div>` : '')
+      + (r.avert.length ? `<ul style="margin:6px 0 0 18px;color:var(--orange)">${r.avert.map(x=>'<li>'+escHtml(x)+'</li>').join('')}</ul>` : ''), true);
+  }catch(e){
+    poAfficherImport('<i class="ti ti-alert-circle"></i> Lecture du PDF impossible : '+escHtml((e && e.message) || e)+'. Utilisez « Importer Excel » en attendant.', false);
+  }finally{ const b2 = el('po-pdf-btn'); if(b2) b2.style.opacity = ''; }
 }
 function poModeleImport(){
   if(typeof XLSX === 'undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
