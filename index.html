@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-20-42dee66"/>
+<meta name="lyneo-build" content="BUILD:2026-11-20-4c9d80f"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2867,7 +2867,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-20-42dee66';
+const APP_BUILD = 'BUILD:2026-11-20-4c9d80f';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -13127,6 +13127,7 @@ async function openClientDetail(clientId){
 
       ${tiaZone('client', client.id)}
 
+      <div id="cl-sites" style="margin-bottom:4px"></div>
       <strong style="font-size:13px">Chantiers liés (${chantiers.length})</strong>
       <div style="margin-top:8px;margin-bottom:20px">
         ${chantiers.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun chantier trouvé pour ce client</p>' :
@@ -13229,6 +13230,7 @@ async function openClientDetail(clientId){
     </div>
   </div></div>`);
   tiaMonter('client', client.id);
+  clSitesRendre(client.id);
 }
 // ── IMPORT EXCEL POUR DEVIS ───────────────────────────────────
 function _parseNumFR(v){
@@ -22028,6 +22030,7 @@ async function intTechsNoms(ids){
   try{ return await chargerParIds('employes_rh','id,nom,prenom,email,email_pro',ids); }catch(e){ try{ return await chargerParIds('employes_rh','id,nom,prenom,email',ids); }catch(e2){ return []; } }
 }
 async function openInterventionModal(r=null){
+  _intSitesPret = false;
   const isEdit = !!(r && r.id);
   await intChargerLignes(r);          // lignes propres de l'intervention (état de l'éditeur) ; sans effet sans le script SQL
   const [{data:clientsData},{data:employesData},{data:devisData},{data:centresData},{data:devisPris}] = await Promise.all([
@@ -22071,7 +22074,10 @@ async function openInterventionModal(r=null){
         <div class="form-group full"><label class="field-label">Adresse du client (siège)</label>
           <div style="display:flex;gap:6px"><input id="int-adresse-client" style="flex:1" value="${escHtml(r?.adresse_client||'')}"/>
             <button type="button" class="btn btn-secondary" id="int-adresse-reprendre" onclick="reprendreAdresseClientIntervention()" title="Remplace cette adresse par l'adresse complète de la fiche du client (rue, code postal, ville)"><i class="ti ti-refresh"></i> Fiche client</button></div></div>
-        <div class="form-group"><label class="field-label">Nom du site d'intervention</label><input id="int-nom-site" value="${escHtml(r?.nom_site||'')}" placeholder="Ex: Entrepôt, Magasin Belval..."/></div>
+        <div class="form-group"><label class="field-label">Site d'intervention<span id="int-site-etoile" style="display:none"> *</span></label>
+          <select id="int-site" data-ordre="fixe" style="display:none" onchange="intSiteChoisi()"></select>
+          <input id="int-nom-site" value="${escHtml(r?.nom_site||'')}" placeholder="Ex: Entrepôt, Magasin Belval..."/>
+          <div id="int-site-note" style="display:none;font-size:11.5px;color:var(--gray-5);margin-top:3px"></div></div>
         <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${escHtml(r?.adresse_site||'')}"/></div>
         <div class="form-group full"><label class="field-label">Devis lié (la facture reprendra les lignes du devis)</label>
           <select id="int-devis" data-ordre="fixe" data-had="${r&&r.devis_id!==undefined?'1':''}" onchange="prefillDepuisDevisIntervention()">
@@ -22080,7 +22086,7 @@ async function openInterventionModal(r=null){
           </select>
         </div>
         <div class="form-group full"><label class="field-label">Centre de coûts SAV</label>
-          <select id="int-centre" data-had="${r&&r.chantier_id!==undefined?'1':''}">
+          <select id="int-centre" data-had="${r&&r.chantier_id!==undefined?'1':''}" onchange="intCentreChange()">
             <option value="">— Aucun —</option>
             ${centresOpts}
           </select>
@@ -22137,6 +22143,8 @@ async function openInterventionModal(r=null){
   prefillCentreIntervention();
   intRendreLignes();
   intTechMajMails();
+  _intSiteInit = {site_id: r && r.site_id ? String(r.site_id) : '', nom: (r && r.nom_site) || '', adresse: (r && r.adresse_site) || ''};
+  await intSitesCharger(true); _intSitesPret = true;
 }
 
 // Depuis un devis : ouvre le formulaire d'intervention déjà rempli (client, description, devis lié)
@@ -22168,6 +22176,180 @@ function reprendreAdresseClientIntervention(){
   el('int-adresse-client').value = opt.dataset.adresse;
 }
 
+// ── SITES D'INTERVENTION (20/11/2026) ─────────────────────────────────────────────────────────────
+let _sitesOk = null, _intSites = [], _intSiteInit = null, _intSitesPret = false;
+async function sitesDispo(){
+  if(_sitesOk === null){ try{ const t = await sb.from('sites_client').select('id').limit(1); _sitesOk = !t.error; }catch(e){ _sitesOk = false; } }
+  return _sitesOk;
+}
+const siteCle = t => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/œ/g,'oe').replace(/æ/g,'ae').replace(/\s+/g,' ').trim();
+async function sitesDuClient(clientId){
+  if(!clientId || !(await sitesDispo())) return [];
+  const r = await sb.from('sites_client').select('id,client_id,nom,adresse,actif').eq('client_id', clientId);
+  return r.error ? [] : (r.data || []).sort((a,b)=>String(a.nom).localeCompare(String(b.nom), 'fr', {sensitivity:'base'}));
+}
+// Le centre choisi est celui d'un seul client (SAV 2 Delhaize, SAV 3 Esch) → le site est obligatoire
+function intSiteOblige(){ const c = el('int-centre'); const o = c && c.options[c.selectedIndex]; return !!(o && o.value && o.dataset.client); }
+function intSiteEtoile(){ const e = el('int-site-etoile'); if(e) e.style.display = intSiteOblige() ? '' : 'none'; }
+// Centre choisi avant le client : le client du centre est repris (SAV 2 → DELHAIZE)
+function intCentreChange(){
+  const c = el('int-centre'), o = c && c.options[c.selectedIndex], cl = el('int-client');
+  if(o && o.dataset.client && cl && !cl.value && Array.from(cl.options).some(x=>x.value===o.dataset.client)){ cl.value = o.dataset.client; prefillClientIntervention(); }
+  intSiteEtoile();
+}
+// Remplit la liste des sites du client choisi. init = ouverture du formulaire (reprend le site de l'intervention)
+async function intSitesCharger(init){
+  intSiteEtoile();
+  const sel = el('int-site'), nom = el('int-nom-site'), note = el('int-site-note'), clientId = el('int-client') ? el('int-client').value : '';
+  if(!sel || !nom) return;
+  const ok = await sitesDispo();
+  if(!ok || !clientId){
+    sel.style.display = 'none'; nom.style.display = ''; _intSites = [];
+    if(note){ note.style.display = (!ok && _sitesOk === false) ? '' : 'none'; note.textContent = "Liste des sites : exécutez " + SQL_SITES + " dans Supabase (en attendant, écrivez le nom du site)."; }
+    return;
+  }
+  // texte déjà écrit à la main (avant de choisir le client, ou « Nouveau site ») : gardé, et reconnu s'il existe dans la liste du client
+  const tape = (!init && nom.style.display !== 'none' && nom.value.trim()) ? {site_id:'', nom: nom.value, adresse: (el('int-adresse-site')||{}).value || ''} : null;
+  const liste = await sitesDuClient(clientId);
+  if(!el('int-site') || (el('int-client') && el('int-client').value !== clientId)) return;      // formulaire fermé ou client changé entre-temps
+  _intSites = liste;
+  const ini = init && _intSiteInit ? _intSiteInit : tape;
+  let choix = '';
+  if(ini && ini.site_id && liste.some(x=>String(x.id)===ini.site_id)) choix = ini.site_id;
+  else if(ini && siteCle(ini.nom)){ const m = liste.find(x=>siteCle(x.nom)===siteCle(ini.nom)); choix = m ? String(m.id) : '__nouveau'; }
+  const visibles = liste.filter(x=>x.actif !== false || String(x.id) === choix);
+  sel.innerHTML = `<option value="">— Choisir un site —</option>${visibles.map(x=>`<option value="${escHtml(String(x.id))}">${escHtml(x.nom)}${x.actif === false ? ' (désactivé)' : ''}</option>`).join('')}<option value="__nouveau">＋ Nouveau site…</option>`;
+  sel.value = choix; sel.style.display = '';
+  if(note){ note.style.display = ''; note.textContent = liste.length ? 'Sites de ce client : choisissez-le dans la liste (« ＋ Nouveau site… » s’il n’y est pas).' : 'Aucun site enregistré pour ce client : « ＋ Nouveau site… ».'; }
+  if(!init && !tape){ nom.value = ''; if(el('int-adresse-site')) el('int-adresse-site').value = ''; }
+  intSiteChoisi(true);
+}
+function intSiteChoisi(garderTexte){
+  const sel = el('int-site'), nom = el('int-nom-site'), adr = el('int-adresse-site'); if(!sel || !nom) return;
+  const v = sel.value, s = _intSites.find(x=>String(x.id) === v);
+  if(s){ nom.value = s.nom; nom.style.display = 'none'; if(adr && (!garderTexte || !adr.value.trim())) adr.value = s.adresse || ''; }
+  else if(v === '__nouveau'){ nom.style.display = ''; nom.placeholder = 'Nom du nouveau site (ex : Delhaize Junglinster)'; if(!garderTexte){ nom.value = ''; if(adr) adr.value = ''; nom.focus(); } }
+  else { nom.style.display = 'none'; if(!garderTexte){ nom.value = ''; if(adr) adr.value = ''; } }
+}
+// Au moment d'enregistrer : {site_id} (créé si « Nouveau site »), ou {erreur}
+async function intSiteResoudre(clientId){
+  const nomTxt = ((el('int-nom-site')||{}).value || '').replace(/\s+/g,' ').trim(), adrTxt = ((el('int-adresse-site')||{}).value || '').trim();
+  const oblige = intSiteOblige(), sel = el('int-site');
+  if(!_sitesOk || !sel || sel.style.display === 'none'){
+    if(oblige && !nomTxt) return {erreur: "Site d'intervention obligatoire pour ce centre SAV : indiquez le lieu de l'intervention."};
+    return {};
+  }
+  const v = sel.value;
+  if(!v){ return oblige ? {erreur: "Choisissez le site d'intervention (ou « ＋ Nouveau site… »)."} : {site_id: null}; }
+  if(v !== '__nouveau'){
+    const s = _intSites.find(x=>String(x.id) === v);
+    if(s && adrTxt && !String(s.adresse||'').trim()){ try{ await sb.from('sites_client').update({adresse: adrTxt}).eq('id', s.id); s.adresse = adrTxt; }catch(e){} }   // adresse qui manquait au site
+    return {site_id: v};
+  }
+  if(!nomTxt) return {erreur: 'Écrivez le nom du nouveau site.'};
+  const deja = _intSites.find(x=>siteCle(x.nom) === siteCle(nomTxt));
+  if(deja) return {site_id: String(deja.id), info: `Le site « ${deja.nom} » existait déjà : il a été repris (pas de doublon).`};
+  const r = await sb.from('sites_client').insert({client_id: clientId, nom: nomTxt, adresse: adrTxt, cree_par: (currentUser && currentUser.id) || null}).select('id,client_id,nom,adresse,actif').single();
+  if(r.error){
+    const l = await sitesDuClient(clientId), m = l.find(x=>siteCle(x.nom) === siteCle(nomTxt));     // créé entre-temps par un collègue (index unique)
+    if(m) return {site_id: String(m.id), info: `Le site « ${m.nom} » existait déjà : il a été repris (pas de doublon).`};
+    return {erreur: 'Le site n’a pas pu être créé : ' + (r.error.message || r.error)};
+  }
+  _intSites.push(r.data);
+  return {site_id: String(r.data.id), info: `Nouveau site « ${r.data.nom} » ajouté à la liste du client.`};
+}
+const SQL_SITES = 'migration-sites-intervention.sql';
+
+// ── Fiche client → « Sites d'intervention » ──
+async function clSitesRendre(clientId){
+  const z = el('cl-sites'); if(!z) return;
+  if(!(await sitesDispo())){ z.innerHTML = `<p style="font-size:12px;color:var(--gray-5)"><i class="ti ti-map-pin"></i> Sites d'intervention : exécutez ${escHtml(SQL_SITES)} dans Supabase pour gérer la liste des sites de ce client.</p>`; return; }
+  const [sites, ivR] = await Promise.all([sitesDuClient(clientId), sb.from('interventions_sav').select('id,site_id').eq('client_id', clientId)]);
+  const nb = {}; ((ivR && ivR.data) || []).forEach(i=>{ if(i.site_id) nb[String(i.site_id)] = (nb[String(i.site_id)]||0) + 1; });
+  if(!el('cl-sites')) return;
+  const td = 'padding:7px 10px;border-bottom:1px solid var(--gray-2)';
+  z.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong style="font-size:13px">Sites d'intervention (${sites.filter(x=>x.actif!==false).length})</strong>
+      <button type="button" class="btn btn-secondary btn-sm" id="cl-site-ajouter" onclick="clSiteForm('${escHtml(String(clientId))}','')"><i class="ti ti-plus"></i> Ajouter un site</button></div>
+    <div id="cl-site-form"></div>
+    <div style="margin-top:8px;margin-bottom:20px">${sites.length===0 ? '<p style="font-size:13px;color:var(--gray-4)">Aucun site enregistré</p>' :
+    `<table style="width:100%;border-collapse:collapse"><tbody>${sites.map(x=>`<tr data-site="${escHtml(String(x.id))}" style="${x.actif===false?'opacity:.55':''}">
+      <td style="${td}"><strong>${escHtml(x.nom)}</strong>${x.actif===false?' <span class="badge" style="font-size:10px">désactivé</span>':''}</td>
+      <td style="${td};color:var(--gray-6)">${escHtml(x.adresse||'—')}</td>
+      <td style="${td};white-space:nowrap;color:var(--gray-5)">${nb[String(x.id)]||0} interv.</td>
+      <td style="${td};white-space:nowrap;text-align:right">
+        <button type="button" class="btn btn-ghost btn-sm" title="Modifier" data-site-modifier onclick="clSiteForm('${escHtml(String(clientId))}','${escHtml(String(x.id))}')"><i class="ti ti-edit"></i></button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Fusionner avec un autre site (faute de frappe, doublon)" data-site-fusionner onclick="clSiteFusion('${escHtml(String(clientId))}','${escHtml(String(x.id))}')"><i class="ti ti-arrows-join"></i></button>
+        <button type="button" class="btn btn-ghost btn-sm" title="${x.actif===false?'Réactiver':'Désactiver (n’est plus proposé)'}" data-site-actif onclick="clSiteActif('${escHtml(String(clientId))}','${escHtml(String(x.id))}',${x.actif===false?'true':'false'})"><i class="ti ti-${x.actif===false?'eye':'eye-off'}"></i></button>
+      </td></tr>`).join('')}</tbody></table>`}</div>`;
+  window._clSites = sites; window._clSitesNb = nb;
+}
+function clSiteForm(clientId, siteId){
+  const f = el('cl-site-form'); if(!f) return;
+  const s = (window._clSites||[]).find(x=>String(x.id)===String(siteId)) || {nom:'', adresse:''};
+  f.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;padding:8px;border:1px solid var(--gray-3);border-radius:var(--radius-sm)">
+    <input id="cl-site-nom" style="flex:1 1 200px" placeholder="Nom du site (ex : Delhaize Junglinster)" value="${escHtml(s.nom)}"/>
+    <input id="cl-site-adr" style="flex:2 1 280px" placeholder="Adresse complète" value="${escHtml(s.adresse||'')}"/>
+    <button type="button" class="btn btn-primary btn-sm" id="cl-site-ok" onclick="clSiteEnregistrer('${escHtml(String(clientId))}','${escHtml(String(siteId||''))}')"><i class="ti ti-check"></i> Enregistrer</button>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="el('cl-site-form').innerHTML=''">Annuler</button></div>`;
+  const i = el('cl-site-nom'); if(i) i.focus();
+}
+async function clSiteEnregistrer(clientId, siteId){
+  const nom = ((el('cl-site-nom')||{}).value||'').replace(/\s+/g,' ').trim(), adr = ((el('cl-site-adr')||{}).value||'').trim();
+  if(!nom){ showToast('Nom du site obligatoire', 'error'); return; }
+  const autres = await sitesDuClient(clientId), double = autres.find(x=>String(x.id)!==String(siteId) && siteCle(x.nom)===siteCle(nom));
+  if(double){ showToast(`Le site « ${double.nom} » existe déjà pour ce client${siteId ? ' : utilisez « Fusionner »' : ''}`, 'error'); return; }
+  if(!siteId){
+    const r = await sb.from('sites_client').insert({client_id: clientId, nom, adresse: adr, cree_par: (currentUser && currentUser.id) || null}).select('id').single();
+    if(r.error){ showToast('Erreur : '+(r.error.message||r.error), 'error'); return; }
+    showToast('Site ajouté : '+nom);
+  } else {
+    const avant = autres.find(x=>String(x.id)===String(siteId)) || {};
+    const r = await sb.from('sites_client').update({nom, adresse: adr}).eq('id', siteId).select('id');
+    if(r.error || !(r.data||[]).length){ showToast('Modification refusée'+(r.error ? ' : '+(r.error.message||r.error) : ' (droits insuffisants)'), 'error'); return; }
+    // les interventions de ce site prennent le nom corrigé ; l'adresse aussi quand elles avaient celle du site (ou rien)
+    let nbI = 0;
+    try{
+      const u = await sb.from('interventions_sav').update({nom_site: nom}).eq('site_id', siteId).select('id'); nbI = (u.data||[]).length;
+      if(adr !== String(avant.adresse||'')){
+        await sb.from('interventions_sav').update({adresse_site: adr}).eq('site_id', siteId).eq('adresse_site', String(avant.adresse||''));
+        if(String(avant.adresse||'')) await sb.from('interventions_sav').update({adresse_site: adr}).eq('site_id', siteId).eq('adresse_site', '');
+      }
+    }catch(e){}
+    showToast('Site modifié'+(nbI ? ` — ${nbI} intervention${nbI>1?'s':''} mise${nbI>1?'s':''} à jour` : ''));
+  }
+  await clSitesRendre(clientId);
+}
+async function clSiteActif(clientId, siteId, actif){
+  const r = await sb.from('sites_client').update({actif}).eq('id', siteId).select('id');
+  if(r.error || !(r.data||[]).length){ showToast('Modification refusée'+(r.error ? ' : '+(r.error.message||r.error) : ''), 'error'); return; }
+  showToast(actif ? 'Site réactivé' : 'Site désactivé : il n’est plus proposé dans les interventions (les anciennes le gardent)');
+  await clSitesRendre(clientId);
+}
+function clSiteFusion(clientId, siteId){
+  const f = el('cl-site-form'); if(!f) return;
+  const sites = window._clSites||[], s = sites.find(x=>String(x.id)===String(siteId)); if(!s) return;
+  const autres = sites.filter(x=>String(x.id)!==String(siteId));
+  if(!autres.length){ showToast('Aucun autre site avec lequel fusionner', 'error'); return; }
+  const n = (window._clSitesNb||{})[String(siteId)]||0;
+  f.innerHTML = `<div style="margin-top:8px;padding:8px;border:1px solid var(--orange);border-radius:var(--radius-sm);font-size:13px">
+    <div>Fusionner « <strong>${escHtml(s.nom)}</strong> » (${n} intervention${n>1?'s':''}) dans :</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><select id="cl-site-cible" style="flex:1 1 220px"><option value="">— Site à garder —</option>${autres.map(x=>`<option value="${escHtml(String(x.id))}">${escHtml(x.nom)}</option>`).join('')}</select>
+    <button type="button" class="btn btn-primary btn-sm" id="cl-site-fusion-ok" onclick="clSiteFusionner('${escHtml(String(clientId))}','${escHtml(String(siteId))}')"><i class="ti ti-arrows-join"></i> Fusionner</button>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="el('cl-site-form').innerHTML=''">Annuler</button></div>
+    <div style="font-size:12px;color:var(--gray-6);margin-top:4px">Les interventions de « ${escHtml(s.nom)} » passent au site gardé (nom et adresse corrigés), puis « ${escHtml(s.nom)} » est supprimé.</div></div>`;
+}
+async function clSiteFusionner(clientId, sourceId){
+  const cibleId = ((el('cl-site-cible')||{}).value)||'';
+  if(!cibleId){ showToast('Choisissez le site à garder', 'error'); return; }
+  const sites = await sitesDuClient(clientId), src = sites.find(x=>String(x.id)===String(sourceId)), cib = sites.find(x=>String(x.id)===String(cibleId));
+  if(!src || !cib){ showToast('Site introuvable (déjà fusionné ?)', 'error'); await clSitesRendre(clientId); return; }
+  const u = await sb.from('interventions_sav').update({site_id: cib.id, nom_site: cib.nom, adresse_site: cib.adresse||''}).eq('site_id', src.id).select('id');
+  if(u.error){ showToast('Fusion impossible : '+(u.error.message||u.error), 'error'); return; }
+  const d = await sb.from('sites_client').delete().eq('id', src.id).select('id');
+  if(d.error || !(d.data||[]).length){ showToast('Interventions déplacées vers « '+cib.nom+' », mais « '+src.nom+' » n’a pas pu être supprimé'+(d.error ? ' : '+(d.error.message||d.error) : ' (droits)')+' — désactivez-le.', 'error'); }
+  else showToast(`« ${src.nom} » fusionné dans « ${cib.nom} » — ${(u.data||[]).length} intervention${(u.data||[]).length>1?'s':''} corrigée${(u.data||[]).length>1?'s':''}`);
+  await clSitesRendre(clientId);
+}
 function prefillClientIntervention(){
   intLignesApresClient();             // prix et TVA des lignes suivent le nouveau client
   const sel = el('int-client');
@@ -22178,6 +22360,7 @@ function prefillClientIntervention(){
   if(!el('int-adresse-client').value) el('int-adresse-client').value = opt.dataset.adresse||'';
   filtrerDevisIntervention();
   prefillCentreIntervention();
+  if(_intSitesPret) intSitesCharger(false);
 }
 
 // N'affiche dans la liste des devis que ceux du client choisi
@@ -22248,6 +22431,9 @@ async function saveIntervention(id){
   let idFiche = id || null;
   const clientId = el('int-client').value;
   if(!clientId){ showToast("Client obligatoire", 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
+  const siteR = await intSiteResoudre(clientId);
+  if(siteR.erreur){ showToast(siteR.erreur, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; const s=el('int-site'); if(s && s.style.display!=='none') s.focus(); else { const n=el('int-nom-site'); if(n) n.focus(); } return; }
+  if(siteR.info) showToast(siteR.info);
   const dateIntervention = intDateLire();
   if(dateIntervention.erreur){ showToast(dateIntervention.erreur, 'error'); const b=el('btn-save-int'); if(b) b.disabled=false; return; }
   // Lignes de l'intervention : validées AVANT d'écrire quoi que ce soit (rien n'est enregistré à moitié). Avec un devis lié, les lignes propres ne sont pas touchées.
@@ -22265,6 +22451,7 @@ async function saveIntervention(id){
     adresse_client: el('int-adresse-client').value,
     nom_site: el('int-nom-site').value,
     adresse_site: el('int-adresse-site').value,
+    ...('site_id' in siteR ? {site_id: siteR.site_id || null} : {}),
     description: el('int-description').value,
     date_intervention: dateIntervention.iso,
     technicien_id: el('int-technicien-id').value||null,
