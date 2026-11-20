@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-20-eb21021"/>
+<meta name="lyneo-build" content="BUILD:2026-11-20-c37f7ac"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2867,7 +2867,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-20-eb21021';
+const APP_BUILD = 'BUILD:2026-11-20-c37f7ac';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7383,8 +7383,14 @@ async function openNewPO(){
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <strong style="font-size:13px">Lignes de commande</strong>
-        <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <label class="btn btn-secondary btn-sm" for="po-import-fichier" id="po-import-btn" style="cursor:pointer" title="Colonnes : Description *, Référence, Qté, Unité, P.U. HT €, TVA %, Total HT"><i class="ti ti-file-spreadsheet"></i> Importer Excel</label>
+          <input type="file" id="po-import-fichier" accept=".xlsx,.xls,.csv" onchange="poImporterFichier(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"/>
+          <button type="button" class="btn btn-ghost btn-sm" id="po-import-modele" onclick="poModeleImport()" title="Fichier Excel vide avec les bonnes colonnes"><i class="ti ti-download"></i> Modèle</button>
+          <button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>
+        </div>
       </div>
+      <div id="po-import-res" style="display:none;margin-bottom:10px"></div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%"><table class="lignes-table" style="min-width:580px" id="lignes-table">
         <thead><tr><th style="min-width:180px">Description *</th><th style="width:100px">Référence</th><th style="width:70px">Qté</th><th style="width:75px">Unité</th><th style="width:100px">P.U. HT €</th><th style="width:65px">TVA %</th><th style="width:100px;text-align:right">Total HT</th><th style="width:30px"></th></tr></thead>
         <tbody id="lignes-body"></tbody>
@@ -7428,6 +7434,127 @@ function renderPoLignes(){
     <div class="totaux-row ttc"><span>TOTAL TTC</span><span>${fmt(totalHT+totalTVA)}</span></div>`;
 }
 
+// ── IMPORT EXCEL DES LIGNES D'UNE COMMANDE (20/11/2026) ─────────────────────────────────────────────────────────
+// Colonnes reconnues par leur titre (ordre libre, majuscules/accents ignorés). Une ligne n'est importée que si TOUT le fichier est correct :
+// sinon la liste des problèmes s'affiche et rien ne change dans le formulaire.
+const PO_IMPORT_UNITES = {u:'u',un:'u',unite:'u',st:'u',stk:'u',stuck:'u',pce:'u',pc:'u',pcs:'u',piece:'u',pieces:'u',ea:'u',
+  m:'m',mtr:'m',ml:'m',metre:'m',metres:'m',m2:'m2','m²':'m2',m3:'m3','m³':'m3',kg:'kg',h:'h',heure:'h',heures:'h',forfait:'forfait',ff:'forfait',fft:'forfait'};
+const PO_IMPORT_TVA = [17,14,8,3,0];
+const poNorm = t => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9²³%]+/g,' ').trim();
+// « 1.414,40 », « 1 414,40 », « 1,7669 », 1.7669, « 35,34 € » → nombre ; '' → null ; texte → NaN
+function poNombre(v){
+  if(v === null || v === undefined) return null;
+  if(typeof v === 'number') return isFinite(v) ? v : NaN;
+  let t = String(v).replace(/[\s  €]/g,'');
+  if(!t) return null;
+  if(/,/.test(t)) t = t.replace(/\./g,'').replace(',', '.');
+  else if(/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g,'');
+  return /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : NaN;
+}
+function poColonnesImport(entete){
+  const col = {};
+  entete.forEach((h, i)=>{
+    const n = poNorm(h);
+    if(!n) return;
+    if(col.desc === undefined && /^(description|designation|denomination|libelle|article)\b/.test(n)) col.desc = i;
+    else if(col.ref === undefined && /^(reference|ref|code article|code)\b/.test(n)) col.ref = i;
+    else if(col.qte === undefined && /^(qte|quantite|qty|quantity)\b/.test(n)) col.qte = i;
+    else if(col.unite === undefined && /^(unite|ua|unit)\b/.test(n)) col.unite = i;
+    else if(col.pu === undefined && /^(p u|pu|prix unitaire|prix)\b/.test(n)) col.pu = i;
+    else if(col.tva === undefined && /^(tva|taux tva|vat)\b/.test(n)) col.tva = i;
+    else if(col.total === undefined && /^(total|montant)\b/.test(n)) col.total = i;
+  });
+  return col;
+}
+// Analyse sans rien modifier : rows = tableau de lignes (1re feuille). Renvoie {lignes, erreurs, avert, total}
+function poAnalyserImport(rows){
+  const res = {lignes:[], erreurs:[], avert:[], total:0};
+  let k = -1, col = null;
+  for(let i = 0; i < Math.min(rows.length, 15); i++){ const c = poColonnesImport(rows[i] || []); if(c.desc !== undefined && c.qte !== undefined && c.pu !== undefined){ k = i; col = c; break; } }
+  if(k < 0){ res.erreurs.push("Colonnes non trouvées : il faut au moins « Description », « Qté » et « P.U. HT € » (téléchargez le modèle)."); return res; }
+  const cel = (r, c) => c === undefined ? '' : r[c];
+  for(let i = k + 1; i < rows.length; i++){
+    const r = rows[i] || [], n = i + 1;
+    const desc = String(cel(r, col.desc) == null ? '' : cel(r, col.desc)).replace(/\s+/g,' ').trim();
+    const q = poNombre(cel(r, col.qte)), pu = poNombre(cel(r, col.pu));
+    const vide = !desc && q === null && pu === null && !String(cel(r, col.ref) == null ? '' : cel(r, col.ref)).trim();
+    if(vide) continue;
+    if(!desc && /^total/i.test(String(cel(r, col.ref)||'') + String(cel(r, col.qte)||''))) continue;
+    if(!desc){ res.erreurs.push(`Ligne ${n} : description vide`); continue; }
+    if(q === null || isNaN(q) || q <= 0){ res.erreurs.push(`Ligne ${n} (${desc.slice(0,40)}) : quantité absente ou invalide`); continue; }
+    if(pu === null || isNaN(pu) || pu < 0){ res.erreurs.push(`Ligne ${n} (${desc.slice(0,40)}) : P.U. HT absent ou invalide`); continue; }
+    const uBrut = String(cel(r, col.unite) == null ? '' : cel(r, col.unite)).trim();
+    let unite = uBrut ? PO_IMPORT_UNITES[poNorm(uBrut).replace(/\s/g,'')] : 'u';
+    if(!unite){ unite = 'u'; res.avert.push(`Ligne ${n} : unité « ${uBrut} » inconnue → « u »`); }
+    let tva = poNombre(cel(r, col.tva));
+    if(tva === null) tva = 17;
+    else if(!isNaN(tva) && tva > 0 && tva < 1) tva = Math.round(tva * 100);
+    if(isNaN(tva) || !PO_IMPORT_TVA.includes(tva)){ res.erreurs.push(`Ligne ${n} (${desc.slice(0,40)}) : TVA « ${cel(r, col.tva)} » refusée (17, 14, 8, 3 ou 0)`); continue; }
+    const calc = Math.round(q * pu * 100) / 100, tot = poNombre(cel(r, col.total));
+    if(tot !== null && !isNaN(tot) && Math.abs(tot - calc) > 0.011){
+      res.erreurs.push(`Ligne ${n} (${desc.slice(0,40)}) : Total HT ${fmt(tot)} ≠ Qté × P.U. = ${fmt(calc)} — prix du fournisseur « par 100 » ou « par 1000 » non converti ?`); continue; }
+    // P.U. arrondi par le fournisseur (ex. 176,69 « par 100 » → 1,7669 ; 20 × 1,7669 = 35,338) : on prend Total ÷ Qté quand il tombe juste,
+    // pour que chaque ligne et le total de la commande soient au centime ceux du document du fournisseur
+    let puF = pu;
+    if(tot !== null && !isNaN(tot) && Math.abs(q * pu - tot) > 1e-9){
+      const p2 = Math.round(tot / q * 1e6) / 1e6;
+      if(Math.abs(q * p2 - tot) < 1e-9 && Math.abs(p2 - pu) < 0.01){ puF = p2; res.avert.push(`Ligne ${n} : P.U. ${String(pu).replace('.', ',')} → ${String(p2).replace('.', ',')} pour que le total soit exactement ${fmt(tot)}, comme sur le document du fournisseur`); }
+    }
+    res.lignes.push({description: desc.slice(0, 500), reference_article: String(cel(r, col.ref) == null ? '' : cel(r, col.ref)).trim().slice(0, 100), quantite: q, unite, prix_unitaire_ht: puF, taux_tva: tva});
+    res.total += calc;
+  }
+  res.total = Math.round(res.total * 100) / 100;
+  if(!res.lignes.length && !res.erreurs.length) res.erreurs.push('Aucune ligne trouvée sous les titres de colonnes.');
+  return res;
+}
+function poAfficherImport(html, ok){
+  const z = el('po-import-res'); if(!z) return;
+  z.style.display = ''; z.className = 'alert ' + (ok ? 'alert-success' : 'alert-error');
+  z.innerHTML = html;
+}
+function poImporterFichier(input){
+  const f = input && input.files && input.files[0]; if(input) input.value = '';
+  if(!f) return;
+  if(typeof XLSX === 'undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
+  const lecteur = new FileReader();
+  lecteur.onload = e => {
+    let rows;
+    try{
+      const octets = new Uint8Array(e.target.result);
+      let wb;
+      if(/\.(csv|txt)$/i.test(f.name)){            // CSV : séparateur « ; » (Excel français) ou « , » ; UTF-8, sinon Windows-1252
+        let texte = new TextDecoder('utf-8').decode(octets);
+        if(texte.includes('\uFFFD')) texte = new TextDecoder('windows-1252').decode(octets);
+        texte = texte.replace(/^\uFEFF/, '');
+        const l1 = texte.split(/\r?\n/)[0] || '';
+        wb = XLSX.read(texte, {type:'string', FS: (l1.split(';').length >= l1.split(',').length) ? ';' : ',', raw:true});
+      } else wb = XLSX.read(octets, {type:'array'});
+      const nom = wb.SheetNames.find(x=>poNorm(x)==='lignes') || wb.SheetNames[0];
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[nom], {header:1, raw:true, defval:''});
+    }catch(err){ poAfficherImport('<i class="ti ti-alert-circle"></i> Fichier illisible : '+escHtml(err.message||err), false); return; }
+    const r = poAnalyserImport(rows);
+    if(r.erreurs.length){
+      poAfficherImport(`<div><i class="ti ti-alert-circle"></i> <strong>Rien n'a été importé</strong> (« ${escHtml(f.name)} ») : corrigez le fichier puis recommencez.</div><ul style="margin:6px 0 0 18px">${r.erreurs.slice(0,12).map(x=>'<li>'+escHtml(x)+'</li>').join('')}${r.erreurs.length>12?'<li>… et '+(r.erreurs.length-12)+' autre(s)</li>':''}</ul>`, false);
+      return;
+    }
+    const vide = l => !String(l.description||'').trim() && !String(l.reference_article||'').trim() && !(parseFloat(l.prix_unitaire_ht)>0);
+    const remplace = poLignes.every(vide);
+    poLignes = (remplace ? [] : poLignes.filter(l=>!vide(l))).concat(r.lignes.map(l=>Object.assign({}, l)));
+    renderPoLignes();
+    poAfficherImport(`<div><i class="ti ti-circle-check"></i> <strong>${r.lignes.length} ligne${r.lignes.length>1?'s':''} importée${r.lignes.length>1?'s':''}</strong> de « ${escHtml(f.name)} »${remplace?'':' (ajoutées après les lignes déjà saisies)'} — Total HT ${fmt(r.total)}. Vérifiez puis « Créer la commande ».</div>`
+      + (r.avert.length ? `<ul style="margin:6px 0 0 18px;color:var(--orange)">${r.avert.map(x=>'<li>'+escHtml(x)+'</li>').join('')}</ul>` : ''), true);
+  };
+  lecteur.onerror = () => poAfficherImport('<i class="ti ti-alert-circle"></i> Lecture du fichier impossible', false);
+  lecteur.readAsArrayBuffer(f);
+}
+function poModeleImport(){
+  if(typeof XLSX === 'undefined'){ showToast("La librairie Excel n'a pas pu être chargée — vérifiez votre connexion", 'error'); return; }
+  const ws = XLSX.utils.aoa_to_sheet([["Description *","Référence","Qté","Unité","P.U. HT €","TVA %","Total HT"],
+    ["Exemple : câble NHXMH-J 5G6 (à remplacer)","1130157",15,"m",8.5983,17,{f:'ROUND(C2*E2,2)'}]]);
+  ws['!cols'] = [{wch:60},{wch:12},{wch:8},{wch:8},{wch:11},{wch:7},{wch:11}];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Lignes');
+  XLSX.writeFile(wb, 'Modele-lignes-commande.xlsx');
+}
 function updLigne(i,k,v){ poLignes[i][k]=v; renderPoLignes(); if(k==='reference_article') proposerDescriptionReference(poLignes, i, (el('po-four')||{}).value, renderPoLignes, {unites:['u','m','m2','m3','kg','h','forfait']}); }
 function addPoLigne(){ poLignes.push({description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}); renderPoLignes(); focusDerniereLigne('lignes-body'); }
 function delLigne(i){ poLignes.splice(i,1); renderPoLignes(); }
@@ -21554,6 +21681,13 @@ function savCelluleDate(i){
   if(i.created_at && !isNaN(new Date(i.created_at))) return `<td style="white-space:nowrap;color:var(--gray-5)" title="Aucune date d'intervention : date de création">${fmtDate(i.created_at)}<div style="font-size:11.5px">création</div></td>`;
   return '<td>—</td>';
 }
+// Objet d'une intervention dans la liste : 1re ligne non vide de la description, sinon l'objet du devis lié ; {court, complet}
+function savObjet(i, dv){
+  const desc = String((i && i.description) || '').trim();
+  const src = desc || String((dv && (dv.objet_court || dv.objet)) || '').trim();
+  const ligne = (src.split(/\r?\n/).map(x=>x.trim()).find(Boolean) || '').replace(/\s+/g, ' ');
+  return {court: ligne.length > 80 ? ligne.slice(0, 79).trim() + '…' : ligne, complet: src};
+}
 async function renderInterventionsSAV(search='', filterStatut='encours'){
   await tracChargerUtilisateurs();
   const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
@@ -21612,7 +21746,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
   if(search){
     const q = search.toLowerCase();
-    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresLib[i.chantier_id]||'')+(devisMap[i.devis_id]?.numero||'')).toLowerCase().includes(q));
+    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresLib[i.chantier_id]||'')+(devisMap[i.devis_id]?.numero||'')+' '+(i.description||'')+' '+(devisMap[i.devis_id]?.objet||'')).toLowerCase().includes(q));
   }
 
   const carteCentre = (c)=>{
@@ -21653,7 +21787,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="page-header">
       <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
       <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${escHtml(search)}"/></div>
+        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, objet, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${escHtml(search)}"/></div>
         ${btnExport('interventions_sav')}
         <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
         <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
@@ -21670,19 +21804,19 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="interventions_sav">
-          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Devis</th><th>Centre</th><th>Statut</th><th>Paiement</th><th>Astreinte</th><th>Créé par</th><th>Actions</th></tr></thead>
+          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Objet</th><th>Devis</th><th>Centre</th><th>Statut</th><th>Paiement</th><th>Créé par</th><th>Actions</th></tr></thead>
           <tbody>
             ${items.length===0 ? '<tr><td colspan="'+nbColsSav+'"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
             items.map(i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
-              <td><strong class="text-blue">${escHtml(i.ref)}</strong></td>
+              <td style="white-space:nowrap"><strong class="text-blue">${escHtml(i.ref)}</strong>${i.astreinte?' <span class="sav-astreinte" title="Intervention en astreinte" style="color:#b45309">⚡</span>':''}</td>
               ${savCelluleDate(i)}
               ${montreClient?`<td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>`:''}
               <td>${i.nom_site?'<strong>'+escHtml(i.nom_site)+'</strong><br><span style="font-size:12px;color:var(--gray-5)">'+ escHtml(i.adresse_site||'') +'</span>':(i.adresse_site?escHtml(i.adresse_site):'—')}</td>
+              ${(()=>{ const o = savObjet(i, devisMap[i.devis_id]); return `<td class="sav-objet" style="min-width:160px;max-width:280px" title="${escHtml(o.complet)}">${o.court ? escHtml(o.court) : '—'}</td>`; })()}
               <td>${devisMap[i.devis_id]?`<a href="#" class="text-blue" style="font-weight:600;white-space:nowrap" title="${escHtml(devisMap[i.devis_id].objet||'')} — ${fmt(devisMap[i.devis_id].montant_ht)} HT" onclick="event.stopPropagation();openDevisDetail('${i.devis_id}');return false">${devisMap[i.devis_id].numero}</a>`:'—'}</td>
               <td>${centresMap[i.chantier_id]?'<span class="badge" style="font-size:11px;background:var(--gray-2);color:var(--gray-6);white-space:normal">'+escHtml(centresLib[i.chantier_id])+'</span>':'—'}</td>
               ${cellStatutSAV(i, _savFacturation.ok ? _savFacturation.parId[i.id] : null)}
               ${cellPaiement(_savPaiement[i.id])}
-              <td>${i.astreinte?'<span class="badge badge-litige">⚡ Astreinte</span>':'—'}</td>
               <td>${tracCell(i.cree_par)}</td>
               <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button>${(i.statut==='terminee' || i.statut==='facturee_partiel')?`<button class="btn btn-primary btn-sm" data-sav-facturer="${i.id}" onclick="event.stopPropagation();openFactureSAVModal('${i.id}')" title="${i.statut==='terminee'?'Terminée — à facturer : créer la facture':'Partiellement facturée : facturer le reste'}"><i class="ti ti-receipt"></i></button>`:''}</div></td>
             </tr>`).join('')}
@@ -21703,12 +21837,26 @@ async function intTechsDispo(){
 const intTechsIds = i => (i && Array.isArray(i.techniciens_supplementaires) ? i.techniciens_supplementaires.map(String).filter(Boolean) : []);
 let _intTechsListe = [];         // employés proposés dans le formulaire ouvert
 function intTechLigneHtml(id){
-  return `<div class="int-tech-extra" style="display:flex;gap:6px;margin-top:6px"><select class="int-tech-extra-sel" style="flex:1"><option value="">— Choisir —</option>${_intTechsListe.map(e=>`<option value="${escHtml(String(e.id))}" data-email="${escHtml(e.email_pro||e.email||'')}"${String(e.id)===String(id)?' selected':''}>${escHtml(nomPers(e))}</option>`).join('')}</select><button type="button" class="btn btn-secondary btn-sm" title="Retirer ce technicien" onclick="this.parentNode.remove()"><i class="ti ti-x"></i></button></div>`;
+  return `<div class="int-tech-extra" style="display:flex;gap:6px;margin-top:6px"><select class="int-tech-extra-sel" style="flex:1" onchange="intTechMajMails()"><option value="">— Choisir —</option>${_intTechsListe.map(e=>`<option value="${escHtml(String(e.id))}" data-email="${escHtml(e.email_pro||e.email||'')}"${String(e.id)===String(id)?' selected':''}>${escHtml(nomPers(e))}</option>`).join('')}</select><button type="button" class="btn btn-secondary btn-sm" title="Retirer ce technicien" onclick="this.parentNode.remove();intTechMajMails()"><i class="ti ti-x"></i></button></div>`;
 }
 function intTechAjouter(){
   const z = el('int-tech-extras'); if(!z) return;
   if(_intTechsOk === false){ showToast("Plusieurs techniciens : exécutez d'abord migration-intervention-techniciens.sql dans Supabase.", 'error'); return; }
   z.insertAdjacentHTML('beforeend', intTechLigneHtml(''));
+  intTechMajMails();
+}
+// Sous « Email technicien » : à qui d'autre part le message (un e-mail par technicien ajouté)
+function intTechMajMails(){
+  const z = el('int-tech-mails'); if(!z) return;
+  const principal = el('int-technicien-id') ? String(el('int-technicien-id').value||'') : '';
+  const vus = new Set(), lignes = [];
+  document.querySelectorAll('#int-tech-extras .int-tech-extra-sel').forEach(sel=>{
+    const v = String(sel.value||''); if(!v || v === principal || vus.has(v)) return; vus.add(v);
+    const o = sel.options[sel.selectedIndex], mail = String((o && o.dataset.email) || '').trim(), nom = o ? o.textContent : '';
+    lignes.push(EMAIL_RE.test(mail) ? `<span data-tech-mail="ok">${escHtml(nom)} : ${escHtml(mail)}</span>` : `<span data-tech-mail="sans" style="color:var(--orange)"><i class="ti ti-alert-triangle"></i> ${escHtml(nom)} : pas d'e-mail sur sa fiche Employés (il ne recevra rien)</span>`);
+  });
+  z.style.display = lignes.length ? '' : 'none';
+  z.innerHTML = lignes.length ? '<div>Le message « Email technicien » part aussi à :</div>' + lignes.map(x=>'<div style="margin-left:10px">• '+x+'</div>').join('') : '';
 }
 function intTechsLus(){
   const principal = el('int-technicien-id') ? String(el('int-technicien-id').value||'') : '';
@@ -21794,7 +21942,7 @@ async function openInterventionModal(r=null){
           <button type="button" class="btn btn-secondary btn-sm" id="int-tech-ajouter" style="margin-top:6px" onclick="intTechAjouter()"><i class="ti ti-plus"></i> Ajouter un technicien</button>
         </div>
         <div class="form-group"><label class="field-label">Nom technicien (si non listé)</label><input id="int-technicien-nom" value="${escHtml(r?.technicien_nom||'')}"/></div>
-        <div class="form-group"><label class="field-label">Email technicien <span style="font-weight:400;color:var(--gray-5)">(professionnel si renseigné)</span></label><input id="int-email-technicien" value="${escHtml(r?.email_technicien||'')}"/></div>
+        <div class="form-group"><label class="field-label">Email technicien <span style="font-weight:400;color:var(--gray-5)">(professionnel si renseigné)</span></label><input id="int-email-technicien" value="${escHtml(r?.email_technicien||'')}"/><div id="int-tech-mails" style="display:none;font-size:12px;color:var(--gray-6);margin-top:4px"></div></div>
       </div>
 
       <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--gray-3);border-radius:var(--radius);margin-bottom:12px;${r?.astreinte?'background:#FEF2F2;border-color:var(--red)':''}">
@@ -21828,6 +21976,7 @@ async function openInterventionModal(r=null){
   filtrerDevisIntervention();             // masque l'éditeur de lignes si un devis est déjà lié (majBlocLignesIntervention)
   prefillCentreIntervention();
   intRendreLignes();
+  intTechMajMails();
 }
 
 // Depuis un devis : ouvre le formulaire d'intervention déjà rempli (client, description, devis lié)
@@ -21915,6 +22064,7 @@ function prefillTechnicienIntervention(){
   const sel = el('int-technicien-id');
   const opt = sel.options[sel.selectedIndex];
   if(opt && opt.value) el('int-email-technicien').value = opt.dataset.email||'';
+  intTechMajMails();
 }
 
 // Date prévue : champs « date » + « heure » (heure locale de l'appareil, Luxembourg) ↔ timestamptz en base (ISO avec fuseau)
@@ -22032,6 +22182,8 @@ async function emailTechnicienIntervention(interventionId){
   const emailsTechs = [...new Set([i.email_technicien].concat(autresTechs.map(e=>e.email_pro||e.email)).map(x=>String(x||'').trim()).filter(x=>EMAIL_RE.test(x)))];
   const emailTech = emailsTechs.join(',');
   if(!emailTech){ showToast("Aucun email enregistré pour le technicien", 'error'); return; }
+  const sansMail = autresTechs.filter(e=>!EMAIL_RE.test(String(e.email_pro||e.email||'').trim())).map(nomPers);
+  if(sansMail.length) showToast("Pas d'e-mail sur la fiche Employés de : "+sansMail.join(', ')+" — il"+(sansMail.length>1?'s ne recevront':' ne recevra')+" pas le message", 'error');
   const sujet = `${i.astreinte?'[ASTREINTE] ':''}Nouvelle intervention à planifier - n° ${i.ref}`;
   const technom = autresTechs.length ? 'à tous' : (i.employes_rh ? (i.employes_rh.prenom+' '+i.employes_rh.nom) : (i.technicien_nom||''));
   const corps = `Bonjour ${technom},\n\nUne intervention vous a été attribuée :\n\nClient : ${i.clients?.nom||''}\nTéléphone : ${i.telephone||'non renseigné'}\nAdresse : ${i.nom_site?i.nom_site+' - ':''}${i.adresse_site||''}${lienMapsIntervention(i) ? '\nItinéraire : '+lienMapsIntervention(i) : ''}\nDate prévue : ${i.date_intervention?new Date(i.date_intervention).toLocaleString('fr-FR'):'à confirmer'}\n${i.astreinte?'\n⚠ Intervention en astreinte - traitement prioritaire requis.\n':''}\nDescription :\n${i.description||'non renseignée'}\n\n${signatureEmail(false, true)}`;
