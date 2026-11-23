@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-23-079b5d3"/>
+<meta name="lyneo-build" content="BUILD:2026-11-23-895bc47"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2872,7 +2872,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-23-079b5d3';
+const APP_BUILD = 'BUILD:2026-11-23-895bc47';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3270,7 +3270,10 @@ function navigate(page, depuisAdresse){
   razTri('P');
   _selExp = {};
   fermerApercu();
-  if(page==='interventions_sav') _savCentreFiltre = '';   // on arrive toujours sur la vue complète
+  if(page==='interventions_sav'){ _savCentreFiltre = ''; _savF = filtresSAVVides(); }   // on arrive toujours sur la vue complète
+  if(page==='clients') _clF = filtresCLVides();
+  if(page==='fournisseurs') _foF = filtresFOVides();
+  if(page==='employes_rh') _emF = filtresEMVides();
   if(page==='factures_vente') _fvFiltres = filtresFVVides();
   if(page==='devis') _dvFiltres = dvFiltresVides();
   if(page==='chantiers'){ _chVue = 'actifs'; _chF = filtresChVides(); }   // on arrive toujours sur la liste principale (les archivés : onglet « Chantiers archivés »)
@@ -6895,29 +6898,36 @@ async function saveChantierCore(id){
 
 // ── FOURNISSEURS ─────────────────────────────────────────────
 let _fournisseurs = [];
-async function renderFournisseurs(search=''){
-  if(!search){
-    const {data} = await sb.from('fournisseurs').select('*').order('nom');
-    _fournisseurs = data||[];
-  }
-  const items = search ? _fournisseurs.filter(i=>(i.nom+(i.email||'')).toLowerCase().includes(search.toLowerCase())) : _fournisseurs;
-  el('page-content').innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left"><h1>Fournisseurs</h1><p>Annuaire et conditions de paiement</p></div>
-      <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderFournisseurs(this.value)" value="${escHtml(search)}"/></div>
-        ${btnExport('fournisseurs')}
-        ${btnDoublons('fournisseurs', _fournisseurs)}
-        <button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui" data-export="fournisseurs">
-          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-users"></i></div><p>Aucun fournisseur trouvé</p><button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button></div></td></tr>' :
-            items.map(r=>{
+const filtresFOVides = () => ({search:'', type:'', actif:'', ville:'', cond:'', manque:''});
+let _foF = filtresFOVides();
+function foFiltres(){
+  const F = _foF, q = _afNorm(F.search);
+  return (_fournisseurs||[]).filter(r=>{
+    if(F.type==='salarie' && !r.employe_id) return false;
+    if(F.type==='societe' && r.employe_id) return false;
+    if(F.actif==='oui' && !r.actif) return false;
+    if(F.actif==='non' && r.actif) return false;
+    if(!lfPasse(F,'ville',r.ville) || !lfPasse(F,'cond',r.conditions_paiement)) return false;
+    if(!lfManque(r, F.manque)) return false;
+    if(q && !_afNorm([r.nom, r.email, r.ville, r.numero_tva, r.telephone].join(' ')).includes(q)) return false;
+    return true;
+  });
+}
+function barreFiltresFO(){
+  const F = _foF, L = _fournisseurs||[];
+  return `<div class="af-barre" id="fo-filtres" style="margin-bottom:14px">
+    ${L.some(r=>r.employe_id) || F.type ? afChamp('Type', `<select id="fo-f-type" data-ordre="fixe" onchange="majFiltreFO('type',this.value)">${afOptions([['societe','Sociétés'],['salarie','Salariés (notes de frais)']], F.type, 'Tous')}</select>`) : ''}
+    ${lfActif(F, 'actif', 'fo-f-actif', 'majFiltreFO')}
+    ${afChamp('Ville', `<select id="fo-f-ville" onchange="majFiltreFO('ville',this.value)">${afOptions(lfListe(L, r=>r.ville), F.ville, 'Toutes')}</select>`)}
+    ${afChamp('Conditions', `<select id="fo-f-cond" onchange="majFiltreFO('cond',this.value)">${afOptions(lfListe(L, r=>r.conditions_paiement), F.cond, 'Toutes')}</select>`)}
+    ${afChamp('Données manquantes', `<select id="fo-f-manque" data-ordre="fixe" onchange="majFiltreFO('manque',this.value)">${afOptions(LF_MANQUE_TIERS, F.manque, '—')}</select>`)}
+    ${lfBoutonReset('fo-f-reset', 'reinitialiserFiltresFO')}
+    <span class="af-compte" id="fo-compte"></span>
+  </div>`;
+}
+function majFiltreFO(k, v){ _foF[k] = String(v==null?'':v); selExpVider('fournisseurs'); afficherFournisseurs(); }
+function reinitialiserFiltresFO(){ _foF = filtresFOVides(); afRemettreChamps(['fo-f-search','fo-f-type','fo-f-actif','fo-f-ville','fo-f-cond','fo-f-manque']); selExpVider('fournisseurs'); afficherFournisseurs(); }
+function ligneFournisseur(r){
               const email = r.email ? '<a href="mailto:'+escHtml(r.email)+'" style="color:var(--blue)">'+escHtml(r.email)+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif?'oui':'non')+'">'+(r.actif?'Oui':'Non')+'</span>';
               return '<tr data-sel-id="'+r.id+'">'
@@ -6934,27 +6944,56 @@ async function renderFournisseurs(search=''){
                 +  '<button class="btn btn-danger btn-sm" data-four-suppr="'+r.id+'" title="Supprimer" onclick="event.stopPropagation();supprimerFournisseur(\''+r.id+'\')"><i class="ti ti-trash"></i></button>'
                 +'</div></td>'
                 +'</tr>';
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-  // Event delegation for edit buttons
+}
+function afficherFournisseurs(){
+  const tb = el('fo-tbody'); if(!tb) return;
+  const items = foFiltres(), filtre = afFiltreActif(_foF);
+  tb.innerHTML = items.length===0 ? lfVide(8, filtre && (_fournisseurs||[]).length, 'reinitialiserFiltresFO', 'ti-users', 'Aucun fournisseur trouvé', '<button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>') : items.map(ligneFournisseur).join('');
+  lfCompte('fo', items.length, (_fournisseurs||[]).length, filtre, 'fournisseur');
   setTimeout(()=>{
-    document.querySelectorAll('[data-four-edit]').forEach(btn=>{
+    tb.querySelectorAll('[data-four-edit]:not([data-lie])').forEach(btn=>{
+      btn.dataset.lie = '1';
       btn.addEventListener('click', (e)=>{
         e.stopPropagation();
         const r = _fournisseurs.find(f=>f.id===btn.dataset.fourEdit);
         if(r) openFourModal(r);
       });
     });
-    document.querySelectorAll('[data-four-detail]').forEach(btn=>{
+    tb.querySelectorAll('[data-four-detail]:not([data-lie])').forEach(btn=>{
+      btn.dataset.lie = '1';
       btn.addEventListener('click', (e)=>{
         e.stopPropagation();
         openFourDetail(btn.dataset.fourDetail);
       });
     });
   }, 50);
+}
+async function renderFournisseurs(search){
+  if(!search || !(_fournisseurs||[]).length){
+    const {data} = await sb.from('fournisseurs').select('*').order('nom');
+    _fournisseurs = data||[];
+  }
+  if(typeof search==='string') _foF.search = search;      // renderFournisseurs('…') / renderFournisseurs('') : recherche donnée ; renderFournisseurs() (après un enregistrement) : on garde tout
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Fournisseurs</h1><p>Annuaire et conditions de paiement</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input id="fo-f-search" placeholder="Nom, e-mail, ville, n° TVA..." oninput="majFiltreFO('search',this.value)" value="${escHtml(_foF.search)}"/></div>
+        ${btnExport('fournisseurs')}
+        ${btnDoublons('fournisseurs', _fournisseurs)}
+        <button class="btn btn-primary" onclick="openFourModal()"><i class="ti ti-plus"></i> Nouveau fournisseur</button>
+      </div>
+    </div>
+    ${barreFiltresFO()}
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table data-tri="oui" data-export="fournisseurs">
+          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
+          <tbody id="fo-tbody"></tbody>
+        </table>
+      </div>
+    </div>`;
+  afficherFournisseurs();
 }
 
 async function openFourDetail(fourId){
@@ -7179,6 +7218,30 @@ const afOptions = (liste, courant, tous) => `<option value="">${tous}</option>` 
 const afFiltreActif = F => Object.values(F).some(v => String(v||'')!=='');
 function afRemettreChamps(ids){ ids.forEach(id=>{ const e = el(id); if(e) e.value = ''; }); }
 
+// ── Listes annuaire (Clients, Fournisseurs, Employés) — 23/11/2026 ──
+const _lfVal = v => String(v==null?'':v).trim();
+const lfListe = (items, fn) => { const m = new Map(); items.forEach(x=>{ const v = _lfVal(fn(x)); if(v) m.set(_afNorm(v), v); }); return [...m.entries()].sort(_afCmpTexte); };
+const lfActif = (F, k, id, fn) => afChamp('Actif', `<select id="${id}" data-ordre="fixe" onchange="${fn}('${k}',this.value)">${afOptions([['oui','Actifs'],['non','Inactifs']], F[k], 'Tous')}</select>`);
+const lfPasse = (F, k, v) => !F[k] || _afNorm(v)===F[k];
+const lfBoutonReset = (id, fn) => `<button class="btn btn-ghost btn-sm" id="${id}" onclick="${fn}()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>`;
+function lfCompte(prefixe, n, total, filtre, mot){
+  const c = el(prefixe+'-compte'); if(c) c.textContent = n + ' ' + mot + (n>1?'s':'') + (filtre ? ' sur ' + total : '');
+  const b = el(prefixe+'-f-reset'); if(b) b.style.display = filtre ? '' : 'none';
+}
+const lfVide = (cols, filtre, fnReset, iconeVide, texteVide, boutonVide) => filtre
+  ? `<tr><td colspan="${cols}"><div class="empty"><div class="empty-icon"><i class="ti ti-filter-off"></i></div><p>Aucun résultat pour ces filtres</p><button class="btn btn-secondary" onclick="${fnReset}()">Réinitialiser les filtres</button></div></td></tr>`
+  : `<tr><td colspan="${cols}"><div class="empty"><div class="empty-icon"><i class="ti ${iconeVide}"></i></div><p>${texteVide}</p>${boutonVide}</div></td></tr>`;
+const LF_MANQUE_TIERS = [['email','Sans e-mail'],['tva','Sans n° TVA'],['tel','Sans téléphone'],['adresse','Sans adresse']];
+function lfManque(r, m){
+  if(!m) return true;
+  if(m==='email') return !_lfVal(r.email);
+  if(m==='fact') return !_lfVal(r.email_facturation) && !_lfVal(r.email);
+  if(m==='tva') return !_lfVal(r.numero_tva);
+  if(m==='tel') return !_lfVal(r.telephone);
+  if(m==='adresse') return !_lfVal(r.adresse);      // la rue manque (la ville seule ne suffit pas pour une facture)
+  return true;
+}
+
 // ── Bons de commande ──
 const filtresPOVides = () => ({search:'', statut:'', four:'', chantier:'', de:'', a:'', min:'', max:'', par:''});
 let _poF = filtresPOVides(), _poListe = [];
@@ -7370,12 +7433,14 @@ async function renderPOS(search='', filterStatut=''){
 async function poPeutCentresInternes(){
   try{ const df = _df || await dfCharger(); return !!(df && df.ctx && df.ctx.peutTraiter); }catch(e){ return true; }
 }
+// STOCK : achat pour le stock, ouvert à tous (numéro ou nom « STOCK », sans accents ni majuscules ; jamais un centre de frais F…)
+const poEstStock = c => !!c && !cfEstFrais(c) && [c.numero, c.nom].some(v => sansAccentsPt(v) === 'stock');
 function poCentresPermis(liste, interne, garderId){
   if(interne) return liste || [];
   const g = (garderId === undefined || garderId === null) ? '' : String(garderId);
-  return (liste || []).filter(c => { const k = cfGenre(c); return k === 'chantier' || k === 'sav' || (g && String(c.id) === g); });
+  return (liste || []).filter(c => { const k = cfGenre(c); return k === 'chantier' || k === 'sav' || poEstStock(c) || (g && String(c.id) === g); });
 }
-const PO_NOTE_INTERNES = '<div class="po-note-internes" style="font-size:11.5px;color:var(--gray-5);margin-top:3px">Centres internes (F…, HI, Formation) : réservés à la direction.</div>';
+const PO_NOTE_INTERNES = '<div class="po-note-internes" style="font-size:11.5px;color:var(--gray-5);margin-top:3px">Centres internes (F…, HI, Formation) : réservés à la direction — STOCK reste ouvert à tous.</div>';
 async function openNewPO(){
   const interne = await poPeutCentresInternes();
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
@@ -8123,6 +8188,7 @@ ${signatureEmail()}`;
       <div class="form-group"><label class="field-label" for="envpo-sujet">Objet</label><input id="envpo-sujet" value="${escHtml(sujet)}" autocomplete="off"/></div>
       <div class="form-group"><label class="field-label" for="envpo-corps">Message</label><textarea id="envpo-corps" rows="8">${escHtml(corps)}</textarea></div>
       <div id="envpo-pj" style="font-size:13px;background:var(--gray-1);border:1px solid var(--gray-3);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px"><i class="ti ti-loader"></i> Préparation du PDF…</div>
+      ${po.statut === 'brouillon' ? `<label id="envpo-marquer-lib" style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:-4px 0 14px;cursor:pointer"><input type="checkbox" id="envpo-marquer" checked style="margin-top:2px"/><span><strong>Marquer la commande comme envoyée</strong> dès que le brouillon / l'e-mail est créé (« Envoyer maintenant » la marque toujours). Décochez si vous ne l'envoyez pas tout de suite.</span></label>` : ''}
       ${bouton('envpo-envoyer','btn-primary','ti-send','Envoyer maintenant (PDF joint)',envoiAide(),'envpoEnvoyer()')}
       ${htmlEnvoiStatut('envpo')}
       ${bouton('envpo-brouillon','btn-secondary','ti-mail-opened','Créer le brouillon Outlook (PDF joint)',brouillonAide(),'envpoBrouillon()')}
@@ -8137,7 +8203,13 @@ ${signatureEmail()}`;
     </div></div></div>`;
   const a = el('envpo-a'); if(a && !dest) a.focus();
 }
-function fermerEnvoiPO(){ const c = el('envoi-po-container'); if(c) c.innerHTML = ''; _envPO = null; }
+function fermerEnvoiPO(){
+  const mon = _envPO; const c = el('envoi-po-container'); if(c) c.innerHTML = ''; _envPO = null;
+  if(mon && mon.marque){
+    try{ if(typeof afficherPOS === 'function' && el('po-tbody')) afficherPOS(); }catch(e){}
+    try{ const m = el('modal-container'); if(m && m.innerHTML.trim()) openPODetail(mon.poId); }catch(e){}
+  }
+}
 // Lit et vérifie le formulaire d'envoi (renvoie null + message si quelque chose ne va pas)
 function envpoLire(exigerAdresse){
   const a = adressesEmail((el('envpo-a')||{}).value);
@@ -8162,6 +8234,7 @@ async function envpoEml(){
     const nomEml = pdf.nom.replace(/\.pdf$/i,'') + '-email.eml';
     await baixarBytes(construireEml({destinataires:d.a, sujet:d.sujet, corps:d.corps, nomPdf:pdf.nom, pdf:pdf.bytes}), nomEml, 'message/rfc822');
     showToast('E-mail créé : ouvrez le fichier « '+nomEml+' » (double-clic) — le PDF est déjà joint, il ne reste qu\'à envoyer');
+    await envpoMarquerSiCoche();
   }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
   finally{ const b2 = el('envpo-eml'); if(b2) b2.disabled = false; }
 }
@@ -8172,6 +8245,7 @@ async function envpoPartager(){
     const f = new File([pdf.bytes], pdf.nom, {type:'application/pdf'});
     if(!navigator.canShare({files:[f]})){ showToast("Ce navigateur ne peut pas partager de fichier : utilisez « E-mail prêt à envoyer »", 'error'); return; }
     await navigator.share({files:[f], title:d.sujet, text:d.corps});
+    await envpoMarquerSiCoche();
   }catch(e){ if(!(e && e.name==='AbortError')) showToast('Partage impossible : '+(e.message||e), 'error'); }
 }
 async function envpoOutlook(){
@@ -8183,6 +8257,7 @@ async function envpoOutlook(){
     ouvrirLienWeb(url);
     await baixarPdfBytes(pdf.bytes, pdf.nom);
     showToast("Joignez le PDF téléchargé « "+pdf.nom+" » au message Outlook (glissez-le dedans)");
+    await envpoMarquerSiCoche();
   }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
 }
 async function envpoMailto(){
@@ -8193,6 +8268,7 @@ async function envpoMailto(){
     setTimeout(()=>{
       ouvrirLienMailto(`mailto:${d.a.join(',')}?subject=${encodeURIComponent(d.sujet)}&body=${encodeURIComponent(d.corps)}`);
       showToast("Joignez le PDF téléchargé « "+pdf.nom+" » au message (glissez-le dedans)");
+      envpoMarquerSiCoche();
     }, 300);
   }catch(e){ showToast('Erreur : '+(e.message||e), 'error'); }
 }
@@ -8475,16 +8551,27 @@ async function envpoBrouillon(){
       pieces: async()=>{ const pdf = await envpoPdf(); return pdf ? [{nom: pdf.nom, type: 'application/pdf', octets: pdf.bytes}] : null; }});
     if(!r) return;
     afficherBrouillonStatut('envpo', r); showToast(msgBrouillon(r)); ouvrirBrouillonWeb(r);
+    await envpoMarquerSiCoche();
   }catch(e){ showToast('Erreur : '+((e&&e.message)||e), 'error'); }
   finally{ const b2 = el('envpo-brouillon'); if(b2) b2.disabled = false; }
 }
 // Bon de commande envoyé : un brouillon passe à « Envoyée » (comme « Marquer envoyée »)
 async function envpoApresEnvoi(){
-  const D = window._detailPO; if(!D || !D.po || D.po.statut !== 'brouillon') return;
+  const D = window._detailPO; if(!D || !D.po || D.po.statut !== 'brouillon') return false;
+  const mon = _envPO;
   const {error} = await sb.from('purchase_orders_lyneo').update({statut:'envoyee', envoye_le:new Date().toISOString()}).eq('id', D.po.id);
-  if(error){ showToast("E-mail envoyé, mais la commande n'a pas pu passer à « Envoyée » : " + (error.message||error), 'error'); return; }
+  if(error){ showToast("La commande n'a pas pu passer à « Envoyée » : " + (error.message||error) + " — utilisez « Marquer envoyée » sur la fiche", 'error'); return false; }
   D.po.statut = 'envoyee';
   const c = (typeof _pos !== 'undefined' && Array.isArray(_pos)) ? _pos.find(p=>String(p.id)===String(D.po.id)) : null; if(c) c.statut = 'envoyee';
+  if(mon) mon.marque = true;
+  const lib = el('envpo-marquer-lib');
+  if(lib) lib.outerHTML = '<div id="envpo-marque" style="font-size:13px;color:var(--green);margin:-4px 0 14px"><i class="ti ti-circle-check"></i> Commande passée à « Envoyée »</div>';
+  return true;
+}
+// Brouillon Outlook, .eml, partage, Outlook web, messagerie : marque « Envoyée » si la case est cochée
+async function envpoMarquerSiCoche(){
+  const k = el('envpo-marquer'); if(!k || !k.checked) return false;
+  return envpoApresEnvoi();
 }
 async function envpoEnvoyer(){
   const d = envpoLire(true); if(!d) return;
@@ -12960,29 +13047,34 @@ async function rafraichirApresDoublons(){
 // ── CLIENTS ───────────────────────────────────────────────────
 let _clients = [];
 
-async function renderClients(search=''){
-  if(!search){
-    const {data} = await sb.from('clients').select('*').order('nom');
-    _clients = data||[];
-  }
-  const items = search ? _clients.filter(i=>(i.nom+(i.email||'')+' '+(i.email_facturation||'')).toLowerCase().includes(search.toLowerCase())) : _clients;
-  el('page-content').innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div>
-      <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderClients(this.value)" value="${escHtml(search)}"/></div>
-        ${btnExport('clients')}
-        ${btnDoublons('clients', _clients)}
-        <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui" data-export="clients">
-          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${items.length===0 ? '<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-building-store"></i></div><p>Aucun client trouvé</p><button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button></div></td></tr>' :
-            items.map(r=>{
+const filtresCLVides = () => ({search:'', actif:'', ville:'', pays:'', cond:'', manque:''});
+let _clF = filtresCLVides();
+function clFiltres(){
+  const F = _clF, q = _afNorm(F.search);
+  return (_clients||[]).filter(r=>{
+    if(F.actif==='oui' && r.actif===false) return false;
+    if(F.actif==='non' && r.actif!==false) return false;
+    if(!lfPasse(F,'ville',r.ville) || !lfPasse(F,'pays',r.pays) || !lfPasse(F,'cond',r.conditions_paiement)) return false;
+    if(!lfManque(r, F.manque)) return false;
+    if(q && !_afNorm([r.nom, r.email, r.email_facturation, r.ville, r.numero_tva, r.telephone, r.contact_principal].join(' ')).includes(q)) return false;
+    return true;
+  });
+}
+function barreFiltresCL(){
+  const F = _clF, L = _clients||[], pays = lfListe(L, r=>r.pays);
+  return `<div class="af-barre" id="cl-filtres" style="margin-bottom:14px">
+    ${lfActif(F, 'actif', 'cl-f-actif', 'majFiltreCL')}
+    ${afChamp('Ville', `<select id="cl-f-ville" onchange="majFiltreCL('ville',this.value)">${afOptions(lfListe(L, r=>r.ville), F.ville, 'Toutes')}</select>`)}
+    ${pays.length>1 || F.pays ? afChamp('Pays', `<select id="cl-f-pays" onchange="majFiltreCL('pays',this.value)">${afOptions(pays, F.pays, 'Tous')}</select>`) : ''}
+    ${afChamp('Conditions', `<select id="cl-f-cond" onchange="majFiltreCL('cond',this.value)">${afOptions(lfListe(L, r=>r.conditions_paiement), F.cond, 'Toutes')}</select>`)}
+    ${afChamp('Données manquantes', `<select id="cl-f-manque" data-ordre="fixe" onchange="majFiltreCL('manque',this.value)">${afOptions([['email','Sans e-mail'],['fact','Sans e-mail pour les factures'],['tva','Sans n° TVA'],['tel','Sans téléphone'],['adresse','Sans adresse']], F.manque, '—')}</select>`)}
+    ${lfBoutonReset('cl-f-reset', 'reinitialiserFiltresCL')}
+    <span class="af-compte" id="cl-compte"></span>
+  </div>`;
+}
+function majFiltreCL(k, v){ _clF[k] = String(v==null?'':v); selExpVider('clients'); afficherClients(); }
+function reinitialiserFiltresCL(){ _clF = filtresCLVides(); afRemettreChamps(['cl-f-search','cl-f-actif','cl-f-ville','cl-f-pays','cl-f-cond','cl-f-manque']); selExpVider('clients'); afficherClients(); }
+function ligneClient(r){
               const email = r.email ? '<a href="mailto:'+escHtml(r.email)+'" style="color:var(--blue)">'+escHtml(r.email)+'</a>' : '—';
               const badge = '<span class="badge badge-'+(r.actif!==false?'oui':'non')+'">'+(r.actif!==false?'Oui':'Non')+'</span>';
               return '<tr data-sel-id="'+r.id+'">'
@@ -13000,26 +13092,56 @@ async function renderClients(search=''){
                 +  '<button class="btn btn-danger btn-sm" data-client-suppr="'+r.id+'" title="Supprimer" onclick="event.stopPropagation();supprimerClient(\''+r.id+'\')"><i class="ti ti-trash"></i></button>'
                 +'</div></td>'
                 +'</tr>';
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
+}
+function afficherClients(){
+  const tb = el('cl-tbody'); if(!tb) return;
+  const items = clFiltres(), filtre = afFiltreActif(_clF);
+  tb.innerHTML = items.length===0 ? lfVide(8, filtre && (_clients||[]).length, 'reinitialiserFiltresCL', 'ti-building-store', 'Aucun client trouvé', '<button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>') : items.map(ligneClient).join('');
+  lfCompte('cl', items.length, (_clients||[]).length, filtre, 'client');
   setTimeout(()=>{
-    document.querySelectorAll('[data-client-edit]').forEach(btn=>{
+    tb.querySelectorAll('[data-client-edit]:not([data-lie])').forEach(btn=>{
+      btn.dataset.lie = '1';
       btn.addEventListener('click', (e)=>{
         e.stopPropagation();
         const r = _clients.find(c=>c.id===btn.dataset.clientEdit);
         if(r) openClientModal(r);
       });
     });
-    document.querySelectorAll('[data-client-detail]').forEach(btn=>{
+    tb.querySelectorAll('[data-client-detail]:not([data-lie])').forEach(btn=>{
+      btn.dataset.lie = '1';
       btn.addEventListener('click', (e)=>{
         e.stopPropagation();
         openClientDetail(btn.dataset.clientDetail);
       });
     });
   }, 50);
+}
+async function renderClients(search){
+  if(!search || !(_clients||[]).length){
+    const {data} = await sb.from('clients').select('*').order('nom');
+    _clients = data||[];
+  }
+  if(typeof search==='string') _clF.search = search;      // renderClients('…') / renderClients('') : recherche donnée ; renderClients() (après un enregistrement) : on garde tout
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Clients</h1><p>Annuaire clients et conditions</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input id="cl-f-search" placeholder="Nom, e-mail, ville, n° TVA..." oninput="majFiltreCL('search',this.value)" value="${escHtml(_clF.search)}"/></div>
+        ${btnExport('clients')}
+        ${btnDoublons('clients', _clients)}
+        <button class="btn btn-primary" onclick="openClientModal()"><i class="ti ti-plus"></i> Nouveau client</button>
+      </div>
+    </div>
+    ${barreFiltresCL()}
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table data-tri="oui" data-export="clients">
+          <thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Ville</th><th>N° TVA</th><th>Conditions</th><th>Actif</th><th>Actions</th></tr></thead>
+          <tbody id="cl-tbody"></tbody>
+        </table>
+      </div>
+    </div>`;
+  afficherClients();
 }
 
 // selectId (facultatif) : le formulaire s'ouvre PAR-DESSUS le formulaire en cours (intervention, devis…),
@@ -13742,6 +13864,7 @@ let _devisLignes = {principal:[], option:[]};
 function dvFiltresVides(){ return {search:'', client:'', statut:'', fact:'', cols:{}, tri:null}; }
 let _dvFiltres = dvFiltresVides();
 let _dvFactures = {};   // devis_id -> factures liées
+let _dvDirection = false, _dvInterv = {};   // icône « Facturer » de la liste : direction seulement ; devis_id -> intervention SAV liée
 
 async function renderDevis(search){
   if(typeof search==='string') _dvFiltres.search = search;
@@ -13752,6 +13875,11 @@ async function renderDevis(search){
   // factures liées aux devis : requête protégée (la liste des devis s'affiche même si elle échoue)
   _dvFactures = {};
   try{ const r = await sb.from('factures_vente').select('*'); (r.data||[]).forEach(f=>{ if(f.devis_id) (_dvFactures[f.devis_id] = _dvFactures[f.devis_id]||[]).push(f); }); }catch(e){}
+  _dvDirection = await estDirectionFacturation(); _dvInterv = {};
+  if(_dvDirection){
+    const ids = _devis.filter(d=>d.statut==='accepte').map(d=>d.id);
+    try{ const r = await lireParLots('interventions_sav', 'id,ref,devis_id', 'devis_id', ids); if(r.ok) r.rows.forEach(i=>{ if(!_dvInterv[String(i.devis_id)]) _dvInterv[String(i.devis_id)] = i; }); }catch(e){}
+  }
   const F = _dvFiltres, sel = (v,c)=> v===c ? ' selected' : '';
   // Devis déjà facturés mais pas « Accepté » (factures créées avant que le passage soit automatique) : rattrapage en un clic
   const aAccepter = (!!currentUser && ['admin','comptabilite'].includes(currentUser.role)) ? _devis.filter(d=>devisAAccepterFacture(d, _dvFactures[d.id])) : [];
@@ -13852,6 +13980,14 @@ function afficherDevis(){
     const nums = (_dvFactures[d.id]||[]).filter(f=>f.statut!=='annulee').map(f=>f.numero).join(', ');
     return `<span title="${escHtml(nums)}">${bFD(e)}</span><div style="${sub}">${l2}</div>${e.horsStatut?`<div style="${sub};color:var(--red)">Devis « ${escHtml(STATUT_DV[d.statut]||d.statut)} » mais facturé</div>`:''}`;
   };
+  // « Facturer » (direction) : comme le bouton de la fiche du devis
+  const btnFacturer = d=>{
+    if(!_dvDirection || d.statut!=='accepte' || !etats[d.id] || !etats[d.id].aFacturer) return '';
+    const iv = _dvInterv[String(d.id)];
+    if(iv) return `<button class="btn btn-success btn-sm" data-dv-facturer="sav" onclick="event.stopPropagation();openFactureSAVModal('${escHtml(String(iv.id))}')" title="Facturer (${escHtml(iv.ref||'intervention SAV')})"><i class="ti ti-receipt"></i></button>`;
+    if(d.chantier_id) return `<button class="btn btn-success btn-sm" data-dv-facturer="chantier" onclick="event.stopPropagation();openGenerateFactureVente('${escHtml(String(d.chantier_id))}','${escHtml(String(d.id))}')" title="Facturer ce devis"><i class="ti ti-receipt"></i></button>`;
+    return `<button class="btn btn-secondary btn-sm" data-dv-facturer="sans-chantier" disabled style="opacity:.45" onclick="event.stopPropagation()" title="Liez d'abord un chantier au devis (fiche du devis → Modifier) pour pouvoir le facturer"><i class="ti ti-receipt"></i></button>`;
+  };
   const liste = el('dv-liste'); if(!liste) return;
   liste.innerHTML = `<table data-export="devis">
     <thead><tr>${COLS_DEVIS.map(enteteColDevis).join('')}<th>Actions</th></tr></thead>
@@ -13869,6 +14005,7 @@ function afficherDevis(){
         <td>${cellFact(d)}</td>
         <td>${tracCell(d.cree_par)}</td>
         <td><div class="td-actions">
+          ${btnFacturer(d)}
           <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openDevisDetail('${d.id}')" title="Voir"><i class="ti ti-eye"></i></button>
           <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteDevis('${d.id}','${escHtml(d.numero)}')" title="Supprimer"><i class="ti ti-trash"></i></button>
         </div></td>
@@ -20815,29 +20952,36 @@ const empSection = (titre, icone, contenu, opts={}) => `<div class="emp-section$
     ${contenu}
   </div>`;
 
-async function renderEmployesRH(search=''){
-  const {data} = await sb.from('employes_rh').select('*').order('nom');
-  _employesRH = data||[];
-  const items = search ? _employesRH.filter(e=>[nomPers(e), (e.prenom||'')+' '+(e.nom||''), e.poste||''].join(' ').toLowerCase().includes(search.trim().toLowerCase())) : _employesRH;
-
-  el('page-content').innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left"><h1>Employés</h1><p>Dossiers du personnel</p></div>
-      <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher..." oninput="renderEmployesRH(this.value)" value="${escHtml(search)}"/></div>
-        ${peutVoirSalaires() ? btnExport('employes_rh') : ''}
-        ${peutVoirSalaires() ? btnDoublons('employes', _employesRH) : ''}
-        ${peutVoirSalaires() ? `<button class="btn btn-secondary" id="btn-harm" onclick="ouvrirHarmonisation()" title="Mettre les noms des pointages comme dans l'ERP et relier les employés"><i class="ti ti-refresh"></i> Aligner pointages</button>` : ''}
-        <button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui"${peutVoirSalaires() ? ' data-export="employes_rh"' : ''}>
-          <thead><tr><th>Nom</th><th>Poste</th><th>Statut</th><th>Email</th><th>Téléphone</th><th>Type contrat</th><th>Entrée</th><th>Actif</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${items.length===0 ? '<tr><td colspan="9"><div class="empty"><div class="empty-icon"><i class="ti ti-id-badge-2"></i></div><p>Aucun employé enregistré</p><button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button></div></td></tr>' :
-            items.map(e=>{
+const filtresEMVides = () => ({search:'', actif:'', poste:'', statut:'', contrat:'', de:'', a:''});
+let _emF = filtresEMVides();
+function emFiltres(){
+  const F = _emF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a);
+  return (_employesRH||[]).filter(e=>{
+    if(F.actif==='oui' && e.actif===false) return false;
+    if(F.actif==='non' && e.actif!==false) return false;
+    if(!lfPasse(F,'poste',e.poste) || !lfPasse(F,'contrat',e.type_contrat)) return false;
+    if(F.statut && String(e.statut_professionnel||'')!==F.statut) return false;
+    if(!_afPeriode(e.date_embauche, de, a)) return false;
+    if(q && !_afNorm([nomPers(e), (e.prenom||'')+' '+(e.nom||''), e.poste, e.email].join(' ')).includes(q)) return false;
+    return true;
+  });
+}
+function barreFiltresEM(){
+  const F = _emF, L = _employesRH||[];
+  return `<div class="af-barre" id="em-filtres" style="margin-bottom:14px">
+    ${lfActif(F, 'actif', 'em-f-actif', 'majFiltreEM')}
+    ${afChamp('Poste', `<select id="em-f-poste" onchange="majFiltreEM('poste',this.value)">${afOptions(lfListe(L, e=>e.poste), F.poste, 'Tous')}</select>`)}
+    ${afChamp('Statut', `<select id="em-f-statut" data-ordre="fixe" onchange="majFiltreEM('statut',this.value)">${afOptions(Object.entries(STATUTS_PRO), F.statut, 'Tous')}</select>`)}
+    ${afChamp('Type de contrat', `<select id="em-f-contrat" onchange="majFiltreEM('contrat',this.value)">${afOptions(lfListe(L, e=>e.type_contrat), F.contrat, 'Tous')}</select>`)}
+    ${afChamp('Entrée du', `<input type="date" id="em-f-de" class="af-date" value="${escHtml(F.de)}" onchange="majFiltreEM('de',this.value)"/>`)}
+    ${afChamp('au', `<input type="date" id="em-f-a" class="af-date" value="${escHtml(F.a)}" onchange="majFiltreEM('a',this.value)"/>`)}
+    ${lfBoutonReset('em-f-reset', 'reinitialiserFiltresEM')}
+    <span class="af-compte" id="em-compte"></span>
+  </div>`;
+}
+function majFiltreEM(k, v){ _emF[k] = String(v==null?'':v); selExpVider('employes_rh'); afficherEmployesRH(); }
+function reinitialiserFiltresEM(){ _emF = filtresEMVides(); afRemettreChamps(['em-f-search','em-f-actif','em-f-poste','em-f-statut','em-f-contrat','em-f-de','em-f-a']); selExpVider('employes_rh'); afficherEmployesRH(); }
+function ligneEmployeRH(e){
               const badge = '<span class="badge badge-'+(e.actif!==false?'oui':'non')+'">'+(e.actif!==false?'Oui':'Non')+'</span>';
               return `<tr data-sel-id="${e.id}" style="cursor:pointer" onclick="openEmployeDetail('${e.id}')">
                 <td><strong>${escHtml(nomPers(e))}</strong></td>
@@ -20853,11 +20997,39 @@ async function renderEmployesRH(search=''){
                   <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openEmployeModal(_employesRH.find(x=>x.id==='${e.id}'))" title="Modifier"><i class="ti ti-edit"></i></button>
                 </div></td>
               </tr>`;
-            }).join('')}
-          </tbody>
+}
+function afficherEmployesRH(){
+  const tb = el('em-tbody'); if(!tb) return;
+  const items = emFiltres(), filtre = afFiltreActif(_emF);
+  tb.innerHTML = items.length===0 ? lfVide(9, filtre && (_employesRH||[]).length, 'reinitialiserFiltresEM', 'ti-id-badge-2', 'Aucun employé enregistré', '<button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>') : items.map(ligneEmployeRH).join('');
+  lfCompte('em', items.length, (_employesRH||[]).length, filtre, 'employé');
+}
+async function renderEmployesRH(search){
+  const {data} = await sb.from('employes_rh').select('*').order('nom');
+  _employesRH = data||[];
+  if(typeof search==='string') _emF.search = search;      // renderEmployesRH('…') / renderEmployesRH('') : recherche donnée ; renderEmployesRH() (après un enregistrement) : on garde tout
+
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Employés</h1><p>Dossiers du personnel</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input id="em-f-search" placeholder="Nom, poste, e-mail..." oninput="majFiltreEM('search',this.value)" value="${escHtml(_emF.search)}"/></div>
+        ${peutVoirSalaires() ? btnExport('employes_rh') : ''}
+        ${peutVoirSalaires() ? btnDoublons('employes', _employesRH) : ''}
+        ${peutVoirSalaires() ? `<button class="btn btn-secondary" id="btn-harm" onclick="ouvrirHarmonisation()" title="Mettre les noms des pointages comme dans l'ERP et relier les employés"><i class="ti ti-refresh"></i> Aligner pointages</button>` : ''}
+        <button class="btn btn-primary" onclick="openEmployeModal()"><i class="ti ti-plus"></i> Nouvel employé</button>
+      </div>
+    </div>
+    ${barreFiltresEM()}
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table data-tri="oui"${peutVoirSalaires() ? ' data-export="employes_rh"' : ''}>
+          <thead><tr><th>Nom</th><th>Poste</th><th>Statut</th><th>Email</th><th>Téléphone</th><th>Type contrat</th><th>Entrée</th><th>Actif</th><th>Actions</th></tr></thead>
+          <tbody id="em-tbody"></tbody>
         </table>
       </div>
     </div>`;
+  afficherEmployesRH();
 }
 
 // Rémunération (traitement mensuel ou horaire) : champ « montant » et « heures par semaine » selon le type choisi
@@ -22017,7 +22189,75 @@ function savObjet(i, dv){
   const ligne = (src.split(/\r?\n/).map(x=>x.trim()).find(Boolean) || '').replace(/\s+/g, ' ');
   return {court: ligne.length > 80 ? ligne.slice(0, 79).trim() + '…' : ligne, complet: src};
 }
+// ── FILTRES DE LA LISTE DES INTERVENTIONS (23/11/2026) ──
+const filtresSAVVides = () => ({search:'', client:'', site:'', tech:'', statut:'', de:'', a:'', par:''});
+let _savF = filtresSAVVides(), _savCtx = null;
+const savTechIds = i => [i.technicien_id, ...(Array.isArray(i.techniciens_supplementaires) ? i.techniciens_supplementaires : [])].filter(x=>x!=null && x!=='').map(String);
+const savSiteLib = i => String(i.nom_site||'').trim() || String(i.adresse_site||'').trim();
+function barreFiltresSAV(base, montreClient){
+  const F = _savF, cls = new Map(), sites = new Map(), techs = new Map(), pars = new Map();
+  base.forEach(i=>{
+    if(i.client_id) cls.set(String(i.client_id), i.clients?.nom||'—');
+    const sl = savSiteLib(i); if(sl) sites.set(_afNorm(sl), sl);
+    if(i.technicien_id) techs.set(String(i.technicien_id), i.employes_rh ? nomPers(i.employes_rh) : '—');
+    if(i.cree_par) pars.set(String(i.cree_par), tracNomAuteur(i.cree_par)||'—');
+  });
+  const tri = m => [...m.entries()].sort(_afCmpTexte);
+  return `<div class="af-barre" id="sav-filtres" style="margin-bottom:14px">
+    ${montreClient ? afChamp('Client', `<select id="sav-f-client" onchange="majFiltreSAV('client',this.value)">${afOptions(tri(cls), F.client, 'Tous')}</select>`) : ''}
+    ${afChamp('Site', `<select id="sav-f-site" onchange="majFiltreSAV('site',this.value)">${afOptions(tri(sites), F.site, 'Tous')}</select>`)}
+    ${afChamp('Technicien', `<select id="sav-f-tech" onchange="majFiltreSAV('tech',this.value)">${afOptions(tri(techs), F.tech, 'Tous')}</select>`)}
+    ${afChamp('Statut', `<select id="sav-f-statut" data-ordre="fixe" onchange="majFiltreSAV('statut',this.value)">${afOptions(Object.entries(STATUT_SAV), F.statut, 'Tous les statuts')}</select>`)}
+    ${afChamp('Date du', `<input type="date" id="sav-f-de" class="af-date" value="${escHtml(F.de)}" onchange="majFiltreSAV('de',this.value)"/>`)}
+    ${afChamp('au', `<input type="date" id="sav-f-a" class="af-date" value="${escHtml(F.a)}" onchange="majFiltreSAV('a',this.value)"/>`)}
+    ${afChamp('Créé par', `<select id="sav-f-par" onchange="majFiltreSAV('par',this.value)">${afOptions(tri(pars), F.par, 'Tous')}</select>`)}
+    <button class="btn btn-ghost btn-sm" id="sav-f-reset" onclick="reinitialiserFiltresSAV()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
+    <span class="af-compte" id="sav-compte"></span>
+  </div>`;
+}
+function savFiltrees(){
+  const C = _savCtx; if(!C) return [];
+  const F = _savF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a);
+  return C.base.filter(i=>{
+    if(F.client && String(i.client_id||'')!==F.client) return false;
+    if(F.site && _afNorm(savSiteLib(i))!==F.site) return false;
+    if(F.tech && !savTechIds(i).includes(F.tech)) return false;
+    if(F.statut && i.statut!==F.statut) return false;
+    if(F.par && String(i.cree_par||'')!==F.par) return false;
+    if(!_afPeriode(i.date_intervention, de, a)) return false;
+    if(q){
+      const dv = C.devisMap[i.devis_id];
+      const txt = [i.ref, i.clients?.nom, i.adresse_site, i.nom_site, C.centresLib[i.chantier_id], dv?.numero, i.description, dv?.objet, i.employes_rh ? nomPers(i.employes_rh) : ''].join(' ');
+      if(!_afNorm(txt).includes(q)) return false;
+    }
+    return true;
+  });
+}
+function afficherSAV(){
+  const tb = el('sav-tbody'), C = _savCtx; if(!tb || !C) return;
+  const items = savFiltrees(), filtre = afFiltreActif(Object.assign({}, _savF, {statut:''})) || !!_savF.statut;
+  tb.innerHTML = items.length===0
+    ? (filtre && C.base.length
+        ? '<tr><td colspan="'+C.nbCols+'"><div class="empty"><div class="empty-icon"><i class="ti ti-filter-off"></i></div><p>Aucune intervention ne correspond aux filtres</p><button class="btn btn-secondary" onclick="reinitialiserFiltresSAV()">Réinitialiser les filtres</button></div></td></tr>'
+        : '<tr><td colspan="'+C.nbCols+'"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>')
+    : items.map(C.ligne).join('');
+  const c = el('sav-compte'); if(c) c.textContent = items.length + ' intervention' + (items.length>1?'s':'') + (filtre ? ' sur ' + C.base.length : '');
+  const b = el('sav-f-reset'); if(b) b.style.display = filtre ? '' : 'none';
+}
+function majFiltreSAV(k, v){
+  _savF[k] = String(v==null?'':v); selExpVider('interventions_sav');
+  // un statut précis : on regarde dans « Toutes » (sinon « Facturée » ne montrerait rien dans « Actives »)
+  if(k==='statut' && _savF.statut && _savCtx && _savCtx.onglet!=='toutes'){ renderInterventionsSAV(_savF.search, 'toutes'); return; }
+  afficherSAV();
+}
+function reinitialiserFiltresSAV(){
+  const s = _savF.search; _savF = filtresSAVVides(); _savF.search = s;      // la recherche a son propre champ : on la garde
+  afRemettreChamps(['sav-f-client','sav-f-site','sav-f-tech','sav-f-statut','sav-f-de','sav-f-a','sav-f-par']);
+  selExpVider('interventions_sav'); afficherSAV();
+}
 async function renderInterventionsSAV(search='', filterStatut='encours'){
+  _savF.search = String(search||'');
+  if(filterStatut!=='toutes') _savF.statut = '';      // onglet Actives / Astreintes / À encaisser : le statut précis ne s'applique plus
   await tracChargerUtilisateurs();
   const {data} = await sb.from('interventions_sav').select('*,clients(nom),employes_rh(nom,prenom)').order('numero',{ascending:false});
   _interventionsSAV = data||[];
@@ -22073,10 +22313,6 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   else if(filterStatut==='astreinte') items = items.filter(i=>i.astreinte);
   else if(filterStatut==='encours') items = items.filter(i=>i.statut!=='facturee');
   else if(filterStatut!=='toutes') items = items.filter(i=>i.statut===filterStatut);
-  if(search){
-    const q = search.toLowerCase();
-    items = items.filter(i=>((i.ref||'')+(i.clients?.nom||'')+(i.adresse_site||'')+(i.nom_site||'')+(centresLib[i.chantier_id]||'')+(devisMap[i.devis_id]?.numero||'')+' '+(i.description||'')+' '+(devisMap[i.devis_id]?.objet||'')).toLowerCase().includes(q));
-  }
 
   const carteCentre = (c)=>{
     const s = stat[c.id] || {total:0, afacturer:0};
@@ -22112,31 +22348,8 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   const bandeauMaj = (aMajStatut.length && peutMajStatut) ? `<div class="alert alert-warning" id="sav-resync" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span><i class="ti ti-refresh"></i> <strong>${aMajStatut.length}</strong> intervention${aMajStatut.length>1?'s ont':' a'} des factures clients, mais ${aMajStatut.length>1?'leur statut ne le reflète':'son statut ne le reflète'} pas encore (ex. « Terminée — à facturer »).</span><button class="btn btn-secondary btn-sm" id="sav-resync-btn" onclick="mettreAJourStatutsFacturationSAV()"><i class="ti ti-check"></i> Mettre à jour les statuts</button></div>` : '';
   const nouvelleIntArg = centreFiltre ? `{client_id:'${centreFiltre.client_id||''}',chantier_id:'${centreFiltre.id}'}` : '';
 
-  el('page-content').innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
-      <div class="page-actions">
-        <div class="search-wrap"><i class="ti ti-search"></i><input placeholder="Rechercher n°, client, adresse, objet, centre, devis..." oninput="renderInterventionsSAV(this.value,'${filterStatut}')" value="${escHtml(search)}"/></div>
-        ${btnExport('interventions_sav')}
-        <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
-        <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
-      </div>
-    </div>
-    ${cartesCentres}
-    ${bandeauMaj}
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-      ${[['encours','Actives'],['astreinte','Astreintes'],['encaisser','À encaisser'+(nbAEncaisser?' ('+nbAEncaisser+')':'')],['toutes','Toutes']].map(([k,label])=>
-        `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV('${search}','${k}')">${label}</button>`
-      ).join('')}
-      ${_savCentreFiltre?`<button class="btn btn-sm btn-secondary" onclick="filtrerCentreSAV('')" title="Enlever le filtre"><i class="ti ti-filter"></i> Centre : ${_savCentreFiltre==='__aucun'?'sans centre':(escHtml(centresLib[_savCentreFiltre])||'?')} <i class="ti ti-x"></i></button>`:''}
-    </div>
-    <div class="card">
-      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table data-tri="oui" data-export="interventions_sav">
-          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Objet</th><th>Devis</th><th>Centre</th><th>Statut</th><th>Paiement</th><th>Créé par</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${items.length===0 ? '<tr><td colspan="'+nbColsSav+'"><div class="empty"><div class="empty-icon"><i class="ti ti-tool"></i></div><p>Aucune intervention</p><button class="btn btn-primary" onclick="openInterventionModal()"><i class="ti ti-plus"></i> Nouvelle intervention</button></div></td></tr>' :
-            items.map(i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
+  _savCtx = {base: items, devisMap, centresMap, centresLib, montreClient, nbCols: nbColsSav, onglet: filterStatut,
+    ligne: i=>`<tr data-sel-id="${i.id}" style="cursor:pointer" onclick="openInterventionDetail('${i.id}')">
               <td style="white-space:nowrap"><strong class="text-blue">${escHtml(i.ref)}</strong>${i.astreinte?' <span class="sav-astreinte" title="Intervention en astreinte" style="color:#b45309">⚡</span>':''}</td>
               ${savCelluleDate(i)}
               ${montreClient?`<td>${i.clients?.nom?escHtml(i.clients.nom):'—'}</td>`:''}
@@ -22148,11 +22361,35 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
               ${cellPaiement(_savPaiement[i.id])}
               <td>${tracCell(i.cree_par)}</td>
               <td><div class="td-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openInterventionDetail('${i.id}')"><i class="ti ti-eye"></i></button>${(i.statut==='terminee' || i.statut==='facturee_partiel')?`<button class="btn btn-primary btn-sm" data-sav-facturer="${i.id}" onclick="event.stopPropagation();openFactureSAVModal('${i.id}')" title="${i.statut==='terminee'?'Terminée — à facturer : créer la facture':'Partiellement facturée : facturer le reste'}"><i class="ti ti-receipt"></i></button>`:''}</div></td>
-            </tr>`).join('')}
-          </tbody>
+            </tr>`};
+  el('page-content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left"><h1>Interventions (SAV)</h1><p>Centres de coûts SAV, interventions et facturation</p></div>
+      <div class="page-actions">
+        <div class="search-wrap"><i class="ti ti-search"></i><input id="sav-f-search" placeholder="Rechercher n°, client, adresse, objet, centre, devis, technicien..." oninput="majFiltreSAV('search',this.value)" value="${escHtml(_savF.search)}"/></div>
+        ${btnExport('interventions_sav')}
+        <button class="btn btn-secondary" onclick="openChantierModal({type_centre:'sav'})"><i class="ti ti-folder-plus"></i> Nouveau centre SAV</button>
+        <button class="btn btn-primary" onclick="openInterventionModal(${nouvelleIntArg})"><i class="ti ti-plus"></i> Nouvelle intervention</button>
+      </div>
+    </div>
+    ${cartesCentres}
+    ${bandeauMaj}
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      ${[['encours','Actives'],['astreinte','Astreintes'],['encaisser','À encaisser'+(nbAEncaisser?' ('+nbAEncaisser+')':'')],['toutes','Toutes']].map(([k,label])=>
+        `<button class="btn btn-sm ${filterStatut===k?'btn-primary':'btn-secondary'}" onclick="renderInterventionsSAV(_savF.search,'${k}')">${label}</button>`
+      ).join('')}
+      ${_savCentreFiltre?`<button class="btn btn-sm btn-secondary" onclick="filtrerCentreSAV('')" title="Enlever le filtre"><i class="ti ti-filter"></i> Centre : ${_savCentreFiltre==='__aucun'?'sans centre':(escHtml(centresLib[_savCentreFiltre])||'?')} <i class="ti ti-x"></i></button>`:''}
+    </div>
+    ${barreFiltresSAV(items, montreClient)}
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table data-tri="oui" data-export="interventions_sav">
+          <thead><tr><th>N°</th><th>Date</th>${montreClient?'<th>Client</th>':''}<th>Site / Adresse</th><th>Objet</th><th>Devis</th><th>Centre</th><th>Statut</th><th>Paiement</th><th>Créé par</th><th>Actions</th></tr></thead>
+          <tbody id="sav-tbody"></tbody>
         </table>
       </div>
     </div>`;
+  afficherSAV();
 }
 
 // Ouvre le formulaire d'intervention. `r` peut être une intervention existante (avec id)
