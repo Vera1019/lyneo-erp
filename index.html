@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-20-4c9d80f"/>
+<meta name="lyneo-build" content="BUILD:2026-11-23-079b5d3"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2536,7 +2536,12 @@ async function interventionDuDevis(devisId){
   }catch(e){ return null; }
 }
 // Rattrapage : interventions qui ont des factures clients mais dont le statut ne le reflète pas (bandeau de la liste SAV).
+// Direction = qui traite les demandes de facturation (liste « Qui traite les demandes ? ») ; en cas de doute : non
+async function estDirectionFacturation(){
+  try{ const df = _df || await dfCharger(false); return !!(df && df.ctx && df.ctx.peutTraiter); }catch(e){ return false; }
+}
 async function mettreAJourStatutsFacturationSAV(){
+  if(!(await estDirectionFacturation())){ showToast('Réservé à la direction', 'error'); return; }
   const b = el('sav-resync-btn'); if(b) b.disabled = true;
   const rouvrir = ()=>{ const x = el('sav-resync-btn'); if(x) x.disabled = false; };
   try{
@@ -2867,7 +2872,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-20-4c9d80f';
+const APP_BUILD = 'BUILD:2026-11-23-079b5d3';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7052,7 +7057,7 @@ function openFourModal(r=null, selectId=null){
     <div class="modal-body">
       ${r?.employe_id ? '<div class="alert alert-info" id="f-salarie-info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><span>Fournisseur <strong>salarié</strong> : relié à une fiche employé, il sert aux notes de frais. Ne copiez ici ni IBAN ni adresse personnelle.</span></div>' : ''}
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${escHtml(r?.nom||'')}" placeholder="Nom de la société"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="f-nom" value="${escHtml(r?.nom||'')}" placeholder="NOM DE LA SOCIÉTÉ"${r?.employe_id ? ' data-salarie="1"' : ' style="text-transform:uppercase"'}/></div>
         <div class="form-group"><label class="field-label">Email</label><input type="email" id="f-email" value="${escHtml(r?.email||'')}" placeholder="contact@fournisseur.com"/></div>
         <div class="form-group"><label class="field-label">Téléphone</label><input id="f-tel" value="${escHtml(r?.telephone||'')}" placeholder="+352 ..."/></div>
         <div class="form-group"><label class="field-label">N° TVA</label><input id="f-tva" value="${escHtml(r?.numero_tva||'')}" placeholder="LU12345678"/></div>
@@ -7119,8 +7124,11 @@ function majSelectFournisseur(selectId, f){
 }
 
 function saveFour(id, selectId=null){ return gardeEnvoi('fournisseur', ()=>saveFourCore(id, selectId)); }
+// Nom d'un client / fournisseur : MAJUSCULES (accents compris), un seul espace entre les mots
+const nomTiersMaj = t => String(t == null ? '' : t).replace(/\s+/g, ' ').trim().toLocaleUpperCase('fr-FR');
 async function saveFourCore(id, selectId=null){
-  const nom = el('f-nom').value.trim();
+  const nomSaisi = el('f-nom').value.trim();
+  const nom = el('f-nom').dataset.salarie === '1' ? nomSaisi : nomTiersMaj(nomSaisi);     // salarié : « NOM Prénom » de sa fiche
   if(!nom){ showToast('Nom obligatoire','error'); return; }
   const ctl = await controlerDoublonsTiers('fournisseurs', {nom, tva:el('f-tva').value, email:el('f-email').value}, id, 'fournisseur', selectId ? 'Utiliser celui-ci' : 'Voir la fiche');
   if(ctl==='stop') return;
@@ -7378,7 +7386,7 @@ async function openNewPO(){
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:16px">
         <div class="form-group"><label class="field-label">Chantier *</label><select id="po-chantier" onchange="majInterventionAchat('po','purchase_orders_lyneo')"><option value="">— Sélectionner —</option>${chantsOpts}</select>${interne ? '' : PO_NOTE_INTERNES}</div>
-        ${htmlChampIntervention('po')}
+        ${htmlChampIntervention('po').replace('id="po-int-wrap"', 'id="po-int-wrap" data-oblige="1"').replace('(facultatif)', '*')}
         <div class="form-group"><label class="field-label">Fournisseur *</label><div style="display:flex;gap:6px"><select id="po-four" style="flex:1"><option value="">— Sélectionner —</option>${foursOpts}</select>${boutonsFournisseurRapide('po-four')}</div></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -7576,7 +7584,7 @@ async function pdfLignesTexte(octets){
   const pages = [];
   for(let p = 1; p <= doc.numPages; p++){
     const pg = await doc.getPage(p), vp = pg.getViewport({scale:1}), tc = await pg.getTextContent();
-    const its = tc.items.filter(i=>i && typeof i.str === 'string' && i.str.trim()).map(i=>({s:i.str.trim(), x:Math.round(i.transform[4]), y:Math.round(vp.height - i.transform[5])}));
+    const its = tc.items.filter(i=>i && typeof i.str === 'string' && i.str.trim()).map(i=>({s:i.str.trim(), x:Math.round(i.transform[4]), y:Math.round(vp.height - i.transform[5]), w:(typeof i.width === 'number' && isFinite(i.width)) ? i.width : null, x0:i.transform[4]}));
     pages.push(pdfGrouperLignes(its));
   }
   try{ doc.destroy(); }catch(e){}
@@ -7589,7 +7597,11 @@ function pdfGrouperLignes(its){
   return lignes.sort((a,b)=>a.y-b.y);
 }
 // « mm » + « ², » → « mm², » (exposants et ponctuation collés au mot précédent)
-const pdfJoindre = items => items.map(i=>i.s).reduce((t, s)=> !t ? s : (/^[²³,.;:)]/.test(s) ? t + s : t + ' ' + s), '');
+const pdfJoindre = items => items.reduce((t, i, k)=>{
+  if(!k) return i.s;
+  const p = items[k-1], colle = /^[²³,.;:)]/.test(i.s) || (p.w != null && p.x0 != null && i.x0 != null && (i.x0 - (p.x0 + p.w)) < 0.8);
+  return t + (colle ? '' : ' ') + i.s;
+}, '');
 const pdfMontant = t => { const v = poNombre(t); return (v === null || isNaN(v)) ? NaN : v; };
 const arr2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
 // ── Format MINUSINES (confirmation de commande du portail) ──
@@ -7670,7 +7682,95 @@ function pdfVersLignesPO(a){
   out.total = somme;
   return out;
 }
-const PDF_FORMATS = [{nom:'Minusines', reconnait: txt => /MINUSINES/i.test(txt) && /Code article/.test(txt) && /Prix eff\./.test(txt), analyser: pdfAnalyserMinusines}];
+// ── Formats sans colonne TVA ni « prix par 100 » (RAMIREZ DATA, DME) : une ligne = Qté, P.U., total ; taux de TVA déduit des totaux du PDF ──
+// Taux unique : TVA / HT du PDF ∈ {17,14,8,3,0} et HT × taux = TVA à 2 cts près ; sinon les lignes gardent tva = NaN (→ refus clair)
+function pdfTauxDepuisTotaux(t){
+  if(!t || !isFinite(t.ht) || !isFinite(t.tva) || t.ht <= 0) return NaN;
+  const taux = PO_IMPORT_TVA.find(x=>Math.abs(arr2(t.ht * x / 100) - t.tva) <= 0.02);
+  return taux === undefined ? NaN : taux;
+}
+const pdfTexteLigne = l => pdfJoindre(l.it);
+function pdfLignePU(pos, code, desc, q, ua, pu, total){ return {pos, code, desc, suite:[], han:'', q:pdfMontant(q), ua:ua||'u', prix:pdfMontant(pu), pm:'EIN', eff:pdfMontant(pu), total:pdfMontant(total), tva:NaN}; }
+function pdfFinirTaux(res){
+  const taux = pdfTauxDepuisTotaux(res.totaux);
+  if(!isFinite(taux) && res.totaux) res.erreurs.push(`Plusieurs taux de TVA (ou taux inconnu) : TVA ${fmt(res.totaux.tva)} pour ${fmt(res.totaux.ht)} HT — utilisez « Importer Excel »`);
+  res.lignes.forEach(l=>{ l.tva = taux; });
+  return res;
+}
+// RAMIREZ DATA — « Offre No 94441 du 20.11.2026 » ; ligne : « Art.-N°: CODE / description » | Quantité « 1,00 » | « pce » | Prix unitaire | Prix total ht
+function pdfAnalyserRamirez(pages){
+  const res = {fournisseur:'Ramirez', libDoc:'Offre', lignes:[], erreurs:[], avert:[], doc:'', date:'', totaux:null};
+  let cur = null, fin = false, n = 0, tot = {};
+  const fermer = () => { if(cur){ res.lignes.push(cur); cur = null; } };
+  pages.forEach(lignes=>{
+    lignes.forEach(l=>{ const m = /Offre\s+No\s+(\S+)\s+du\s+(\d{2}\.\d{2}\.\d{4})/i.exec(pdfTexteLigne(l)); if(m && !res.doc){ res.doc = m[1]; res.date = m[2]; } });
+    const k0 = lignes.findIndex(l=>l.it.some(i=>i.s === 'Désignation') && l.it.some(i=>/^Prix total/i.test(i.s)));
+    if(k0 < 0) return;
+    const h = lignes[k0].it, xDesc = (h.find(i=>i.s === 'Désignation')||{x:114}).x, xQte = (h.find(i=>/^Quantit/.test(i.s))||{x:346}).x - 5;
+    for(let k = k0 + 1; k < lignes.length && !fin; k++){
+      const it = lignes[k].it, txt = pdfTexteLigne(lignes[k]);
+      const droite = it.filter(i=>i.x >= xQte), gauche = it.filter(i=>i.x < xQte);
+      if(/^Total hors TVA/i.test(txt)){ fermer(); tot.ht = pdfMontant(it[it.length-1].s); continue; }
+      if(/^TVA\s+[\d,.]+\s*%/i.test(txt)){ tot.tva = pdfMontant(it[it.length-1].s); continue; }
+      if(/^Montant ttc/i.test(txt)){ tot.ttc = pdfMontant(it[it.length-1].s); fin = true; continue; }
+      if(gauche.length && gauche[0].x < xDesc - 20){ fermer(); continue; }                       // texte hors tableau
+      const desc = pdfJoindre(gauche);
+      if(/^Art\.-N°\s*:/i.test(desc)){
+        fermer();
+        if(droite.length !== 4){ res.erreurs.push(`Ligne « ${desc.slice(0,50)} » : colonnes illisibles (${droite.map(i=>i.s).join(' ')})`); continue; }
+        const m = /^Art\.-N°\s*:\s*(.*?)\s+\/\s+(.*)$/i.exec(desc) || [null, desc.replace(/^Art\.-N°\s*:\s*/i,''), ''];
+        cur = pdfLignePU(String(++n), m[1].trim(), m[2].trim(), droite[0].s, droite[1].s, droite[2].s, droite[3].s);
+        continue;
+      }
+      if(cur && desc && !droite.length) cur.suite.push(desc);
+    }
+  });
+  fermer();
+  res.lignes.forEach(l=>{ const t = (l.desc + ' ' + l.suite.join(' ')).replace(/[.\s/]*valid from \d{2}[./]\d{2}[./]\d{4}\.?\s*$/i, '').trim(); l.desc = t || l.code; l.suite = []; });
+  if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
+  return pdfFinirTaux(res);
+}
+// DME — « CONFIRMATION DE COMMANDE » ; ligne : POS | N° ARTICLE | DÉSIGNATION | QTÉ | PRIX UNIT. | TOTAL ; « MONTANT HTVA », « TVA », « TOTAL LIVRE EUR »
+function pdfAnalyserDme(pages){
+  const res = {fournisseur:'DME', libDoc:'Confirmation', lignes:[], erreurs:[], avert:[], doc:'', date:'', ref:'', totaux:null};
+  let cur = null, tot = {};
+  const fermer = () => { if(cur){ res.lignes.push(cur); cur = null; } };
+  pages.forEach(lignes=>{
+    const kE = lignes.findIndex(l=>/N°\s*DOCUMENT/i.test(pdfTexteLigne(l)));
+    const kV = kE < 0 ? -1 : lignes.findIndex((l, j)=>j > kE && l.it.some(i=>/^\d{2}\.\d{2}\.\d{4}$/.test(i.s)));
+    if(kV > 0 && !res.doc){
+      const v = lignes[kV].it, col = lab => { const e = lignes[kE].it.find(i=>new RegExp(lab,'i').test(i.s)); if(!e) return ''; const c = v.filter(i=>Math.abs(i.x - e.x) < 40); return c.map(i=>i.s).join(' '); };
+      res.doc = col('^DOCUMENT$'); res.date = col('^DATE$'); res.ref = col('^REFERENCE$');
+    }
+    const k0 = lignes.findIndex(l=>/^POS\b/.test(pdfTexteLigne(l)) && /DÉSIGNATION/.test(pdfTexteLigne(l)));
+    if(k0 < 0) return;
+    const h = lignes[k0].it, xDesc = (h.find(i=>i.s === 'DÉSIGNATION')||{x:149}).x, xQte = (h.find(i=>/^QT/.test(i.s))||{x:388}).x - 15;
+    for(let k = k0 + 1; k < lignes.length; k++){
+      const it = lignes[k].it, txt = pdfTexteLigne(lignes[k]);
+      if(/^MONTANT HTVA/i.test(txt)){ fermer(); tot.ht = pdfMontant(it[it.length-1].s); continue; }
+      if(/^TVA\b/i.test(txt) && !/^TVA LU/i.test(txt)){ tot.tva = pdfMontant(it[it.length-1].s); continue; }
+      if(/^TOTAL LIVRE/i.test(txt)){ tot.ttc = pdfMontant(it[it.length-1].s); continue; }
+      if(/Société à responsabilité|^D\.M\.E/i.test(txt)) break;
+      const t0 = it[0];
+      if(t0.x < xDesc - 40 && /^\d+$/.test(t0.s) && it[1] && it[1].x < xDesc - 5){
+        fermer();
+        const desc = pdfJoindre(it.filter(i=>i.x >= xDesc - 5 && i.x < xQte)), droite = it.filter(i=>i.x >= xQte);
+        if(droite.length !== 3){ res.erreurs.push(`Position ${t0.s} (${desc.slice(0,40)}) : colonnes illisibles (${droite.map(i=>i.s).join(' ')})`); continue; }
+        cur = pdfLignePU(t0.s, it[1].s, desc, droite[0].s, 'u', droite[1].s, droite[2].s);
+        continue;
+      }
+      if(cur && t0.x >= xDesc - 5 && !it.some(i=>i.x >= xQte)) cur.suite.push(txt);
+    }
+  });
+  fermer();
+  if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
+  return pdfFinirTaux(res);
+}
+const PDF_FORMATS = [
+  {nom:'Minusines', four:/minusines/i, reconnait: txt => /MINUSINES/i.test(txt) && /Code article/.test(txt) && /Prix eff\./.test(txt), analyser: pdfAnalyserMinusines},
+  {nom:'Ramirez', four:/ramirez/i, reconnait: txt => /RAMIREZ[\s-]*DATA/i.test(txt) && /Prix total ht/i.test(txt) && /Art\.-N°/i.test(txt), analyser: pdfAnalyserRamirez},
+  {nom:'DME', four:/^\s*d\.?\s*m\.?\s*e\.?(\s|$)/i, reconnait: txt => /Distribution de Mat[ée]riel Electrique/i.test(txt) && /dme\.lu/i.test(txt) && /D[ÉE]SIGNATION/.test(txt), analyser: pdfAnalyserDme}
+];
 async function poImporterPdf(input){
   const f = input && input.files && input.files[0]; if(input) input.value = '';
   if(!f) return;
@@ -7695,9 +7795,9 @@ async function poImporterPdf(input){
     poLignes = (remplace ? [] : poLignes.filter(l=>!vide(l))).concat(r.lignes);
     renderPoLignes();
     // fournisseur et observations, seulement s'ils sont encore vides
-    const sel = el('po-four'), four = (_foursActive||[]).find(x=>new RegExp(fmtPdf.nom, 'i').test(x.nom||''));
+    const sel = el('po-four'), four = (_foursActive||[]).find(x=>(fmtPdf.four || new RegExp(fmtPdf.nom, 'i')).test(x.nom||''));
     if(sel && !sel.value && four) sel.value = four.id;
-    const ref = `Confirmation ${fmtPdf.nom} n° ${a.doc}${a.date ? ' du ' + a.date.replace(/\./g,'/') : ''}`;
+    const ref = `${a.libDoc || 'Confirmation'} ${fmtPdf.nom} n° ${a.doc}${a.date ? ' du ' + a.date.replace(/\./g,'/') : ''}${a.ref ? ' (réf. ' + a.ref + ')' : ''}`;
     const obs = el('po-obs'); if(obs && !obs.value.trim() && a.doc) obs.value = ref;
     const deja = a.doc ? (_pos||[]).filter(p=>String(p.observations||'').includes(a.doc)) : [];
     poAfficherImport(`<div><i class="ti ti-circle-check"></i> <strong>${r.lignes.length} ligne${r.lignes.length>1?'s':''} importée${r.lignes.length>1?'s':''}</strong> — ${escHtml(ref)}${remplace?'':' (ajoutées après les lignes déjà saisies)'} — Total HT ${fmt(r.total)} = PDF, TTC du PDF ${fmt(a.totaux.ttc)}.${sel && four && String(sel.value)===String(four.id) ? '' : ' <strong>Choisissez le fournisseur.</strong>'} Vérifiez puis « Créer la commande ».</div>`
@@ -7724,6 +7824,8 @@ async function savePO(marquerEnvoyee){
   const fournisseur_id = el('po-four').value;
   if(!chantier_id||!fournisseur_id){ showToast("Chantier et fournisseur obligatoires",'error'); return; }
   if(poLignes.some(l=>!l.description)){ showToast("Toutes les lignes doivent avoir une description", 'error'); return; }
+  const manqueInt = achatIntervManquante('po');
+  if(manqueInt){ showToast(manqueInt, 'error'); const s = el('po-intervention'); if(s) s.focus(); return; }
   const {data:num} = await sb.rpc('generate_po_number');
   const {data:po,error} = await sb.from('purchase_orders_lyneo').insert({
     numero:num, chantier_id, fournisseur_id, cree_par:currentUser.id,
@@ -7905,7 +8007,7 @@ async function openPODetail(poId){
   </div></div>`);
 
   // Store for PDF
-  window._detailPO = {po, lignes, fournisseur:four, chantier:chant};
+  window._detailPO = {po, lignes, fournisseur:four, chantier:chant, refInt: refIntPO};
 }
 
 async function markSent(poId){
@@ -9195,7 +9297,7 @@ async function baixarPdfBytes(bytes, filename){
 }
 
 // Configuration du PDF d'un bon de commande (fonction pure : sert aussi à l'exemple de la page Documents)
-function configPdfPO(po, lignes, fournisseur, chantier){
+function configPdfPO(po, lignes, fournisseur, chantier, refInt){
   return {
     docType: 'BON DE COMMANDE',
     dates: [
@@ -9208,7 +9310,7 @@ function configPdfPO(po, lignes, fournisseur, chantier){
       {label:'Fournisseur', lines:[fournisseur?.nom||'—', fournisseur?.adresse||'', ((fournisseur?.code_postal||'')+' '+(fournisseur?.ville||'')).trim(), fournisseur?.numero_tva?('TVA : '+fournisseur.numero_tva):'']}
     ],
     refRow: [
-      {label:'Chantier', value: libChantierAchat(chantier)||'—'},
+      {label:'Chantier', value: (libChantierAchat(chantier)||'—') + (refInt ? ' — Intervention ' + refInt : '')},
       {label:'Conditions de paiement', value: fournisseur?.conditions_paiement||'30 jours'}
     ],
     sectionTitle: 'Détail de la commande',
@@ -9237,8 +9339,8 @@ function configPdfPO(po, lignes, fournisseur, chantier){
 // PDF d'un bon de commande, en mémoire (sert au téléchargement, à l'e-mail et au partage)
 async function pdfBytesPO(){
   await entrepriseChargee();
-  const {po, lignes, fournisseur, chantier} = window._detailPO;
-  const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, configPdfPO(po, lignes, fournisseur, chantier));
+  const {po, lignes, fournisseur, chantier, refInt} = window._detailPO;
+  const bytes = await LyneoPDF.generate(window.PDFLib, LYNEO_LOGO_B64, configPdfPO(po, lignes, fournisseur, chantier, refInt));
   return {bytes, nom: `${po.numero}.pdf`};
 }
 async function downloadPDF_PO(poId){
@@ -9690,7 +9792,61 @@ const facEchue = r => facAPayer(r) && !!r.date_echeance && jourFac(r.date_echean
 const etatPaiementFac = r => { const e = statutFaNorm(r.statut); return e==='validee' ? (facEchue(r) ? 'echue' : 'apayer') : e; };
 const RANG_PAIE_FAC = {echue:0, apayer:1, litige:2, payee:3, avoir:4, annulee:5};
 const rangPaiementFac = r => { const e = etatPaiementFac(r); return Object.prototype.hasOwnProperty.call(RANG_PAIE_FAC, e) ? RANG_PAIE_FAC[e] : 9; };
+// ── NOTES DE CRÉDIT FOURNISSEUR : « Déduite » / « Remboursée » (23/11/2026) — une ligne dans « paiements » (montant négatif) ──
+let _facAvoirUtil = {};
+async function chargerAvoirsUtilises(){
+  _facAvoirUtil = {};
+  const ids = (_facsListe||[]).filter(estAvoirFournisseur).map(f=>f.id);
+  if(!ids.length) return;
+  try{ const r = await lireParLots('paiements', 'id,facture_id,date_paiement,montant,mode_paiement,reference_virement', 'facture_id', ids); if(r.ok) r.rows.forEach(p=>{ _facAvoirUtil[String(p.facture_id)] = p; }); }catch(e){}
+}
+function cellAvoirFac(r){
+  const u = _facAvoirUtil[String(r.id)];
+  if(u) return `<span class="badge badge-payee" data-fac-etat="avoir-utilise" title="${escHtml(String(u.reference_virement||''))}">${/^Rembours/i.test(String(u.reference_virement||'')) ? 'Remboursée' : 'Déduite'} le ${escHtml(fmtDate(u.date_paiement))}</span> <button class="btn btn-ghost btn-sm" data-fac-avoir-annuler="${escHtml(String(r.id))}" onclick="event.stopPropagation();annulerAvoirUtilise('${escHtml(String(r.id))}')" title="Annuler (remettre « À déduire »)"><i class="ti ti-arrow-back-up"></i></button>`;
+  return `<div class="fac-pay"><span class="badge badge-avoir" data-fac-etat="avoir">À déduire</span> <button class="btn btn-secondary btn-sm" data-fac-avoir="${escHtml(String(r.id))}" onclick="openAvoirUtiliseModal('${escHtml(String(r.id))}')" title="Note de crédit déduite d'un paiement au fournisseur, ou remboursée"><i class="ti ti-check"></i> Déduite</button></div>`;
+}
+function openAvoirUtiliseModal(facId){
+  const a = (_facsListe||[]).find(f=>String(f.id)===String(facId)); if(!a) return;
+  const ttc = Math.abs(parseFloat(a.montant_ttc)||0);
+  const factures = (_facsListe||[]).filter(f=>String(f.fournisseur_id||'')===String(a.fournisseur_id||'') && !estAvoirFournisseur(f) && f.statut!=='annulee')
+    .sort((x,y)=>String(y.date_facture||'').localeCompare(String(x.date_facture||'')));
+  showModal(`<div class="modal-overlay"><div class="modal">
+    <div class="modal-header"><h3>Note de crédit ${escHtml(a.numero_facture_fournisseur||'')} — ${escHtml(fmt(ttc))} TTC</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="field-label">Comment ?</label><select id="av-mode" data-ordre="fixe" onchange="el('av-fac-wrap').style.display=this.value==='deduite'?'':'none'">
+          <option value="deduite">Déduite d'un paiement au fournisseur</option><option value="remboursee">Remboursée par le fournisseur</option></select></div>
+        <div class="form-group"><label class="field-label">Date</label><input type="date" id="av-date" value="${today()}"/></div>
+        <div class="form-group full" id="av-fac-wrap"><label class="field-label">Déduite de la facture (facultatif)</label><select id="av-fac" data-ordre="fixe"><option value="">—</option>${factures.map(f=>`<option value="${escHtml(String(f.id))}">${escHtml(f.numero_facture_fournisseur||'(sans n°)')} du ${escHtml(fmtDate(f.date_facture))} — ${escHtml(fmt(f.montant_ttc))} TTC</option>`).join('')}</select></div>
+        <div class="form-group full"><label class="field-label">Référence (facultatif)</label><input id="av-ref" placeholder="Réf. du virement / remarque"/></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" id="av-ok" onclick="saveAvoirUtilise('${escHtml(String(facId))}')"><i class="ti ti-check"></i> Confirmer</button>
+      </div>
+    </div></div></div>`);
+}
+async function saveAvoirUtilise(facId){
+  const a = (_facsListe||[]).find(f=>String(f.id)===String(facId)); if(!a) return;
+  const b = el('av-ok'); if(b) b.disabled = true;
+  const mode = (el('av-mode')||{}).value, fid = (el('av-fac')||{}).value, autre = ((el('av-ref')||{}).value||'').trim();
+  const f = fid ? (_facsListe||[]).find(x=>String(x.id)===String(fid)) : null;
+  const ref = (mode === 'remboursee' ? 'Remboursée par le fournisseur' : 'Déduite' + (f ? ' de la facture ' + (f.numero_facture_fournisseur||'') : '')) + (autre ? ' — ' + autre : '');
+  const ligne = {facture_id: a.id, date_paiement: (el('av-date')||{}).value || today(), montant: -Math.abs(parseFloat(a.montant_ttc)||0), mode_paiement: 'virement', reference_virement: ref.slice(0, 250), effectue_par: currentUser.id};
+  const p = await sb.from('paiements').insert(ligne).select('id');
+  if(p.error || !(p.data||[]).length){ showToast('Non enregistré : '+((p.error && p.error.message) || 'droits insuffisants'), 'error'); if(b) b.disabled = false; return; }
+  showToast(mode === 'remboursee' ? 'Note de crédit marquée « Remboursée »' : 'Note de crédit marquée « Déduite »');
+  closeModal(); renderFactures();
+}
+async function annulerAvoirUtilise(facId){
+  const u = _facAvoirUtil[String(facId)]; if(!u) return;
+  if(!confirm('Remettre cette note de crédit « À déduire » ?')) return;
+  const d = await sb.from('paiements').delete().eq('id', u.id).select('id');
+  if(d.error || !(d.data||[]).length){ showToast('Non modifié : '+((d.error && d.error.message) || 'droits insuffisants'), 'error'); return; }
+  showToast('Note de crédit remise « À déduire »'); renderFactures();
+}
 function cellPaiementFac(r){
+  if(estAvoirFournisseur(r)) return cellAvoirFac(r);
   if(statutFaNorm(r.statut)==='validee'){
     return `<div class="fac-pay"><button class="btn btn-primary btn-sm" data-fac-payer="${r.id}" onclick="openPayModal('${r.id}','${r.po_id||''}',${parseFloat(r.montant_ttc)||0})" title="Enregistrer le paiement de cette facture"><i class="ti ti-currency-euro"></i> Payer</button>${facEchue(r) ? `<span class="fac-echue" title="${escHtml('Échéance dépassée : '+fmtDate(r.date_echeance))}">⚠ Échue</span>` : ''}</div>`;
   }
@@ -9886,6 +10042,7 @@ async function renderFactures(){
   _facChantiers = chR.data||[];
   await tracChargerUtilisateurs();
   _facIntervRefs = await chargerRefsInterventions(_facsListe.map(f=>f.intervention_id));
+  await chargerAvoirsUtilises();
   const ids = new Set(_facsListe.map(f=>f.id));
   _facSel = new Set([..._facSel].filter(id=>ids.has(id)));
   const F = _facFiltres, sel = (a,b)=>a===b?' selected':'';
@@ -9900,7 +10057,7 @@ async function renderFactures(){
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <div class="search-wrap"><i class="ti ti-search"></i><input id="fac-recherche" placeholder="Rechercher partout (n°, fournisseur, chantier...)" oninput="majFiltreFactures('search',this.value)" value="${escHtml(F.search)}"/></div>
-      ${_ndfSet.size ? `<select id="fac-type" style="width:auto" title="Notes de frais = factures dont le fournisseur est un salarié" onchange="majFiltreFactures('type',this.value)"><option value="">Factures et notes de frais</option><option value="fac"${sel('fac',F.type)}>Factures fournisseurs (${_facsListe.filter(r=>!estNoteDeFrais(r)).length})</option><option value="ndf"${sel('ndf',F.type)}>Notes de frais (${_facsListe.filter(estNoteDeFrais).length})</option></select>` : ''}
+      ${(_ndfSet.size || _facsListe.some(estAvoirFournisseur)) ? `<select id="fac-type" style="width:auto" title="Notes de frais = factures dont le fournisseur est un salarié ; notes de crédit = avoirs du fournisseur" onchange="majFiltreFactures('type',this.value)"><option value="">Tous les documents</option><option value="fac"${sel('fac',F.type)}>Factures fournisseurs (${_facsListe.filter(r=>!estNoteDeFrais(r) && !estAvoirFournisseur(r)).length})</option><option value="avoir"${sel('avoir',F.type)}>Notes de crédit (${_facsListe.filter(estAvoirFournisseur).length})</option>${_ndfSet.size ? `<option value="ndf"${sel('ndf',F.type)}>Notes de frais (${_facsListe.filter(estNoteDeFrais).length})</option>` : ''}</select>` : ''}
       ${(_facsListe.some(obsFac) || F.obs) ? `<select id="fac-obs" style="width:auto" title="Remarques écrites dans le champ Observations (les textes automatiques de l'import et des notes de crédit ne comptent pas)" onchange="majFiltreFactures('obs',this.value)"><option value="">Avec ou sans observation</option><option value="oui"${sel('oui',F.obs)}>Avec observation (${_facsListe.filter(obsFac).length})</option></select>` : ''}
       <button class="btn btn-ghost btn-sm" id="facf-reset" onclick="reinitialiserFiltresFactures()" style="display:none"><i class="ti ti-x"></i> Réinitialiser les filtres</button>
       <span id="fac-compte" style="font-size:12.5px;color:var(--gray-5)"></span>
@@ -10017,7 +10174,8 @@ function facturesFiltrees(){
     if(F.paie){ const e = etatPaiementFac(r); if(F.paie==='apayer' ? !(e==='apayer' || e==='echue') : e!==F.paie) return false; }
     if(F.obs==='oui' && !obsFac(r)) return false;
     if(F.type==='ndf' && !estNoteDeFrais(r)) return false;
-    if(F.type==='fac' && estNoteDeFrais(r)) return false;
+    if(F.type==='fac' && (estNoteDeFrais(r) || estAvoirFournisseur(r))) return false;
+    if(F.type==='avoir' && !estAvoirFournisseur(r)) return false;
     if(F.codes){ const e = etatCodesFacture(r); if(String(F.codes).startsWith('c:')){ if(!e.ids.includes(F.codes.slice(2))) return false; } else if(e.etat!==F.codes) return false; }
     if(F.chantier==='sans' ? !!r.chantier_id : (F.chantier && r.chantier_id!==F.chantier)) return false;
     if(interne && !String(r.numero_interne||'').toLowerCase().includes(interne)) return false;
@@ -10661,7 +10819,7 @@ async function majInterventionAchat(p, table, valeur){
     wrap.dataset.pret = '1'; return;
   }
   sel.disabled = false;
-  note.textContent = "Sert à calculer le coût réel et la marge de l'intervention. Vide = coût du centre seulement.";
+  note.textContent = wrap.dataset.oblige === '1' ? "Obligatoire : le n° de l'intervention apparaît sur le bon de commande et sert à calculer son coût réel." : "Sert à calculer le coût réel et la marge de l'intervention. Vide = coût du centre seulement.";
   _intAchatListes[p] = liste;
   const rech = el(p+'-int-recherche');
   if(rech){ rech.value = ''; rech.style.display = liste.length > 8 ? '' : 'none'; }
@@ -10680,7 +10838,8 @@ function intAchatOptions(p, courant, filtre){
   const garde = i => !f || String(i.id) === cur || intAchatNorm((i.ref||'')+' '+(i.nom_site||'')).includes(f);
   const opt = i => `<option value="${escHtml(String(i.id))}"${String(i.id)===cur?' selected':''}>${escHtml(i.ref)}${i.nom_site?' — '+escHtml(i.nom_site):''}${i.statut==='facturee'?'':(STATUT_SAV[i.statut]?' ('+escHtml(STATUT_SAV[i.statut])+')':'')}</option>`;
   const ouvertes = tout.filter(i=>i.statut!=='facturee' && garde(i)), facturees = tout.filter(i=>i.statut==='facturee' && garde(i));
-  sel.innerHTML = '<option value="">— Centre seulement (aucune intervention précise) —</option>'
+  const oblige = (el(p+'-int-wrap')||{dataset:{}}).dataset.oblige === '1';
+  sel.innerHTML = (oblige ? '<option value="">— Choisir l\'intervention SAV —</option><option value="__centre"' + (cur === '__centre' ? ' selected' : '') + '>Centre seulement (achat commun, stock — aucune intervention)</option>' : '<option value="">— Centre seulement (aucune intervention précise) —</option>')
     + (ouvertes.length ? '<optgroup label="En cours / à facturer">' + ouvertes.map(opt).join('') + '</optgroup>' : '')
     + (facturees.length ? '<optgroup label="Facturées">' + facturees.map(opt).join('') + '</optgroup>' : '')
     + (f && !tout.some(i=>String(i.id)!==cur && intAchatNorm((i.ref||'')+' '+(i.nom_site||'')).includes(f)) ? '<option value="" disabled>Aucune intervention ne correspond à « ' + escHtml(filtre) + ' »</option>' : '');
@@ -10688,20 +10847,28 @@ function intAchatOptions(p, courant, filtre){
 function intAchatFiltrer(p){
   const sel = el(p+'-intervention'), rech = el(p+'-int-recherche'); if(!sel || !rech) return;
   intAchatOptions(p, sel.value, rech.value);
-  const vis = Array.from(sel.options).filter(o=>o.value && !o.disabled);
+  const vis = Array.from(sel.options).filter(o=>o.value && o.value !== '__centre' && !o.disabled);
   if(rech.value.trim() && vis.length === 1 && !sel.value){ sel.value = vis[0].value; sel.dispatchEvent(new Event('change')); }   // une seule réponse : choisie
 }
 // Ce qu'il faut ajouter à l'enregistrement (insert/update). `existant` = la ligne chargée pour une modification
 // (elle ne contient la clé intervention_id que si la colonne existe : on ne touche rien sinon).
+// Centre SAV choisi, intervention obligatoire (Nouvelle commande) mais pas encore choisie → message ; sinon ''
+function achatIntervManquante(p){
+  const wrap = el(p+'-int-wrap'), sel = el(p+'-intervention');
+  if(!wrap || wrap.dataset.oblige !== '1' || wrap.style.display === 'none' || !sel || sel.disabled) return '';
+  return sel.value ? '' : "Choisissez l'intervention SAV (ex. SAV26047) — ou « Centre seulement » pour un achat commun";
+}
 function achatIntervPayload(p, existant){
   const wrap = el(p+'-int-wrap'), sel = el(p+'-intervention');
   if(!wrap || wrap.dataset.pret!=='1') return {};          // champ pas encore prêt : on ne modifie pas l'imputation existante
   const v = sel && !sel.disabled ? sel.value : '';
-  if(v) return {intervention_id: v};
+  if(v && v !== '__centre') return {intervention_id: v};
   if(existant && Object.prototype.hasOwnProperty.call(existant,'intervention_id')) return {intervention_id: null};
   return {};
 }
 // Un achat annulé ne compte pas ; une note de crédit (avoir) se retranche, qu'elle soit stockée en positif ou en négatif
+// Note de crédit (avoir) d'un fournisseur : statut « avoir »
+const estAvoirFournisseur = f => !!f && f.statut === 'avoir';
 function montantAchatHT(f){
   if(!f || f.statut==='annulee') return 0;
   const m = parseFloat(f.montant_ht)||0;
@@ -12864,7 +13031,7 @@ function openClientModal(r=null, selectId=null){
     <div class="modal-header"><h3>${isEdit?'Modifier client':'Nouveau client'}</h3><button class="modal-close" onclick="${fermer}"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${escHtml(r?.nom||'')}" placeholder="Nom de la société ou du client"/></div>
+        <div class="form-group"><label class="field-label">Nom *</label><input id="cl-nom" value="${escHtml(r?.nom||'')}" placeholder="NOM DE LA SOCIÉTÉ OU DU CLIENT" style="text-transform:uppercase"/></div>
         <div class="form-group"><label class="field-label">Contact principal</label><input id="cl-contact" value="${escHtml(r?.contact_principal||'')}" placeholder="Nom du contact"/></div>
         <div class="form-group"><label class="field-label">Email</label><input type="email" id="cl-email" value="${escHtml(r?.email||'')}" placeholder="contact@client.com"/></div>
         <div class="form-group"><label class="field-label">E-mail de facturation <span style="font-weight:400;color:var(--gray-5)">(factures et relances — vide = l'email ci-dessus)</span></label><input type="text" id="cl-email-fact" value="${escHtml(r?.email_facturation||'')}" placeholder="comptabilite@client.com ; autre@client.com" autocomplete="off"/></div>
@@ -12943,7 +13110,7 @@ function majSelectClient(selectId, c){
 
 function saveClient(id, selectId=null){ return gardeEnvoi('client', ()=>saveClientCore(id, selectId)); }
 async function saveClientCore(id, selectId=null){
-  const nom = el('cl-nom').value.trim();
+  const nom = nomTiersMaj(el('cl-nom').value);
   if(!nom){ showToast('Nom obligatoire','error'); return; }
   // e-mail de facturation : une ou plusieurs adresses valides (séparées par « ; » ou une virgule), sinon on ne grave rien
   const chkFact = emailFactAnalyser((el('cl-email-fact')||{}).value);
@@ -21941,7 +22108,7 @@ async function renderInterventionsSAV(search='', filterStatut='encours'){
   const nbColsSav = montreClient ? 11 : 10;
   // Interventions facturées (ou en partie) dont le statut ne le dit pas encore : rattrapage en un clic pour admin / comptabilité
   const aMajStatut = _savFacturation.ok ? _interventionsSAV.filter(i=>statutCibleFacturation(i.statut, _savFacturation.parId[i.id])) : [];
-  const peutMajStatut = !!currentUser && ['admin','comptabilite'].includes(currentUser.role);
+  const peutMajStatut = !!currentUser && ['admin','comptabilite'].includes(currentUser.role) && await estDirectionFacturation();
   const bandeauMaj = (aMajStatut.length && peutMajStatut) ? `<div class="alert alert-warning" id="sav-resync" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span><i class="ti ti-refresh"></i> <strong>${aMajStatut.length}</strong> intervention${aMajStatut.length>1?'s ont':' a'} des factures clients, mais ${aMajStatut.length>1?'leur statut ne le reflète':'son statut ne le reflète'} pas encore (ex. « Terminée — à facturer »).</span><button class="btn btn-secondary btn-sm" id="sav-resync-btn" onclick="mettreAJourStatutsFacturationSAV()"><i class="ti ti-check"></i> Mettre à jour les statuts</button></div>` : '';
   const nouvelleIntArg = centreFiltre ? `{client_id:'${centreFiltre.client_id||''}',chantier_id:'${centreFiltre.id}'}` : '';
 
