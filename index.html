@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-24-69751be"/>
+<meta name="lyneo-build" content="BUILD:2026-11-24-76ef245"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2872,7 +2872,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-24-69751be';
+const APP_BUILD = 'BUILD:2026-11-24-76ef245';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -4034,6 +4034,21 @@ document.addEventListener('change', e=>{
   }
 });
 
+// Prix unitaire affiché dans un champ : 2 décimales minimum, 4 maximum (bruit de calcul retiré)
+function texteSaisiePU(v){
+  const t = String(v == null ? '' : v).trim();
+  if(!/^-?\d+(\.\d+)?(e-?\d+)?$/i.test(t)) return t;                     // vide, formule (=…), virgule en cours… : tel quel
+  const n = Math.round(Number(t) * 1e4) / 1e4; if(!isFinite(n)) return t;
+  const dec = (String(n).split('.')[1] || '').length;
+  return n.toFixed(Math.min(4, Math.max(2, dec)));
+}
+const estChampPU = i => i.dataset.field === 'prix_unitaire_ht' || /'prix_unitaire_ht'|\.prix_unitaire_ht\s*=/.test(i.getAttribute('onchange') || '');
+function normaliserPrixAffiches(){
+  document.querySelectorAll('input[data-calc]').forEach(i=>{
+    if(i === document.activeElement || !estChampPU(i)) return;
+    const t = texteSaisiePU(i.value); if(t !== i.value) i.value = t;
+  });
+}
 // Après chaque changement de l'écran : trie les listes déroulantes et remet en ordre les tableaux
 let _triEnCours = false;
 const _obsTri = new MutationObserver(()=>{
@@ -4044,6 +4059,7 @@ const _obsTri = new MutationObserver(()=>{
     majBoutonsExport();
     document.querySelectorAll('select').forEach(trierOptionsSelect);
     document.querySelectorAll('table[data-tri="oui"]').forEach(appliquerTriTable);
+    normaliserPrixAffiches();
   }catch(e){ console.warn('tri', e); }
   finally{ _obsTri.takeRecords(); _triEnCours = false; }
 });
@@ -4725,7 +4741,7 @@ async function openChantierDetail(chantierId, tab){
       + '<div style="padding:12px 0;font-size:13px;color:var(--gray-6);text-align:right"><strong>Total TTC facturé : </strong>'
       + fmt(facsVente.reduce((a,f)=>a+(f.total_ttc||0),0))+'</div>');
 
-  const tabDevis = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" onclick="closeModal();openDevisModal({chantier_id:'${chantierId}',client_id:'${chantier.client_id||''}'})"><i class="ti ti-plus"></i> Nouveau devis</button></div>`
+  const tabDevis = (estCentreSav(chantier) ? '' : `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-primary btn-sm" id="ch-nouveau-devis" onclick="closeModal();openDevisModal({chantier_id:'${chantierId}',client_id:'${chantier.client_id||''}'})"><i class="ti ti-plus"></i> Nouveau devis</button></div>`)
     + (devisChantier.length===0
       ? '<div class="empty"><div class="empty-icon"><i class="ti ti-file-description"></i></div><p>Aucun devis pour ce chantier</p></div>'
       : '<div style="overflow-x:auto"><table data-tri="oui" style="width:100%;border-collapse:collapse;min-width:500px">'
@@ -10745,11 +10761,11 @@ function htmlLignesFactureDetail(fac, lignes, ok){
   const tc = tvaFicheCorrigee(fac, lignes, tot);
   const ttcAff = (centimesDe(tot.ht)+centimesDe(tc.tva))/100;
   const ecart = (htFac!==null && Math.abs(htFac-tot.ht)>0.05) || (!isNaN(ttcFac) && Math.abs(ttcFac-ttcAff)>0.05);
-  const seau = '<em class="tva-corr" id="fac-det-tva-corr">corrigée</em>';
-  const unSeulTaux = vent.length===1;
-  const lignesTva = vent.map(v=>`<tr data-tva-taux="${v.taux}"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">TVA ${escHtml(String(v.taux).replace('.',','))} % <span style="font-size:11px">(sur ${fmt(v.base)})</span>${tc.corrigee&&unSeulTaux?seau:''}</td><td style="padding:3px 0;text-align:right"${tc.corrigee&&unSeulTaux?' id="fac-det-tva-val"':''}>${fmt(tc.corrigee&&unSeulTaux ? tc.tva : v.tva)}</td></tr>`).join('')
+  const seau = '';
+  const unSeulTaux = vent.length===1 || tc.corrigee;      // TVA corrigée : une seule ligne « TVA » avec le montant de la facture
+  const lignesTva = (tc.corrigee && vent.length>1) ? `<tr data-tva-taux="mixte"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">TVA</td><td style="padding:3px 0;text-align:right" id="fac-det-tva-val">${fmt(tc.tva)}</td></tr>` : vent.map(v=>`<tr data-tva-taux="${v.taux}"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">TVA ${escHtml(String(v.taux).replace('.',','))} % <span style="font-size:11px">(sur ${fmt(v.base)})</span>${tc.corrigee&&unSeulTaux?seau:''}</td><td style="padding:3px 0;text-align:right"${tc.corrigee&&unSeulTaux?' id="fac-det-tva-val"':''}>${fmt(tc.corrigee&&unSeulTaux ? tc.tva : v.tva)}</td></tr>`).join('')
     + (tc.corrigee&&!unSeulTaux ? `<tr id="fac-det-tva-delta"><td style="padding:3px 12px 3px 0;color:var(--gray-5)">Correction de TVA${seau}</td><td style="padding:3px 0;text-align:right" id="fac-det-tva-val">${tc.ecart>=0?'+':'−'}${fmt(Math.abs(tc.ecart))}</td></tr>` : '');
-  const infoTva = tc.corrigee ? `<tr><td colspan="2" class="tva-info${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' warn':''}" id="fac-det-tva-info">TVA de la facture : ${fmt(tc.tva)} — calculée d'après les lignes : ${fmt(tot.tva)} (écart ${tc.ecart>=0?'+':'−'}${fmt(Math.abs(tc.ecart))})${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' — ⚠ écart important : vérifiez les taux de TVA des lignes':''}</td></tr>` : '';
+  const infoTva = false ? `<tr><td colspan="2" class="tva-info${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' warn':''}" id="fac-det-tva-info">TVA de la facture : ${fmt(tc.tva)} — calculée d'après les lignes : ${fmt(tot.tva)} (écart ${tc.ecart>=0?'+':'−'}${fmt(Math.abs(tc.ecart))})${Math.abs(tc.ecart)>TVA_ECART_ALERTE?' — ⚠ écart important : vérifiez les taux de TVA des lignes':''}</td></tr>` : '';
   const avert = ecart ? `<div class="alert alert-warning" id="fac-det-ecart" style="margin-top:10px"><i class="ti ti-alert-triangle"></i> <span>Les lignes totalisent <strong>${fmt(tot.ht)} HT</strong> / <strong>${fmt(ttcAff)} TTC</strong>, mais la facture indique <strong>${htFac===null?'—':fmt(htFac)} HT</strong> / <strong>${isNaN(ttcFac)?'—':fmt(ttcFac)} TTC</strong>. Vérifiez avec « Modifier ».</span></div>` : '';
   return boite(`<div style="overflow-x:auto;max-width:100%"><table id="fac-det-table" style="width:100%;border-collapse:collapse;min-width:620px;font-size:13px">
       <thead><tr style="background:var(--gray-1)">${th('Référence')}${th('Description')}${rep?th('Centre'):''}${avecCodes?th('Code ressource'):''}${th('Qté','right')}${th('P.U. HT','right')}${th('TVA','right')}${th('Total HT','right')}</tr></thead>
@@ -11968,16 +11984,16 @@ function tvaTotauxHtml(prefix, ht, calc){
       +'<button type="button" class="tva-btn ok" id="'+P+'-tva-ok" onclick="tvaValider(\''+P+'\')" title="Valider"><i class="ti ti-check"></i></button>'
       +'<button type="button" class="tva-btn" id="'+P+'-tva-annuler" onclick="tvaAnnuler(\''+P+'\')" title="Annuler"><i class="ti ti-x"></i></button></span></div>';
   } else {
-    ligneTva = '<div class="totaux-row"><span>TVA'+(m?'<em class="tva-corr" id="'+P+'-tva-corr">corrigée</em>':'')+'</span><span id="'+P+'-tva-val">'+fmt(tva)
-      +' <button type="button" class="tva-crayon" id="'+P+'-tva-edit" onclick="tvaEditer(\''+P+'\')" title="Corriger le montant de TVA (comme dans Odoo)"><i class="ti ti-pencil"></i></button></span></div>';
+    ligneTva = '<div class="totaux-row"><span>TVA</span><span id="'+P+'-tva-val">'+fmt(tva)
+      +' <button type="button" class="tva-crayon" id="'+P+'-tva-edit" onclick="tvaEditer(\''+P+'\')" title="Corriger le montant de TVA (comme dans Odoo)"><i class="ti ti-pencil"></i></button>'
+      +(m ? '<button type="button" class="tva-crayon" id="'+P+'-tva-recalc" onclick="tvaRecalculer(\''+P+'\')" title="Revenir à la TVA calculée d\'après les lignes ('+fmt(calc)+')"><i class="ti ti-refresh"></i></button>' : '')
+      +'</span></div>';
   }
   let info = '';
-  if(m){
+  if(false){
     const ecart = m.val - calc, grand = Math.abs(ecart) > TVA_ECART_ALERTE;
     info = '<div class="tva-info'+(grand?' warn':'')+'" id="'+P+'-tva-info">Calculée d\'après les lignes : '+fmt(calc)+' (écart '+(ecart>=0?'+':'−')+fmt(Math.abs(ecart))+')'
       +(grand?' — ⚠ écart important : vérifiez les taux de TVA des lignes':'')+' · <a href="#" id="'+P+'-tva-recalc" onclick="tvaRecalculer(\''+P+'\');return false">Recalculer</a></div>';
-  } else if(window._tvaNote[prefix]){
-    info = '<div class="tva-info" id="'+P+'-tva-info">TVA recalculée d\'après les lignes (les lignes ont changé).</div>';
   }
   return '<div class="totaux-row"><span>Total HT</span><span>'+fmt(ht)+'</span></div>'+ligneTva+info
     +'<div class="totaux-row ttc"><span>TOTAL TTC</span><span>'+fmt(ht+tva)+'</span></div>';
@@ -14402,7 +14418,7 @@ async function openDevisModal(d=null){
     sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom')
   ]);
   const clients = clientsData||[];
-  const chantiers = chantiersVenteChoix(chantiersData||[], d?.chantier_id);   // archivés masqués, sauf celui déjà lié au devis
+  const chantiers = chantiersDevisChoix(chantiersData||[], d?.chantier_id);   // chantiers seulement (pas de SAV : module Interventions) ; archivés masqués, sauf celui déjà lié
   // TVA par défaut du devis = celle du pays du client (17 % si Luxembourg ou non renseigné, 0 % sinon)
   const clientDevis = d ? clients.find(c=>c.id===d.client_id) : null;
   window._tvaDefautDoc = clientDevis ? tvaDefautPays(clientDevis.pays) : 17;
@@ -14431,7 +14447,7 @@ async function openDevisModal(d=null){
           <div id="dv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin-top:4px"></div>
         </div>
         <div class="form-group"><label class="field-label">Chantier</label>
-          <select id="dv-chantier"><option value="">— Aucun (pas encore créé) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
+          <select id="dv-chantier"><option value="">— Pas encore de chantier (créé à l'acceptation) —</option>${chantiers.map(c=>`<option value="${c.id}" ${d?.chantier_id===c.id?'selected':''}>${escHtml(c.numero||'')} — ${escHtml(c.nom)}</option>`).join('')}</select>
         </div>
         <div class="form-group full"><label class="field-label">Objet <span style="font-weight:400;color:var(--gray-5)">(description complète du devis)</span></label><input id="dv-objet" value="${escHtml(d?.objet||'')}" placeholder="Ex: Assistance à la coupure et au raccordement d'un groupe électrogène"/></div>
         <div class="form-group"><label class="field-label">Affaire <span style="font-weight:400;color:var(--gray-5)">(page de garde et en-tête du PDF)</span></label><input id="dv-affaire" value="${escHtml(d?.affaire||'')}" placeholder="Ex: DELNIEDERKORN"/></div>
@@ -14742,7 +14758,6 @@ async function openDevisDetail(devisId){
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
         ${typeof dfBtnHtml==='function' ? (interventionLiee ? dfBtnHtml('intervention', interventionLiee.id, d.statut==='accepte' && interventionLiee.statut!=='facturee', 'btn-secondary') : dfBtnHtml('devis', d.id, ['accepte','brouillon','envoye'].includes(d.statut), 'btn-secondary')) : ''}
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
-        ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
         ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
         ${!interventionLiee && d.statut==='accepte' && d.chantier_id?`<button class="btn btn-primary" id="dv-btn-facturer" onclick="closeModal();openGenerateFactureVente('${escHtml(d.chantier_id)}','${escHtml(d.id)}')"><i class="ti ti-receipt"></i> Facturer</button>`:''}
         ${!interventionLiee && d.statut==='accepte' && !d.chantier_id?`<button class="btn btn-primary" id="dv-btn-creer-chantier" onclick="creerChantierDepuisDevis('${escHtml(d.id)}')" title="Ouvre le formulaire Nouveau chantier, rempli et lié à ce devis"><i class="ti ti-building-factory-2"></i> Créer le chantier</button>`:''}
@@ -14869,13 +14884,25 @@ async function changerStatutDevis(devisId, statut){
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Devis marqué : '+STATUT_DV[statut]);
   if(statut==='accepte' && !d.chantier_id){
-    if(confirm("Devis accepté ! Voulez-vous créer le chantier correspondant maintenant ?")){
-      ouvrirChantierDepuisDevis(d);
-      return;
-    }
+    let iv = null; try{ const r = await sb.from('interventions_sav').select('id').eq('devis_id', devisId).limit(1); iv = r.data && r.data[0]; }catch(e){}
+    if(!iv){ dvApresAcceptation(d); return; }
   }
   closeModal();
   rafraichirPage();
+}
+// Devis accepté sans chantier : créer le chantier, le rattacher à un chantier existant, ou plus tard
+function dvApresAcceptation(d){
+  const id = escHtml(String(d.id));
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:540px">
+    <div class="modal-header"><h3>Devis ${escHtml(d.numero||'')} accepté</h3><button class="modal-close" onclick="closeModal();rafraichirPage()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="dv-accepte">
+      <p style="font-size:13.5px;margin:0 0 14px">Le client a accepté : à quel chantier rattacher ce devis ? (le chantier sert aux achats, aux heures, à la facturation et à la marge)</p>
+      <div class="form-actions" style="justify-content:flex-start;flex-wrap:wrap">
+        <button class="btn btn-primary" id="dv-acc-creer" onclick="closeModal();creerChantierDepuisDevis('${id}')"><i class="ti ti-building-plus"></i> Créer le chantier</button>
+        <button class="btn btn-secondary" id="dv-acc-lier" onclick="closeModal();ouvrirLierDevisChantier('${id}')"><i class="ti ti-link"></i> Lier à un chantier existant</button>
+        <button class="btn btn-ghost" id="dv-acc-plus-tard" onclick="closeModal();rafraichirPage()">Plus tard</button>
+      </div>
+    </div></div></div>`);
 }
 // Ouvre le formulaire « Nouveau chantier » déjà rempli et lié au devis (nom, client ; le numéro suit le « Correspondant » du devis)
 function ouvrirChantierDepuisDevis(d){
@@ -14895,7 +14922,7 @@ async function ouvrirLierDevisChantier(devisId){
   if(rd.error || !d){ showToast('Devis introuvable : '+((rd.error&&rd.error.message)||''), 'error'); return; }
   if(d.chantier_id){ showToast('Ce devis est déjà lié à un chantier : '+d.numero, 'error'); return; }
   if(rc.error){ showToast('Erreur: '+rc.error.message, 'error'); return; }
-  const liste = chantiersVenteChoix(rc.data||[]);   // les chantiers archivés et les centres internes ne sont pas proposés
+  const liste = chantiersDevisChoix(rc.data||[]);   // chantiers seulement : ni archivés, ni centres internes, ni SAV
   if(!liste.length){ showToast("Aucun chantier existant à choisir — utilisez « Créer le chantier »", 'error'); return; }
   const memeClient = c => !!d.client_id && String(c.client_id)===String(d.client_id);
   const tri = liste.slice().sort((a,b)=> (memeClient(b)?1:0)-(memeClient(a)?1:0) || String(a.numero||'').localeCompare(String(b.numero||''), 'fr', {numeric:true}));
@@ -22681,7 +22708,7 @@ async function openInterventionModal(r=null){
           <input id="int-nom-site" value="${escHtml(r?.nom_site||'')}" placeholder="Ex: Entrepôt, Magasin Belval..."/>
           <div id="int-site-note" style="display:none;font-size:11.5px;color:var(--gray-5);margin-top:3px"></div></div>
         <div class="form-group"><label class="field-label">Adresse d'intervention</label><input id="int-adresse-site" value="${escHtml(r?.adresse_site||'')}"/></div>
-        <div class="form-group full"><label class="field-label">Devis lié (la facture reprendra les lignes du devis)</label>
+        <div class="form-group full" id="int-devis-wrap"${r && r.devis_id ? '' : ' style="display:none"'}><label class="field-label">Devis lié (la facture reprendra les lignes du devis)</label>
           <select id="int-devis" data-ordre="fixe" data-had="${r&&r.devis_id!==undefined?'1':''}" onchange="prefillDepuisDevisIntervention()">
             <option value="">— Aucun devis —</option>
             ${devisOpts}
@@ -24076,7 +24103,7 @@ async function havDessiner(){
     const aValider = w.blocs.filter(b=>b.etat==='attente' && (voirTout ? havPeutValider(b, ctx) : havMien(b, ctx)));
     const aApprouver = ctx.superviseur && (w.complet || w.vide);
     return '<div class="card hav-semaine" data-sem="'+escHtml(w.emp+'|'+w.debut)+'" style="padding:14px 16px;margin-bottom:12px">'
-      + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>'+escHtml(w.empNom)+'</strong> <span style="color:#6B7280">— S'+escHtml(String(num))+' · '+escHtml(w.jours[0].split('-').reverse().join('/'))+' → '+escHtml(w.jours[6].split('-').reverse().join('/'))+'</span></div><div style="color:#6B7280;display:flex;align-items:center;gap:8px">Semaine : '+escHtml(havH(w.total))+' h <button type="button" class="btn btn-ghost btn-sm hav-oeil hav-oeil-sem" data-k="'+escHtml(w.emp+'|'+w.debut+'|')+'" onclick="havBtnOeil(this)" title="Voir ce que '+escHtml(w.empNom)+' a pointé cette semaine" aria-label="Voir le détail des heures pointées de '+escHtml(w.empNom)+'"><i class="ti ti-eye"></i></button></div></div>'
+      + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>'+escHtml(w.empNom)+'</strong> <span style="color:#6B7280">— S'+escHtml(String(num))+' · '+escHtml(w.jours[0].split('-').reverse().join('/'))+' → '+escHtml(w.jours[6].split('-').reverse().join('/'))+'</span></div><div style="color:#6B7280;display:flex;align-items:center;gap:8px">Semaine : '+escHtml(havH(w.total))+' h <button type="button" class="btn btn-ghost btn-sm hav-oeil hav-oeil-sem" data-k="'+escHtml(w.emp+'|'+w.debut+'|')+'" onclick="havBtnOeil(this)" title="Voir ce que '+escHtml(w.empNom)+' a pointé cette semaine" aria-label="Voir le détail des heures pointées de '+escHtml(w.empNom)+'"><i class="ti ti-eye"></i></button>'+havBtnCorriger(w)+'</div></div>'
       + '<div style="margin-top:6px">'+puces+'</div>'
       + (w.incomplete ? '<div class="hav-incomplete" style="margin-top:6px;font-size:12.5px;color:#B45309">⚠ Semaine incomplète : '+escHtml(havH(w.total))+' h sur '+escHtml(havH(w.attendues))+' h prévues (il manque '+escHtml(havH(w.manque))+' h). Elle ne sera pas approuvée automatiquement : l\'employé peut la compléter.</div>' : '')
       + aValider.map(b=>havHtmlBloc(w, b, d, ctx, actif)).join('')
@@ -25126,10 +25153,175 @@ function havVoirSemaine(emp, debut, blocCle){
         ${w.vide ? '' : '<tfoot><tr style="border-top:2px solid var(--gray-3);font-weight:700"><td style="padding:6px 8px">Total</td>'+parJour.map(t=>'<td class="hav-tj" style="padding:6px 8px;text-align:center">'+(t>0 ? escHtml(havH(t)) : '·')+'</td>').join('')+'<td class="hav-tg" style="padding:6px 8px;text-align:right;white-space:nowrap">'+escHtml(havH(w.total))+' h</td><td></td></tr></tfoot>'}
       </table></div>
       <p style="font-size:11.5px;color:#6B7280;margin-top:8px">🌙 = heures de nuit · jaune = à valider par vous · vert = déjà validé · gris = attend quelqu'un d'autre. Vue en lecture seule : validez ou renvoyez avec les boutons de la carte.</p>
-      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>
+      <div class="form-actions">${havPeutCorriger(w) ? '<button class="btn btn-secondary" id="hav-oeil-corriger" data-k="'+escHtml(w.emp+'|'+w.debut)+'" onclick="havCorrigerOuvrir(this.dataset.k)"><i class="ti ti-pencil"></i> Corriger les heures</button>' : ''}<button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>
     </div></div></div>`);
 }
 function havBtnOeil(btn){ const c = havParseCle(btn.dataset.k); havVoirSemaine(c.emp, c.debut, c.bloc==='' ? null : c.bloc); }
+// ── HEURES À VALIDER : CORRIGER LES HEURES D'UN SALARIÉ (24/11/2026) ─────────────────────────────────────────────
+let _havCorr = null;
+function havPeutCorriger(w){
+  const h = _hav; if(!h || !w) return false;
+  if(!h.ctx || !h.ctx.peutHeures || h.d.sqlManque) return false;
+  if(!w.sem || w.sem.statut !== 'soumis') return false;
+  if(h.ctx.ptEmpId && String(w.emp) === String(h.ctx.ptEmpId)) return false;      // jamais ses propres heures
+  return true;
+}
+const havBtnCorriger = w => havPeutCorriger(w) ? ' <button type="button" class="btn btn-secondary btn-sm hav-corriger" data-k="'+escHtml(w.emp+'|'+w.debut)+'" onclick="havCorrigerOuvrir(this.dataset.k)" title="Corriger les heures (chantier, heures) avant de valider"><i class="ti ti-pencil"></i> Corriger</button>' : '';
+const havCorrNum = v => { const t = String(v==null?'':v).trim().replace(',', '.'); if(t === '') return 0; const n = Number(t); return isFinite(n) ? Math.round(n*100)/100 : NaN; };
+async function havCorrigerOuvrir(k){
+  const [emp, debut] = String(k||'').split('|');
+  const h = _hav, w = h && h.semaines.find(x=>x.emp===String(emp) && x.debut===String(debut));
+  if(!w){ showToast('Semaine introuvable — rechargez la page', 'error'); return; }
+  if(!havPeutCorriger(w)){ showToast(h && h.ctx && h.ctx.ptEmpId && String(w.emp)===String(h.ctx.ptEmpId) ? 'Vous ne corrigez pas vos propres heures' : 'Correction impossible pour cette semaine', 'error'); return; }
+  let pics, ch, erp = [];
+  try{
+    [pics, ch] = await Promise.all([
+      havLirePicages(q=>q.eq('employe_id', w.emp).gte('date', w.jours[0]).lte('date', w.jours[6])),
+      lireChantiersPointagesActif()
+    ]);
+    try{ erp = await lirePagine('chantiers_lyneo', 'id,numero,code_pointages'); }catch(e){ erp = []; }
+  }catch(e){ showToast('Lecture des pointages impossible : '+escHtml((e&&e.message)||e), 'error'); return; }
+  const avecType = pics.some(p=>Object.prototype.hasOwnProperty.call(p, 'type_heures'));
+  const groupes = new Map();
+  pics.forEach(p=>{
+    const t = avecType && p.type_heures === 'nuit' ? 'nuit' : 'jour', cle = String(p.chantier_id)+'|'+t;
+    if(!groupes.has(cle)) groupes.set(cle, {pt:String(p.chantier_id), t, h:{}});
+    const g = groupes.get(cle), j = havJ10(p.date); g.h[j] = Math.round(((g.h[j]||0) + (parseFloat(p.heures)||0))*100)/100;
+  });
+  const utilises = new Set(pics.map(p=>String(p.chantier_id)));
+  const codes = (ch.rows||[]).filter(c=>c.actif!==false || utilises.has(String(c.id))).map(c=>({id:String(c.id), code:String(c.code||''), nom:String(c.nom||''), inactif:c.actif===false}))
+    .sort((a,b)=>a.code.localeCompare(b.code, 'fr', {numeric:true, sensitivity:'base'}));
+  _havCorr = {emp:String(w.emp), debut:String(w.debut), jours:w.jours.slice(), semId:w.sem && w.sem.id, semStatut:w.sem && w.sem.statut, empNom:w.empNom, avecType, orig:pics, codes, erp,
+    lignes:[...groupes.values()].map(g=>({pt:g.pt, t:g.t, h:Object.fromEntries(w.jours.map(j=>[j, g.h[j] ? String(g.h[j]) : '']))}))};
+  if(!_havCorr.lignes.length) havCorrAjouter(true);
+  havCorrDessiner();
+}
+function havCorrAjouter(silencieux){
+  const c = _havCorr; if(!c) return;
+  c.lignes.push({pt:'', t:'jour', h:Object.fromEntries(c.jours.map(j=>[j, '']))});
+  if(!silencieux) havCorrDessiner();
+}
+function havCorrSuppr(i){ const c = _havCorr; if(!c) return; c.lignes.splice(i, 1); havCorrDessiner(); }
+function havCorrMaj(i, champ, v, jour){
+  const c = _havCorr; if(!c || !c.lignes[i]) return;
+  if(champ === 'h') c.lignes[i].h[jour] = v; else c.lignes[i][champ] = v;
+  havCorrTotaux();
+}
+function havCorrTotaux(){
+  const c = _havCorr; if(!c) return;
+  c.lignes.forEach((l,i)=>{ const e = el('havc-tot-'+i); if(e) e.textContent = havH(c.jours.reduce((t,j)=>t+(havCorrNum(l.h[j])||0), 0))+' h'; });
+  c.jours.forEach((j,k)=>{ const e = el('havc-tj-'+k); if(e){ const t = c.lignes.reduce((s,l)=>s+(havCorrNum(l.h[j])||0), 0); e.textContent = t ? havH(t) : '·'; e.style.color = t > 24 ? 'var(--red)' : ''; } });
+  const g = el('havc-total'); if(g) g.textContent = havH(c.lignes.reduce((s,l)=>s+c.jours.reduce((t,j)=>t+(havCorrNum(l.h[j])||0), 0), 0))+' h';
+}
+function havCorrDessiner(){
+  const c = _havCorr; if(!c) return;
+  const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  const optCh = sel => '<option value="">— Chantier / SAV —</option>' + c.codes.map(x=>'<option value="'+escHtml(x.id)+'"'+(x.id===String(sel)?' selected':'')+'>'+escHtml(x.code)+(x.nom && x.nom!==x.code ? ' — '+escHtml(x.nom) : '')+(x.inactif?' (fermé)':'')+'</option>').join('');
+  const lignes = c.lignes.map((l,i)=>'<tr class="havc-ligne" data-i="'+i+'">'
+    + '<td style="padding:4px 6px;min-width:230px"><select class="havc-ch" data-ordre="fixe" onchange="havCorrMaj('+i+',\'pt\',this.value)" style="width:100%">'+optCh(l.pt)+'</select></td>'
+    + (c.avecType ? '<td style="padding:4px 6px"><select class="havc-type" data-ordre="fixe" onchange="havCorrMaj('+i+',\'t\',this.value)"><option value="jour"'+(l.t!=='nuit'?' selected':'')+'>Jour</option><option value="nuit"'+(l.t==='nuit'?' selected':'')+'>🌙 Nuit</option></select></td>' : '')
+    + c.jours.map(j=>'<td style="padding:4px 3px"><input type="text" inputmode="decimal" class="havc-h" data-j="'+escHtml(j)+'" value="'+escHtml(l.h[j]||'')+'" oninput="havCorrMaj('+i+',\'h\',this.value,\''+escHtml(j)+'\')" style="width:52px;text-align:center"/></td>').join('')
+    + '<td id="havc-tot-'+i+'" style="padding:4px 6px;text-align:right;font-weight:700;white-space:nowrap"></td>'
+    + '<td><button type="button" class="btn btn-ghost btn-sm havc-suppr" onclick="havCorrSuppr('+i+')" title="Supprimer la ligne"><i class="ti ti-trash"></i></button></td></tr>').join('');
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:1080px;width:97vw">
+    <div class="modal-header"><h3>Corriger les heures — ${escHtml(c.empNom)} · S${escHtml(String(havSemNum(c.debut)))} (${escHtml(havDateFr(c.jours[0]))} → ${escHtml(havDateFr(c.jours[6]))})</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="havc">
+      <p style="font-size:13px;margin:0 0 10px">Changez le chantier / SAV d'une ligne pour y déplacer ses heures, corrigez les heures d'un jour, ajoutez ou supprimez une ligne. Les absences ne changent pas ici. Chaque modification est inscrite au registre à votre nom ; les blocs modifiés repassent « à valider ».</p>
+      <div style="overflow-x:auto"><table id="havc-table" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:var(--gray-1)"><th style="padding:6px;text-align:left">Chantier / SAV</th>${c.avecType ? '<th style="padding:6px">Type</th>' : ''}${c.jours.map((j,k)=>'<th style="padding:6px 3px;text-align:center;white-space:nowrap'+(k>4?';color:#9CA3AF':'')+'">'+JOURS[k]+'<br><span style="font-weight:400;font-size:11px">'+escHtml(j.slice(8,10)+'/'+j.slice(5,7))+'</span></th>').join('')}<th style="padding:6px;text-align:right">Total</th><th></th></tr></thead>
+        <tbody>${lignes}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--gray-3);font-weight:700"><td style="padding:6px">Total du jour</td>${c.avecType ? '<td></td>' : ''}${c.jours.map((j,k)=>'<td id="havc-tj-'+k+'" style="padding:6px 3px;text-align:center"></td>').join('')}<td id="havc-total" style="padding:6px;text-align:right"></td><td></td></tr></tfoot>
+      </table></div>
+      <div style="margin:8px 0 12px"><button type="button" class="btn btn-secondary btn-sm" id="havc-ajouter" onclick="havCorrAjouter()"><i class="ti ti-plus"></i> Ajouter une ligne</button></div>
+      <div class="form-group"><label class="field-label" for="havc-motif">Motif de la correction <span style="font-weight:400;text-transform:none">(facultatif — visible dans le registre)</span></label><input id="havc-motif" maxlength="150" placeholder="ex. heures pointées sur P00011 au lieu de SAV 2"/></div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-primary" id="havc-ok" onclick="havCorrEnregistrer()"><i class="ti ti-device-floppy"></i> Enregistrer la correction</button></div>
+    </div></div></div>`);
+  havCorrTotaux();
+}
+// Contrôle + différences (pures) : {erreur} ou {ops:[{action, pt, t, jour, avant, apres, ids}]}
+function havCorrCalculer(c){
+  const cible = new Map(), vus = new Set();
+  for(let i = 0; i < c.lignes.length; i++){
+    const l = c.lignes[i], vals = c.jours.map(j=>havCorrNum(l.h[j]));
+    const vide = vals.every(v=>v === 0);
+    if(!l.pt){ if(vide) continue; return {erreur:'Ligne '+(i+1)+' : choisissez le chantier / SAV'}; }
+    if(vals.some(v=>!isFinite(v) || v < 0 || v > 24)) return {erreur:'Ligne '+(i+1)+' : heures invalides (nombre entre 0 et 24)'};
+    const cle = l.pt+'|'+(c.avecType ? l.t : 'jour');
+    if(vus.has(cle)) return {erreur:'Deux lignes pour le même chantier'+(c.avecType ? ' et le même type (jour / nuit)' : '')+' : regroupez-les'};
+    vus.add(cle);
+    c.jours.forEach((j,k)=>{ if(vals[k] > 0) cible.set(cle+'|'+j, vals[k]); });
+  }
+  for(const j of c.jours){
+    let t = 0; cible.forEach((v,k)=>{ if(k.endsWith('|'+j)) t += v; });
+    if(t > 24.001) return {erreur:'Plus de 24 h le '+havDateFr(j)};
+  }
+  const orig = new Map();
+  c.orig.forEach(p=>{ const cle = String(p.chantier_id)+'|'+(c.avecType && p.type_heures==='nuit' ? 'nuit' : 'jour')+'|'+havJ10(p.date); if(!orig.has(cle)) orig.set(cle, []); orig.get(cle).push(p); });
+  const ops = [];
+  orig.forEach((ps, cle)=>{
+    const [pt, t, jour] = cle.split('|'), avant = Math.round(ps.reduce((s,p)=>s+(parseFloat(p.heures)||0), 0)*100)/100, apres = cible.has(cle) ? cible.get(cle) : 0;
+    if(apres === 0){ ops.push({action:'suppression', pt, t, jour, avant, apres:null, suppr:ps.map(p=>p.id)}); return; }
+    if(Math.abs(apres - avant) < 0.005 && ps.length === 1) return;
+    ops.push({action:'modification', pt, t, jour, avant, apres, maj:ps[0], suppr:ps.slice(1).map(p=>p.id)});
+  });
+  cible.forEach((v, cle)=>{ if(!orig.has(cle)){ const [pt, t, jour] = cle.split('|'); ops.push({action:'ajout', pt, t, jour, avant:null, apres:v}); } });
+  return {ops};
+}
+async function havCorrEnregistrer(){
+  const c = _havCorr; if(!c) return;
+  const b = el('havc-ok'); if(b) b.disabled = true;
+  const fin = msg => { if(msg) showToast(msg, 'error'); const x = el('havc-ok'); if(x) x.disabled = false; };
+  const r = havCorrCalculer(c);
+  if(r.erreur) return fin(r.erreur);
+  if(!r.ops.length){ showToast('Aucune modification'); closeModal(); return; }
+  // la semaine doit toujours être « soumise »
+  try{ const s = await sbPT.from('semaines').select('id,statut').eq('id', c.semId).limit(1); const st = s.data && s.data[0] && s.data[0].statut; if(s.error || st !== 'soumis') return fin('La semaine n\'est plus « soumise » ('+(st||'introuvable')+') : rechargez la page'); }catch(e){ return fin('Lecture de la semaine impossible'); }
+  const motif = String((el('havc-motif')||{}).value||'').trim().slice(0, 150);
+  const code = id => (c.codes.find(x=>x.id===String(id))||{}).code || '?';
+  const erpDe = id => { const cd = code(id); const e = c.erp.find(x=>(typeof codesPointagesDe==='function' ? codesPointagesDe(x) : [x.code_pointages]).some(k=>String(k||'').trim().toUpperCase()===cd.toUpperCase()) || String(x.numero||'').toUpperCase()===cd.toUpperCase()); return e ? e.id : null; };
+  const faits = []; let erreur = null;
+  try{
+    for(const op of r.ops){
+      if(op.action === 'modification'){
+        const u = await sbPT.from('picages').update({heures: op.apres}).eq('id', op.maj.id).eq('heures', op.maj.heures).select('id');
+        if(u.error){ erreur = u.error; break; }
+        if(!(u.data||[]).length){ erreur = new Error('heures modifiées entre-temps ('+code(op.pt)+' '+havDateFr(op.jour)+')'); break; }
+      }
+      if(op.suppr && op.suppr.length){
+        const d = await sbPT.from('picages').delete().in('id', op.suppr).select('id');
+        if(d.error){ erreur = d.error; break; }
+        if((d.data||[]).length !== op.suppr.length){ erreur = new Error('suppression refusée ou partielle ('+code(op.pt)+' '+havDateFr(op.jour)+')'); break; }
+      }
+      if(op.action === 'ajout'){
+        const ligne = {employe_id: Number.isFinite(Number(c.emp)) ? Number(c.emp) : c.emp, chantier_id: Number.isFinite(Number(op.pt)) ? Number(op.pt) : op.pt, date: op.jour, heures: op.apres, semaine_id: c.semId};
+        if(c.avecType) ligne.type_heures = op.t;
+        const a = await sbPT.from('picages').insert(ligne).select('id');
+        if(a.error){ erreur = a.error; break; }
+        if(!(a.data||[]).length){ erreur = new Error('ajout non confirmé par la base'); break; }
+      }
+      faits.push(op);
+    }
+  }catch(e){ erreur = e; }
+  // registre : ce qui a réellement été écrit
+  const lot = (typeof nouveauLotSaisie === 'function') ? nouveauLotSaisie() : null;
+  const desc = op => (c.empNom+' · '+code(op.pt)+(op.t==='nuit'?' 🌙':'')+' · '+havDateFr(op.jour).slice(0,5)+' · '+(op.avant==null?'—':havH(op.avant))+' → '+(op.apres==null?'—':havH(op.apres))+' h · correction'+(motif?' : '+motif:'')).slice(0,200);
+  let registreOk = true;
+  if(faits.length){
+    try{
+      const rj = await sb.from('heures_saisie_admin').insert(faits.map(op=>({chantier_id: erpDe(op.pt), pt_chantier_id: String(op.pt), pt_code: code(op.pt), pt_employe_id: c.emp, employe_nom: c.empNom, semaine_debut: c.debut, jour: op.jour, action: op.action,
+        heures_avant: op.avant, heures_apres: op.apres, semaine_id: c.semId != null ? String(c.semId) : null, semaine_statut: 'soumis', lot, cree_par: currentUser.id, description: desc(op)})));
+      if(rj.error) registreOk = false;
+    }catch(e){ registreOk = false; }
+  }
+  if(erreur){ showToast('Correction interrompue : '+escHtml((erreur&&erreur.message)||erreur)+(faits.length ? ' — '+faits.length+' modification(s) déjà enregistrée(s)' : ''), 'error'); }
+  else showToast('Heures corrigées ('+faits.length+' modification'+(faits.length>1?'s':'')+') : validez maintenant les blocs');
+  if(!registreOk) showToast('Attention : le registre des corrections n\'a pas pu être écrit. Notez : '+faits.map(desc).join(' | '), 'error', 15000);
+  closeModal(); _havCorr = null;
+  try{ await havCharger(true); }catch(e){}
+  if(typeof havDessiner === 'function' && currentPage === 'heures_a_valider') await havDessiner();
+  if(typeof havMajChrome === 'function') havMajChrome();
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // HEURES À VALIDER : QUI VALIDE QUOI (12/11/2026)
@@ -25893,6 +26085,11 @@ function cfOptionsAchat(liste, courant, vide, opts){
   return '<option value=""' + (!cur ? ' selected' : '') + '>' + escHtml(vide) + '</option>' + cfGroupesAchat(liste, courant, opts);
 }
 // Centres proposables dans un document de VENTE (devis, facture client) : jamais un centre interne, sauf celui déjà lié au document.
+// Devis : seulement de vrais chantiers (P… / CF…) — ni centre SAV, ni centre interne ; le centre déjà lié reste affiché
+function chantiersDevisChoix(rows, garderId){
+  const garde = (garderId === undefined || garderId === null || garderId === '') ? null : String(garderId);
+  return chantiersVenteChoix(rows, garderId).filter(c => (!estCentreSav(c) && !cfEstInterne(c)) || (garde !== null && String(c.id) === garde));
+}
 function chantiersVenteChoix(rows, garderId){
   const garde = (garderId === undefined || garderId === null || garderId === '') ? null : String(garderId);
   return chantiersChoix(rows, garderId).filter(c => !cfEstInterne(c) || (garde !== null && String(c.id) === garde));
