@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-23-895bc47"/>
+<meta name="lyneo-build" content="BUILD:2026-11-24-69751be"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2872,7 +2872,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-23-895bc47';
+const APP_BUILD = 'BUILD:2026-11-24-69751be';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3272,6 +3272,7 @@ function navigate(page, depuisAdresse){
   fermerApercu();
   if(page==='interventions_sav'){ _savCentreFiltre = ''; _savF = filtresSAVVides(); }   // on arrive toujours sur la vue complète
   if(page==='clients') _clF = filtresCLVides();
+  if(typeof _dfSuite !== 'undefined' && page !== 'devis' && page !== 'interventions_sav') _dfSuite = null;
   if(page==='fournisseurs') _foF = filtresFOVides();
   if(page==='employes_rh') _emF = filtresEMVides();
   if(page==='factures_vente') _fvFiltres = filtresFVVides();
@@ -7743,7 +7744,7 @@ function pdfVersLignesPO(a){
     out.lignes.push({description: x.desc, reference_article: x.l.code, quantite: x.l.q, unite: x.unite, prix_unitaire_ht: pu, taux_tva: x.l.tva});
   });
   const tva = arr2(out.lignes.reduce((t,l)=>t + l.quantite * l.prix_unitaire_ht * l.taux_tva / 100, 0));
-  if(Math.abs(tva - a.totaux.tva) > 0.02) out.avert.push(`TVA calculée ${fmt(tva)} ≠ TVA du PDF ${fmt(a.totaux.tva)} : vérifiez`);
+  if(!a.tvaEtrangere && Math.abs(tva - a.totaux.tva) > 0.02) out.avert.push(`TVA calculée ${fmt(tva)} ≠ TVA du PDF ${fmt(a.totaux.tva)} : vérifiez`);
   out.total = somme;
   return out;
 }
@@ -7831,10 +7832,81 @@ function pdfAnalyserDme(pages){
   if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
   return pdfFinirTaux(res);
 }
+// CEBEO — « Offre de prix n° 6381675 » « date : 27/10/2026 » ; « Concernant: … » = référence
+const PDF_TVA_BELGE = [21, 12, 6];
+const pdfNombrePoint = t => { const v = parseFloat(String(t||'').replace(',', '.')); return isFinite(v) ? v : NaN; };   // « 0.01 » (recupel)
+function pdfAnalyserCebeo(pages){
+  const res = {fournisseur:'Cebeo', libDoc:'Offre', lignes:[], erreurs:[], avert:[], doc:'', date:'', ref:'', totaux:null};
+  let cur = null, fin = false, tot = {};
+  const fermer = () => {
+    if(!cur) return;
+    if(cur.cebeoId) cur.suite.push('(réf. Cebeo ' + cur.cebeoId + ')');
+    res.lignes.push(cur);
+    if(isFinite(cur.recupel) && cur.recupel > 0)
+      res.lignes.push({pos: cur.pos + ' recupel', code: 'RECUPEL', desc: 'Recupel (' + cur.code + ')', suite: [], han: '', q: cur.q, ua: 'u', prix: cur.recupel, pm: 'EIN', eff: cur.recupel, total: arr2(cur.q * cur.recupel), tva: NaN});
+    cur = null;
+  };
+  pages.forEach(lignes=>{
+    if(fin) return;
+    lignes.forEach(l=>{
+      const t = pdfTexteLigne(l); let m;
+      if(!res.doc && (m = /Offre de prix n°\s*(\S+)/i.exec(t))) res.doc = m[1];
+      if(!res.date && (m = /\bdate\s*:\s*(\d{2}\/\d{2}\/\d{4})/i.exec(t))) res.date = m[1];
+      const c = l.it.find(i=>/^Concernant\s*:/i.test(i.s)); if(c && !res.ref) res.ref = c.s.replace(/^Concernant\s*:\s*/i, '').trim();
+    });
+    const k0 = lignes.findIndex(l=>l.it.some(i=>i.s === 'Lig') && l.it.some(i=>i.s === 'Gam') && l.it.some(i=>/^Quantit/.test(i.s)));
+    if(k0 < 0) return;
+    const h = lignes[k0].it, xh = (re, d) => (h.find(i=>re.test(i.s))||{x:d}).x;
+    const xArt = xh(/^Article$/, 144), xId = xh(/^Art\.?\s*id/i, 306), xPU = xh(/^Prix unit/, 377), xQte = xh(/^Quantit/, 431), xUn = xh(/^Un$/, 475), xPrix = xh(/^prix$/, 504);
+    for(let k = k0 + 1; k < lignes.length && !fin; k++){
+      const it = lignes[k].it, txt = pdfTexteLigne(lignes[k]), der = it[it.length-1];
+      if(/^(Article réf|Stock variante)/i.test(txt)) continue;                                   // 2e ligne du titre
+      if(/^-\s*\d+\s*-$/.test(txt)) continue;                                                  // n° de page « -1- »
+      if(/^Total en g[ée]n[ée]ral/i.test(txt) || /^Conditions frais/i.test(txt)){ fermer(); continue; }
+      if(/^Total\s*:/i.test(txt)){ fermer(); tot.ht = pdfMontant(der.s); continue; }
+      if(/^incl\.?\s*recupel/i.test(txt)){ const m = /([\d.,]+)\s*$/.exec(txt); tot.recupel = m ? pdfMontant(m[1]) : NaN; continue; }
+      if(/^TVA\s*:/i.test(txt)){ tot.tva = pdfMontant(der.s); continue; }
+      if(/^Total TVA incl/i.test(txt)){ tot.ttc = pdfMontant(der.s); fin = true; continue; }
+      const t0 = it[0];
+      if(t0.x < xArt - 20 && /^\d+$/.test(t0.s)){
+        fermer();
+        const art = pdfJoindre(it.filter(i=>i.x >= xArt - 5 && i.x < xId - 15)).trim(), m = /^(\S+)\s*(.*)$/.exec(art) || ['', art, ''];
+        const id = it.find(i=>i.x >= xId - 15 && i.x < xId + 25 && /^\d+$/.test(i.s));
+        const pu = it.filter(i=>i.x >= xPU - 15 && i.x < xQte), q = it.filter(i=>i.x >= xQte && i.x < xUn - 1), un = it.filter(i=>i.x >= xUn - 1 && i.x < xPrix), px = it.filter(i=>i.x >= xPrix);
+        if(pu.length !== 1 || q.length !== 1 || px.length !== 1){ res.erreurs.push(`Ligne ${t0.s} (${art.slice(0,40)}) : colonnes illisibles (${it.filter(i=>i.x >= xPU - 15).map(i=>i.s).join(' ')})`); continue; }
+        cur = pdfLignePU(t0.s, m[1], m[2] ? m[2] + ' —' : '', q[0].s, un.map(i=>i.s).join(' ') || 'u', pu[0].s, px[0].s);
+        cur.cebeoId = id ? id.s : '';
+        continue;
+      }
+      if(cur && t0.x >= xArt - 5){
+        const rec = /^Non compris\s+([\d.,]+)\s*recupel/i.exec(txt);
+        if(rec){ cur.recupel = (cur.recupel || 0) + pdfNombrePoint(rec[1]); continue; }
+        const d = pdfJoindre(it.filter(i=>i.x < xId - 5)).trim();                                  // sans le code stock (A/B/C) à droite
+        if(d) cur.suite.push(d);
+      }
+    }
+  });
+  fermer();
+  if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
+  if(isFinite(tot.recupel)){
+    const r = arr2(res.lignes.filter(l=>l.code === 'RECUPEL').reduce((a,l)=>a + l.total, 0));
+    if(Math.abs(r - tot.recupel) > 0.005) res.avert.push(`Recupel des lignes ${fmt(r)} ≠ « incl. recupel » du PDF ${fmt(tot.recupel)} : vérifiez`);
+  }
+  // TVA : taux luxembourgeois reconnu → tel quel ; taux belge (offre d'Arlon) → 0 % intracommunautaire, à vérifier
+  const taux = pdfTauxDepuisTotaux(res.totaux);
+  if(isFinite(taux) || !res.totaux) return pdfFinirTaux(res);
+  const be = PDF_TVA_BELGE.find(b=>Math.abs(arr2(res.totaux.ht * b / 100) - res.totaux.tva) <= 0.02);
+  if(be === undefined) return pdfFinirTaux(res);
+  res.lignes.forEach(l=>{ l.tva = 0; });
+  res.tvaEtrangere = be;
+  res.avert.push(`TVA belge ${be} % sur l'offre Cebeo (${fmt(res.totaux.tva)}) : lignes mises en TVA 0 % (achat intracommunautaire, autoliquidation au Luxembourg). Vérifiez avec la comptabilité et changez le taux si la facture Cebeo arrive avec TVA.`);
+  return res;
+}
 const PDF_FORMATS = [
   {nom:'Minusines', four:/minusines/i, reconnait: txt => /MINUSINES/i.test(txt) && /Code article/.test(txt) && /Prix eff\./.test(txt), analyser: pdfAnalyserMinusines},
   {nom:'Ramirez', four:/ramirez/i, reconnait: txt => /RAMIREZ[\s-]*DATA/i.test(txt) && /Prix total ht/i.test(txt) && /Art\.-N°/i.test(txt), analyser: pdfAnalyserRamirez},
-  {nom:'DME', four:/^\s*d\.?\s*m\.?\s*e\.?(\s|$)/i, reconnait: txt => /Distribution de Mat[ée]riel Electrique/i.test(txt) && /dme\.lu/i.test(txt) && /D[ÉE]SIGNATION/.test(txt), analyser: pdfAnalyserDme}
+  {nom:'DME', four:/^\s*d\.?\s*m\.?\s*e\.?(\s|$)/i, reconnait: txt => /Distribution de Mat[ée]riel Electrique/i.test(txt) && /dme\.lu/i.test(txt) && /D[ÉE]SIGNATION/.test(txt), analyser: pdfAnalyserDme},
+  {nom:'Cebeo', four:/cebeo/i, reconnait: txt => /\bCEBEO\b/i.test(txt) && /Offre de prix n°/i.test(txt) && /Art\.?\s*id/i.test(txt), analyser: pdfAnalyserCebeo}
 ];
 async function poImporterPdf(input){
   const f = input && input.files && input.files[0]; if(input) input.value = '';
@@ -14539,8 +14611,10 @@ async function saveDevis(id){
     await sb.from('chantiers_lyneo').update({devis_id:devisId}).eq('id',header.chantier_id);
   }
 
+  const dfSuite = !id && typeof dfPrendreSuite === 'function' && dfPrendreSuite('devis', header);    // vient de « Demander la facturation » → « Créer un devis »
   closeModal();
   rafraichirPage();
+  if(dfSuite) await dfFormulaireApresCreation('devis', devisId);
 }
 
 async function editDevisById(devisId){
@@ -14666,7 +14740,7 @@ async function openDevisDetail(devisId){
         <button class="btn btn-secondary" id="dv-btn-envoyer" onclick="envoyerDevisParEmail('${escHtml(d.id)}')" title="Envoyer le devis au client par e-mail (PDF joint)"><i class="ti ti-mail"></i> Envoyer</button>
         <button class="btn btn-secondary" id="btn-excel-dv" onclick="downloadExcel_Devis('${d.id}')" title="Exporter le devis au format Excel (même présentation que votre modèle : Page initial, DEVIS, Modalités)"><i class="ti ti-file-spreadsheet"></i> Excel</button>
         <button class="btn btn-ghost" onclick="closeModal();editDevisById('${d.id}')"><i class="ti ti-edit"></i> Modifier</button>
-        ${typeof dfBtnHtml==='function' ? (interventionLiee ? dfBtnHtml('intervention', interventionLiee.id, d.statut==='accepte' && interventionLiee.statut!=='facturee', 'btn-secondary') : dfBtnHtml('devis', d.id, d.statut==='accepte', 'btn-secondary')) : ''}
+        ${typeof dfBtnHtml==='function' ? (interventionLiee ? dfBtnHtml('intervention', interventionLiee.id, d.statut==='accepte' && interventionLiee.statut!=='facturee', 'btn-secondary') : dfBtnHtml('devis', d.id, ['accepte','brouillon','envoye'].includes(d.statut), 'btn-secondary')) : ''}
         <button class="btn btn-danger" onclick="deleteDevis('${d.id}','${d.numero}')"><i class="ti ti-trash"></i> Supprimer</button>
         ${!interventionLiee && !['refuse','expire'].includes(d.statut)?`<button class="btn btn-secondary" onclick="creerInterventionDepuisDevis('${d.id}')"><i class="ti ti-tool"></i> Créer l'intervention SAV</button>`:''}
         ${interventionLiee && d.statut==='accepte'?`<button class="btn btn-primary" onclick="closeModal();openFactureSAVModal('${interventionLiee.id}')"><i class="ti ti-receipt"></i> Facturer (${interventionLiee.ref})</button>`:''}
@@ -17483,10 +17557,31 @@ async function openEditFactureVente(facId){
     try{ const r = await sb.from('devis').select('id,numero,objet,statut,montant_ht').eq('client_id',f.client_id).order('numero'); devisClient = (r.data||[]).filter(d=>!['refuse','expire'].includes(d.statut) || d.id===f.devis_id); }catch(e){}
   }
   const a = v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  showModal(`<div class="modal-overlay"><div class="modal">
+  // 24/11/2026 : brouillon → client et lignes modifiables (comme dans Odoo)
+  const edLignes = f.statut==='brouillon' && !clos;
+  const sgFv = f.type_facture==='avoir' ? -1 : 1;          // note de crédit : quantités négatives en base, affichées en positif
+  let clientsEfv = [];
+  window._efvLignesIds = null;
+  if(edLignes){
+    const [rl, rc] = await Promise.all([
+      sb.from('lignes_facture_vente').select('*').eq('facture_vente_id', facId).order('ordre'),
+      sb.from('clients').select('id,nom,conditions_paiement,pays,actif').order('nom')
+    ]);
+    if(rl.error){ showToast('Lignes illisibles : '+rl.error.message, 'error'); return; }
+    _venteLignes = (rl.data||[]).map(l=>({_db_id:l.id, ligne_devis_id:l.ligne_devis_id||null, ligne_intervention_id:l.ligne_intervention_id||null, description:l.description||'', reference_article:l.reference_article||'', unite:l.unite||'u', quantite:sgFv*(parseFloat(l.quantite)||0), prix_unitaire_ht:parseFloat(l.prix_unitaire_ht)||0, taux_tva:tvaNum(l.taux_tva)}));
+    if(!_venteLignes.length) _venteLignes = [{description:'',reference_article:'',unite:'u',quantite:1,prix_unitaire_ht:0,taux_tva:17}];
+    window._efvLignesIds = (rl.data||[]).map(l=>String(l.id));
+    _venteLigneMode = 'libre';
+    clientsEfv = (rc.data||[]).filter(c=>c.actif!==false || String(c.id)===String(f.client_id));
+    const cl = clientsEfv.find(c=>String(c.id)===String(f.client_id));
+    window._tvaDefautFv = tvaDefautPays(cl && cl.pays); window._paysClientFv = (cl && cl.pays) || ''; window._clientSelFv = true;
+  }
+  const peutRouvrir = !edLignes ? await fvPeutRemettreBrouillon(f) : null;
+  showModal(`<div class="modal-overlay"><div class="modal${edLignes ? ' modal-lg' : ''}">
     <div class="modal-header"><div><h3>Modifier ${f.type_facture==='avoir'?'la note de crédit':'la facture'}</h3><span style="font-size:12px;color:var(--gray-5)">${a(f.numero)} — ${a(f.clients?.nom||'')} — ${fmt(f.total_ttc)} TTC</span></div><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       <div class="form-grid">
+        ${edLignes && f.type_facture!=='avoir' ? `<div class="form-group full"><label class="field-label">Client *</label><select id="efv-client" onchange="efvClientChange()">${clientsEfv.map(c=>`<option value="${a(c.id)}" data-cond="${a(c.conditions_paiement||'')}" data-pays="${a(c.pays||'')}"${String(c.id)===String(f.client_id)?' selected':''}>${a(c.nom)}</option>`).join('')}</select></div>` : ''}
         <div class="form-group"><label class="field-label">${f.type_facture==='avoir'?'N° de note de crédit':'N° de facture'} *</label><input id="efv-numero" value="${a(f.numero)}"${dis} placeholder="${f.type_facture==='avoir'?'Ex: AV20261001':'Ex: FA20260801'}"/>${estRefProvisoire(f.numero)?'<div id="efv-prov-info" style="font-size:11.5px;color:var(--gray-5);margin-top:4px">Référence provisoire : le numéro définitif est attribué à la validation. Laissez-la telle quelle, ou saisissez un numéro déjà émis ailleurs.</div>':''}</div>
         <div class="form-group"><label class="field-label">Statut</label>
           <select id="efv-statut">${Object.entries(f.type_facture==='avoir'?STATUT_AVOIR:STATUT_FV).filter(([k])=>!clos || (k!=='brouillon' && k!=='annulee') || k===f.statut).map(([k,v])=>`<option value="${k}"${f.statut===k?' selected':''}>${v}</option>`).join('')}</select></div>
@@ -17499,7 +17594,21 @@ async function openEditFactureVente(facId){
         <div class="form-group full"><label class="field-label">Observations</label><textarea id="efv-obs">${a(f.observations)}</textarea></div>
       </div>
       ${clos?`<div class="alert alert-warning" id="efv-cloture" style="margin-top:12px"><i class="ti ti-lock"></i> <span>Période clôturée jusqu'au <strong>${fmtDate(_clotureVentes)}</strong> : le n°, les dates et la référence sont verrouillés. Le statut de paiement, le compte de vente, le devis lié et les observations restent modifiables.</span></div>`:''}
-      <div class="alert alert-info" style="margin-top:12px"><i class="ti ti-info-circle"></i> <span>Les lignes et les montants ne se modifient pas ici. Erreur de montant : sur un <strong>brouillon</strong>, supprimez-le et recréez-le ; sur une facture <strong>émise</strong>, émettez une note de crédit (bouton « Note de crédit » de la fiche) puis refacturez.</span></div>
+      ${edLignes ? `<div id="efv-lignes-bloc" style="margin-top:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <strong style="font-size:13px">Lignes ${f.type_facture==='avoir'?'de la note de crédit':'de la facture'}</strong>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${tvaGlobaleSelectHTML('fv-tva-all','appliquerTvaGlobaleFv(this.value)')}${f.type_facture!=='avoir' ? selectLigneTypeHTML('facture-client') : ''}<button class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+        </div>
+        <div id="fv-tva-info" style="font-size:11.5px;color:var(--gray-5);margin:-2px 0 8px"></div>
+        <div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:640px">
+          <thead><tr style="background:var(--gray-1)"><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--gray-5);width:130px">RÉF.</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--gray-5)">DESCRIPTION</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--gray-5);width:90px">QTÉ</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--gray-5);width:100px">P.U. HT</th><th style="padding:8px 6px;text-align:center;font-size:11px;color:var(--gray-5);width:76px">TVA</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--gray-5);width:100px">TOTAL HT</th><th style="width:34px"></th></tr></thead>
+          <tbody id="vente-lignes-body"></tbody></table></div>
+        <div class="ajout-bas" data-ajout-bas="facture-client">${f.type_facture!=='avoir' ? selectLigneTypeHTML('facture-client') : ''}<button type="button" class="btn btn-secondary btn-sm" onclick="addVenteLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>
+        <div class="totaux"><div class="totaux-box" id="vente-totaux"></div></div>
+        ${f.type_facture==='avoir' ? '<div style="font-size:12px;color:var(--gray-5)">Montants saisis en positif : la note de crédit les déduit.</div>' : ''}
+      </div>` : `<div class="alert alert-info" id="efv-info-lignes" style="margin-top:12px"><i class="ti ti-info-circle"></i> <span>${peutRouvrir && peutRouvrir.ok
+          ? `Facture émise : les lignes et les montants sont verrouillés. Si le client ne l'a pas encore reçue, vous pouvez la <strong>remettre en brouillon</strong> pour la corriger (le numéro ${a(f.numero)} est gardé). <button class="btn btn-secondary btn-sm" id="efv-rouvrir" style="margin-left:6px" onclick="fvRemettreBrouillon('${a(f.id)}')"><i class="ti ti-arrow-back-up"></i> Remettre en brouillon pour modifier</button>`
+          : `Les lignes et les montants ne se modifient pas ici : ${a((peutRouvrir && peutRouvrir.raison) || 'facture émise')}. Émettez une note de crédit (bouton « Note de crédit » de la fiche) puis refacturez.`}</span></div>`}
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="openFactureVenteDetail('${f.id}')">Annuler</button>
         <button class="btn btn-primary" id="btn-save-efv" onclick="saveEditFactureVente('${f.id}')"><i class="ti ti-check"></i> Enregistrer</button>
@@ -17507,6 +17616,58 @@ async function openEditFactureVente(facId){
     </div>
   </div></div>`);
   if(f.type_facture!=='avoir') infoEcheance('efv');
+  if(edLignes) renderVenteLignesLibre();
+}
+// changement de client dans un brouillon : TVA par défaut du pays et échéance selon ses conditions
+function efvClientChange(){
+  const s = el('efv-client'), o = s && s.options[s.selectedIndex]; if(!o) return;
+  window._tvaDefautFv = tvaDefautPays(o.dataset.pays); window._paysClientFv = o.dataset.pays || '';
+  const p = delaiEtFdmConditions(o.dataset.cond || '');
+  if(p){ window._delaiClientEfv = p.jours; window._fdmClientEfv = p.fdm; const e = el('efv-echeance'); if(e) e.dataset.auto = '1'; if(typeof majEcheanceEdit === 'function') majEcheanceEdit(); }
+  renderVenteLignesLibre();
+}
+// « Remettre en brouillon » d'une facture émise (Odoo : « Remettre en brouillon ») — {ok} ou {ok:false, raison}
+async function fvPeutRemettreBrouillon(f){
+  if(!f) return {ok:false, raison:'facture introuvable'};
+  if(!currentUser || !['admin','comptabilite'].includes(currentUser.role)) return {ok:false, raison:'réservé à la direction / comptabilité'};
+  if(f.statut === 'payee' || f.statut === 'payee_partiel') return {ok:false, raison:'facture encaissée'};
+  if(f.statut !== 'envoyee') return {ok:false, raison:'facture ' + String((f.type_facture==='avoir'?STATUT_AVOIR:STATUT_FV)[f.statut] || f.statut).toLowerCase()};
+  await chargerCloture();
+  if(estClotureFV(f)) return {ok:false, raison:'période clôturée'};
+  if(f.type_facture !== 'avoir'){
+    try{
+      const r = await sb.from('factures_vente').select('numero').eq('facture_origine_id', f.id).neq('statut','annulee');
+      if(r.error) return {ok:false, raison:'notes de crédit illisibles'};
+      if((r.data||[]).length) return {ok:false, raison:'déjà corrigée par la note de crédit ' + r.data.map(x=>x.numero).join(', ')};
+    }catch(e){ return {ok:false, raison:'notes de crédit illisibles'}; }
+  }
+  return {ok:true};
+}
+async function fvRemettreBrouillon(facId){
+  const {data:f} = await sb.from('factures_vente').select('*').eq('id', facId).single();
+  const p = await fvPeutRemettreBrouillon(f);
+  if(!p.ok){ showToast('Impossible de remettre en brouillon : ' + p.raison, 'error'); return; }
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:560px">
+    <div class="modal-header"><h3>Remettre ${escHtml(f.numero)} en brouillon ?</h3><button class="modal-close" onclick="openEditFactureVente('${escHtml(String(facId))}')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="alert alert-warning" id="fvrb-avert"><i class="ti ti-alert-triangle"></i> <span><strong>Le client a-t-il déjà reçu cette facture ?</strong> Au Luxembourg, une facture reçue par le client ne se modifie plus : on la corrige par une <strong>note de crédit</strong> puis une nouvelle facture. Ne remettez en brouillon que si l'erreur est vue <strong>avant</strong> l'envoi.</span></div>
+      <p style="font-size:13px;margin:10px 0">Le numéro <strong>${escHtml(f.numero)}</strong> est gardé ; la facture redevient « Brouillon » (lignes, montants et client modifiables), puis « Valider » la réémet. Chaque changement est inscrit au journal.</p>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="openNewAvoirVente('${escHtml(String(facId))}')"><i class="ti ti-receipt-refund"></i> Le client l'a reçue : note de crédit</button>
+        <button class="btn btn-warning" id="fvrb-ok" onclick="fvConfirmerBrouillon('${escHtml(String(facId))}')"><i class="ti ti-arrow-back-up"></i> Pas encore reçue : remettre en brouillon</button>
+      </div>
+    </div></div></div>`);
+}
+async function fvConfirmerBrouillon(facId){
+  const b = el('fvrb-ok'); if(b) b.disabled = true;
+  const {data:f} = await sb.from('factures_vente').select('*').eq('id', facId).single();
+  const p = await fvPeutRemettreBrouillon(f);
+  if(!p.ok){ showToast('Impossible de remettre en brouillon : ' + p.raison, 'error'); if(b) b.disabled = false; return; }
+  const r = await sb.from('factures_vente').update({statut:'brouillon'}).eq('id', facId).eq('statut','envoyee').select('id');
+  if(r.error || !(r.data||[]).length){ showToast('Non modifié : ' + ((r.error && r.error.message) || 'la facture a changé entre-temps ou droits insuffisants'), 'error'); if(b) b.disabled = false; return; }
+  lancerMajPointagesFacturation({factureId:facId});
+  showToast('Facture ' + f.numero + ' remise en brouillon : corrigez-la puis validez-la');
+  await openEditFactureVente(facId);
 }
 
 async function saveEditFactureVente(facId){
@@ -17526,6 +17687,16 @@ async function saveEditFactureVente(facId){
     observations: el('efv-obs').value
   };
   if(el('efv-devis')) maj.devis_id = el('efv-devis').value || null;
+  // 24/11/2026 : lignes et client d'un brouillon
+  let lignesEfv = null, sgEfv = 1;
+  if(el('vente-lignes-body') && Array.isArray(window._efvLignesIds)){
+    lignesEfv = _venteLignes.filter(l=>!estLigneVenteVide(l));
+    if(!lignesEfv.length && !window._efvLignesIds.length) lignesEfv = null;      // ancien brouillon sans lignes, rien ajouté : on ne touche ni aux lignes ni aux montants
+  }
+  if(lignesEfv){
+    if(!lignesEfv.length || lignesEfv.some(l=>!String(l.description||'').trim())){ showToast('Chaque ligne doit avoir une description (au moins une ligne)', 'error'); if(b) b.disabled=false; return; }
+    if(lignesEfv.some(l=>!isFinite(parseFloat(l.quantite)) || !isFinite(parseFloat(l.prix_unitaire_ht)))){ showToast('Quantité ou prix illisible sur une ligne', 'error'); if(b) b.disabled=false; return; }
+  }
   // mêmes garde-fous que les boutons de statut + champs verrouillés si la période est clôturée
   const colCv = await cvColonne();
   const {data:avant} = await sb.from('factures_vente').select('id,numero,statut,type_facture,date_creation'+(colCv ? ',compte_vente' : '')).eq('id',facId).single();
@@ -17538,6 +17709,15 @@ async function saveEditFactureVente(facId){
   if(refusCv){ showToast(refusCv, 'error'); if(b) b.disabled=false; return; }
   if(cvActif) maj.compte_vente = cvVal || null;
   if(estClotureFV(avant)){ delete maj.numero; delete maj.date_creation; delete maj.date_echeance; delete maj.reference_client; }
+  if(lignesEfv){
+    if(!avant || avant.statut !== 'brouillon' || estClotureFV(avant)){ showToast("Cette facture n'est plus en brouillon : rouvrez-la", 'error'); if(b) b.disabled=false; return; }
+    sgEfv = avant.type_facture === 'avoir' ? -1 : 1;
+    const tot = totauxFacture(lignesEfv), n = v => sgEfv < 0 ? (v === 0 ? 0 : -v) : v;
+    maj.total_ht = n(tot.ht); maj.total_tva = n(tot.tva); maj.total_ttc = n(tot.ttc);
+    const sc = el('efv-client'); if(sc && sc.value) maj.client_id = sc.value;
+    const w = await fvSauverLignes(facId, lignesEfv, window._efvLignesIds, sgEfv);
+    if(w.erreur){ showToast('Lignes non enregistrées : ' + w.erreur, 'error'); if(b) b.disabled=false; return; }
+  }
   let valide = null;
   if(avant && estRefProvisoire(avant.numero) && numero===avant.numero && !['brouillon','annulee'].includes(maj.statut)){
     // la référence provisoire n'a pas été remplacée à la main : on passe à « Envoyée / Payée » ⇒ numéro officiel (selon la date saisie ici)
@@ -17551,10 +17731,28 @@ async function saveEditFactureVente(facId){
   }
   // les notes de crédit de cette facture suivent son devis
   if(el('efv-devis')){ try{ await sb.from('factures_vente').update({devis_id: maj.devis_id}).eq('facture_origine_id',facId); }catch(e){} }
+  if(lignesEfv){ try{ const r = await sb.from('factures_vente').select('intervention_id').eq('id', facId).single(); if(r.data && r.data.intervention_id) signalerMajStatutIntervention(await synchroniserStatutFacturationIntervention(r.data.intervention_id)); }catch(e){} }
   lancerMajPointagesFacturation({factureId:facId});
   showToast(valide ? (avant.type_facture==='avoir'?'Note de crédit validée':'Facture validée')+' — numéro '+valide : 'Facture modifiée — '+numero);
   rafraichirPage();
   openFactureVenteDetail(facId);
+}
+// Lignes d'une facture client : mise à jour sur place (les liens devis / intervention des lignes gardées restent), ajout, suppression
+async function fvSauverLignes(facId, lignes, idsInitiaux, sg){
+  const q = l => (sg < 0 ? -1 : 1) * (parseFloat(l.quantite)||0);
+  const garder = new Set(lignes.filter(l=>l._db_id).map(l=>String(l._db_id)));
+  const aSupprimer = (idsInitiaux||[]).filter(id=>!garder.has(String(id)));
+  for(let i = 0; i < lignes.length; i++){
+    const l = lignes[i], data = {ordre:i+1, description:String(l.description||'').trim(), reference_article:l.reference_article||'', unite:l.unite||'u', quantite:q(l), prix_unitaire_ht:parseFloat(l.prix_unitaire_ht)||0, taux_tva:tvaNum(l.taux_tva)};
+    const r = l._db_id
+      ? await sb.from('lignes_facture_vente').update(data).eq('id', l._db_id).eq('facture_vente_id', facId).select('id')
+      : await sb.from('lignes_facture_vente').insert(Object.assign({facture_vente_id:facId, ligne_devis_id:l.ligne_devis_id||null}, l.ligne_intervention_id ? {ligne_intervention_id:l.ligne_intervention_id} : {}, data)).select('id');
+    if(r.error) return {erreur:r.error.message};
+    if(!(r.data||[]).length) return {erreur:'droits insuffisants (ligne ' + (i+1) + ')'};
+    if(!l._db_id) l._db_id = r.data[0].id;
+  }
+  if(aSupprimer.length){ const d = await sb.from('lignes_facture_vente').delete().in('id', aSupprimer).eq('facture_vente_id', facId); if(d.error) return {erreur:d.error.message}; }
+  return {ok:true};
 }
 
 // Garde-fous comptables sur un changement de statut — utilisés par les boutons ET par « Modifier »
@@ -22898,9 +23096,11 @@ async function saveIntervention(id){
     showToast('Intervention créée — '+ref + (data.chantier_id ? ' (les heures se pointent sur le centre SAV)' : ' — choisissez un centre SAV (Modifier) : les heures se pointent sur SAV 1, SAV 2 ou SAV 3'));
   }
   if(lignesErreur) showToast("⚠ L'intervention est enregistrée, mais ses lignes ne l'ont pas toutes été : "+lignesErreur+". Rouvrez « Modifier » pour vérifier les lignes.", 'error');
+  const dfSuite = !id && idFiche && typeof dfPrendreSuite === 'function' && dfPrendreSuite('intervention', {client_id: clientId});
   closeModal();
   try{ await rafraichirPage(); }catch(e){}
   if(idFiche) await openInterventionDetail(idFiche);     // la fiche s'ouvre : passer « En cours », joindre un document, envoyer au technicien
+  if(dfSuite) await dfFormulaireApresCreation('intervention', idFiche);   // vient de « Demander la facturation » → « Créer une intervention »
 }
 
 async function changerStatutIntervention(id, statut){
@@ -25206,17 +25406,134 @@ async function dfLireOrigine(type, id){
     }
     if(type === 'devis'){
       const r = await sb.from('devis').select('*,clients(nom)').eq('id', id).limit(1); const dv = r.data && r.data[0]; if(!dv) return null;
-      return {label:String(dv.numero || '') + (dv.objet ? ' — ' + dv.objet : ''), client:String((dv.clients && dv.clients.nom) || '')};
+      let interventionId = '';
+      try{ const ri = await sb.from('interventions_sav').select('id,statut').eq('devis_id', id).limit(1); const iv = ri.data && ri.data[0]; if(iv) interventionId = String(iv.id); }catch(e){}
+      return {label:String(dv.numero || '') + (dv.objet ? ' — ' + dv.objet : ''), client:String((dv.clients && dv.clients.nom) || ''), statut:String(dv.statut || ''), interventionId};
     }
     const r = await sb.from('interventions_sav').select('*,clients(nom)').eq('id', id).limit(1); const i = r.data && r.data[0]; if(!i) return null;
     return {label:String(i.ref || '') + (i.nom_site ? ' — ' + i.nom_site : ''), client:String((i.clients && i.clients.nom) || '')};
   }catch(e){ return null; }
 }
+// ── 24/11/2026 : une demande part TOUJOURS d'un devis ou d'une intervention SAV ──────────────────────────────────
+var _dfSuite = null;          // {type:'devis'|'intervention', chantierId, clientId, t} : « Créer un devis / une intervention » depuis le choix
+const DF_SUITE_MS = 2 * 60 * 60 * 1000;
+async function dfDroitDemander(){
+  if(!_df){ try{ await dfCharger(false); }catch(e){} }
+  if(!_df || !_df.ctx.peutDemander){ showToast("Vous n'avez pas le droit de demander une facturation", 'error'); return false; }
+  if(_df.d.sqlManque){ showToast(escHtml(DF_MSG_SQL), 'error', 9000); return false; }
+  return true;
+}
 async function dfOuvrirDemande(type, id){
   if(!DF_COL[type]){ return; }
-  if(!_df){ try{ await dfCharger(false); }catch(e){} }
-  if(!_df || !_df.ctx.peutDemander){ showToast("Vous n'avez pas le droit de demander une facturation", 'error'); return; }
-  if(_df.d.sqlManque){ showToast(escHtml(DF_MSG_SQL), 'error', 9000); return; }
+  if(!(await dfDroitDemander())) return;
+  if(type === 'chantier') return dfChoisirOrigine(id);
+  if(type === 'devis'){
+    const o = await dfLireOrigine('devis', id);
+    if(!o){ showToast("Origine introuvable : rouvrez la fiche", 'error'); return; }
+    if(o.interventionId) return dfOuvrirFormulaire('intervention', o.interventionId);     // devis d'une intervention : la demande passe par l'intervention
+    if(o.statut === 'refuse' || o.statut === 'expire'){ showToast('Devis ' + (STATUT_DV[o.statut] || o.statut).toLowerCase() + ' : pas de demande de facturation possible', 'error'); return; }
+    if(o.statut && o.statut !== 'accepte') return dfDevisNonAccepte(id, o);
+  }
+  return dfOuvrirFormulaire(type, id);
+}
+// Devis pas encore accepté : on le marque accepté (le client a dit oui) puis on ouvre la demande
+function dfDevisNonAccepte(devisId, o){
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:520px">
+    <div class="modal-header"><h3>Demander la facturation</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="background:var(--gray-1);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"><strong>Devis : ${escHtml(o.label)}</strong>${o.client ? '<div style="color:#6B7280">Client : ' + escHtml(o.client) + '</div>' : ''}<div style="color:#6B7280">Statut : ${escHtml(STATUT_DV[o.statut] || o.statut)}</div></div>
+      <p id="df-na-texte" style="font-size:13.5px;margin:0 0 14px">Une demande de facturation part d'un devis <strong>accepté</strong>. Le client a-t-il accepté ce devis ?</p>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal();openDevisDetail('${escHtml(String(devisId))}')">Non, ouvrir le devis</button><button class="btn btn-success" id="df-accepter" onclick="dfAccepterEtDemander('${escHtml(String(devisId))}')"><i class="ti ti-check"></i> Oui : marquer accepté et demander la facturation</button></div>
+    </div></div></div>`);
+}
+async function dfAccepterEtDemander(devisId){
+  const b = el('df-accepter'); if(b) b.disabled = true;
+  const {data, error} = await sb.from('devis').update({statut:'accepte'}).eq('id', devisId).in('statut', ['brouillon','envoye']).select('id,statut');
+  if(error || !(data||[]).length){
+    // déjà accepté entre-temps par quelqu'un d'autre : on continue ; sinon message
+    const o = await dfLireOrigine('devis', devisId);
+    if(!(o && o.statut === 'accepte')){ showToast('Le devis n\'a pas pu être marqué accepté : ' + ((error && error.message) || 'statut changé ou droits insuffisants'), 'error'); if(b) b.disabled = false; return; }
+  } else showToast('Devis marqué : ' + STATUT_DV.accepte);
+  closeModal();
+  return dfOuvrirFormulaire('devis', devisId);
+}
+// Chantier : choisir le devis ou l'intervention d'où part la demande (ou en créer un/une)
+async function dfChoisirOrigine(chantierId){
+  let c = null, devis = [], ivs = [], facs = {};
+  try{
+    const rc = await sb.from('chantiers_lyneo').select('*').eq('id', chantierId).limit(1); c = rc.data && rc.data[0];
+    if(c){
+      const rd = await sb.from('devis').select('*').eq('chantier_id', chantierId); devis = (rd.data||[]).slice();
+      if(c.devis_id && !devis.some(d=>String(d.id)===String(c.devis_id))){ const r2 = await sb.from('devis').select('*').eq('id', c.devis_id).limit(1); if(r2.data && r2.data[0]) devis.push(r2.data[0]); }
+      const ids = devis.map(d=>d.id);
+      const ri = await sb.from('interventions_sav').select('id,ref,nom_site,statut,devis_id,chantier_id').eq('chantier_id', chantierId); ivs = (ri.data||[]).slice();
+      if(ids.length){ const r3 = await lireParLots('interventions_sav', 'id,ref,nom_site,statut,devis_id,chantier_id', 'devis_id', ids); if(r3.ok) r3.rows.forEach(i=>{ if(!ivs.some(x=>String(x.id)===String(i.id))) ivs.push(i); }); }
+      if(ids.length){ const r4 = await lireParLots('factures_vente', '*', 'devis_id', ids); if(r4.ok) r4.rows.forEach(f=>{ (facs[f.devis_id] = facs[f.devis_id] || []).push(f); }); else facs = null; }
+    }
+  }catch(e){ c = c || null; }
+  if(!c){ showToast("Chantier introuvable : rouvrez la fiche", 'error'); return; }
+  const ivDuDevis = d => ivs.find(i=>String(i.devis_id||'')===String(d.id));
+  const dejaDemande = (type, id) => (_df && _df.d.lignes || []).some(l=>l.origine_type===type && String(l[DF_COL[type]])===String(id) && l.statut==='demandee');
+  const badgeDemande = (type, id) => dejaDemande(type, id) ? ' <span class="badge" style="background:#DBEAFE;color:#1D4ED8;font-size:11px">demande en cours</span>' : '';
+  const ligne = (titre, sous, bouton, attr) => `<div class="df-choix-ligne" ${attr} style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--gray-3);border-radius:8px;margin-bottom:6px"><div style="min-width:0"><div style="font-weight:600;font-size:13.5px">${titre}</div><div style="font-size:12px;color:#6B7280">${sous}</div></div><div style="flex:none">${bouton}</div></div>`;
+  const vivants = devis.filter(d=>!['refuse','expire'].includes(d.statut)).sort((a,b)=>String(b.numero||'').localeCompare(String(a.numero||''), 'fr', {numeric:true}));
+  const lignesDevis = vivants.map(d=>{
+    const id = escHtml(String(d.id)), titre = escHtml(d.numero||'') + (d.objet ? ' — ' + escHtml(d.objet) : ''), iv = ivDuDevis(d);
+    const montant = fmt(parseFloat(d.montant_ht)||0) + ' HT · ' + escHtml(STATUT_DV[d.statut] || d.statut || '');
+    if(d.statut !== 'accepte') return ligne(titre, montant, `<button class="btn btn-secondary btn-sm" onclick="dfDevisNonAccepte('${id}', {label:${escHtml(JSON.stringify(String(d.numero||'') + (d.objet ? ' — ' + d.objet : '')))}, client:${escHtml(JSON.stringify(String(c.client||'')))}, statut:'${escHtml(String(d.statut||''))}'})"><i class="ti ti-check"></i> Accepté par le client : demander</button>`, `data-df-choix="devis-a-accepter" data-id="${id}"`);
+    if(iv){
+      if(iv.statut === 'facturee') return ligne(titre, montant + ' · intervention ' + escHtml(iv.ref||'') + ' facturée', '<button class="btn btn-secondary btn-sm" disabled style="opacity:.5">Facturé</button>', `data-df-choix="facture" data-id="${id}"`);
+      return ligne(titre + badgeDemande('intervention', iv.id), montant + ' · par l\'intervention ' + escHtml(iv.ref||''), `<button class="btn btn-primary btn-sm" onclick="closeModal();dfOuvrirFormulaire('intervention','${escHtml(String(iv.id))}')"><i class="ti ti-receipt-2"></i> Demander</button>`, `data-df-choix="intervention" data-id="${escHtml(String(iv.id))}"`);
+    }
+    const e = facs ? etatFacturationDevis(d, facs[d.id]) : null;
+    if(e && !e.aFacturer && ['total','sur'].includes(e.etat)) return ligne(titre, montant + ' · entièrement facturé', '<button class="btn btn-secondary btn-sm" disabled style="opacity:.5">Facturé</button>', `data-df-choix="facture" data-id="${id}"`);
+    const reste = e && e.etat === 'partiel' ? ' · reste ' + fmt(e.reste) + ' HT' : e && e.etat === 'non' ? ' · rien de facturé' : '';
+    return ligne(titre + badgeDemande('devis', d.id), montant + reste, `<button class="btn btn-primary btn-sm" onclick="closeModal();dfOuvrirFormulaire('devis','${id}')"><i class="ti ti-receipt-2"></i> Demander</button>`, `data-df-choix="devis" data-id="${id}"`);
+  });
+  const ivsSeules = ivs.filter(i=>!i.devis_id || !vivants.some(d=>String(d.id)===String(i.devis_id))).filter(i=>i.statut!=='facturee');
+  const lignesIv = ivsSeules.map(i=>ligne(escHtml(i.ref||'') + (i.nom_site ? ' — ' + escHtml(i.nom_site) : '') + badgeDemande('intervention', i.id), 'Intervention SAV · ' + escHtml(STATUT_SAV[i.statut] || i.statut || ''), `<button class="btn btn-primary btn-sm" onclick="closeModal();dfOuvrirFormulaire('intervention','${escHtml(String(i.id))}')"><i class="ti ti-receipt-2"></i> Demander</button>`, `data-df-choix="intervention" data-id="${escHtml(String(i.id))}"`));
+  const rien = !lignesDevis.length && !lignesIv.length;
+  const cid = escHtml(String(c.id)), clid = escHtml(String(c.client_id||''));
+  showModal(`<div class="modal-overlay"><div class="modal" style="max-width:620px">
+    <div class="modal-header"><h3>Demander la facturation</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="df-choix">
+      <div style="background:var(--gray-1);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"><strong>Chantier : ${escHtml(libChantierAchat(c) || String(c.numero||''))}</strong>${c.client ? '<div style="color:#6B7280">Client : ' + escHtml(c.client) + '</div>' : ''}</div>
+      <p style="font-size:13.5px;margin:0 0 10px">Une demande de facturation part toujours d'un <strong>devis</strong> ou d'une <strong>intervention</strong> : la direction sait ainsi exactement quoi facturer, et la marge se calcule juste.</p>
+      ${rien ? '<div id="df-choix-vide" class="alert alert-warning" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Ce chantier n\'a encore ni devis ni intervention à facturer. Créez-en un : la demande s\'ouvrira ensuite toute seule.</div>'
+             : (lignesDevis.length ? '<div style="font-weight:600;font-size:12.5px;color:#4B5563;margin:4px 0 6px">Devis du chantier</div>' + lignesDevis.join('') : '')
+             + (lignesIv.length ? '<div style="font-weight:600;font-size:12.5px;color:#4B5563;margin:10px 0 6px">Interventions SAV</div>' + lignesIv.join('') : '')}
+      <div style="border-top:1px solid var(--gray-3);margin-top:12px;padding-top:12px">
+        <div style="font-size:12.5px;color:#4B5563;margin-bottom:8px">${rien ? '' : 'Le travail à facturer n\'est dans aucun de ces documents (travaux supplémentaires, régie…) ?'}</div>
+        <div class="form-actions" style="justify-content:flex-start;margin-top:0">
+          <button class="btn btn-primary" id="df-creer-devis" onclick="dfCreerDepuisChoix('devis','${cid}','${clid}')"><i class="ti ti-file-plus"></i> Créer un devis</button>
+          <button class="btn btn-secondary" id="df-creer-intervention" onclick="dfCreerDepuisChoix('intervention','${cid}','${clid}')"><i class="ti ti-tool"></i> Créer une intervention</button>
+          <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
+        </div>
+      </div>
+    </div></div></div>`);
+}
+function dfCreerDepuisChoix(type, chantierId, clientId){
+  closeModal();
+  _dfSuite = {type, chantierId:String(chantierId||''), clientId:String(clientId||''), t:Date.now()};
+  if(type === 'devis') return openDevisModal({chantier_id: chantierId, client_id: clientId || ''});
+  return openInterventionModal(clientId ? {client_id: clientId} : null);
+}
+// Appelée après l'enregistrement d'un NOUVEAU devis / d'une NOUVELLE intervention : on reprend la demande si elle vient du choix
+function dfPrendreSuite(type, info){
+  const s = _dfSuite;
+  if(!s || s.type !== type || Date.now() - s.t > DF_SUITE_MS) return false;
+  if(type === 'devis' && s.chantierId && String((info||{}).chantier_id||'') !== s.chantierId) return false;
+  if(type === 'intervention' && s.clientId && String((info||{}).client_id||'') !== s.clientId) return false;
+  _dfSuite = null;
+  return true;
+}
+async function dfFormulaireApresCreation(type, id){
+  if(!(await dfDroitDemander())) return;
+  return type === 'devis' ? dfOuvrirDemande('devis', id) : dfOuvrirFormulaire('intervention', id);
+}
+async function dfOuvrirFormulaire(type, id){
+  if(!DF_COL[type]){ return; }
+  if(!(await dfDroitDemander())) return;
   const o = await dfLireOrigine(type, id);
   if(!o){ showToast("Origine introuvable : rouvrez la fiche", 'error'); return; }
   _dfDemande = {type, id:String(id), label:o.label, client:o.client};
@@ -27704,6 +28021,15 @@ async function openEditFacLignes(facId){
 
   const {data:lignesData} = await sb.from('lignes_facture').select('*').eq('facture_id',facId).order('ordre');
   const {data:chantiersData} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom');
+  // 24/11/2026 : le fournisseur se change aussi (sauf note de frais : le salarié reste)
+  let fourIdEfac = fac.fournisseur_id || '';
+  if(!fourIdEfac && fac.po_id){ try{ const r = await sb.from('purchase_orders_lyneo').select('fournisseur_id').eq('id',fac.po_id).maybeSingle(); fourIdEfac = (r.data && r.data.fournisseur_id) || ''; }catch(e){} }
+  let foursEfac = [];
+  try{ const r = await sb.from('fournisseurs').select('id,nom,actif,employe_id').order('nom'); foursEfac = r.data || []; }catch(e){}
+  const fourActuel = foursEfac.find(x=>String(x.id)===String(fourIdEfac));
+  const fourVerrou = !!(fourActuel && fourActuel.employe_id);
+  const fourOpts = (fourVerrou ? [fourActuel] : foursEfac.filter(x=>!x.employe_id && (x.actif!==false || String(x.id)===String(fourIdEfac))))
+    .map(x=>'<option value="'+escHtml(String(x.id))+'"'+(String(x.id)===String(fourIdEfac)?' selected':'')+'>'+escHtml(x.nom||'')+'</option>').join('');
 
   // Rétro-compatibilité : si la facture n'a pas encore de chantier_id propre
   // (créée avant cette fonctionnalité), on récupère celui de la commande liée
@@ -27760,6 +28086,7 @@ async function openEditFacLignes(facId){
     +'</div>'
     +'<div class="modal-body">'
     +  '<div class="form-grid" style="margin-bottom:16px">'
+    +    '<div class="form-group"><label class="field-label">Fournisseur'+(fourVerrou?' <span style="font-weight:400;text-transform:none">(note de frais : le salarié ne change pas)</span>':'')+'</label><select id="efac-four" data-avant="'+escHtml(String(fourIdEfac))+'"'+(fourVerrou?' disabled':'')+' onchange="majEcheanceFourn(\'efac\', this.value)">'+(fourIdEfac?'':'<option value="">— Sélectionner —</option>')+fourOpts+'</select></div>'
     +    '<div class="form-group"><label class="field-label">N° Facture fournisseur</label><input id="efac-num" value="'+escHtml(fac.numero_facture_fournisseur)+'"/></div>'
     +    '<div class="form-group"'+(window._efacMulti ? ' style="display:none"' : '')+'><label class="field-label">Chantier *</label>'
     +      '<select id="efac-chantier" onchange="majInterventionAchat(\'efac\',\'factures\')">'
@@ -27863,14 +28190,22 @@ async function saveEditFacCore(facId){
   const totalHT = sgBase*_efacLignes.reduce((a,l)=>a+(parseFloat(l.quantite)||0)*(parseFloat(l.prix_unitaire_ht)||0),0);
   const totalTVA = sgBase*(multi ? efacTvaCalculee() : tvaFinale('efac', efacTvaCalculee()));
 
-  // si le n° de facture change : il ne doit pas déjà exister chez le même fournisseur
+  // si le n° de facture ou le FOURNISSEUR change : le n° ne doit pas déjà exister chez ce fournisseur
+  const selFour = el('efac-four'), fourChoisi = selFour && !selFour.disabled ? String(selFour.value||'') : '';
+  if(selFour && !selFour.disabled && !fourChoisi){ showToast('Fournisseur obligatoire', 'error'); return; }
+  let fourChange = false;
   {
     const nouveauNum = el('efac-num').value;
     const {data:avant} = await sb.from('factures').select('fournisseur_id,po_id,numero_facture_fournisseur').eq('id',facId).single();
-    if(avant && cleNumeroFacture(nouveauNum)!==cleNumeroFacture(avant.numero_facture_fournisseur)){
-      let fourId = avant.fournisseur_id;
-      if(!fourId && avant.po_id){ const r = await sb.from('purchase_orders_lyneo').select('fournisseur_id').eq('id',avant.po_id).single(); fourId = r.data?.fournisseur_id||null; }
-      if(!(await controlerFactureFournisseur({fournisseurId:fourId, numero:nouveauNum, ttc:totalHT+totalTVA, date:el('efac-date').value, excludeId:facId}))) return;
+    let fourId = avant ? avant.fournisseur_id : null;
+    if(avant && !fourId && avant.po_id){ const r = await sb.from('purchase_orders_lyneo').select('fournisseur_id').eq('id',avant.po_id).single(); fourId = r.data?.fournisseur_id||null; }
+    fourChange = !!fourChoisi && String(fourChoisi) !== String(fourId||'');
+    if(avant && (fourChange || cleNumeroFacture(nouveauNum)!==cleNumeroFacture(avant.numero_facture_fournisseur))){
+      if(!(await controlerFactureFournisseur({fournisseurId:fourChange ? fourChoisi : fourId, numero:nouveauNum, ttc:totalHT+totalTVA, date:el('efac-date').value, excludeId:facId}))) return;
+    }
+    if(fourChange && avant && avant.po_id){
+      const rp = await sb.from('purchase_orders_lyneo').select('numero,fournisseur_id').eq('id',avant.po_id).maybeSingle();
+      if(rp.data && rp.data.fournisseur_id && String(rp.data.fournisseur_id)!==String(fourChoisi) && !confirm('Cette facture est liée au bon de commande ' + (rp.data.numero||'') + ' d\'un autre fournisseur. Changer quand même le fournisseur de la facture ?')) return;
     }
   }
 
@@ -27918,6 +28253,7 @@ async function saveEditFacCore(facId){
 
   const {error} = await sb.from('factures').update({
     numero_facture_fournisseur: el('efac-num').value,
+    ...(fourChange ? {fournisseur_id: fourChoisi} : {}),
     chantier_id: chantierId,
     ...(multi ? {intervention_id: collapseInterv||null, imputation_multiple: garde} : achatIntervPayload('efac', window._efacOrig||null)),
     date_facture: el('efac-date').value,
