@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-25-35485e0"/>
+<meta name="lyneo-build" content="BUILD:2026-11-25-4bddebf"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2873,7 +2873,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-25-35485e0';
+const APP_BUILD = 'BUILD:2026-11-25-4bddebf';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7740,7 +7740,7 @@ function pdfVersLignesPO(a){
     const unite = PO_IMPORT_UNITES[poNorm(l.ua).replace(/\s/g,'')] || 'u';
     if(!PO_IMPORT_UNITES[poNorm(l.ua).replace(/\s/g,'')]) out.avert.push(`${lib} : unité « ${l.ua} » → « u »`);
     const han = l.han && !l.desc.includes(l.han) ? ` (HAN ${l.han})` : '';
-    nets.push({l, unite, net: arr2(l.q * l.eff / f), exact: l.q * l.eff / f, remise: l.eff !== l.prix, desc: (l.desc + (l.suite.length ? ' ' + l.suite.join(' ') : '') + han).replace(/\s+/g,' ').trim().slice(0, 500)});
+    nets.push({l, unite, net: arr2(l.q * l.eff / f), exact: l.q * l.eff / f, remise: l.eff !== l.prix || !!l.remise, desc: (l.desc + (l.suite.length ? ' ' + l.suite.join(' ') : '') + han).replace(/\s+/g,' ').trim().slice(0, 500)});
   });
   if(!a.lignes.length) out.erreurs.push("Aucune ligne d'article trouvée dans ce PDF.");
   if(!a.totaux) out.erreurs.push('Totaux du PDF (« Total: » montant net, TVA, total) introuvables : contrôle impossible.');
@@ -7920,11 +7920,62 @@ function pdfAnalyserCebeo(pages){
   res.avert.push(`TVA belge ${be} % sur l'offre Cebeo (${fmt(res.totaux.tva)}) : lignes mises en TVA 0 % (achat intracommunautaire, autoliquidation au Luxembourg). Vérifiez avec la comptabilité et changez le taux si la facture Cebeo arrive avec TVA.`);
   return res;
 }
+// YESSS Electro — « AUFTRAGSBESTÄTIGUNG » ; ligne : Anzahl | Artikelnummer | Beschreibung | Preis | Preiseinheit | Einheit | Rabatt % | Betrag
+const PDF_YESSS_PE = {1:'EIN', 100:'HDT', 1000:'TSD'};
+function pdfAnalyserYesss(pages){
+  const res = {fournisseur:'Yesss', libDoc:'Confirmation', lignes:[], erreurs:[], avert:[], doc:'', date:'', ref:'', totaux:null};
+  let cur = null, fin = false, tot = {};
+  const fermer = () => { if(cur){ res.lignes.push(cur); cur = null; } };
+  const num = t => /^-?[\d.]+(,\d+)?$/.test(String(t||'').trim());
+  pages.forEach(lignes=>{
+    if(fin) return;
+    // en-tête : Kundennummer | Auftragsnummer | Kundenbestellnummer | Bestelldatum, valeurs sur la ligne suivante, alignées
+    const kE = lignes.findIndex(l=>l.it.some(i=>/^Auftragsnummer/i.test(i.s)) && l.it.some(i=>/^Bestelldatum/i.test(i.s)));
+    if(kE >= 0 && lignes[kE+1] && !res.doc){
+      const e = lignes[kE].it, v = lignes[kE+1].it;
+      const col = re => { const k = e.findIndex(i=>re.test(i.s)); if(k < 0) return ''; const a = e[k].x - 20, z = e[k+1] ? e[k+1].x - 20 : 1e9; return pdfJoindre(v.filter(i=>i.x >= a && i.x < z)).trim(); };
+      res.doc = col(/^Auftragsnummer/i); res.date = col(/^Bestelldatum/i); res.ref = col(/^Kundenbestellnummer/i);
+    }
+    const k0 = lignes.findIndex(l=>l.it.some(i=>/^Anzahl/i.test(i.s)) && l.it.some(i=>/^Artikelnummer/i.test(i.s)) && l.it.some(i=>/^Beschreibung/i.test(i.s)));
+    if(k0 < 0) return;
+    const h = lignes[k0].it, xArt = (h.find(i=>/^Artikelnummer/i.test(i.s))||{x:55}).x, xDesc = (h.find(i=>/^Beschreibung/i.test(i.s))||{x:140}).x, xPrix = 355;
+    for(let k = k0 + 1; k < lignes.length && !fin; k++){
+      const it = lignes[k].it, txt = pdfTexteLigne(lignes[k]), der = it[it.length-1];
+      if(/THIS IS A COPY/i.test(txt) || /^\**$/.test(txt.replace(/\s/g,''))) continue;          // filigrane
+      if(/^Netto\s*:/i.test(txt)){ fermer(); tot.ht = pdfMontant(der.s); continue; }
+      if(/MwSt\.?\s*:/i.test(txt)){ fermer(); tot.nbTva = (tot.nbTva||0) + 1; tot.tva = pdfMontant(der.s); continue; }
+      if(/^Gesamtsumme\s*:/i.test(txt)){ fermer(); tot.ttc = pdfMontant(der.s); fin = true; continue; }
+      if(/^(Aufgenommen von|Es gelten|Seite \d)/i.test(txt)){ fermer(); continue; }
+      const t0 = it[0];
+      if(t0.x < xArt - 5 && num(t0.s) && it[1] && it[1].x < xDesc - 5){
+        fermer();
+        const desc = pdfJoindre(it.filter(i=>i.x >= xDesc - 5 && i.x < xPrix)).trim(), droite = it.filter(i=>i.x >= xPrix);
+        const lib = `Article ${it[1].s} (${desc.slice(0,40)})`;
+        if(!(droite.length === 4 || droite.length === 5) || !num(droite[0].s) || !num(droite[1].s) || num(droite[2].s) || !num(der.s) || (droite.length === 5 && !num(droite[3].s))){
+          res.erreurs.push(`${lib} : colonnes illisibles (${droite.map(i=>i.s).join(' ')})`); continue;
+        }
+        const pe = pdfMontant(droite[1].s), pm = PDF_YESSS_PE[pe], rab = droite.length === 5 ? pdfMontant(droite[3].s) : 0;
+        if(!pm){ res.erreurs.push(`${lib} : unité de prix « ${droite[1].s} » inconnue (1, 100, 1.000)`); continue; }
+        if(!(rab >= 0 && rab < 100)){ res.erreurs.push(`${lib} : remise « ${droite[3].s} » illisible`); continue; }
+        const net = pdfMontant(droite[0].s) * (1 - rab / 100);
+        cur = {pos: String(res.lignes.length + 1), code: it[1].s, desc, suite: [], han: '', q: pdfMontant(t0.s), ua: droite[2].s, prix: net, pm, eff: net, total: pdfMontant(der.s), tva: NaN, remise: rab > 0};
+        continue;
+      }
+      if(cur && t0.x >= xDesc - 5 && !it.some(i=>i.x >= xPrix)) cur.suite.push(txt);      // suite de la description
+      else if(t0.x < xDesc - 5) fermer();
+    }
+  });
+  fermer();
+  if(tot.nbTva > 1){ res.erreurs.push('Plusieurs taux de TVA sur ce PDF : utilisez « Importer Excel »'); return res; }
+  if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
+  return pdfFinirTaux(res);
+}
 const PDF_FORMATS = [
   {nom:'Minusines', four:/minusines/i, reconnait: txt => /MINUSINES/i.test(txt) && /Code article/.test(txt) && /Prix eff\./.test(txt), analyser: pdfAnalyserMinusines},
   {nom:'Ramirez', four:/ramirez/i, reconnait: txt => /RAMIREZ[\s-]*DATA/i.test(txt) && /Prix total ht/i.test(txt) && /Art\.-N°/i.test(txt), analyser: pdfAnalyserRamirez},
   {nom:'DME', four:/^\s*d\.?\s*m\.?\s*e\.?(\s|$)/i, reconnait: txt => /Distribution de Mat[ée]riel Electrique/i.test(txt) && /dme\.lu/i.test(txt) && /D[ÉE]SIGNATION/.test(txt), analyser: pdfAnalyserDme},
-  {nom:'Cebeo', four:/cebeo/i, reconnait: txt => /\bCEBEO\b/i.test(txt) && /Offre de prix n°/i.test(txt) && /Art\.?\s*id/i.test(txt), analyser: pdfAnalyserCebeo}
+  {nom:'Cebeo', four:/cebeo/i, reconnait: txt => /\bCEBEO\b/i.test(txt) && /Offre de prix n°/i.test(txt) && /Art\.?\s*id/i.test(txt), analyser: pdfAnalyserCebeo},
+  {nom:'Yesss', four:/yesss/i, reconnait: txt => /YESSS/i.test(txt) && /Artikelnummer/i.test(txt) && /Auftragsnummer/i.test(txt) && /Netto\s*:/i.test(txt), analyser: pdfAnalyserYesss}
 ];
 async function poImporterPdf(input){
   const f = input && input.files && input.files[0]; if(input) input.value = '';
