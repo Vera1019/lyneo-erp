@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-24-76ef245"/>
+<meta name="lyneo-build" content="BUILD:2026-11-24-0474efd"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -839,6 +839,7 @@ button.frm-pill:hover{filter:brightness(.96)}
         <div class="nav-section">Administration</div>
         <a class="nav-item" href="#/utilisateurs" onclick="return navLien(event,'utilisateurs')" id="nav-utilisateurs"><i class="ti ti-user-cog"></i> Utilisateurs</a>
         <a class="nav-item" href="#/controle" onclick="return navLien(event,'controle')" id="nav-controle"><i class="ti ti-shield-check"></i> Contrôle &amp; clôture</a>
+        <a class="nav-item" href="#/corbeille" onclick="return navLien(event,'corbeille')" id="nav-corbeille"><i class="ti ti-trash"></i> Corbeille</a>
         <a class="nav-item" href="#/documents" onclick="return navLien(event,'documents')" id="nav-documents"><i class="ti ti-files"></i> Documents</a>
       </div>
     </nav>
@@ -2872,7 +2873,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-24-76ef245';
+const APP_BUILD = 'BUILD:2026-11-24-0474efd';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3230,7 +3231,7 @@ new MutationObserver(()=>{
 }).observe(document.body, {childList:true, subtree:true});
 
 // ── NAVIGATION ───────────────────────────────────────────────
-const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider',demandes_facturation:'Demandes de facturation',pointages_incompletes:'Pointages à compléter'};
+const PAGE_TITLES = {dashboard:'Tableau de bord',chantiers:'Chantiers',fournisseurs:'Fournisseurs',pos:'Bons de commande',receptions:'Réceptions (BL)',factures:'Factures fournisseurs',utilisateurs:'Utilisateurs',clients:'Clients',devis:'Devis',factures_vente:'Factures clients',employes_rh:'Employés',formations:'Formations',astreintes:'Astreintes',interventions_sav:'Interventions (SAV)',controle:'Contrôle & clôture',documents:'Documents',detail_codes:'Détail par code ressource',heures_a_valider:'Heures à valider',corbeille:'Corbeille',demandes_facturation:'Demandes de facturation',pointages_incompletes:'Pointages à compléter'};
 
 // ── Pages = adresses (#/devis) : clic droit → « Ouvrir dans un nouvel onglet », Ctrl+clic, clic molette, favoris, bouton Précédent ──
 const PAGES_ADMIN = ['utilisateurs','controle','documents'];
@@ -3272,6 +3273,7 @@ function navigate(page, depuisAdresse){
   fermerApercu();
   if(page==='interventions_sav'){ _savCentreFiltre = ''; _savF = filtresSAVVides(); }   // on arrive toujours sur la vue complète
   if(page==='clients') _clF = filtresCLVides();
+  if(page==='corbeille' && typeof _corb !== 'undefined'){ _corb.q = ''; _corb.type = ''; }
   if(typeof _dfSuite !== 'undefined' && page !== 'devis' && page !== 'interventions_sav') _dfSuite = null;
   if(page==='fournisseurs') _foF = filtresFOVides();
   if(page==='employes_rh') _emF = filtresEMVides();
@@ -3291,7 +3293,7 @@ function navigate(page, depuisAdresse){
 }
 
 function pageRenderers(){
-  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider,demandes_facturation:renderDemandesFacturation,pointages_incompletes:renderPointagesIncompletes};
+  return {dashboard:renderDashboard,chantiers:renderChantiers,fournisseurs:renderFournisseurs,pos:renderPOS,receptions:renderReceptions,factures:renderFactures,utilisateurs:renderUtilisateurs,clients:renderClients,devis:renderDevis,factures_vente:renderFacturesVente,employes_rh:renderEmployesRH,formations:renderFormations,astreintes:renderAstreintes,interventions_sav:renderInterventionsSAV,controle:renderControle,documents:renderDocuments,detail_codes:renderDetailCodes,heures_a_valider:renderHeuresAValider,corbeille:renderCorbeille,demandes_facturation:renderDemandesFacturation,pointages_incompletes:renderPointagesIncompletes};
 }
 
 // Après une action dans une fenêtre (changer un statut, supprimer...), on rafraîchit la page
@@ -14771,7 +14773,7 @@ async function openDevisDetail(devisId){
 }
 
 async function deleteDevis(devisId, numero){
-  if(!confirm(`Supprimer définitivement le devis ${numero} ? Les lignes et documents attachés seront aussi supprimés. Cette action est irréversible.`)) return;
+  if(!confirm(`Supprimer le devis ${numero} ? Les lignes et documents attachés seront aussi supprimés.\n\nUn administrateur pourra le récupérer dans Administration → Corbeille.`)) return;
   const {error} = await sb.from('devis').delete().eq('id',devisId);
   if(error){ showToast('Erreur: '+error.message, 'error'); return; }
   showToast('Devis supprimé');
@@ -18496,6 +18498,85 @@ function tracEnvelopperFiche(nom, table){
 }
 function tracInstaller(){ Object.entries(TRAC_FICHES).forEach(([nom,table])=>tracEnvelopperFiche(nom, table)); }
 tracInstaller();
+
+
+// ── CORBEILLE (24/11/2026) : documents supprimés, lus dans le journal ; « Restaurer » = fonction SQL corbeille_restaurer ──
+const CORB_TYPES = {devis:'Devis', factures_vente:'Facture client', factures:'Facture fournisseur', purchase_orders_lyneo:'Bon de commande', bons_livraison:'Réception (BL)', interventions_sav:'Intervention SAV', clients:'Client', fournisseurs:'Fournisseur', chantiers_lyneo:'Chantier'};
+const CORB_SQL = 'corbeille-restauration.sql';
+var _corb = {rows:[], present:{}, noms:{}, type:'', q:'', erreur:null};
+function corbLib(r){
+  const d = r.donnees || {};
+  const num = d.numero || d.numero_facture_fournisseur || d.numero_bl || d.ref || r.libelle || d.nom || '';
+  const quoi = d.objet || (d.nom && d.nom !== num ? d.nom : '') || '';
+  return {num: String(num||'—'), quoi: String(quoi||'')};
+}
+function corbMontant(d){
+  d = d || {};
+  const v = [d.montant_ht, d.total_ht].find(x=>x !== undefined && x !== null && x !== '');
+  return v === undefined ? '' : fmt(parseFloat(v)||0) + ' HT';
+}
+async function renderCorbeille(){
+  const page = el('page-content'); if(!page) return;
+  if(!currentUser || currentUser.role !== 'admin'){ page.innerHTML = '<div class="card"><div class="empty"><p>Accès réservé aux administrateurs.</p></div></div>'; return; }
+  page.innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><p>Chargement…</p></div>';
+  _corb.erreur = null; _corb.present = {};
+  try{
+    const depuis = new Date(Date.now() - 365*86400000).toISOString();
+    const r = await sb.from('journal_audit').select('id,horodatage,utilisateur,table_name,row_id,libelle,donnees').eq('action','DELETE').in('table_name', Object.keys(CORB_TYPES)).gte('horodatage', depuis).order('horodatage', {ascending:false}).limit(500);
+    if(r.error) throw r.error;
+    _corb.rows = r.data || [];
+    // déjà restaurés (ou recréés) : le document existe de nouveau
+    const parTable = {};
+    _corb.rows.forEach(x=>{ (parTable[x.table_name] = parTable[x.table_name] || []).push(x.row_id); });
+    for(const [t, ids] of Object.entries(parTable)){
+      try{ const p = await lireParLots(t, 'id', 'id', ids); if(p.ok) p.rows.forEach(y=>{ _corb.present[t+'|'+String(y.id)] = true; }); }catch(e){}
+    }
+    try{ const u = await sb.from('utilisateurs').select('email,nom,prenom'); (u.data||[]).forEach(x=>{ if(x.email) _corb.noms[String(x.email).toLowerCase()] = ((x.prenom||'')+' '+(x.nom||'')).trim(); }); }catch(e){}
+  }catch(e){ _corb.erreur = (e && e.message) || String(e); _corb.rows = []; }
+  const opts = Object.entries(CORB_TYPES).map(([k,v])=>'<option value="'+k+'"'+(_corb.type===k?' selected':'')+'>'+escHtml(v)+'</option>').join('');
+  page.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Corbeille</h1><p>Documents supprimés (12 derniers mois) — un administrateur peut les restaurer avec leurs lignes et leurs liens</p></div>
+      <div class="page-actions"><div class="search-wrap"><i class="ti ti-search"></i><input id="corb-q" placeholder="N°, objet, nom, auteur…" value="${escHtml(_corb.q)}" oninput="_corb.q=this.value;corbAfficher()"/></div>
+      <select id="corb-type" data-ordre="fixe" onchange="_corb.type=this.value;corbAfficher()"><option value="">Tous les types</option>${opts}</select></div></div>
+    ${_corb.erreur ? '<div class="alert alert-warning" id="corb-erreur" style="display:block"><i class="ti ti-alert-triangle"></i> Journal illisible : '+escHtml(_corb.erreur)+'. Le journal (integridade-journal-cloture.sql) est-il installé ?</div>' : ''}
+    <div class="card"><div class="table-wrap" style="overflow-x:auto"><table id="corb-table"><thead><tr><th>Supprimé le</th><th>Par</th><th>Type</th><th>Document</th><th>Montant</th><th></th></tr></thead><tbody id="corb-tbody"></tbody></table></div></div>`;
+  corbAfficher();
+}
+function corbAfficher(){
+  const tb = el('corb-tbody'); if(!tb) return;
+  const q = _afNorm(_corb.q);
+  const items = _corb.rows.filter(r=>{
+    if(_corb.type && r.table_name !== _corb.type) return false;
+    if(!q) return true;
+    const l = corbLib(r), d = r.donnees || {};
+    return _afNorm([l.num, l.quoi, r.utilisateur, _corb.noms[String(r.utilisateur||'').toLowerCase()], CORB_TYPES[r.table_name], d.client, d.ville].join(' ')).includes(q);
+  });
+  tb.innerHTML = items.length === 0
+    ? '<tr><td colspan="6"><div class="empty"><div class="empty-icon"><i class="ti ti-trash-off"></i></div><p>'+(_corb.rows.length ? 'Aucun document ne correspond' : 'Aucun document supprimé')+'</p></div></td></tr>'
+    : items.map(r=>{
+        const l = corbLib(r), present = !!_corb.present[r.table_name+'|'+String(r.row_id)];
+        const dt = new Date(r.horodatage), quand = isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('fr-FR')+' '+dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+        const par = _corb.noms[String(r.utilisateur||'').toLowerCase()] || r.utilisateur || '—';
+        return '<tr data-corb="'+escHtml(String(r.id))+'"><td style="white-space:nowrap">'+escHtml(quand)+'</td><td>'+escHtml(par)+'</td><td>'+escHtml(CORB_TYPES[r.table_name]||r.table_name)+'</td>'
+          + '<td><strong>'+escHtml(l.num)+'</strong>'+(l.quoi ? '<div style="font-size:12px;color:var(--gray-5)">'+escHtml(l.quoi)+'</div>' : '')+'</td>'
+          + '<td style="white-space:nowrap;text-align:right">'+escHtml(corbMontant(r.donnees))+'</td>'
+          + '<td style="white-space:nowrap">'+(present ? '<span class="badge badge-payee" data-corb-etat="present">Restauré / existe</span>' : '<button class="btn btn-primary btn-sm corb-restaurer" data-id="'+escHtml(String(r.id))+'" onclick="corbRestaurer(this.dataset.id)"><i class="ti ti-arrow-back-up"></i> Restaurer</button>')+'</td></tr>';
+      }).join('');
+}
+async function corbRestaurer(id){
+  const r = _corb.rows.find(x=>String(x.id) === String(id)); if(!r) return;
+  const l = corbLib(r), type = CORB_TYPES[r.table_name] || r.table_name;
+  if(!confirm(type+' '+l.num+' : le restaurer avec ses lignes, ses documents joints et ses liens ?')) return;
+  const b = document.querySelector('.corb-restaurer[data-id="'+String(id).replace(/"/g,'')+'"]'); if(b) b.disabled = true;
+  const res = await sb.rpc('corbeille_restaurer', {p_journal_id: Number(id)});
+  if(res.error){
+    const m = String(res.error.message || res.error);
+    showToast(/corbeille_restaurer|function|schema cache|does not exist/i.test(m) && !/Réservé|Déjà présent|introuvable/.test(m) ? 'Restauration indisponible : exécutez « '+CORB_SQL+' » dans Supabase (une fois).' : 'Non restauré : '+m, 'error', 9000);
+    if(b) b.disabled = false; return;
+  }
+  const d = res.data || {};
+  showToast(type+' '+l.num+' restauré'+(d.lignes ? ' — '+d.lignes+' ligne'+(d.lignes>1?'s':'')+' / document'+(d.lignes>1?'s':'')+' repris' : '')+(d.liens ? ', '+d.liens+' lien'+(d.liens>1?'s':'')+' remis' : ''));
+  await renderCorbeille();
+}
 
 let _journalRows = [];
 async function renderControle(){
@@ -26316,13 +26397,13 @@ const daPeutDefinir = async () => (await daVerifier()).definir;
 async function daRefuser(){ showToast(DA_MSG_REFUS, 'error'); if(currentPage === 'documents') await renderDocuments(); }
 function daMajNav(){
   const ok = !!(currentUser && currentUser.role === 'admin' && _da.charge && daAcces(_da).voir);   // caché tant que la liste n'est pas lue
-  ['nav-documents','nav-utilisateurs','nav-controle'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.toggle('hidden', !ok); });
+  ['nav-documents','nav-utilisateurs','nav-controle','nav-corbeille'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.toggle('hidden', !ok); });
   const sec = document.getElementById('nav-admin-section'); if(sec) sec.classList.toggle('hidden', !ok);
 }
 function daDemarrer(){ daMajNav(); daVerifier().catch(() => {}); }
 function daReset(){
   _da = {charge:false, ok:true, configuree:false, definitions:[], exports:[], erreur:null, majPar:null, majLe:null}; _daOuvert = null; _daOccupe = false;
-  ['nav-documents','nav-utilisateurs','nav-controle'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.add('hidden'); });
+  ['nav-documents','nav-utilisateurs','nav-controle','nav-corbeille'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.add('hidden'); });
 }
 
 // ── Écrans ─────────────────────────────────────────────────────────────────────────────────────────────────
