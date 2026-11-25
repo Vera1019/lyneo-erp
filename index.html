@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-24-0474efd"/>
+<meta name="lyneo-build" content="BUILD:2026-11-25-16a1705"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2873,7 +2873,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-24-0474efd';
+const APP_BUILD = 'BUILD:2026-11-25-16a1705';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -3273,7 +3273,7 @@ function navigate(page, depuisAdresse){
   fermerApercu();
   if(page==='interventions_sav'){ _savCentreFiltre = ''; _savF = filtresSAVVides(); }   // on arrive toujours sur la vue complète
   if(page==='clients') _clF = filtresCLVides();
-  if(page==='corbeille' && typeof _corb !== 'undefined'){ _corb.q = ''; _corb.type = ''; }
+  if(page==='corbeille' && typeof _corb !== 'undefined'){ _corb.q = ''; _corb.type = ''; _corb.voirRepris = false; }
   if(typeof _dfSuite !== 'undefined' && page !== 'devis' && page !== 'interventions_sav') _dfSuite = null;
   if(page==='fournisseurs') _foF = filtresFOVides();
   if(page==='employes_rh') _emF = filtresEMVides();
@@ -18503,7 +18503,11 @@ tracInstaller();
 // ── CORBEILLE (24/11/2026) : documents supprimés, lus dans le journal ; « Restaurer » = fonction SQL corbeille_restaurer ──
 const CORB_TYPES = {devis:'Devis', factures_vente:'Facture client', factures:'Facture fournisseur', purchase_orders_lyneo:'Bon de commande', bons_livraison:'Réception (BL)', interventions_sav:'Intervention SAV', clients:'Client', fournisseurs:'Fournisseur', chantiers_lyneo:'Chantier'};
 const CORB_SQL = 'corbeille-restauration.sql';
-var _corb = {rows:[], present:{}, noms:{}, type:'', q:'', erreur:null};
+var _corb = {rows:[], present:{}, repris:{}, voirRepris:false, noms:{}, type:'', q:'', erreur:null};
+const CORB_PRENOMS = ['vera', 'corinne'];     // 25/11 : la Corbeille est réservée à Vera et Corinne (administratrices)
+const corbAutorise = u => { u = u || currentUser; return !!u && u.role === 'admin' && CORB_PRENOMS.includes(daPrenomNorm(u.prenom || '')); };
+// numéro « métier » de chaque type : sert à savoir si un document actuel a repris le n° du document supprimé
+const CORB_NUM = {devis:'numero', factures_vente:'numero', purchase_orders_lyneo:'numero', chantiers_lyneo:'numero', interventions_sav:'ref', clients:'nom', fournisseurs:'nom'};
 function corbLib(r){
   const d = r.donnees || {};
   const num = d.numero || d.numero_facture_fournisseur || d.numero_bl || d.ref || r.libelle || d.nom || '';
@@ -18517,9 +18521,9 @@ function corbMontant(d){
 }
 async function renderCorbeille(){
   const page = el('page-content'); if(!page) return;
-  if(!currentUser || currentUser.role !== 'admin'){ page.innerHTML = '<div class="card"><div class="empty"><p>Accès réservé aux administrateurs.</p></div></div>'; return; }
+  if(!corbAutorise()){ page.innerHTML = '<div class="card"><div class="empty"><p>Accès réservé (Vera et Corinne).</p></div></div>'; return; }
   page.innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><p>Chargement…</p></div>';
-  _corb.erreur = null; _corb.present = {};
+  _corb.erreur = null; _corb.present = {}; _corb.repris = {};
   try{
     const depuis = new Date(Date.now() - 365*86400000).toISOString();
     const r = await sb.from('journal_audit').select('id,horodatage,utilisateur,table_name,row_id,libelle,donnees').eq('action','DELETE').in('table_name', Object.keys(CORB_TYPES)).gte('horodatage', depuis).order('horodatage', {ascending:false}).limit(500);
@@ -18531,20 +18535,45 @@ async function renderCorbeille(){
     for(const [t, ids] of Object.entries(parTable)){
       try{ const p = await lireParLots(t, 'id', 'id', ids); if(p.ok) p.rows.forEach(y=>{ _corb.present[t+'|'+String(y.id)] = true; }); }catch(e){}
     }
+    // n° repris par un document actuel (supprimé puis recréé avec le même numéro)
+    for(const [t, col] of Object.entries(CORB_NUM)){
+      const nums = _corb.rows.filter(x=>x.table_name===t && x.donnees && x.donnees[col]).map(x=>String(x.donnees[col]));
+      if(!nums.length) continue;
+      try{ const p = await lireParLots(t, 'id,'+col, col, nums); if(p.ok) p.rows.forEach(y=>{ _corb.repris[t+'|'+_afNorm(String(y[col]||''))] = String(y.id); }); }catch(e){}
+    }
+    { const nums = _corb.rows.filter(x=>x.table_name==='factures' && x.donnees && x.donnees.numero_facture_fournisseur).map(x=>String(x.donnees.numero_facture_fournisseur));
+      if(nums.length){ try{ const p = await lireParLots('factures', 'id,numero_facture_fournisseur,fournisseur_id', 'numero_facture_fournisseur', nums); if(p.ok) p.rows.forEach(y=>{ _corb.repris['factures|'+_afNorm(String(y.numero_facture_fournisseur||''))+'|'+String(y.fournisseur_id||'')] = String(y.id); }); }catch(e){} } }
     try{ const u = await sb.from('utilisateurs').select('email,nom,prenom'); (u.data||[]).forEach(x=>{ if(x.email) _corb.noms[String(x.email).toLowerCase()] = ((x.prenom||'')+' '+(x.nom||'')).trim(); }); }catch(e){}
   }catch(e){ _corb.erreur = (e && e.message) || String(e); _corb.rows = []; }
   const opts = Object.entries(CORB_TYPES).map(([k,v])=>'<option value="'+k+'"'+(_corb.type===k?' selected':'')+'>'+escHtml(v)+'</option>').join('');
   page.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Corbeille</h1><p>Documents supprimés (12 derniers mois) — un administrateur peut les restaurer avec leurs lignes et leurs liens</p></div>
       <div class="page-actions"><div class="search-wrap"><i class="ti ti-search"></i><input id="corb-q" placeholder="N°, objet, nom, auteur…" value="${escHtml(_corb.q)}" oninput="_corb.q=this.value;corbAfficher()"/></div>
       <select id="corb-type" data-ordre="fixe" onchange="_corb.type=this.value;corbAfficher()"><option value="">Tous les types</option>${opts}</select></div></div>
+    <div id="corb-repris-wrap" style="font-size:13px;color:var(--gray-5);margin:0 0 10px"></div>
     ${_corb.erreur ? '<div class="alert alert-warning" id="corb-erreur" style="display:block"><i class="ti ti-alert-triangle"></i> Journal illisible : '+escHtml(_corb.erreur)+'. Le journal (integridade-journal-cloture.sql) est-il installé ?</div>' : ''}
     <div class="card"><div class="table-wrap" style="overflow-x:auto"><table id="corb-table"><thead><tr><th>Supprimé le</th><th>Par</th><th>Type</th><th>Document</th><th>Montant</th><th></th></tr></thead><tbody id="corb-tbody"></tbody></table></div></div>`;
   corbAfficher();
 }
+// Le document supprimé est-il revenu (même id) ? Son numéro est-il repris par un document actuel (id différent) ?
+function corbEtat(r){
+  if(_corb.present[r.table_name+'|'+String(r.row_id)]) return 'present';
+  const d = r.donnees || {};
+  if(r.table_name === 'factures'){
+    const n = d.numero_facture_fournisseur, id = n ? _corb.repris['factures|'+_afNorm(String(n))+'|'+String(d.fournisseur_id||'')] : null;
+    return id && id !== String(r.row_id) ? 'repris' : '';
+  }
+  const col = CORB_NUM[r.table_name], n = col ? d[col] : null, id = n ? _corb.repris[r.table_name+'|'+_afNorm(String(n))] : null;
+  return id && id !== String(r.row_id) ? 'repris' : '';
+}
 function corbAfficher(){
   const tb = el('corb-tbody'); if(!tb) return;
   const q = _afNorm(_corb.q);
+  const nbRepris = _corb.rows.filter(r=>corbEtat(r)==='repris').length, wrap = el('corb-repris-wrap');
+  if(wrap) wrap.innerHTML = nbRepris ? '<label style="cursor:pointer"><input type="checkbox" id="corb-voir-repris"'+(_corb.voirRepris?' checked':'')+' onchange="_corb.voirRepris=this.checked;corbAfficher()"> Afficher aussi les documents supprimés puis recréés avec le même numéro ('+nbRepris+')</label>' : '';
   const items = _corb.rows.filter(r=>{
+    const et = corbEtat(r);
+    if(et === 'present') return false;                       // revenu : plus dans la corbeille
+    if(et === 'repris' && !_corb.voirRepris) return false;   // n° repris par un document actuel
     if(_corb.type && r.table_name !== _corb.type) return false;
     if(!q) return true;
     const l = corbLib(r), d = r.donnees || {};
@@ -18553,17 +18582,18 @@ function corbAfficher(){
   tb.innerHTML = items.length === 0
     ? '<tr><td colspan="6"><div class="empty"><div class="empty-icon"><i class="ti ti-trash-off"></i></div><p>'+(_corb.rows.length ? 'Aucun document ne correspond' : 'Aucun document supprimé')+'</p></div></td></tr>'
     : items.map(r=>{
-        const l = corbLib(r), present = !!_corb.present[r.table_name+'|'+String(r.row_id)];
+        const l = corbLib(r), repris = corbEtat(r) === 'repris';
         const dt = new Date(r.horodatage), quand = isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('fr-FR')+' '+dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
         const par = _corb.noms[String(r.utilisateur||'').toLowerCase()] || r.utilisateur || '—';
         return '<tr data-corb="'+escHtml(String(r.id))+'"><td style="white-space:nowrap">'+escHtml(quand)+'</td><td>'+escHtml(par)+'</td><td>'+escHtml(CORB_TYPES[r.table_name]||r.table_name)+'</td>'
           + '<td><strong>'+escHtml(l.num)+'</strong>'+(l.quoi ? '<div style="font-size:12px;color:var(--gray-5)">'+escHtml(l.quoi)+'</div>' : '')+'</td>'
           + '<td style="white-space:nowrap;text-align:right">'+escHtml(corbMontant(r.donnees))+'</td>'
-          + '<td style="white-space:nowrap">'+(present ? '<span class="badge badge-payee" data-corb-etat="present">Restauré / existe</span>' : '<button class="btn btn-primary btn-sm corb-restaurer" data-id="'+escHtml(String(r.id))+'" onclick="corbRestaurer(this.dataset.id)"><i class="ti ti-arrow-back-up"></i> Restaurer</button>')+'</td></tr>';
+          + '<td style="white-space:nowrap">'+(repris ? '<span class="badge badge-brouillon" data-corb-etat="repris" title="Un document actuel porte ce numéro : restaurer créerait un doublon">N° repris par un document actuel</span>' : '<button class="btn btn-primary btn-sm corb-restaurer" data-id="'+escHtml(String(r.id))+'" onclick="corbRestaurer(this.dataset.id)"><i class="ti ti-arrow-back-up"></i> Restaurer</button>')+'</td></tr>';
       }).join('');
 }
 async function corbRestaurer(id){
   const r = _corb.rows.find(x=>String(x.id) === String(id)); if(!r) return;
+  if(!corbAutorise()){ showToast('Accès réservé (Vera et Corinne)', 'error'); return; }
   const l = corbLib(r), type = CORB_TYPES[r.table_name] || r.table_name;
   if(!confirm(type+' '+l.num+' : le restaurer avec ses lignes, ses documents joints et ses liens ?')) return;
   const b = document.querySelector('.corb-restaurer[data-id="'+String(id).replace(/"/g,'')+'"]'); if(b) b.disabled = true;
@@ -23855,13 +23885,15 @@ function havCalculer(d){
   out.sort((x,y)=> x.debut.localeCompare(y.debut) || String(x.empNom).localeCompare(String(y.empNom),'fr'));
   return out;
 }
+// Chef de projet = responsable (chef_chantier_id) d'un chantier OU d'un centre SAV non archivé (25/11 : les chefs de projet valident aussi le SAV)
+const havCentreDuChef = (c, empId) => !!c && ['chantier','sav'].includes(c.type_centre||'chantier') && c.statut!=='archive' && !!c.chef_chantier_id && String(c.chef_chantier_id)===String(empId);
 // Qui est l'utilisateur connecté ? (e-mail de l'utilisateur ERP = e-mail de la fiche employé)
 function havContexte(user, d){
   const m = havNormEmail(user && user.email);
   const cand = m ? (d.emps||[]).filter(e=>havNormEmail(e.email)===m) : [];
   const emp = cand.length===1 ? cand[0] : null;
   const empId = emp ? String(emp.id) : null;
-  const estResp = !!empId && (d.chantiers||[]).some(c=>(c.type_centre||'chantier')==='chantier' && c.statut!=='archive' && c.chef_chantier_id && String(c.chef_chantier_id)===empId);
+  const estResp = !!empId && (d.chantiers||[]).some(c=>havCentreDuChef(c, empId));
   const admin = !!user && user.role==='admin';
   const superviseur = admin && !estResp, cfg = d.cfg || null;
   const valideAbs = !!user && (cfg && cfg.configuree ? (!!m && cfg.absences.includes(m)) : superviseur);
@@ -23906,6 +23938,8 @@ async function havCharger(force){
         lirePT('semaines', '*', q=>q.eq('statut','soumis'))
       ]);
       let picages = [], absences = [], validations = [], sqlManque = false, feries = null;
+      let brouillons = [], brouillonsErreur = null;
+      try{ brouillons = await havLireBrouillons(ptRows, ptEmp); }catch(e){ brouillonsErreur = (e && e.message) || String(e); }
       if(semaines.length){
         const debuts = semaines.map(s=>havJ10(s.semaine_debut)).sort();
         const min = debuts[0], max = havJours(debuts[debuts.length-1])[6];
@@ -23919,7 +23953,7 @@ async function havCharger(force){
         try{ await sbPT.from('semaine_validations').select('id').limit(1).then(r=>{ if(r.error && havAbsentSQL(r.error.message)) sqlManque = true; }); }catch(e){}
       }
       const cfg = await havLireConfig();
-      const d = {emps, chantiers, interventions, ptRows, ptEmp, semaines, picages, absences, validations, sqlManque, cfg, feries, feriesIndispo: semaines.length>0 && feries===null, lienIndispo: emps.lienIndispo===true};
+      const d = {brouillons, brouillonsErreur, emps, chantiers, interventions, ptRows, ptEmp, semaines, picages, absences, validations, sqlManque, cfg, feries, feriesIndispo: semaines.length>0 && feries===null, lienIndispo: emps.lienIndispo===true};
       const calc = havCalculer(d), ctx = havContexte(currentUser, d);
       _hav = {t:Date.now(), d, ctx, semaines:calc, resume:havResume(calc, ctx)};
       return _hav;
@@ -24124,8 +24158,8 @@ async function havDiagnostic(h){
   try{ const r = await sb.from('utilisateurs').select('id,prenom,nom,email,role,actif'); users = r.data||[]; }catch(e){}
   const actifs = users.filter(u=>u.actif!==false);
   const parResp = new Map(), sansResp = [];
-  (h.d.chantiers||[]).filter(c=>(c.type_centre||'chantier')==='chantier' && c.statut==='actif').forEach(c=>{
-    if(!c.chef_chantier_id){ sansResp.push(libChantierAchat(c)); return; }
+  (h.d.chantiers||[]).filter(c=>['chantier','sav'].includes(c.type_centre||'chantier') && c.statut==='actif').forEach(c=>{
+    if(!c.chef_chantier_id){ if((c.type_centre||'chantier')==='chantier') sansResp.push(libChantierAchat(c)); return; }
     const k = String(c.chef_chantier_id); if(!parResp.has(k)) parResp.set(k, []); parResp.get(k).push(libChantierAchat(c));
   });
   const lignes = [];
@@ -24145,7 +24179,7 @@ async function havDiagnostic(h){
   const sup = actifs.filter(u=>u.role==='admin').filter(u=>{
     const m = havNormEmail(u.email), cand = (h.d.emps||[]).filter(e=>havNormEmail(e.email)===m);
     if(cand.length!==1) return true;
-    return !(h.d.chantiers||[]).some(c=>(c.type_centre||'chantier')==='chantier' && c.statut!=='archive' && c.chef_chantier_id && String(c.chef_chantier_id)===String(cand[0].id));
+    return !(h.d.chantiers||[]).some(c=>havCentreDuChef(c, cand[0].id));
   });
   const supSansFiche = sup.filter(u=>(h.d.emps||[]).filter(e=>havNormEmail(e.email)===havNormEmail(u.email)).length!==1);
   return {lignes, sansResp, admins:actifs.filter(u=>u.role==='admin').map(u=>({email:havNormEmail(u.email), nom:nomPers(u)||u.email})).filter(a=>a.email), directionMails:sup.map(u=>havNormEmail(u.email)).filter(Boolean), superviseurs:sup.map(u=>nomPers(u)||u.email), supSansFiche:supSansFiche.map(u=>nomPers(u)||u.email)};
@@ -24162,6 +24196,81 @@ function havHtmlDiagnostic(dg){
     + '</details></div>';
 }
 
+
+// ── SEMAINES RENVOYÉES OU NON SOUMISES (25/11/2026) ─────────────────────────────────────────────────────────────────
+// Une semaine remise en brouillon (renvoyée au salarié, ou jamais soumise) sort de « Heures à valider ». Le responsable garde la main :
+// liste des semaines en brouillon des 4 semaines PASSÉES (la semaine en cours est encore remplie par le salarié) qui ont des heures,
+// et « Reprendre pour validation » = la semaine repasse « soumise » (seulement si elle est toujours en brouillon).
+const HAV_BR_SEMAINES = 4;
+function havLundiCourant(){ const t = new Date(); t.setHours(12,0,0,0); t.setDate(t.getDate() - ((t.getDay()+6)%7)); return havIso(t); }
+function havDecaler(j, n){ const d = new Date(havJ10(j)+'T12:00:00'); d.setDate(d.getDate()+n); return havIso(d); }
+async function havLireBrouillons(ptRows, ptEmp){
+  const lc = havLundiCourant(), min = havDecaler(lc, -7*HAV_BR_SEMAINES);
+  const sems = await lirePT('semaines', '*', q=>q.eq('statut','brouillon').gte('semaine_debut', min).lte('semaine_debut', havDecaler(lc, -1)));
+  if(!sems.length) return [];
+  const debuts = sems.map(x=>havJ10(x.semaine_debut)).sort();
+  const pics = await havLirePicages(q=>q.gte('date', debuts[0]).lte('date', havJours(debuts[debuts.length-1])[6]));
+  return havCalculerBrouillons(sems, pics, ptRows, ptEmp);
+}
+// pure : semaines en brouillon + pointages → [{sem, emp, empNom, debut, jours, total, chantiers:[lib]}] (seulement celles qui ont des heures)
+function havCalculerBrouillons(sems, pics, ptRows, ptEmp){
+  const nomEmp = new Map((ptEmp||[]).map(e=>[String(e.id), e.nom]));
+  const ptParId = new Map((ptRows||[]).map(p=>[String(p.id), p]));
+  const out = [];
+  (sems||[]).forEach(sem=>{
+    const debut = havJ10(sem.semaine_debut), jours = havJours(debut), emp = String(sem.employe_id);
+    const ls = (pics||[]).filter(p=>String(p.employe_id)===emp && jours.includes(havJ10(p.date)) && (parseFloat(p.heures)||0) > 0);
+    if(!ls.length) return;
+    const parCh = new Map();
+    ls.forEach(p=>{ const k = String(p.chantier_id); parCh.set(k, (parCh.get(k)||0) + (parseFloat(p.heures)||0)); });
+    const chantiers = [...parCh.entries()].map(([k,h])=>{ const pt = ptParId.get(k); return {lib: pt ? (pt.code || pt.nom || ('Chantier '+k)) : 'Chantier '+k, h:Math.round(h*100)/100}; })
+      .sort((a,b)=>b.h-a.h || String(a.lib).localeCompare(String(b.lib),'fr',{numeric:true}));
+    out.push({sem, emp, empNom: nomEmp.get(emp) || ('Employé '+emp), debut, jours, total: Math.round(ls.reduce((t,p)=>t+(parseFloat(p.heures)||0),0)*100)/100, chantiers});
+  });
+  out.sort((a,b)=>a.debut.localeCompare(b.debut) || String(a.empNom).localeCompare(String(b.empNom),'fr'));
+  return out;
+}
+const havBrPropre = (x, ctx) => !!(ctx && ctx.ptEmpId && String(x.emp)===String(ctx.ptEmpId));
+function havHtmlBrouillons(h){
+  const {ctx, d} = h;
+  if(!ctx.peutHeures) return '';
+  if(d.brouillonsErreur) return '<div class="alert alert-warning" id="hav-br-erreur"><i class="ti ti-alert-triangle"></i><span>Semaines en brouillon illisibles : '+escHtml(d.brouillonsErreur)+'</span></div>';
+  const l = (d.brouillons||[]).filter(x=>!havBrPropre(x, ctx));
+  if(!l.length) return '';
+  const actif = !d.sqlManque;
+  return '<div class="card" id="hav-brouillons" style="padding:14px 16px;margin:14px 0;border-left:4px solid #8B5CF6">'
+    + '<div style="font-weight:700;margin-bottom:4px"><i class="ti ti-arrow-back-up"></i> Semaines renvoyées au salarié ou non soumises ('+l.length+')</div>'
+    + '<div style="font-size:12.5px;color:#6B7280;margin-bottom:8px">En brouillon, ces semaines ne sont pas dans la liste à valider. « Reprendre » la remet « soumise » : vous pouvez alors la corriger et la valider sans attendre le salarié.</div>'
+    + '<table style="width:100%;font-size:13px"><tbody>'
+    + l.map(x=>{
+        const k = x.emp+'|'+x.debut, com = String(x.sem.commentaire||'').trim();
+        return '<tr class="hav-br" data-k="'+escHtml(k)+'" style="border-top:1px solid #F3F4F6"><td style="padding:6px 4px"><strong>'+escHtml(x.empNom)+'</strong><div style="color:#6B7280;font-size:12px">S'+escHtml(String(havSemNum(x.debut)))+' · '+escHtml(x.jours[0].split('-').reverse().join('/'))+' → '+escHtml(x.jours[6].split('-').reverse().join('/'))+'</div></td>'
+          + '<td style="padding:6px 4px;white-space:nowrap"><strong>'+escHtml(havH(x.total))+' h</strong></td>'
+          + '<td style="padding:6px 4px;color:#374151">'+escHtml(x.chantiers.map(c=>c.lib+' '+havH(c.h)+' h').join(' · '))+(com ? '<div style="color:#6D28D9;font-size:12px">'+escHtml(com.length>140 ? com.slice(0,140)+'…' : com)+'</div>' : '')+'</td>'
+          + '<td style="padding:6px 4px;text-align:right;white-space:nowrap"><button type="button" class="btn btn-primary btn-sm hav-reprendre" '+(actif?'':'disabled ')+'data-k="'+escHtml(k)+'" onclick="havReprendre(this.dataset.k)"><i class="ti ti-arrow-back-up"></i> Reprendre pour validation</button></td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+}
+async function havReprendre(k){
+  const [emp, debut] = String(k||'').split('|');
+  const h = _hav, x = h && (h.d.brouillons||[]).find(y=>y.emp===String(emp) && y.debut===String(debut));
+  if(!x){ havToast('Semaine introuvable — liste actualisée', 'warn'); await havRafraichir(); return; }
+  if(!h.ctx.peutHeures){ havToast('Réservé aux responsables de chantier / SAV et aux administrateurs', 'error'); return; }
+  if(havBrPropre(x, h.ctx)){ havToast('Vous ne pouvez pas reprendre vos propres heures : un autre responsable doit le faire.', 'error'); return; }
+  if(h.d.sqlManque){ havToast("La base des pointages doit être mise à jour : exécutez « "+HAV_SQL+" » dans le projet POINTAGES.", 'error'); return; }
+  if(!confirm('Reprendre la semaine S'+havSemNum(x.debut)+' de '+x.empNom+' ('+havH(x.total)+' h) ?\n\nElle repasse « soumise » : vous pourrez la corriger et la valider. Le salarié ne pourra plus la modifier dans l\'application.')) return;
+  const b = document.querySelector('.hav-reprendre[data-k="'+String(k).replace(/"/g,'')+'"]'); if(b) b.disabled = true;
+  const maj = async champs => sbPT.from('semaines').update(champs).eq('id', x.sem.id).eq('statut','brouillon').select('id');
+  let r = await maj({statut:'soumis', soumis_le:new Date().toISOString()});
+  if(r.error && /soumis_le/i.test(r.error.message||'')) r = await maj({statut:'soumis'});
+  if(r.error){ havToast('Erreur : '+(r.error.message||r.error), 'error'); if(b) b.disabled = false; return; }
+  if(!(r.data||[]).length){ havToast("Cette semaine n'est plus en brouillon (le salarié l'a peut-être soumise). Liste actualisée.", 'warn'); await havRafraichir(); return; }
+  await havAudit('REPRISE_SEMAINE', 'Semaine '+x.debut+' de '+x.empNom+' ('+havH(x.total)+' h) reprise pour validation par '+(nomPers(currentUser)||'ERP')+' (ERP) — elle était en brouillon');
+  _havVue = 'tout';
+  havToast('Semaine reprise : corrigez-la si besoin puis validez-la.');
+  await havRafraichir();
+  const c = document.querySelector('.hav-semaine[data-sem="'+String(k).replace(/"/g,'')+'"]'); if(c && c.scrollIntoView) c.scrollIntoView({block:'center'});
+}
 async function havDessiner(){
   const page = el('page-content'); if(!page || currentPage!=='heures_a_valider') return;
   let h;
@@ -24173,7 +24282,8 @@ async function havDessiner(){
   const {ctx, d} = h;
   const peut = ctx.peutHeures || ctx.valideAbs;
   const voirTout = peut && _havVue==='tout';
-  const aTraiter = w => ctx.superviseur && (w.vide || w.complet);          // tout validé (ou vide) mais pas encore approuvée : à approuver
+  const respApprouve = w => !!ctx.peutHeures && w.complet && !w.vide && !w.incomplete && !havBrPropre(w, ctx);   // 25/11 : semaine reprise déjà toute validée
+  const aTraiter = w => (ctx.superviseur && (w.vide || w.complet)) || respApprouve(w);          // tout validé (ou vide) mais pas encore approuvée : à approuver
   const visibles = h.semaines.filter(w=>voirTout ? true : (w.blocs.some(b=>b.etat==='attente' && havMien(b, ctx)) || aTraiter(w)));
   const actif = !d.sqlManque;
   let dg = null; if(ctx.superviseur){ try{ dg = await havDiagnostic(h); }catch(e){} }
@@ -24182,7 +24292,7 @@ async function havDessiner(){
     const num = havSemNum(w.debut);
     const puces = w.blocs.map(b=>havPuce(b, d, ctx)).join('');
     const aValider = w.blocs.filter(b=>b.etat==='attente' && (voirTout ? havPeutValider(b, ctx) : havMien(b, ctx)));
-    const aApprouver = ctx.superviseur && (w.complet || w.vide);
+    const aApprouver = (ctx.superviseur && (w.complet || w.vide)) || respApprouve(w);
     return '<div class="card hav-semaine" data-sem="'+escHtml(w.emp+'|'+w.debut)+'" style="padding:14px 16px;margin-bottom:12px">'
       + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>'+escHtml(w.empNom)+'</strong> <span style="color:#6B7280">— S'+escHtml(String(num))+' · '+escHtml(w.jours[0].split('-').reverse().join('/'))+' → '+escHtml(w.jours[6].split('-').reverse().join('/'))+'</span></div><div style="color:#6B7280;display:flex;align-items:center;gap:8px">Semaine : '+escHtml(havH(w.total))+' h <button type="button" class="btn btn-ghost btn-sm hav-oeil hav-oeil-sem" data-k="'+escHtml(w.emp+'|'+w.debut+'|')+'" onclick="havBtnOeil(this)" title="Voir ce que '+escHtml(w.empNom)+' a pointé cette semaine" aria-label="Voir le détail des heures pointées de '+escHtml(w.empNom)+'"><i class="ti ti-eye"></i></button>'+havBtnCorriger(w)+'</div></div>'
       + '<div style="margin-top:6px">'+puces+'</div>'
@@ -24200,7 +24310,8 @@ async function havDessiner(){
     + (d.sqlManque ? '<div class="alert alert-warning" id="hav-sql"><i class="ti ti-database-exclamation"></i><span><strong>Lecture seule.</strong> La base des pointages doit être mise à jour pour valider par chantier : exécutez le script « '+HAV_SQL+' » dans le SQL Editor du projet <strong>POINTAGES</strong>.</span></div>' : '')
     + intro + (d.lienIndispo ? '<div class="alert alert-warning" id="hav-lien"><i class="ti ti-alert-triangle"></i><span>Les colonnes « lien pointages », date d\'embauche et de sortie n\'ont pas pu être lues sur les fiches employés : la règle « personne ne valide ses propres heures » et les périodes d\'emploi sont désactivées tant que ce n\'est pas corrigé (RH → Employés).</span></div>' : '') + (d.feriesIndispo ? '<div class="alert alert-warning" id="hav-feries"><i class="ti ti-alert-triangle"></i><span>Les jours fériés n\'ont pas pu être lus : le contrôle des heures prévues est désactivé (les semaines entièrement validées sont approuvées comme avant).</span></div>' : '')
     + (dg ? havHtmlReglageAbs(h, dg) + havHtmlDiagnostic(dg) : '')
-    + cartes;
+    + cartes
+    + havHtmlBrouillons(h);
   havMajChrome();
 }
 async function renderHeuresAValider(){
@@ -26397,7 +26508,8 @@ const daPeutDefinir = async () => (await daVerifier()).definir;
 async function daRefuser(){ showToast(DA_MSG_REFUS, 'error'); if(currentPage === 'documents') await renderDocuments(); }
 function daMajNav(){
   const ok = !!(currentUser && currentUser.role === 'admin' && _da.charge && daAcces(_da).voir);   // caché tant que la liste n'est pas lue
-  ['nav-documents','nav-utilisateurs','nav-controle','nav-corbeille'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.toggle('hidden', !ok); });
+  ['nav-documents','nav-utilisateurs','nav-controle'].forEach(id => { const n = document.getElementById(id); if(n) n.classList.toggle('hidden', !ok); });
+  { const n = document.getElementById('nav-corbeille'); if(n) n.classList.toggle('hidden', !(ok && typeof corbAutorise === 'function' && corbAutorise())); }
   const sec = document.getElementById('nav-admin-section'); if(sec) sec.classList.toggle('hidden', !ok);
 }
 function daDemarrer(){ daMajNav(); daVerifier().catch(() => {}); }
