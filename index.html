@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-25-16a1705"/>
+<meta name="lyneo-build" content="BUILD:2026-11-25-35485e0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2873,7 +2873,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-25-16a1705';
+const APP_BUILD = 'BUILD:2026-11-25-35485e0';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -18524,6 +18524,7 @@ async function renderCorbeille(){
   if(!corbAutorise()){ page.innerHTML = '<div class="card"><div class="empty"><p>Accès réservé (Vera et Corinne).</p></div></div>'; return; }
   page.innerHTML = '<div style="color:var(--gray-5);padding:60px;text-align:center"><p>Chargement…</p></div>';
   _corb.erreur = null; _corb.present = {}; _corb.repris = {};
+  _corb.effaces = new Set((await corbLireEffaces()).ids);
   try{
     const depuis = new Date(Date.now() - 365*86400000).toISOString();
     const r = await sb.from('journal_audit').select('id,horodatage,utilisateur,table_name,row_id,libelle,donnees').eq('action','DELETE').in('table_name', Object.keys(CORB_TYPES)).gte('horodatage', depuis).order('horodatage', {ascending:false}).limit(500);
@@ -18548,7 +18549,8 @@ async function renderCorbeille(){
   const opts = Object.entries(CORB_TYPES).map(([k,v])=>'<option value="'+k+'"'+(_corb.type===k?' selected':'')+'>'+escHtml(v)+'</option>').join('');
   page.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Corbeille</h1><p>Documents supprimés (12 derniers mois) — un administrateur peut les restaurer avec leurs lignes et leurs liens</p></div>
       <div class="page-actions"><div class="search-wrap"><i class="ti ti-search"></i><input id="corb-q" placeholder="N°, objet, nom, auteur…" value="${escHtml(_corb.q)}" oninput="_corb.q=this.value;corbAfficher()"/></div>
-      <select id="corb-type" data-ordre="fixe" onchange="_corb.type=this.value;corbAfficher()"><option value="">Tous les types</option>${opts}</select></div></div>
+      <select id="corb-type" data-ordre="fixe" onchange="_corb.type=this.value;corbAfficher()"><option value="">Tous les types</option>${opts}</select>
+      <button class="btn btn-secondary" id="corb-vider" style="color:#B91C1C" onclick="corbEffacer((_corb.affiches||[]).slice(), true)"><i class="ti ti-trash-x"></i> Vider la corbeille</button></div></div>
     <div id="corb-repris-wrap" style="font-size:13px;color:var(--gray-5);margin:0 0 10px"></div>
     ${_corb.erreur ? '<div class="alert alert-warning" id="corb-erreur" style="display:block"><i class="ti ti-alert-triangle"></i> Journal illisible : '+escHtml(_corb.erreur)+'. Le journal (integridade-journal-cloture.sql) est-il installé ?</div>' : ''}
     <div class="card"><div class="table-wrap" style="overflow-x:auto"><table id="corb-table"><thead><tr><th>Supprimé le</th><th>Par</th><th>Type</th><th>Document</th><th>Montant</th><th></th></tr></thead><tbody id="corb-tbody"></tbody></table></div></div>`;
@@ -18569,16 +18571,19 @@ function corbAfficher(){
   const tb = el('corb-tbody'); if(!tb) return;
   const q = _afNorm(_corb.q);
   const nbRepris = _corb.rows.filter(r=>corbEtat(r)==='repris').length, wrap = el('corb-repris-wrap');
-  if(wrap) wrap.innerHTML = nbRepris ? '<label style="cursor:pointer"><input type="checkbox" id="corb-voir-repris"'+(_corb.voirRepris?' checked':'')+' onchange="_corb.voirRepris=this.checked;corbAfficher()"> Afficher aussi les documents supprimés puis recréés avec le même numéro ('+nbRepris+')</label>' : '';
+  if(wrap) wrap.innerHTML = nbRepris ? '<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:auto"><input type="checkbox" id="corb-voir-repris" style="width:16px;height:16px;margin:0;flex:none"'+(_corb.voirRepris?' checked':'')+' onchange="_corb.voirRepris=this.checked;corbAfficher()"> Afficher aussi les documents supprimés puis recréés avec le même numéro ('+nbRepris+')</label>' : '';
   const items = _corb.rows.filter(r=>{
     const et = corbEtat(r);
     if(et === 'present') return false;                       // revenu : plus dans la corbeille
+    if(_corb.effaces && _corb.effaces.has(String(r.id))) return false;   // supprimé définitivement
     if(et === 'repris' && !_corb.voirRepris) return false;   // n° repris par un document actuel
     if(_corb.type && r.table_name !== _corb.type) return false;
     if(!q) return true;
     const l = corbLib(r), d = r.donnees || {};
     return _afNorm([l.num, l.quoi, r.utilisateur, _corb.noms[String(r.utilisateur||'').toLowerCase()], CORB_TYPES[r.table_name], d.client, d.ville].join(' ')).includes(q);
   });
+  _corb.affiches = items.map(r=>String(r.id));
+  const bv = el('corb-vider'); if(bv) bv.disabled = !items.length;
   tb.innerHTML = items.length === 0
     ? '<tr><td colspan="6"><div class="empty"><div class="empty-icon"><i class="ti ti-trash-off"></i></div><p>'+(_corb.rows.length ? 'Aucun document ne correspond' : 'Aucun document supprimé')+'</p></div></td></tr>'
     : items.map(r=>{
@@ -18588,11 +18593,40 @@ function corbAfficher(){
         return '<tr data-corb="'+escHtml(String(r.id))+'"><td style="white-space:nowrap">'+escHtml(quand)+'</td><td>'+escHtml(par)+'</td><td>'+escHtml(CORB_TYPES[r.table_name]||r.table_name)+'</td>'
           + '<td><strong>'+escHtml(l.num)+'</strong>'+(l.quoi ? '<div style="font-size:12px;color:var(--gray-5)">'+escHtml(l.quoi)+'</div>' : '')+'</td>'
           + '<td style="white-space:nowrap;text-align:right">'+escHtml(corbMontant(r.donnees))+'</td>'
-          + '<td style="white-space:nowrap">'+(repris ? '<span class="badge badge-brouillon" data-corb-etat="repris" title="Un document actuel porte ce numéro : restaurer créerait un doublon">N° repris par un document actuel</span>' : '<button class="btn btn-primary btn-sm corb-restaurer" data-id="'+escHtml(String(r.id))+'" onclick="corbRestaurer(this.dataset.id)"><i class="ti ti-arrow-back-up"></i> Restaurer</button>')+'</td></tr>';
+          + '<td style="white-space:nowrap">'+(repris ? '<span class="badge badge-brouillon" data-corb-etat="repris" title="Un document actuel porte ce numéro : restaurer créerait un doublon">N° repris par un document actuel</span>' : '<button class="btn btn-primary btn-sm corb-restaurer" data-id="'+escHtml(String(r.id))+'" onclick="corbRestaurer(this.dataset.id)"><i class="ti ti-arrow-back-up"></i> Restaurer</button>')
+          + ' <button class="btn btn-secondary btn-sm corb-effacer" data-id="'+escHtml(String(r.id))+'" title="Supprimer définitivement" aria-label="Supprimer définitivement" onclick="corbEffacer([this.dataset.id])" style="color:#B91C1C"><i class="ti ti-trash-x"></i></button></td></tr>';
       }).join('');
+}
+const CORB_CLE_EFF = 'corbeille_effaces';
+async function corbLireEffaces(){
+  try{
+    const {data, error} = await sb.from('parametres_app').select('valeur_json').eq('cle', CORB_CLE_EFF);
+    if(error) return {ok:false, ids:[], erreur:error.message || String(error)};
+    const v = data && data[0] ? data[0].valeur_json : null;
+    return {ok:true, ids: v && Array.isArray(v.ids) ? v.ids.map(String) : []};
+  }catch(e){ return {ok:false, ids:[], erreur:(e && e.message) || String(e)}; }
+}
+// Suppression définitive : le document sort de la Corbeille (plus de « Restaurer »). Le journal d'audit, lui, n'est jamais effacé.
+async function corbEffacer(ids, tout){
+  if(!corbAutorise()){ showToast('Accès réservé (Vera et Corinne)', 'error'); return; }
+  ids = (ids||[]).map(String).filter(Boolean);
+  if(!ids.length){ showToast('Rien à supprimer', 'warn'); return; }
+  const r0 = ids.length === 1 ? _corb.rows.find(x=>String(x.id)===ids[0]) : null;
+  const quoi = r0 ? (CORB_TYPES[r0.table_name]||r0.table_name)+' '+corbLib(r0).num : ids.length+' document'+(ids.length>1?'s':'');
+  if(!confirm((tout ? 'Vider la corbeille : supprimer définitivement '+quoi+' affiché'+(ids.length>1?'s':'')+' ?' : 'Supprimer définitivement '+quoi+' ?')
+    + '\n\nIl'+(ids.length>1?'s':'')+' disparaîtr'+(ids.length>1?'ont':'a')+' de la Corbeille et ne pourr'+(ids.length>1?'ont':'a')+' plus être restauré'+(ids.length>1?'s':'')+'.\n(La trace de la suppression reste dans le journal d\'audit : obligation de conservation.)')) return;
+  const lu = await corbLireEffaces();
+  if(!lu.ok){ showToast('Impossible de lire la liste : '+lu.erreur, 'error'); return; }
+  const tous = Array.from(new Set([...lu.ids, ...ids]));
+  const r = await sb.from('parametres_app').upsert({cle:CORB_CLE_EFF, valeur_json:{ids:tous, maj_par:(currentUser&&currentUser.email)||null, maj_le:new Date().toISOString()}}, {onConflict:'cle'}).select('cle');
+  if(r.error){ showToast('Non supprimé : '+(r.error.message||r.error), 'error'); return; }
+  _corb.effaces = new Set(tous);
+  showToast(ids.length === 1 ? quoi+' supprimé définitivement' : ids.length+' documents supprimés définitivement');
+  corbAfficher();
 }
 async function corbRestaurer(id){
   const r = _corb.rows.find(x=>String(x.id) === String(id)); if(!r) return;
+  if(_corb.effaces && _corb.effaces.has(String(id))){ showToast('Supprimé définitivement : ne peut plus être restauré', 'error'); return; }
   if(!corbAutorise()){ showToast('Accès réservé (Vera et Corinne)', 'error'); return; }
   const l = corbLib(r), type = CORB_TYPES[r.table_name] || r.table_name;
   if(!confirm(type+' '+l.num+' : le restaurer avec ses lignes, ses documents joints et ses liens ?')) return;
