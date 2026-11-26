@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-25-4bddebf"/>
+<meta name="lyneo-build" content="BUILD:2026-11-26-952249b"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2873,7 +2873,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-25-4bddebf';
+const APP_BUILD = 'BUILD:2026-11-26-952249b';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7930,11 +7930,12 @@ function pdfAnalyserYesss(pages){
   pages.forEach(lignes=>{
     if(fin) return;
     // en-tête : Kundennummer | Auftragsnummer | Kundenbestellnummer | Bestelldatum, valeurs sur la ligne suivante, alignées
-    const kE = lignes.findIndex(l=>l.it.some(i=>/^Auftragsnummer/i.test(i.s)) && l.it.some(i=>/^Bestelldatum/i.test(i.s)));
+    const kE = lignes.findIndex(l=>l.it.some(i=>/^(Auftragsnummer|Angebotsnummer)/i.test(i.s)) && l.it.some(i=>/^(Bestelldatum|Datum)/i.test(i.s)));
     if(kE >= 0 && lignes[kE+1] && !res.doc){
       const e = lignes[kE].it, v = lignes[kE+1].it;
       const col = re => { const k = e.findIndex(i=>re.test(i.s)); if(k < 0) return ''; const a = e[k].x - 20, z = e[k+1] ? e[k+1].x - 20 : 1e9; return pdfJoindre(v.filter(i=>i.x >= a && i.x < z)).trim(); };
-      res.doc = col(/^Auftragsnummer/i); res.date = col(/^Bestelldatum/i); res.ref = col(/^Kundenbestellnummer/i);
+      res.doc = col(/^(Auftragsnummer|Angebotsnummer)/i); res.date = col(/^(Bestelldatum|Datum)/i); res.ref = col(/^(Kundenbestellnummer|Ihr Zeichen)/i);
+      if(e.some(i=>/^Angebotsnummer/i.test(i.s))) res.libDoc = 'Offre';                    // « ANGEBOT » = offre de prix
     }
     const k0 = lignes.findIndex(l=>l.it.some(i=>/^Anzahl/i.test(i.s)) && l.it.some(i=>/^Artikelnummer/i.test(i.s)) && l.it.some(i=>/^Beschreibung/i.test(i.s)));
     if(k0 < 0) return;
@@ -7975,7 +7976,7 @@ const PDF_FORMATS = [
   {nom:'Ramirez', four:/ramirez/i, reconnait: txt => /RAMIREZ[\s-]*DATA/i.test(txt) && /Prix total ht/i.test(txt) && /Art\.-N°/i.test(txt), analyser: pdfAnalyserRamirez},
   {nom:'DME', four:/^\s*d\.?\s*m\.?\s*e\.?(\s|$)/i, reconnait: txt => /Distribution de Mat[ée]riel Electrique/i.test(txt) && /dme\.lu/i.test(txt) && /D[ÉE]SIGNATION/.test(txt), analyser: pdfAnalyserDme},
   {nom:'Cebeo', four:/cebeo/i, reconnait: txt => /\bCEBEO\b/i.test(txt) && /Offre de prix n°/i.test(txt) && /Art\.?\s*id/i.test(txt), analyser: pdfAnalyserCebeo},
-  {nom:'Yesss', four:/yesss/i, reconnait: txt => /YESSS/i.test(txt) && /Artikelnummer/i.test(txt) && /Auftragsnummer/i.test(txt) && /Netto\s*:/i.test(txt), analyser: pdfAnalyserYesss}
+  {nom:'Yesss', four:/yesss/i, reconnait: txt => /YESSS/i.test(txt) && /Artikelnummer/i.test(txt) && /(Auftragsnummer|Angebotsnummer)/i.test(txt) && /Netto\s*:/i.test(txt), analyser: pdfAnalyserYesss}
 ];
 async function poImporterPdf(input){
   const f = input && input.files && input.files[0]; if(input) input.value = '';
@@ -24196,7 +24197,8 @@ function havHtmlBloc(w, b, d, ctx, actif){
     + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
     + '<button type="button" class="btn btn-ghost btn-sm hav-oeil hav-oeil-bloc" data-k="'+cle+'" onclick="havBtnOeil(this)" title="Voir ce que la personne a pointé (toute la semaine)" aria-label="Voir le détail des heures pointées"><i class="ti ti-eye"></i></button>'
     + '<button class="btn btn-primary btn-sm hav-valider" '+(actif?'':'disabled ')+'onclick="havBtnValider(this)" data-k="'+cle+'"><i class="ti ti-check"></i> Valider</button>'
-    + '<button class="btn btn-secondary btn-sm hav-renvoyer" '+(actif?'':'disabled ')+'onclick="havBtnRenvoi(this)" data-k="'+cle+'"><i class="ti ti-arrow-back-up"></i> À corriger</button></div>'
+    + (havPeutCorriger(w) ? '<button type="button" class="btn btn-secondary btn-sm hav-corriger-bloc" data-k="'+escHtml(w.emp+'|'+w.debut)+'" onclick="havCorrigerOuvrir(this.dataset.k)" title="Corriger vous-même les heures ou le chantier, puis valider"><i class="ti ti-pencil"></i> Corriger</button>' : '')
+    + '<button class="btn btn-ghost btn-sm hav-renvoyer" '+(actif?'':'disabled ')+'onclick="havBtnRenvoi(this)" data-k="'+cle+'" title="Renvoyer la semaine au salarié pour qu\'il corrige lui-même" style="font-size:12px;color:#6B7280"><i class="ti ti-arrow-back-up"></i> Renvoyer à l\'employé</button></div>'
     + '<div class="hav-renvoi-zone" style="display:none;width:100%"><input class="hav-motif" style="width:100%;padding:7px 9px;border:1px solid var(--gray-3);border-radius:6px;font-size:13px" maxlength="300" placeholder="Motif visible par l\'employé (obligatoire)"/>'
     + '<div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-primary btn-sm hav-envoyer" onclick="havBtnEnvoyer(this)" data-k="'+cle+'">Renvoyer à l\'employé</button><button class="btn btn-secondary btn-sm" onclick="havBtnAnnuler(this)">Annuler</button></div></div>'
     + '</div>';
