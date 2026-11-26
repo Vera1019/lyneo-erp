@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-26-952249b"/>
+<meta name="lyneo-build" content="BUILD:2026-11-26-550cc30"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2873,7 +2873,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-26-952249b';
+const APP_BUILD = 'BUILD:2026-11-26-550cc30';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -4051,6 +4051,40 @@ function normaliserPrixAffiches(){
     const t = texteSaisiePU(i.value); if(t !== i.value) i.value = t;
   });
 }
+// ── Recherche dans les listes de centres (26/11/2026) : au-dessus de toute liste à groupes « Chantiers » / « Centres SAV » ──
+function selCentresInstaller(s){
+  if(!s || s.dataset.rechOk) return;
+  const groupes = Array.from(s.querySelectorAll('optgroup')).map(g=>g.label);
+  if(!groupes.some(l=>/^(Chantiers|Centres SAV)/.test(l))) return;
+  s.dataset.rechOk = '1';
+  const snap = () => Array.from(s.children).map(n=>n.tagName==='OPTGROUP' ? {g:n.label, o:Array.from(n.children).map(o=>({v:o.value, t:o.text}))} : {v:n.value, t:n.text});
+  s._rechSnap = snap();
+  const inp = document.createElement('input');
+  inp.type = 'search'; inp.className = 'sel-recherche'; inp.placeholder = 'Rechercher (n°, nom)…'; inp.setAttribute('aria-label', 'Rechercher dans la liste des chantiers');
+  inp.style.cssText = 'width:100%;margin-bottom:4px;padding:6px 9px;border:1px solid var(--gray-3);border-radius:6px;font-size:13px';
+  if(s.id) inp.id = s.id + '-rech';
+  s.parentNode.insertBefore(inp, s);
+  const filtrer = () => {
+    const mots = _afNorm(inp.value).split(' ').filter(Boolean), cur = s.value;
+    const ok = t => mots.every(m=>_afNorm(t).includes(m));
+    let html = '', n = 0, premier = null;
+    s._rechSnap.forEach(x=>{
+      if(x.g !== undefined){
+        const os = x.o.filter(o=>!mots.length || ok(o.t) || o.v === cur);
+        os.forEach(o=>{ if(o.v !== cur || ok(o.t)){ if(mots.length && ok(o.t)){ n++; if(premier === null) premier = o.v; } } });
+        if(os.length) html += '<optgroup label="'+escHtml(x.g)+'">'+os.map(o=>'<option value="'+escHtml(o.v)+'"'+(o.v===cur?' selected':'')+'>'+escHtml(o.t)+'</option>').join('')+'</optgroup>';
+      } else html += '<option value="'+escHtml(x.v)+'"'+(x.v===cur?' selected':'')+'>'+escHtml(x.t)+'</option>';
+    });
+    s.innerHTML = html; s.value = cur;
+    inp.dataset.n = String(n); inp.dataset.premier = premier || '';
+    if(mots.length && n === 1 && premier !== cur){ s.value = premier; s.dispatchEvent(new Event('change', {bubbles:true})); }
+  };
+  inp.addEventListener('input', filtrer);
+  inp.addEventListener('keydown', e=>{
+    if(e.key === 'Enter'){ e.preventDefault(); const p = inp.dataset.premier; if(p && s.value !== p){ s.value = p; s.dispatchEvent(new Event('change', {bubbles:true})); } }
+    if(e.key === 'Escape' && inp.value){ e.preventDefault(); e.stopPropagation(); inp.value = ''; filtrer(); }
+  });
+}
 // Après chaque changement de l'écran : trie les listes déroulantes et remet en ordre les tableaux
 let _triEnCours = false;
 const _obsTri = new MutationObserver(()=>{
@@ -4062,6 +4096,7 @@ const _obsTri = new MutationObserver(()=>{
     document.querySelectorAll('select').forEach(trierOptionsSelect);
     document.querySelectorAll('table[data-tri="oui"]').forEach(appliquerTriTable);
     normaliserPrixAffiches();
+    document.querySelectorAll('select:not([data-rech-ok])').forEach(selCentresInstaller);
   }catch(e){ console.warn('tri', e); }
   finally{ _obsTri.takeRecords(); _triEnCours = false; }
 });
@@ -7455,11 +7490,10 @@ async function poPeutCentresInternes(){
 // STOCK : achat pour le stock, ouvert à tous (numéro ou nom « STOCK », sans accents ni majuscules ; jamais un centre de frais F…)
 const poEstStock = c => !!c && !cfEstFrais(c) && [c.numero, c.nom].some(v => sansAccentsPt(v) === 'stock');
 function poCentresPermis(liste, interne, garderId){
-  if(interne) return liste || [];
-  const g = (garderId === undefined || garderId === null) ? '' : String(garderId);
+  const g = (garderId === undefined || garderId === null) ? '' : String(garderId);   // 26/11 : même pour la direction (plus de centres de frais dans les commandes)
   return (liste || []).filter(c => { const k = cfGenre(c); return k === 'chantier' || k === 'sav' || poEstStock(c) || (g && String(c.id) === g); });
 }
-const PO_NOTE_INTERNES = '<div class="po-note-internes" style="font-size:11.5px;color:var(--gray-5);margin-top:3px">Centres internes (F…, HI, Formation) : réservés à la direction — STOCK reste ouvert à tous.</div>';
+const PO_NOTE_INTERNES = '<div class="po-note-internes" style="font-size:11.5px;color:var(--gray-5);margin-top:3px">Commandes : chantiers P… / CF…, centres SAV et STOCK. Frais généraux (F…) : facture sans commande.</div>';
 async function openNewPO(){
   const interne = await poPeutCentresInternes();
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
@@ -7971,11 +8005,132 @@ function pdfAnalyserYesss(pages){
   if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
   return pdfFinirTaux(res);
 }
+// CARL METTLER (groupe Bruder) — facture et bon de livraison (26/11/2026)
+const METTLER_COMPTE = '028259';                 // n° de client de LYNEO chez Carl Mettler (le PDF de la facture ne nomme pas le fournisseur)
+const pdfBlNorm = t => String(t||'').replace(/\s+/g,'');
+function pdfAnalyserMettlerFacture(pages){
+  const res = {fournisseur:'Carl Mettler', libDoc:'Facture', lignes:[], erreurs:[], avert:[], doc:'', date:'', ref:'', bls:[], totaux:null};
+  let cur = null, suiteOuverte = false, bl = '', tot = {}, compte = '';
+  const fermer = () => {
+    if(!cur) return;
+    const supp = cur.supps.reduce((t,x)=>t+x.montant, 0);
+    const base = arr2(cur.total - supp);
+    res.lignes.push({pos:cur.pos, code:cur.code, desc:cur.desc, suite:cur.suite, han:'', q:cur.q, ua:cur.ua, prix:cur.prix, pm:cur.pm, eff:cur.prix, total:base, tva:NaN, bl:cur.bl});
+    cur.supps.forEach((x,k)=>res.lignes.push({pos:cur.pos+'.'+(k+1), code:'SUPPL.'+(/cuivre/i.test(x.lib) ? 'CUIVRE' : 'METAL'), desc:(/cuivre/i.test(x.lib) ? 'Supplément cuivre' : 'Supplément métal')+' ('+cur.code+')', suite:[], han:'', q:1, ua:'u', prix:x.montant, pm:'EIN', eff:x.montant, total:x.montant, tva:NaN, bl:cur.bl, supplement:true}));
+    if(isFinite(cur.sousTotal) && Math.abs(cur.sousTotal - cur.total) > 0.011) res.erreurs.push(`Position ${cur.pos} (${cur.code}) : sous-total ${fmt(cur.sousTotal)} ≠ ${fmt(cur.total)} — lecture du PDF douteuse`);
+    cur = null; suiteOuverte = false;
+  };
+  pages.forEach(lignes=>{
+    lignes.forEach(l=>{ const k = l.it.findIndex(i=>/^N° document:?$/.test(i.s)); if(k >= 0 && l.it[k+1] && !res.doc) res.doc = l.it[k+1].s;
+      const d = l.it.findIndex(i=>/^Date:?$/.test(i.s)); if(d >= 0 && l.it[d+1] && !res.date && /^\d{2}\.\d{2}\.\d{4}$/.test(l.it[d+1].s)) res.date = l.it[d+1].s;
+      const c = l.it.findIndex(i=>/^N° compte:?$/.test(i.s)); if(c >= 0 && l.it[c+1]) compte = l.it[c+1].s;
+      const t = pdfTexteLigne(l); if(/^total\s*:/i.test(t)){ const v = pdfMontant(l.it[l.it.length-1].s); if(isFinite(v)) tot.ttc = v; } });
+    const k0 = lignes.findIndex(l=>l.it.some(i=>i.s === 'Pos.') && l.it.some(i=>/^Dénomination$/.test(i.s)) && l.it.some(i=>/^Quantit/.test(i.s)));
+    if(k0 < 0) return;
+    const h = lignes[k0].it, xDesc = (h.find(i=>/^Dénomination$/.test(i.s))||{x:129}).x, xQte = (h.find(i=>/^Quantit/.test(i.s))||{x:341}).x - 15, xTot = (h.find(i=>/^Total$/.test(i.s))||{x:553}).x - 30;
+    for(let k = k0 + 1; k < lignes.length; k++){
+      const it = lignes[k].it, txt = pdfTexteLigne(lignes[k]), t0 = it[0], der = it[it.length-1];
+      if(/^Montant net/i.test(txt)){ fermer(); tot.ht = pdfMontant(der.s); continue; }
+      if(/^[\d,.]+\s*%\s*TVA/i.test(txt)){ tot.nbTva = (tot.nbTva||0) + 1; tot.tva = pdfMontant(der.s); continue; }
+      if(/^N° de livraison:?/.test(txt)){ fermer(); const m = /N° de livraison:?\s*(\d+\s*\/\s*\d+)(?:\s*du:?\s*(\d{2}\.\d{2}\.\d{4}))?/.exec(txt); bl = m ? pdfBlNorm(m[1]) : ''; if(bl && !res.bls.some(b=>b.bl===bl)) res.bls.push({bl, date:m && m[2] || ''}); continue; }
+      if(t0.x < xDesc - 20 && /^\d+$/.test(t0.s) && it[1] && it[1].x < xDesc - 5){
+        fermer();
+        const desc = pdfJoindre(it.filter(i=>i.x >= xDesc - 5 && i.x < xQte)).trim(), droite = it.filter(i=>i.x >= xQte);
+        if(droite.length !== 5){ res.erreurs.push(`Position ${t0.s} (${desc.slice(0,40)}) : colonnes illisibles (${droite.map(i=>i.s).join(' ')})`); continue; }
+        const [q, ua, prix, pmTxt, total] = droite.map(i=>i.s), pm = PDF_YESSS_PE[pdfMontant(pmTxt)];
+        if(!pm){ res.erreurs.push(`Position ${t0.s} (${desc.slice(0,40)}) : unité de prix « ${pmTxt} » inconnue (1, 100, 1.000)`); continue; }
+        cur = {pos:t0.s, code:it[1].s, desc, suite:[], q:pdfMontant(q), ua, prix:pdfMontant(prix), pm, total:pdfMontant(total), supps:[], sousTotal:NaN, bl};
+        suiteOuverte = true; continue;
+      }
+      if(!cur) continue;
+      const montants = it.filter(i=>i.x >= xTot && /^-?[\d.]+,\d{2}$/.test(i.s)), gauche = it.filter(i=>i.x < xTot);
+      if(montants.length === 1 && !gauche.length){ cur.sousTotal = pdfMontant(montants[0].s); suiteOuverte = false; continue; }          // sous-total de l'article (base + suppléments)
+      if(montants.length === 1 && gauche.length && gauche[0].x >= xDesc - 5){ cur.supps.push({lib:pdfJoindre(gauche).trim(), montant:pdfMontant(montants[0].s)}); suiteOuverte = false; continue; }
+      if(/^Metall-|^Metallzahl/i.test(txt) || t0.x >= xDesc + 15 || t0.x < xDesc - 5){ suiteOuverte = false; continue; }      // notes métal, tableau du tambour, liens
+      if(suiteOuverte && !montants.length) cur.suite.push(txt);
+    }
+  });
+  fermer();
+  res.ref = res.bls.map(b=>'BL '+b.bl).join(', ');
+  res.choisirFournisseur = pdfBlNorm(compte) !== METTLER_COMPTE;
+  if(res.choisirFournisseur) res.avert.push('Le PDF ne nomme pas le fournisseur (n° de compte « '+(compte||'?')+' ») : vérifiez le fournisseur choisi.');
+  if(tot.nbTva > 1){ res.erreurs.push('Plusieurs taux de TVA sur cette facture : utilisez « Importer Excel »'); return res; }
+  if(isFinite(tot.ht) && isFinite(tot.tva)) res.totaux = {ht:tot.ht, tva:tot.tva, ttc:isFinite(tot.ttc) ? tot.ttc : arr2(tot.ht + tot.tva)};
+  return pdfFinirTaux(res);
+}
+// Bon de livraison : pas de prix. Ligne : Pos | Code art. | Dénomination | Commandé | Livré | Rücks. | ME
+function pdfAnalyserMettlerBL(pages){
+  const res = {fournisseur:'Carl Mettler', libDoc:'BL', sansPrix:true, lignes:[], erreurs:[], avert:[], doc:'', date:'', ref:'', totaux:null};
+  let cur = null, fin = false;
+  const fermer = () => { if(cur){ res.lignes.push(cur); cur = null; } };
+  pages.forEach(lignes=>{
+    if(fin) return;
+    lignes.forEach(l=>{ const t = pdfTexteLigne(l); let m;
+      if(!res.doc && (m = /N° de livraison:?\s*(\d+\s*\/\s*\d+)\s*du\s*(\d{2}\.\d{2}\.\d{4})/.exec(t))){ res.doc = pdfBlNorm(m[1]); res.date = m[2]; }
+      if(!res.ref && (m = /Angebot:?\s*(\d+)/.exec(t))) res.ref = 'offre ' + m[1]; });
+    const k0 = lignes.findIndex(l=>l.it.some(i=>i.s === 'Pos.') && l.it.some(i=>/^Dénomination$/.test(i.s)) && l.it.some(i=>/^Livr/.test(i.s)));
+    if(k0 < 0) return;
+    const h = lignes[k0].it, xDesc = (h.find(i=>/^Dénomination$/.test(i.s))||{x:145}).x, xCmd = (h.find(i=>/^Livr/.test(i.s))||{x:406}).x - 45;
+    for(let k = k0 + 1; k < lignes.length && !fin; k++){
+      const it = lignes[k].it, txt = pdfTexteLigne(lignes[k]), t0 = it[0];
+      if(/Emballages|^Date récepteur/i.test(txt)){ fermer(); fin = true; continue; }
+      if(/^DUPLIKAT$|^N° GTIN|^ndé$|^Comma$/.test(txt)) continue;
+      if(t0.x < xDesc - 30 && /^\d+$/.test(t0.s) && it[1] && it[1].x < xDesc - 5){
+        fermer();
+        const desc = pdfJoindre(it.filter(i=>i.x >= xDesc - 5 && i.x < xCmd)).replace(/^\*\s*/, '').trim(), droite = it.filter(i=>i.x >= xCmd);
+        if(droite.length !== 4 || !/^[\d.,]+$/.test(droite[1].s)){ res.erreurs.push(`Position ${t0.s} (${desc.slice(0,40)}) : colonnes illisibles (${droite.map(i=>i.s).join(' ')})`); continue; }
+        const livre = pdfMontant(droite[1].s);
+        if(!(livre > 0)){ res.avert.push(`Position ${t0.s} (${it[1].s}) : rien de livré — ignorée`); continue; }
+        cur = {pos:t0.s, code:it[1].s, desc, suite:[], q:livre, ua:droite[3].s, cmd:pdfMontant(droite[0].s)};
+        if(isFinite(cur.cmd) && cur.cmd !== livre) res.avert.push(`Position ${t0.s} (${it[1].s}) : commandé ${droite[0].s}, livré ${droite[1].s} — quantité livrée reprise`);
+        continue;
+      }
+      if(cur && t0.x >= xDesc - 5 && t0.x < xDesc + 10 && !it.some(i=>i.x >= xCmd)) cur.suite.push(txt);
+      else if(t0.x < xDesc - 5) { fermer(); }
+    }
+  });
+  fermer();
+  if(!res.lignes.length) res.erreurs.push("Aucune ligne d'article trouvée dans ce bon de livraison.");
+  return res;
+}
+// BL → lignes sans prix (estimées ensuite)
+function pdfVersLignesSansPrix(a){
+  const out = {lignes:[], erreurs:a.erreurs.slice(), avert:a.avert.slice(), total:0};
+  if(out.erreurs.length) return out;
+  a.lignes.forEach(l=>{
+    const cle = poNorm(l.ua).replace(/\s/g,''), unite = PO_IMPORT_UNITES[cle] || 'u';
+    if(!PO_IMPORT_UNITES[cle]) out.avert.push(`Position ${l.pos} : unité « ${l.ua} » → « u »`);
+    out.lignes.push({description:(l.desc + (l.suite.length ? ' ' + l.suite.join(' ') : '')).replace(/\s+/g,' ').trim().slice(0,500), reference_article:l.code, quantite:l.q, unite, prix_unitaire_ht:0, taux_tva:17});
+  });
+  return out;
+}
+// Prix estimé = dernier prix connu chez ce fournisseur : mémoire des références, sinon dernière commande. Renvoie {n, total}.
+async function poEstimerPrix(lignes, fournisseurId){
+  const res = {estimes:0, manquants:0};
+  if(!fournisseurId || !lignes.length){ res.manquants = lignes.length; return res; }
+  const prix = {};
+  try{ const m = await lireReferencesFournisseur(fournisseurId); if(m.ok) m.rows.forEach(r=>{ if(parseFloat(r.prix_unitaire_ht) > 0) prix[cleRef(r.reference)] = parseFloat(r.prix_unitaire_ht); }); }catch(e){}
+  const manque = lignes.filter(l=>!prix[cleRef(l.reference_article)]).map(l=>String(l.reference_article));
+  if(manque.length){
+    try{
+      const lp = await lireParLots('lignes_po', 'po_id,reference_article,prix_unitaire_ht', 'reference_article', manque);
+      if(lp.ok && lp.rows.length){
+        const pos = await lireParLots('purchase_orders_lyneo', 'id,fournisseur_id,date_creation', 'id', lp.rows.map(x=>x.po_id));
+        const dt = {}; (pos.ok ? pos.rows : []).filter(p=>String(p.fournisseur_id) === String(fournisseurId)).forEach(p=>{ dt[String(p.id)] = String(p.date_creation||''); });
+        lp.rows.filter(x=>dt[String(x.po_id)] !== undefined && parseFloat(x.prix_unitaire_ht) > 0).sort((x,y)=>dt[String(x.po_id)].localeCompare(dt[String(y.po_id)])).forEach(x=>{ prix[cleRef(x.reference_article)] = parseFloat(x.prix_unitaire_ht); });   // le plus récent gagne
+      }
+    }catch(e){}
+  }
+  lignes.forEach(l=>{ const p = prix[cleRef(l.reference_article)]; if(p > 0){ l.prix_unitaire_ht = p; res.estimes++; } else res.manquants++; });
+  return res;
+}
 const PDF_FORMATS = [
   {nom:'Minusines', four:/minusines/i, reconnait: txt => /MINUSINES/i.test(txt) && /Code article/.test(txt) && /Prix eff\./.test(txt), analyser: pdfAnalyserMinusines},
   {nom:'Ramirez', four:/ramirez/i, reconnait: txt => /RAMIREZ[\s-]*DATA/i.test(txt) && /Prix total ht/i.test(txt) && /Art\.-N°/i.test(txt), analyser: pdfAnalyserRamirez},
   {nom:'DME', four:/^\s*d\.?\s*m\.?\s*e\.?(\s|$)/i, reconnait: txt => /Distribution de Mat[ée]riel Electrique/i.test(txt) && /dme\.lu/i.test(txt) && /D[ÉE]SIGNATION/.test(txt), analyser: pdfAnalyserDme},
   {nom:'Cebeo', four:/cebeo/i, reconnait: txt => /\bCEBEO\b/i.test(txt) && /Offre de prix n°/i.test(txt) && /Art\.?\s*id/i.test(txt), analyser: pdfAnalyserCebeo},
+  {nom:'Carl Mettler', four:/mettler/i, reconnait: txt => /bruder-gruppe/i.test(txt) && /N° document/.test(txt) && /Montant net/.test(txt) && /N° de livraison/.test(txt) && !/MINUSINES/i.test(txt), analyser: pdfAnalyserMettlerFacture},
+  {nom:'Carl Mettler', four:/mettler/i, reconnait: txt => /carl-mettler/i.test(txt) && /Bordereau de/.test(txt) && /N° de livraison/.test(txt) && /Livr/.test(txt), analyser: pdfAnalyserMettlerBL},
   {nom:'Yesss', four:/yesss/i, reconnait: txt => /YESSS/i.test(txt) && /Artikelnummer/i.test(txt) && /(Auftragsnummer|Angebotsnummer)/i.test(txt) && /Netto\s*:/i.test(txt), analyser: pdfAnalyserYesss}
 ];
 async function poImporterPdf(input){
@@ -7992,7 +8147,7 @@ async function poImporterPdf(input){
       poAfficherImport(`<i class="ti ti-alert-circle"></i> <strong>Format de PDF non reconnu</strong> (« ${escHtml(f.name)} »). Formats connus : ${PDF_FORMATS.map(x=>x.nom).join(', ')}. ${texte.trim() ? "Pour ajouter ce fournisseur, envoyez un exemple de ce PDF à l'administrateur de l'ERP ; en attendant, utilisez « Importer Excel »." : "Ce PDF ne contient pas de texte (document scanné) : utilisez « Importer Excel »."}`, false);
       return;
     }
-    const a = fmtPdf.analyser(pages), r = pdfVersLignesPO(a);
+    const a = fmtPdf.analyser(pages), r = a.sansPrix ? pdfVersLignesSansPrix(a) : pdfVersLignesPO(a);
     if(r.erreurs.length){
       poAfficherImport(`<div><i class="ti ti-alert-circle"></i> <strong>Rien n'a été importé</strong> (« ${escHtml(f.name)} », ${escHtml(fmtPdf.nom)}).</div><ul style="margin:6px 0 0 18px">${r.erreurs.slice(0,12).map(x=>'<li>'+escHtml(x)+'</li>').join('')}</ul>`, false);
       return;
@@ -8002,13 +8157,16 @@ async function poImporterPdf(input){
     poLignes = (remplace ? [] : poLignes.filter(l=>!vide(l))).concat(r.lignes);
     renderPoLignes();
     // fournisseur et observations, seulement s'ils sont encore vides
-    const sel = el('po-four'), four = (_foursActive||[]).find(x=>(fmtPdf.four || new RegExp(fmtPdf.nom, 'i')).test(x.nom||''));
+    const sel = el('po-four'), four = a.choisirFournisseur ? null : (_foursActive||[]).find(x=>(fmtPdf.four || new RegExp(fmtPdf.nom, 'i')).test(x.nom||''));
     if(sel && !sel.value && four) sel.value = four.id;
+    let est = null;
+    if(a.sansPrix){ est = await poEstimerPrix(r.lignes, sel && sel.value); r.total = arr2(r.lignes.reduce((t,l)=>t + l.quantite * l.prix_unitaire_ht, 0)); renderPoLignes(); }
     const ref = `${a.libDoc || 'Confirmation'} ${fmtPdf.nom} n° ${a.doc}${a.date ? ' du ' + a.date.replace(/\./g,'/') : ''}${a.ref ? ' (réf. ' + a.ref + ')' : ''}`;
-    const obs = el('po-obs'); if(obs && !obs.value.trim() && a.doc) obs.value = ref;
-    const deja = a.doc ? (_pos||[]).filter(p=>String(p.observations||'').includes(a.doc)) : [];
-    poAfficherImport(`<div><i class="ti ti-circle-check"></i> <strong>${r.lignes.length} ligne${r.lignes.length>1?'s':''} importée${r.lignes.length>1?'s':''}</strong> — ${escHtml(ref)}${remplace?'':' (ajoutées après les lignes déjà saisies)'} — Total HT ${fmt(r.total)} = PDF, TTC du PDF ${fmt(a.totaux.ttc)}.${sel && four && String(sel.value)===String(four.id) ? '' : ' <strong>Choisissez le fournisseur.</strong>'} Vérifiez puis « Créer la commande ».</div>`
-      + (deja.length ? `<div style="color:var(--red);margin-top:4px"><i class="ti ti-alert-triangle"></i> Cette confirmation semble déjà importée : ${deja.map(p=>escHtml(p.numero)).join(', ')}</div>` : '')
+    const obs = el('po-obs'); if(obs && !obs.value.trim() && a.doc) obs.value = ref + (a.sansPrix ? ' — prix estimés, à compléter avec la facture' : '');
+    const cles = [a.doc, ...((a.bls||[]).map(b=>b.bl))].filter(Boolean);
+    const deja = cles.length ? (_pos||[]).filter(p=>cles.some(c=>pdfBlNorm(p.observations).includes(pdfBlNorm(c)))) : [];
+    poAfficherImport(`<div><i class="ti ti-circle-check"></i> <strong>${r.lignes.length} ligne${r.lignes.length>1?'s':''} importée${r.lignes.length>1?'s':''}</strong> — ${escHtml(ref)}${remplace?'':' (ajoutées après les lignes déjà saisies)'} — ${a.sansPrix ? 'Bon de livraison sans prix : <strong>'+est.estimes+' prix estimé'+(est.estimes>1?'s':'')+'</strong> (dernier prix connu chez ce fournisseur)'+(est.manquants ? ', <strong style="color:var(--orange)">'+est.manquants+' à compléter</strong> (0 €)' : '')+'. Total HT estimé '+fmt(r.total)+' — les prix réels viendront de la facture.' : 'Total HT '+fmt(r.total)+' = PDF, TTC du PDF '+fmt(a.totaux.ttc)+'.'}${sel && four && String(sel.value)===String(four.id) ? '' : ' <strong>Choisissez le fournisseur.</strong>'} Vérifiez puis « Créer la commande ».</div>`
+      + (deja.length ? `<div style="color:var(--red);margin-top:4px"><i class="ti ti-alert-triangle"></i> Cette confirmation semble déjà importée : ${deja.map(p=>escHtml(p.numero)).join(', ')}${a.libDoc==='Facture' ? ` — pour ne pas créer de doublon : ${deja.map(p=>'<button type="button" class="btn btn-secondary btn-sm po-ouvrir-completer" data-po="'+escHtml(String(p.id))+'" onclick="closeModal();openEditPO(this.dataset.po)">Ouvrir '+escHtml(p.numero)+' et compléter ses prix</button>').join(' ')}` : ''}</div>` : '')
       + (r.avert.length ? `<ul style="margin:6px 0 0 18px;color:var(--orange)">${r.avert.map(x=>'<li>'+escHtml(x)+'</li>').join('')}</ul>` : ''), true);
   }catch(e){
     poAfficherImport('<i class="ti ti-alert-circle"></i> Lecture du PDF impossible : '+escHtml((e && e.message) || e)+'. Utilisez « Importer Excel » en attendant.', false);
@@ -11492,7 +11650,7 @@ async function openNoteFraisModal(){
   if(empR.error){ showToast("Liste des employés illisible : "+empR.error.message, 'error'); return; }
   _ndfEmployes = (empR.data||[]).filter(e=>e.actif!==false).sort((a,b)=>nomPers(a).localeCompare(nomPers(b),'fr',{sensitivity:'base'}));
   _ndfFours = fours;
-  const chantiers = chantiersChoix(chR.data||[]);   // les chantiers archivés ne sont plus proposés
+  const chantiers = chantiersFactureFournisseur(chR.data||[]);   // 26/11 : terminés et archivés proposés (groupe à part, en bas)
   _ndfChantiers = chantiers; _ndfScinde = false; _ndfManques = false;
   _ndfInterventions = ivRows || []; _ndfIntervDispo = !!ivDispo;
   await chargerCodesRessource();
@@ -11752,7 +11910,7 @@ async function openFacLibreModal(){
     sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom'),
     sb.from('fournisseurs').select('*').eq('actif',true).order('nom')
   ]);
-  const chantiers = chantiersChoix(chantiersData||[]);   // les chantiers archivés ne sont plus proposés
+  const chantiers = chantiersFactureFournisseur(chantiersData||[]);   // 26/11 : terminés et archivés proposés (groupe à part, en bas)
   const fours = (foursData||[]).filter(f=>!f.employe_id);   // les fournisseurs « salarié » ne servent qu'aux notes de frais
   await chargerCodesRessource();
   _facLignesLibre = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
@@ -26352,12 +26510,18 @@ function cfGroupesAchat(liste, courant, opts){
     + (cfNumero(c).toUpperCase() === 'FG' ? ' — ancien, à ventiler' : '')
     + (opts.statut && c.statut && c.statut !== 'actif' ? ' (' + (STATUT_CH[c.statut] || c.statut) + ')' : '');
   const opt = x => '<option value="' + escHtml(x.c.id) + '"' + (cur && String(x.c.id) === cur ? ' selected' : '') + '>' + escHtml(x.t) + '</option>';
-  return CF_GENRES.map(([g, lib]) => {
-    const l = (liste || []).filter(c => cfGenre(c) === g).map((c, i) => { const t = texte(c); return {c, t, i, k: cleTexteTri(t)}; })
+  const ferme = c => ['termine','archive'].includes(c && c.statut) && ['chantier','sav'].includes(cfGenre(c));   // seulement les chantiers / SAV (les centres de frais restent dans leur groupe)
+  const texteF = c => (c.numero || '') + ' — ' + (c.nom || '') + ' (' + (STATUT_CH[c.statut] || c.statut) + ')';
+  const groupes = CF_GENRES.map(([g, lib]) => {
+    const l = (liste || []).filter(c => cfGenre(c) === g && !ferme(c)).map((c, i) => { const t = texte(c); return {c, t, i, k: cleTexteTri(t)}; })
       .sort((a, b) => _collTri.compare(a.k, b.k) || a.i - b.i);
     return l.length ? '<optgroup label="' + escHtml(lib) + '">' + l.map(opt).join('') + '</optgroup>' : '';
   }).join('');
+  const f = (liste || []).filter(ferme).map((c, i) => { const t = texteF(c); return {c, t, i, k: cleTexteTri(t)}; }).sort((a, b) => _collTri.compare(a.k, b.k) || a.i - b.i);
+  return groupes + (f.length ? '<optgroup label="Chantiers terminés / archivés">' + f.map(opt).join('') + '</optgroup>' : '');
 }
+// Factures fournisseur : tous les centres, y compris terminés et archivés (une facture arrive souvent après la fin du chantier)
+const chantiersFactureFournisseur = (rows, garderId) => (rows || []).filter(c => !chEstArchive(c) || ['chantier','sav'].includes(cfGenre(c)) || (garderId != null && garderId !== '' && String(c.id) === String(garderId)));   // centres de frais archivés : toujours masqués (sauf le centre déjà lié)
 // Option vide + groupes (notes de frais)
 function cfOptionsAchat(liste, courant, vide, opts){
   const cur = (courant === undefined || courant === null) ? '' : String(courant);
@@ -28040,6 +28204,76 @@ async function deletePO(poId, numero){
   rafraichirPage();
 }
 
+
+// ── Compléter les prix d'une commande depuis la facture PDF du fournisseur (26/11/2026) ──
+const poBlsDe = txt => [...new Set((String(txt||'').match(/\b\d{5,}\s*\/\s*\d+\b/g) || []).map(pdfBlNorm))];
+// Fonction pure : fusionne les lignes de la facture (chacune avec son n° de BL éventuel) dans les lignes de la commande.
+function poFusionnerFacture(lignesPo, lignesFac, blsCommande){
+  const out = {lignes: lignesPo.map(l=>Object.assign({}, l)), diffs:[], ajoutees:[], absentes:[], avert:[], blRetenus:[], erreur:null};
+  const blsFac = [...new Set(lignesFac.map(l=>l._bl).filter(Boolean))];
+  let retenues = lignesFac;
+  if(blsFac.length){
+    let choix = (blsCommande||[]).filter(b=>blsFac.includes(b));
+    if((blsCommande||[]).length && !choix.length){ out.erreur = 'Cette facture ne contient pas le BL de cette commande ('+blsCommande.join(', ')+') ; BL de la facture : '+blsFac.join(', '); return out; }
+    if(!choix.length){
+      // commande faite à la main : le bloc de BL qui partage le plus de références avec la commande
+      const refs = new Set(lignesPo.map(l=>cleRef(l.reference_article)).filter(Boolean));
+      const score = b => lignesFac.filter(l=>l._bl===b && refs.has(cleRef(l.reference_article))).length;
+      const tri = blsFac.map(b=>({b, n:score(b)})).sort((x,y)=>y.n-x.n);
+      if(blsFac.length > 1 && (!tri[0].n || tri[0].n === tri[1].n)){ out.erreur = 'Cette facture regroupe plusieurs BL ('+blsFac.join(', ')+') et aucun ne correspond clairement à cette commande : indiquez le n° de BL dans les observations de la commande, puis recommencez.'; return out; }
+      choix = [tri[0].b];
+      if(blsFac.length > 1) out.avert.push('Commande sans n° de BL : bloc retenu BL '+choix[0]+' ('+tri[0].n+' référence(s) en commun)');
+    }
+    out.blRetenus = choix; retenues = lignesFac.filter(l=>choix.includes(l._bl));
+  }
+  const prises = new Set();
+  retenues.forEach(f=>{
+    const k = out.lignes.findIndex((p,i)=>!prises.has(i) && cleRef(p.reference_article) && cleRef(p.reference_article)===cleRef(f.reference_article) && (!f._supplement || String(p.description)===String(f.description)));
+    if(k >= 0){
+      prises.add(k); const p = out.lignes[k], avant = parseFloat(p.prix_unitaire_ht)||0, qAv = parseFloat(p.quantite)||0;
+      out.diffs.push({ref:f.reference_article, desc:p.description, avant, apres:f.prix_unitaire_ht, qAvant:qAv, qApres:f.quantite});
+      p.prix_unitaire_ht = f.prix_unitaire_ht; p.taux_tva = f.taux_tva;
+      if(Math.abs(qAv - f.quantite) > 1e-9){ out.avert.push(f.reference_article+' : commandé/livré '+qAv+', facturé '+f.quantite+' — quantité de la facture reprise'); p.quantite = f.quantite; }
+    } else {
+      const n = {description:f.description, reference_article:f.reference_article, quantite:f.quantite, unite:f.unite, prix_unitaire_ht:f.prix_unitaire_ht, taux_tva:f.taux_tva};
+      out.lignes.push(n); prises.add(out.lignes.length-1); out.ajoutees.push(f);
+    }
+  });
+  out.lignes.forEach((p,i)=>{ if(!prises.has(i) && String(p.description||'').trim()) out.absentes.push(p); });
+  return out;
+}
+async function poCompleterDepuisPdf(input){
+  const f = input && input.files && input.files[0]; if(input) input.value = '';
+  if(!f) return;
+  const po = window._poEdit || {};
+  poAfficherImport('<i class="ti ti-loader"></i> Lecture de la facture « '+escHtml(f.name)+' »…', true);
+  try{
+    if(f.size > 15*1024*1024) throw new Error('PDF trop volumineux (15 Mo maximum)');
+    const pages = await pdfLignesTexte(new Uint8Array(await f.arrayBuffer()));
+    const texte = pages.flat().map(l=>l.it.map(i=>i.s).join(' ')).join('\n');
+    const fmtPdf = PDF_FORMATS.find(x=>x.reconnait(texte));
+    if(!fmtPdf){ poAfficherImport('<i class="ti ti-alert-circle"></i> <strong>Format de PDF non reconnu</strong> (« '+escHtml(f.name)+' »). Formats connus : '+escHtml([...new Set(PDF_FORMATS.map(x=>x.nom))].join(', '))+'.', false); return; }
+    const a = fmtPdf.analyser(pages);
+    if(a.sansPrix){ poAfficherImport('<i class="ti ti-alert-circle"></i> Ce PDF est un <strong>bon de livraison sans prix</strong> : choisissez la <strong>facture</strong> du fournisseur.', false); return; }
+    const r = pdfVersLignesPO(a);
+    if(r.erreurs.length){ poAfficherImport('<div><i class="ti ti-alert-circle"></i> <strong>Rien n\'a été modifié</strong> (« '+escHtml(f.name)+' », '+escHtml(fmtPdf.nom)+').</div><ul style="margin:6px 0 0 18px">'+r.erreurs.slice(0,12).map(x=>'<li>'+escHtml(x)+'</li>').join('')+'</ul>', false); return; }
+    const sansSuppl = a.lignes.filter(l=>l);                    // même ordre que r.lignes (une ligne de facture = une ligne de commande)
+    const lignesFac = r.lignes.map((l,i)=>Object.assign({}, l, {_bl: sansSuppl[i] && sansSuppl[i].bl || '', _supplement: !!(sansSuppl[i] && sansSuppl[i].supplement)}));
+    const m = poFusionnerFacture(poLignes, lignesFac, poBlsDe(po.observations));
+    if(m.erreur){ poAfficherImport('<i class="ti ti-alert-circle"></i> <strong>Rien n\'a été modifié</strong> — '+escHtml(m.erreur), false); return; }
+    poLignes = m.lignes; renderPoLignes();
+    const obs = el('po-obs'), lib = 'prix de la facture '+fmtPdf.nom+' n° '+a.doc;
+    if(obs){ const v = obs.value; obs.value = /— prix estimés, à compléter avec la facture/.test(v) ? v.replace(/— prix estimés, à compléter avec la facture/, '— '+lib) : (v.trim() ? v.trim()+' · ' : '')+lib.charAt(0).toUpperCase()+lib.slice(1); }
+    const ecart = (x,y) => !x ? 'nouveau prix' : ((y>=x?'+':'')+Math.round((y-x)/x*1000)/10+' %');
+    const tab = '<table style="width:100%;font-size:12px;margin-top:6px;border-collapse:collapse"><tr style="text-align:left;color:#475569"><th>Réf.</th><th>Description</th><th style="text-align:right">Estimé</th><th style="text-align:right">Facture</th><th style="text-align:right">Écart</th></tr>'
+      + m.diffs.map(d=>'<tr class="poc-diff"><td>'+escHtml(d.ref)+'</td><td>'+escHtml(String(d.desc||'').slice(0,60))+'</td><td style="text-align:right">'+(d.avant ? fmt(d.avant) : '—')+'</td><td style="text-align:right"><strong>'+fmt(d.apres)+'</strong></td><td style="text-align:right">'+escHtml(ecart(d.avant, d.apres))+'</td></tr>').join('')
+      + m.ajoutees.map(x=>'<tr class="poc-ajout"><td>'+escHtml(x.reference_article)+'</td><td>'+escHtml(String(x.description).slice(0,60))+'</td><td style="text-align:right">—</td><td style="text-align:right"><strong>'+fmt(x.prix_unitaire_ht)+'</strong></td><td style="text-align:right">ajoutée</td></tr>').join('')
+      + '</table>';
+    const avert = [...m.avert, ...r.avert, ...m.absentes.map(p=>'« '+String(p.description).slice(0,50)+' » ('+(p.reference_article||'sans réf.')+') n\'est pas sur cette facture')];
+    poAfficherImport('<div><i class="ti ti-circle-check"></i> <strong>Prix complétés</strong> depuis la facture '+escHtml(fmtPdf.nom)+' n° '+escHtml(a.doc)+(m.blRetenus.length ? ' (BL '+escHtml(m.blRetenus.join(', '))+')' : '')+' : '+m.diffs.length+' ligne'+(m.diffs.length>1?'s':'')+' mise'+(m.diffs.length>1?'s':'')+' à jour'+(m.ajoutees.length ? ', '+m.ajoutees.length+' ajoutée'+(m.ajoutees.length>1?'s':'') : '')+'. Vérifiez puis « Enregistrer les modifications ».</div>'+tab
+      + (avert.length ? '<ul style="margin:6px 0 0 18px;color:var(--orange)">'+avert.map(x=>'<li>'+escHtml(x)+'</li>').join('')+'</ul>' : ''), true);
+  }catch(e){ poAfficherImport('<i class="ti ti-alert-circle"></i> Lecture du PDF impossible : '+escHtml((e && e.message) || e), false); }
+}
 async function openEditPO(poId){
   let po = _pos.find(p=>p.id===poId);
   if(!po){
@@ -28093,10 +28327,13 @@ async function openEditPO(poId){
     +    '<div class="form-group"><label class="field-label">Fournisseur *</label>'
     +      '<div style="display:flex;gap:6px"><select id="po-four" style="flex:1"><option value="">— Sélectionner —</option>'+foursOpts+'</select>'+boutonsFournisseurRapide('po-four')+'</div></div>'
     +  '</div>'
-    +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">'
     +    '<strong style="font-size:13px">Lignes de commande</strong>'
-    +    '<button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
+    +    '<div style="display:flex;gap:6px;flex-wrap:wrap"><label class="btn btn-secondary btn-sm" for="poe-pdf-fichier" id="poe-pdf-btn" style="cursor:pointer" title="Remplace les prix estimés par ceux de la facture du fournisseur (PDF)"><i class="ti ti-file-type-pdf"></i> Compléter les prix depuis la facture (PDF)</label>'
+    +    '<input type="file" id="poe-pdf-fichier" accept=".pdf,application/pdf" onchange="poCompleterDepuisPdf(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"/>'
+    +    '<button class="btn btn-secondary btn-sm" onclick="addPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button></div>'
     +  '</div>'
+    +  '<div id="po-import-res" style="display:none;margin-bottom:10px"></div>'
     +  '<div style="overflow-x:auto;max-width:100%">'
     +    '<table class="lignes-table" id="lignes-table" style="min-width:580px">'
     +      '<thead><tr>'
@@ -28243,7 +28480,7 @@ async function pofLireChantiers(){
   return _pofChantiers;
 }
 function pofSelectHtml(id, courant){
-  const liste = chantiersChoix(_pofChantiers || [], courant);
+  const liste = chantiersFactureFournisseur(_pofChantiers || [], courant);
   const cur = courant == null ? '' : String(courant);
   const absent = cur && !(_pofChantiers || []).some(c => String(c.id) === cur);   // centre de la commande illisible (droits, supprimé) : on le garde tel quel, jamais perdu
   return '<select id="' + id + '"><option value="">— Sélectionner —</option>' + (absent ? '<option value="' + escHtml(cur) + '" selected>Centre de la commande</option>' : '') + cfGroupesAchat(liste, absent ? '' : cur) + '</select>';
@@ -28515,8 +28752,8 @@ async function openEditFacLignes(facId){
     const {data:poRow} = await sb.from('purchase_orders_lyneo').select('chantier_id').eq('id',fac.po_id).single();
     chantierIdActuel = poRow?.chantier_id||null;
   }
-  const chantiers = chantiersChoix(chantiersData||[], chantierIdActuel);   // archivés masqués, sauf celui déjà lié à la facture
-  if(window._efacMulti){ _ndfChantiers = chantiersChoix(chantiersData||[], chantierIdActuel); _ndfInterventions = await ndfLireInterventions(); _ndfIntervDispo = true; }
+  const chantiers = chantiersFactureFournisseur(chantiersData||[], chantierIdActuel);   // 26/11 : terminés et archivés proposés (groupe à part, en bas)
+  if(window._efacMulti){ _ndfChantiers = chantiersFactureFournisseur(chantiersData||[], chantierIdActuel); _ndfInterventions = await ndfLireInterventions(); _ndfIntervDispo = true; }
 
   const sgEfac = efacSigne();
   if((lignesData||[]).length===0 && (sgEfac*(parseFloat(fac.montant_ht)||0)>0 || sgEfac*(parseFloat(fac.montant_ttc)||0)>0)){
@@ -28812,7 +29049,7 @@ async function ncfOuvrir(){
     sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').order('nom'),
     sb.from('fournisseurs').select('id,nom,employe_id').eq('actif', true).order('nom')
   ]);
-  const chantiers = chantiersChoix(chantiersData || []);
+  const chantiers = chantiersFactureFournisseur(chantiersData || []);
   const fours = (foursData || []).filter(f => !f.employe_id);
   showModal(`<div class="modal-overlay"><div class="modal">
     <div class="modal-header"><h3>Nouvelle note de crédit fournisseur</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
