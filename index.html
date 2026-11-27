@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-27-d646ff4"/>
+<meta name="lyneo-build" content="BUILD:2026-11-27-a59abaf"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2874,7 +2874,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-27-d646ff4';
+const APP_BUILD = 'BUILD:2026-11-27-a59abaf';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -24272,9 +24272,12 @@ function havCalculer(d){
 // Chef de projet = responsable (chef_chantier_id) d'un chantier OU d'un centre SAV non archivé (25/11 : les chefs de projet valident aussi le SAV)
 const havCentreDuChef = (c, empId) => !!c && ['chantier','sav'].includes(c.type_centre||'chantier') && c.statut!=='archive' && !!c.chef_chantier_id && String(c.chef_chantier_id)===String(empId);
 // Qui est l'utilisateur connecté ? (e-mail de l'utilisateur ERP = e-mail de la fiche employé)
+// 27/11 : une fiche employé est reconnue par son e-mail OU son « Email professionnel » (= e-mail de connexion ERP, comme Odoo)
+const havMailsEmp = e => [...new Set([e && e.email, e && e.email_pro].map(havNormEmail).filter(Boolean))];
+const havEmpAMail = (e, m) => !!m && havMailsEmp(e).includes(m);
 function havContexte(user, d){
   const m = havNormEmail(user && user.email);
-  const cand = m ? (d.emps||[]).filter(e=>havNormEmail(e.email)===m) : [];
+  const cand = m ? (d.emps||[]).filter(e=>havEmpAMail(e, m)) : [];
   const emp = cand.length===1 ? cand[0] : null;
   const empId = emp ? String(emp.id) : null;
   const estResp = !!empId && (d.chantiers||[]).some(c=>havCentreDuChef(c, empId));
@@ -24549,24 +24552,24 @@ async function havDiagnostic(h){
   });
   const lignes = [];
   parResp.forEach((chs,k)=>{
-    const e = (h.d.emps||[]).find(x=>String(x.id)===k), mail = havNormEmail(e && e.email);
-    const comptes = mail ? actifs.filter(u=>havNormEmail(u.email)===mail) : [];
-    const doublon = mail ? (h.d.emps||[]).filter(x=>havNormEmail(x.email)===mail).length>1 : false;
+    const e = (h.d.emps||[]).find(x=>String(x.id)===k), mails = havMailsEmp(e), mail = mails[0] || '';
+    const comptes = actifs.filter(u=>mails.includes(havNormEmail(u.email)));
+    const doublon = mails.some(m=>(h.d.emps||[]).filter(x=>havEmpAMail(x, m)).length>1);
     let etat, couleur;
     if(!e){ etat = '✖ fiche employé introuvable'; couleur = '#B91C1C'; }
     else if(!mail){ etat = '✖ la fiche employé n\'a pas d\'e-mail'; couleur = '#B91C1C'; }
     else if(doublon){ etat = '✖ deux fiches employé avec le même e-mail'; couleur = '#B91C1C'; }
-    else if(!comptes.length){ etat = '✖ aucun utilisateur ERP actif avec l\'e-mail '+e.email; couleur = '#B91C1C'; }
+    else if(!comptes.length){ etat = '✖ aucun utilisateur ERP actif avec l\'e-mail '+mails.join(' ou ')+' — indiquez l\'e-mail de connexion ERP dans « Email professionnel » de sa fiche employé'; couleur = '#B91C1C'; }
     else { etat = '✔ compte ERP actif ('+comptes[0].email+', rôle '+comptes[0].role+')'; couleur = '#065F46'; }
     lignes.push({nom:e?nomPers(e):'(fiche '+k+')', n:chs.length, chs, etat, couleur});
   });
   lignes.sort((a,b)=>a.nom.localeCompare(b.nom,'fr'));
   const sup = actifs.filter(u=>u.role==='admin').filter(u=>{
-    const m = havNormEmail(u.email), cand = (h.d.emps||[]).filter(e=>havNormEmail(e.email)===m);
+    const m = havNormEmail(u.email), cand = (h.d.emps||[]).filter(e=>havEmpAMail(e, m));
     if(cand.length!==1) return true;
     return !(h.d.chantiers||[]).some(c=>havCentreDuChef(c, cand[0].id));
   });
-  const supSansFiche = sup.filter(u=>(h.d.emps||[]).filter(e=>havNormEmail(e.email)===havNormEmail(u.email)).length!==1);
+  const supSansFiche = sup.filter(u=>(h.d.emps||[]).filter(e=>havEmpAMail(e, havNormEmail(u.email))).length!==1);
   return {lignes, sansResp, admins:actifs.filter(u=>u.role==='admin').map(u=>({email:havNormEmail(u.email), nom:nomPers(u)||u.email})).filter(a=>a.email), directionMails:sup.map(u=>havNormEmail(u.email)).filter(Boolean), superviseurs:sup.map(u=>nomPers(u)||u.email), supSansFiche:supSansFiche.map(u=>nomPers(u)||u.email)};
 }
 function havHtmlDiagnostic(dg){
@@ -24846,7 +24849,7 @@ async function ptiSuggestionBureau(emps){
   try{
     const us = await lirePagine('utilisateurs', 'email,role,actif');
     const mails = new Set(us.filter(u=>u.role==='admin' && u.actif!==false).map(u=>havNormEmail(u.email)).filter(Boolean));
-    return (emps||[]).filter(e=>mails.has(havNormEmail(e.email))).map(e=>String(e.id));
+    return (emps||[]).filter(e=>havMailsEmp(e).some(m=>mails.has(m))).map(e=>String(e.id));
   }catch(e){ return []; }
 }
 async function ptiEnregistrerReglages(){
@@ -25947,7 +25950,7 @@ const havPropre = (b, ctx) => !!(ctx && ctx.ptEmpId && b && b.emp!=null && Strin
 function havNomsAbs(d){
   const cfg = d && d.cfg;
   if(!cfg || !cfg.configuree) return 'la direction';
-  return cfg.absences.map(m=>{ const e = (d.emps||[]).find(x=>havNormEmail(x.email)===m); return e ? nomPers(e) : m; }).join(', ');
+  return cfg.absences.map(m=>{ const e = (d.emps||[]).find(x=>havEmpAMail(x, m)); return e ? nomPers(e) : m; }).join(', ');
 }
 // ── Réglage : qui valide les absences ? (carte dans la page, direction seulement) ─────────────────────────────────
 function havPeutRegler(ctx){ return !!ctx.superviseur && (ctx.valideAbs || !(_hav && _hav.d.cfg && _hav.d.cfg.configuree)); }
@@ -25994,6 +25997,7 @@ async function havEnregistrerAbs(){
 }
 
 async function havLireEmps(){
+  try{ return await lirePagine('employes_rh', 'id,nom,prenom,email,email_pro,actif,pointage_employe_id,date_embauche,date_sortie'); }catch(e0){}   // 27/11 : + Email professionnel (si la colonne existe)
   try{ return await lirePagine('employes_rh', 'id,nom,prenom,email,actif,pointage_employe_id,date_embauche,date_sortie'); }
   catch(e){ const r = await lirePagine('employes_rh', 'id,nom,prenom,email,actif'); r.lienIndispo = true; return r; }       // colonnes absentes : la garde « propres heures » et les périodes d'emploi ne peuvent pas fonctionner → signalé à l'écran
 }
@@ -29456,4 +29460,3 @@ window.addEventListener('load', async ()=>{
 </script>
 </body>
 </html>
-w
