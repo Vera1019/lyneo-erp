@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-27-e2806bc"/>
+<meta name="lyneo-build" content="BUILD:2026-11-27-d646ff4"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2874,7 +2874,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-27-e2806bc';
+const APP_BUILD = 'BUILD:2026-11-27-d646ff4';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -7559,6 +7559,11 @@ async function poPeutCentresInternes(){
 }
 // STOCK : achat pour le stock, ouvert à tous (numéro ou nom « STOCK », sans accents ni majuscules ; jamais un centre de frais F…)
 const poEstStock = c => !!c && !cfEstFrais(c) && [c.numero, c.nom].some(v => sansAccentsPt(v) === 'stock');
+// 27/11 : commandes — tous les chantiers / centres SAV, y compris terminés et archivés (commande de régularisation d'une facture tardive)
+async function poCentresCommande(){
+  try{ return chantiersFactureFournisseur(await lirePagine('chantiers_lyneo', '*')); }
+  catch(e){ return _chantiersActive || []; }
+}
 function poCentresPermis(liste, interne, garderId){
   const g = (garderId === undefined || garderId === null) ? '' : String(garderId);   // 26/11 : même pour la direction (plus de centres de frais dans les commandes)
   return (liste || []).filter(c => { const k = cfGenre(c); return k === 'chantier' || k === 'sav' || poEstStock(c) || (g && String(c.id) === g); });
@@ -7567,7 +7572,7 @@ const PO_NOTE_INTERNES = '<div class="po-note-internes" style="font-size:11.5px;
 async function openNewPO(){
   const interne = await poPeutCentresInternes();
   poLignes = [{description:'',reference_article:'',quantite:1,unite:'u',prix_unitaire_ht:0,taux_tva:17}];
-  const chantsOpts = cfGroupesAchat(poCentresPermis(_chantiersActive, interne, ''), '');
+  const chantsOpts = cfGroupesAchat(poCentresPermis(await poCentresCommande(), interne, ''), '');
   const foursOpts = _foursActive.filter(f=>!f.employe_id).map(f=>`<option value="${escHtml(f.id)}">${escHtml(f.nom)}</option>`).join('');   // pas de salariés (notes de frais)
   showModal(`<div class="modal-overlay"><div class="modal modal-lg">
     <div class="modal-header"><h3>Nouvelle commande</h3><button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
@@ -12437,6 +12442,27 @@ function openFacModal(){
   }, 50);
 }
 
+// 27/11 : ce qui est déjà facturé sur chaque ligne d'une commande (hors factures annulées / avoirs) — même règle que recalcStatutFacturationPO
+async function poDejaFacture(poId){
+  const r = await sb.from('lignes_facture').select('ligne_po_id,quantite,factures!facture_id!inner(statut,numero_facture_fournisseur)').eq('factures.po_id', poId);
+  if(r.error) throw r.error;
+  const q = {}, nums = new Set();
+  (r.data||[]).forEach(l=>{
+    if(!l.ligne_po_id) return;
+    const f = l.factures || {};
+    if(['annulee','avoir'].includes(f.statut)) return;
+    const k = String(l.ligne_po_id);
+    q[k] = Math.round(((q[k]||0) + (parseFloat(l.quantite)||0))*10000)/10000;
+    if(f.numero_facture_fournisseur) nums.add(String(f.numero_facture_fournisseur));
+  });
+  return {q, nums:[...nums]};
+}
+// Ligne encore à facturer ? quantité proposée = reçu − déjà facturé (jamais négative)
+const poLigneAFacturer = (cmd, recu, fact) => (fact < cmd - 0.001) || (recu > fact + 0.001);
+const poQteRestante = (recu, fact) => Math.max(0, Math.round(((recu||0) - (fact||0))*10000)/10000);
+const poTexteMasquees = (n, nums) => n ? n+' ligne'+(n>1?'s':'')+' déjà facturée'+(n>1?'s':'')+(nums && nums.length ? ' ('+nums.join(', ')+')' : '')+' : masquée'+(n>1?'s':'')+'. Seul le reste à facturer est proposé.' : '';
+const PO_TOUT_FACTURE = nums => 'Cette commande est déjà entièrement facturée'+(nums && nums.length ? ' ('+nums.join(', ')+')' : '')+'. Pour un supplément (transport, cuivre…), créez une facture sans commande.';
+let _facLignesPOMasquees = '';
 async function loadLignesPourFac(poId){
   const section = el('fac-lignes-section');
   const totauxSection = el('fac-totaux-section');
@@ -12464,11 +12490,21 @@ async function loadLignesPourFac(poId){
   }
 
   await chargerCodesRessource();
-  _facLignesPO = (lignes||[]).map(l=>({
+  let dejaF = null; try{ dejaF = await poDejaFacture(poId); }catch(e){ dejaF = null; showToast('« Déjà facturé » illisible : toutes les lignes sont proposées — vérifiez les quantités', 'error'); }
+  const fq = id => dejaF ? (dejaF.q[String(id)]||0) : 0;
+  const lignesAF = (lignes||[]).filter(l=>!dejaF || poLigneAFacturer(parseFloat(l.quantite)||0, dejRecu[l.id]||0, fq(l.id)));
+  _facLignesPOMasquees = poTexteMasquees((lignes||[]).length - lignesAF.length, dejaF && dejaF.nums);
+  if((lignes||[]).length && !lignesAF.length){
+    section.innerHTML = '<div class="alert alert-warning" id="fac-po-tout-facture"><i class="ti ti-alert-circle"></i>'+escHtml(PO_TOUT_FACTURE(dejaF && dejaF.nums))+'</div>';
+    _facLignesPO = []; if(totauxSection) totauxSection.style.display='none';
+    return;
+  }
+  _facLignesPO = lignesAF.map(l=>({
     id: l.id,
     description: l.description,
     reference_article: l.reference_article||'',
-    quantite: dejRecu[l.id]||0, // par défaut : la quantité déjà reçue (0 si rien n'a encore été livré)
+    deja_facture: fq(l.id),
+    quantite: poQteRestante(dejRecu[l.id]||0, fq(l.id)), // 27/11 : reçu − déjà facturé (0 si rien n'a encore été livré)
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
     taux_tva: tvaNum(l.taux_tva)
@@ -12496,6 +12532,7 @@ function renderFacLignesEdit(){
     +  '<span style="font-size:11px;color:rgba(255,255,255,.5)">'+crLienGerer('renderFacLignesEdit','#fff')+' &nbsp; '+_facLignesPO.length+' article(s)</span>'
     +'</div>'
     +'<div id="cr-tous-zone" style="padding:8px 10px 0"></div>'
+    +(_facLignesPOMasquees ? '<div class="fac-po-masquees" style="padding:8px 12px;font-size:12.5px;color:#1E40AF;background:#EFF6FF;border-bottom:1px solid var(--gray-2)"><i class="ti ti-eye-off"></i> '+escHtml(_facLignesPOMasquees)+'</div>' : '')
     +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:550px">'
     +'<thead><tr style="background:var(--gray-1)">'
     +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;border-bottom:1px solid var(--gray-3)">Description</th>'
@@ -12516,6 +12553,7 @@ function renderFacLignesEdit(){
       +'</td>'
       +crTd(l.code_ressource_id,'_facLignesPO['+i+'].code_ressource_id=this.value','padding:6px 10px;border-bottom:1px solid var(--gray-2)')
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2)">'
+      +  (l.deja_facture ? '<div class="fac-deja" style="font-size:11px;color:var(--gray-5);text-align:right;margin-bottom:2px">déjà facturé : '+escHtml(String(l.deja_facture))+'</div>' : '')
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" data-field="quantite" data-idx="'+i+'" class="fac-ligne-input fac-calc" style="width:100%;padding:5px 8px;border:1px solid var(--gray-3);border-radius:4px;font-size:13px;text-align:right;background:var(--blue-light);font-weight:600"/>'
       +'</td>'
       +'<td style="padding:6px 10px;border-bottom:1px solid var(--gray-2);text-align:center;font-size:12px;color:var(--gray-5)">'+escHtml(l.unite)+'</td>'
@@ -28409,7 +28447,7 @@ async function openEditPO(poId){
   }
 
   // Le chantier déjà lié à la commande reste proposé même s'il est terminé ou archivé (sinon la commande perdrait son chantier)
-  let chantsPo = _chantiersActive;
+  let chantsPo = await poCentresCommande();   // 27/11 : terminés et archivés proposés aussi (groupe à part, en bas)
   if(po.chantier_id && !chantsPo.some(c=>String(c.id)===String(po.chantier_id))){
     const {data:chPo} = await sb.from('chantiers_lyneo').select('id,numero,nom,statut,type_centre').eq('id',po.chantier_id).single();
     if(chPo) chantsPo = [chPo, ...chantsPo];
@@ -28617,13 +28655,19 @@ async function openFacFromPO(poId){
     (ligBL||[]).forEach(lb=>{ dejRecu[lb.ligne_po_id]=(dejRecu[lb.ligne_po_id]||0)+parseFloat(lb.quantite_recue||0); });
   }
 
-  _facFromPoLignes = (lignesData||[]).map(l=>({
+  let dejaF = null; try{ dejaF = await poDejaFacture(poId); }catch(e){ dejaF = null; showToast('« Déjà facturé » illisible : toutes les lignes sont proposées — vérifiez les quantités', 'error'); }
+  const fq = id => dejaF ? (dejaF.q[String(id)]||0) : 0;
+  const lignesAF = (lignesData||[]).filter(l=>!dejaF || poLigneAFacturer(parseFloat(l.quantite)||0, dejRecu[l.id]||0, fq(l.id)));
+  if((lignesData||[]).length && !lignesAF.length){ showToast(PO_TOUT_FACTURE(dejaF && dejaF.nums), 'error'); return; }
+  const masqueesTxt = poTexteMasquees((lignesData||[]).length - lignesAF.length, dejaF && dejaF.nums);
+  _facFromPoLignes = lignesAF.map(l=>({
     ligne_po_id: l.id,
     description: l.description,
     reference_article: l.reference_article||'',
     quantite_commandee: parseFloat(l.quantite)||0,
     quantite_recue: dejRecu[l.id]||0,
-    quantite: dejRecu[l.id]||0, // par défaut : la quantité déjà reçue (0 si rien n'a encore été livré)
+    deja_facture: fq(l.id),
+    quantite: poQteRestante(dejRecu[l.id]||0, fq(l.id)), // 27/11 : reçu − déjà facturé (0 si rien n'a encore été livré)
     unite: l.unite,
     prix_unitaire_ht: parseFloat(l.prix_unitaire_ht)||0,
     taux_tva: tvaNum(l.taux_tva),
@@ -28653,7 +28697,7 @@ async function openFacFromPO(poId){
       +'</td>'
       +crTd(l.code_ressource_id,'_facFromPoLignes['+i+'].code_ressource_id=this.value','padding:6px 8px;border-bottom:1px solid var(--gray-2)')
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--gray-5);white-space:nowrap">'+l.quantite_commandee+' '+escHtml(l.unite)+'</td>'
-      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+escHtml(l.unite)+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);text-align:right;font-size:12px;color:var(--green);font-weight:600;white-space:nowrap">'+l.quantite_recue+' '+escHtml(l.unite)+(l.deja_facture ? '<div class="fac-deja" style="font-size:11px;color:var(--gray-5);font-weight:400">déjà facturé : '+escHtml(String(l.deja_facture))+'</div>' : '')+'</td>'
       +'<td style="padding:6px 8px;border-bottom:1px solid var(--gray-2);width:80px">'
       +  '<input type="text" data-calc="4" autocomplete="off" min="0" step="1" value="'+l.quantite+'" onchange="_facFromPoLignes['+i+'].quantite=this.value;renderFacPOLines()" style="width:100%;padding:5px 8px;border:1.5px solid var(--blue);border-radius:4px;font-size:13px;text-align:right;font-weight:600"/>'
       +'</td>'
@@ -28706,6 +28750,7 @@ async function openFacFromPO(poId){
     +    '<button class="btn btn-secondary btn-sm" onclick="addFacPoLigne()"><i class="ti ti-plus"></i> Ajouter ligne</button>'
     +  '</div>'
     +  '<div id="cr-tous-zone"></div>'
+    +  (masqueesTxt ? '<div class="alert alert-info fac-po-masquees" style="margin-bottom:8px"><i class="ti ti-eye-off"></i>'+escHtml(masqueesTxt)+'</div>' : '')
     +  '<div style="overflow-x:auto;max-width:100%"><table style="width:100%;border-collapse:collapse;min-width:600px">'
     +    '<thead><tr style="background:var(--navy)">'
     +      '<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase">Description</th>'
@@ -29411,3 +29456,4 @@ window.addEventListener('load', async ()=>{
 </script>
 </body>
 </html>
+w
