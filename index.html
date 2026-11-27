@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-27-a59abaf"/>
+<meta name="lyneo-build" content="BUILD:2026-11-27-57ef17c"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -2874,7 +2874,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-27-a59abaf';
+const APP_BUILD = 'BUILD:2026-11-27-57ef17c';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -24218,7 +24218,7 @@ function havClasser(chantiers, interventions, ptRows){
     const type = c.type_centre||'chantier';
     codesPointagesDe(c).forEach(code=>{
       const pt = trouverChantierPointages(ptRows, code); if(!pt) return;
-      if(type==='chantier') mettre(pt, c.chef_chantier_id ? {classe:'resp', resp:String(c.chef_chantier_id), lib:libChantierAchat(c)} : {classe:'admin', resp:null, lib:libChantierAchat(c), sansResp:true});
+      if(type==='chantier') mettre(pt, c.chef_chantier_id ? {classe:'resp', resp:String(c.chef_chantier_id), lib:libChantierAchat(c), numero:String(c.numero||'')} : {classe:'admin', resp:null, lib:libChantierAchat(c), sansResp:true});
       else if(type==='sav') mettre(pt, {classe:'pool', resp:null, lib:libChantierAchat(c)});
       else mettre(pt, {classe:'admin', resp:null, lib:libChantierAchat(c)});
     });
@@ -24235,7 +24235,7 @@ function havBloc(emp, debut, cle, lignes, cl, valParCle){
   const jours = {}; let heures = 0;
   lignes.forEach(l=>{ jours[l.date] = (jours[l.date]||0)+l.heures; heures += l.heures; });
   const valide = !!v && v.statut==='valide' && String(v.empreinte)===empreinte;
-  return {cle:String(cle), emp:String(emp), abs:String(cle)==='ABS', classe:cl.classe, resp:cl.resp||null, lib:cl.lib, sansResp:!!cl.sansResp, inconnu:!!cl.inconnu, heures, jours, empreinte, lignes:lignes.map(l=>({date:l.date, k:l.k, heures:l.heures})),
+  return {cle:String(cle), emp:String(emp), abs:String(cle)==='ABS', classe:cl.classe, resp:cl.resp||null, numero:cl.numero||'', lib:cl.lib, sansResp:!!cl.sansResp, inconnu:!!cl.inconnu, heures, jours, empreinte, lignes:lignes.map(l=>({date:l.date, k:l.k, heures:l.heures})),
           etat: valide ? 'valide' : 'attente', decision: v,
           renvoye: (!valide && v && v.statut==='a_corriger') ? v : null, modifie: !!v && String(v.empreinte)!==empreinte};
 }
@@ -24280,18 +24280,25 @@ function havContexte(user, d){
   const cand = m ? (d.emps||[]).filter(e=>havEmpAMail(e, m)) : [];
   const emp = cand.length===1 ? cand[0] : null;
   const empId = emp ? String(emp.id) : null;
-  const estResp = !!empId && (d.chantiers||[]).some(c=>havCentreDuChef(c, empId));
+  const estResp = !!empId && ((d.chantiers||[]).some(c=>havCentreDuChef(c, empId))
+    || (d.chantiers||[]).some(c=>c.statut==='actif' && (c.type_centre||'chantier')==='chantier' && havEmpDansSerie(emp, havSerieDuNumero(c.numero)))); // 27/11 : série CF partagée
   const admin = !!user && user.role==='admin';
   const superviseur = admin && !estResp, cfg = d.cfg || null;
   const valideAbs = !!user && (cfg && cfg.configuree ? (!!m && cfg.absences.includes(m)) : superviseur);
   const ptEmpId = emp && emp.pointage_employe_id!=null && String(emp.pointage_employe_id).trim()!=='' ? String(emp.pointage_employe_id).trim() : null;
   return {admin, emp, empId, estResp, ambigu: cand.length>1, superviseur, valideAbs, peutHeures: admin || estResp, ptEmpId};
 }
+// 27/11 : séries de chantiers dont la validation est PARTAGÉE entre les personnes de la série (SERIES_CHANTIER) — CF : Barthelemy + Heilig
+const HAV_SERIES_PARTAGEES = ['CF'];
+const havSerieDuNumero = num => (typeof SERIES_CHANTIER==='undefined' ? [] : SERIES_CHANTIER).filter(s=>HAV_SERIES_PARTAGEES.includes(s.prefixe))
+  .find(s=>new RegExp('^'+s.prefixe+'\\d+$','i').test(String(num||'').replace(/[\s_.\-–—]+/g,''))) || null;
+const havEmpDansSerie = (emp, serie) => !!emp && !!serie && serie.personnes.some(p=>cleNomChef(p)===cleNomChef(nomPers(emp)));
+const havCoValideur = (b, ctx) => !!b && b.classe==='resp' && !!ctx && !!ctx.emp && havEmpDansSerie(ctx.emp, havSerieDuNumero(b.numero));
 // Le valideur « normal » d'un bloc
 function havMien(b, ctx){
   if(havPropre(b, ctx)) return false;                 // jamais ses propres heures
   if(b.abs) return !!ctx.valideAbs;
-  if(b.classe==='resp') return !!ctx.empId && b.resp===ctx.empId;
+  if(b.classe==='resp') return !!ctx.empId && (b.resp===ctx.empId || havCoValideur(b, ctx));
   if(b.classe==='pool') return !!ctx.estResp;
   return !!ctx.superviseur;
 }
@@ -24303,7 +24310,12 @@ function havResume(semaines, ctx){
 }
 function havNomValideur(b, d){
   if(b.abs) return havNomsAbs(d);
-  if(b.classe==='resp'){ const e = (d.emps||[]).find(x=>String(x.id)===b.resp); return e ? nomPers(e) : 'responsable'; }
+  if(b.classe==='resp'){
+    const e = (d.emps||[]).find(x=>String(x.id)===b.resp), serie = havSerieDuNumero(b.numero);
+    const noms = [e ? nomPers(e) : 'responsable'];
+    if(serie) (d.emps||[]).filter(x=>x.actif!==false && String(x.id)!==b.resp && havEmpDansSerie(x, serie)).forEach(x=>noms.push(nomPers(x)));
+    return noms.join(' ou ');
+  }
   if(b.classe==='pool') return 'un responsable (SAV)';
   return b.sansResp ? 'direction (chantier sans responsable)' : 'direction';
 }
