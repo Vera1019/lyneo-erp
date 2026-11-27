@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="lyneo-build" content="BUILD:2026-11-26-550cc30"/>
+<meta name="lyneo-build" content="BUILD:2026-11-27-e2806bc"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
 <title>Lyneo ERP</title>
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -1168,6 +1168,7 @@ function morphLignes(cible, html){
 function focusDerniereLigne(idCorps){
   const b = el(idCorps); if(!b) return;
   const tr = b.lastElementChild; if(!tr) return;
+  try{ if(typeof selCentresInstaller === 'function') b.querySelectorAll('select:not([data-rech-ok])').forEach(selCentresInstaller); }catch(e){}
   const c = tr.querySelector('input:not([type=hidden]),select,textarea');
   if(c && typeof c.focus==='function') c.focus();
 }
@@ -2873,7 +2874,7 @@ async function doLogout(){
 // Une page ouverte AVANT une mise à jour garde l'ancien code (le navigateur ne recharge pas tout seul) : d'où des comportements
 // « incompréhensibles » (numérotation, boutons…). Ici : chaque page relit le début de son propre fichier sur le serveur, compare le
 // numéro de version (balise <meta name="lyneo-build">, fixé à la livraison) et affiche un bandeau « Recharger » s'il a changé.
-const APP_BUILD = 'BUILD:2026-11-26-550cc30';
+const APP_BUILD = 'BUILD:2026-11-27-e2806bc';
 const VERIF_VERSION_MS = 10*60*1000, VERIF_VERSION_MIN_MS = 2*60*1000, BANNIERE_RAPPEL_MS = 30*60*1000;
 let _verifVersionDernier = 0, _verifVersionTimer = null, _versionServeur = null, _banniereFermeeSrv = null, _banniereFermeeA = 0;
 function buildCourant(){ return APP_BUILD; }
@@ -4051,39 +4052,67 @@ function normaliserPrixAffiches(){
     const t = texteSaisiePU(i.value); if(t !== i.value) i.value = t;
   });
 }
-// ── Recherche dans les listes de centres (26/11/2026) : au-dessus de toute liste à groupes « Chantiers » / « Centres SAV » ──
+// ── Liste de centres avec recherche DANS le champ (26/11/2026, version « une seule case ») ──
+// Pour toute liste à groupes « Chantiers » / « Centres SAV » : la liste native reste dans la page (invisible, même valeur, mêmes événements)
+// et une case texte prend sa place : on tape une partie du n° ou du nom (sans accents) ; la liste filtrée s'ouvre sous la case.
+const selCentresLabel = s => { const o = s.selectedOptions && s.selectedOptions[0]; return o && o.value ? o.text : ''; };
 function selCentresInstaller(s){
   if(!s || s.dataset.rechOk) return;
   const groupes = Array.from(s.querySelectorAll('optgroup')).map(g=>g.label);
   if(!groupes.some(l=>/^(Chantiers|Centres SAV)/.test(l))) return;
   s.dataset.rechOk = '1';
-  const snap = () => Array.from(s.children).map(n=>n.tagName==='OPTGROUP' ? {g:n.label, o:Array.from(n.children).map(o=>({v:o.value, t:o.text}))} : {v:n.value, t:n.text});
-  s._rechSnap = snap();
   const inp = document.createElement('input');
-  inp.type = 'search'; inp.className = 'sel-recherche'; inp.placeholder = 'Rechercher (n°, nom)…'; inp.setAttribute('aria-label', 'Rechercher dans la liste des chantiers');
-  inp.style.cssText = 'width:100%;margin-bottom:4px;padding:6px 9px;border:1px solid var(--gray-3);border-radius:6px;font-size:13px';
+  inp.type = 'text'; inp.className = 'sel-recherche'; inp.autocomplete = 'off';
+  inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-autocomplete', 'list'); inp.setAttribute('aria-expanded', 'false');
+  const vide = s.options[0] && !s.options[0].value ? s.options[0].text : '— Sélectionner —';
+  inp.placeholder = vide.replace(/^—\s*|\s*—$/g,'') + ' (tapez pour chercher)';
+  inp.setAttribute('aria-label', 'Chantier : tapez une partie du n° ou du nom');
+  inp.style.cssText = 'width:100%;min-width:180px;box-sizing:border-box';
   if(s.id) inp.id = s.id + '-rech';
+  inp.value = selCentresLabel(s); inp.disabled = s.disabled;
   s.parentNode.insertBefore(inp, s);
-  const filtrer = () => {
-    const mots = _afNorm(inp.value).split(' ').filter(Boolean), cur = s.value;
+  // la liste native reste « visible » pour le reste du code (et les tests) mais ne prend aucune place
+  s.style.cssText += ';position:absolute;opacity:0;width:1px;height:1px;padding:0;border:0;margin:0;min-width:0;pointer-events:none;overflow:hidden';
+  s.tabIndex = -1; s.setAttribute('aria-hidden', 'true');
+  let liste = null, items = [], actif = -1;
+  const fermer = () => { if(liste){ liste.remove(); liste = null; window.removeEventListener('scroll', placer, true); } inp.setAttribute('aria-expanded','false'); items = []; actif = -1; };
+  const placer = () => { if(!liste) return; const r = inp.getBoundingClientRect(); liste.style.left = r.left+'px'; liste.style.top = (r.bottom+2)+'px'; liste.style.minWidth = Math.max(r.width, 260)+'px'; };
+  const choisir = v => { if(v !== undefined && s.value !== v){ s.value = v; s.dispatchEvent(new Event('change', {bubbles:true})); } inp.value = selCentresLabel(s); fermer(); };
+  const marquer = i => { actif = i; items.forEach((x,k)=>{ x.el.style.background = k===i ? '#DBEAFE' : ''; }); if(items[i]) items[i].el.scrollIntoView({block:'nearest'}); };
+  const ouvrir = () => {
+    const mots = _afNorm(inp.value === selCentresLabel(s) ? '' : inp.value).split(' ').filter(Boolean);
     const ok = t => mots.every(m=>_afNorm(t).includes(m));
-    let html = '', n = 0, premier = null;
-    s._rechSnap.forEach(x=>{
-      if(x.g !== undefined){
-        const os = x.o.filter(o=>!mots.length || ok(o.t) || o.v === cur);
-        os.forEach(o=>{ if(o.v !== cur || ok(o.t)){ if(mots.length && ok(o.t)){ n++; if(premier === null) premier = o.v; } } });
-        if(os.length) html += '<optgroup label="'+escHtml(x.g)+'">'+os.map(o=>'<option value="'+escHtml(o.v)+'"'+(o.v===cur?' selected':'')+'>'+escHtml(o.t)+'</option>').join('')+'</optgroup>';
-      } else html += '<option value="'+escHtml(x.v)+'"'+(x.v===cur?' selected':'')+'>'+escHtml(x.t)+'</option>';
+    if(!liste){ liste = document.createElement('div'); liste.className = 'sel-recherche-liste'; liste.setAttribute('role','listbox');
+      liste.style.cssText = 'position:fixed;z-index:100000;background:#fff;border:1px solid var(--gray-3);border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,.18);max-height:280px;overflow:auto;font-size:13px;padding:4px 0';
+      liste.addEventListener('mousedown', e=>e.preventDefault()); document.body.appendChild(liste); inp.setAttribute('aria-expanded','true'); window.addEventListener('scroll', placer, true); }
+    placer(); liste.innerHTML = ''; items = [];
+    Array.from(s.children).forEach(n=>{
+      const opts = n.tagName === 'OPTGROUP' ? Array.from(n.children) : [n];
+      const garde = opts.filter(o=>o.value && !o.disabled && ok(o.text));
+      if(!garde.length) return;
+      if(n.tagName === 'OPTGROUP'){ const h = document.createElement('div'); h.textContent = n.label; h.style.cssText = 'padding:6px 10px 2px;font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em'; liste.appendChild(h); }
+      garde.forEach(o=>{ const d = document.createElement('div'); d.className = 'sel-recherche-item'; d.setAttribute('role','option'); d.dataset.v = o.value; d.textContent = o.text;
+        d.style.cssText = 'padding:6px 12px;cursor:pointer;white-space:nowrap'+(o.value===s.value?';font-weight:700':'');
+        d.addEventListener('mousedown', e=>{ e.preventDefault(); choisir(o.value); });
+        liste.appendChild(d); items.push({el:d, v:o.value}); });
     });
-    s.innerHTML = html; s.value = cur;
-    inp.dataset.n = String(n); inp.dataset.premier = premier || '';
-    if(mots.length && n === 1 && premier !== cur){ s.value = premier; s.dispatchEvent(new Event('change', {bubbles:true})); }
+    if(!items.length){ const d = document.createElement('div'); d.className = 'sel-recherche-vide'; d.textContent = 'Aucun résultat'; d.style.cssText = 'padding:8px 12px;color:#64748B'; liste.appendChild(d); }
+    inp.dataset.n = String(items.length);
+    marquer(items.length ? 0 : -1);
   };
-  inp.addEventListener('input', filtrer);
+  inp.addEventListener('focus', ()=>{ inp.select(); ouvrir(); });
+  inp.addEventListener('input', ouvrir);
+  inp.addEventListener('click', ()=>{ if(!liste) ouvrir(); });
   inp.addEventListener('keydown', e=>{
-    if(e.key === 'Enter'){ e.preventDefault(); const p = inp.dataset.premier; if(p && s.value !== p){ s.value = p; s.dispatchEvent(new Event('change', {bubbles:true})); } }
-    if(e.key === 'Escape' && inp.value){ e.preventDefault(); e.stopPropagation(); inp.value = ''; filtrer(); }
+    if(e.key === 'ArrowDown'){ e.preventDefault(); if(!liste) ouvrir(); else if(items.length) marquer(Math.min(items.length-1, actif+1)); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); if(items.length) marquer(Math.max(0, actif-1)); }
+    else if(e.key === 'Enter'){ e.preventDefault(); if(liste && items[actif]) choisir(items[actif].v); }
+    else if(e.key === 'Escape'){ if(liste){ e.preventDefault(); e.stopPropagation(); inp.value = selCentresLabel(s); fermer(); } }
+    else if(e.key === 'Tab'){ inp.value = selCentresLabel(s); fermer(); }
   });
+  inp.addEventListener('blur', ()=>{ setTimeout(()=>{ if(document.activeElement !== inp){ inp.value = selCentresLabel(s); fermer(); } }, 120); });
+  s.addEventListener('change', ()=>{ if(document.activeElement !== inp) inp.value = selCentresLabel(s); });
+  s._rechSync = () => { if(!inp.isConnected) return; if(document.activeElement !== inp && inp.value !== selCentresLabel(s)) inp.value = selCentresLabel(s); inp.disabled = s.disabled; };
 }
 // Après chaque changement de l'écran : trie les listes déroulantes et remet en ordre les tableaux
 let _triEnCours = false;
@@ -4097,6 +4126,8 @@ const _obsTri = new MutationObserver(()=>{
     document.querySelectorAll('table[data-tri="oui"]').forEach(appliquerTriTable);
     normaliserPrixAffiches();
     document.querySelectorAll('select:not([data-rech-ok])').forEach(selCentresInstaller);
+    document.querySelectorAll('select[data-rech-ok]').forEach(x=>{ if(x._rechSync) x._rechSync(); });
+    if(!document.querySelector('input.sel-recherche:focus')) document.querySelectorAll('.sel-recherche-liste').forEach(x=>x.remove());
   }catch(e){ console.warn('tri', e); }
   finally{ _obsTri.takeRecords(); _triEnCours = false; }
 });
@@ -6152,6 +6183,7 @@ async function calculerHeuresPrevuesDevis(chantierId){
 // Rend un chantier actif disponible automatiquement dans le système de
 // pointages (comme dans Odoo) — sans que l'administratif ait besoin de le
 // recréer à la main dans l'autre application.
+const estDoublonBase = e => !!e && (e.code==='23505' || /duplicate key|unique constraint|ux_chantiers/i.test(String(e.message||'')));
 async function sincronizarChantierPointages(chantierId, nom, statut, codeExistant){
   if(statut!=='actif') return {ok:false, motif:'inactif'};
   if(codeExistant) return {ok:false, motif:'deja_lie'};
@@ -6159,8 +6191,11 @@ async function sincronizarChantierPointages(chantierId, nom, statut, codeExistan
     const {data:chantierRow} = await sb.from('chantiers_lyneo').select('numero').eq('id',chantierId).single();
     const codeGenere = chantierRow?.numero;
     if(!codeGenere) return {ok:false, motif:'sans_numero'};
+    // 27/11 : relu juste avant de créer — un code déjà présent dans les pointages n'est jamais recréé (doublon CF0006)
+    const deja = (await ptCodesChantiers()).find(r=>cleCodePt(r.code)===cleCodePt(codeGenere));
+    if(deja) return {ok:false, motif:'code_existe', code:codeGenere, detail:libPtChantier(deja)};
     const {error:ptErr} = await sbPT.from('chantiers').insert({code:codeGenere, nom:codeGenere+' — '+nom});
-    if(ptErr) return {ok:false, motif:'erreur_pointages', detail:ptErr.message};
+    if(ptErr) return (ptErr.code==='23505' || /duplicate key|unique/i.test(ptErr.message||'')) ? {ok:false, motif:'code_existe', code:codeGenere, detail:codeGenere} : {ok:false, motif:'erreur_pointages', detail:ptErr.message};
     await sb.from('chantiers_lyneo').update({code_pointages:codeGenere}).eq('id',chantierId);
     return {ok:true, code:codeGenere};
   }catch(e){
@@ -6174,6 +6209,8 @@ function avisarSincronizacaoPointages(resultado){
     else showToast('✓ Synchronisé avec les pointages'+(resultado.code ? ' — code '+resultado.code : ''));
   } else if(resultado.motif==='ambigu'){
     showToast("⚠ Employé enregistré, mais plusieurs employés des pointages portent ce nom ("+resultado.detail+") : rien n'a été créé. Modifiez la fiche et choisissez le bon dans « Système de pointages ».", 'error');
+  } else if(resultado.motif==='code_existe'){
+    showToast("⚠ Chantier enregistré, mais le code "+escHtml(resultado.code)+" existe déjà dans les pointages (« "+escHtml(resultado.detail)+" ») : il n'a pas été créé une 2e fois. Si c'est le même chantier, écrivez "+escHtml(resultado.code)+" dans « Code pointages » ; sinon changez le numéro.", 'error');
   } else if(resultado.motif==='erreur_pointages' || resultado.motif==='exception'){
     showToast("⚠ Chantier enregistré, mais la synchronisation avec les pointages a échoué : "+(resultado.detail||'raison inconnue')+" — vous pouvez lier le code manuellement dans l'onglet Informations.", 'error');
   }
@@ -6842,7 +6879,7 @@ async function saveChantierCore(id){
   const {data:clientRow} = clientId ? await sb.from('clients').select('nom').eq('id',clientId).single() : {data:null};
   const cpModal = el('ch-code-pt-modal');
   const numeroManuel = el('ch-numero').value.trim();
-  const ctlCh = await controlerDoublonsChantier({nom, client_id:clientId||null, client:clientRow?.nom||'', numero:numeroManuel, type:typeChoisi}, id);
+  const ctlCh = await controlerDoublonsChantier({nom, client_id:clientId||null, client:clientRow?.nom||'', numero:numeroManuel, type:typeChoisi, codes:String((cpModal && cpModal.value)||'').split(',')}, id);
   if(ctlCh==='stop') return;
   const statutAtual = el('ch-statut').value;
   // Chef de chantier : l'employé choisi (id + nom copié depuis sa fiche) ; champ texte seulement si la liste des employés était illisible
@@ -6903,6 +6940,7 @@ async function saveChantierCore(id){
   if(id){
     if(numeroManuel) data.numero = numeroManuel;
     const resUp = await ecrire(d=>sb.from('chantiers_lyneo').update(d).eq('id',id));
+    if(resUp && resUp.error && estDoublonBase(resUp.error)){ showToast("Le numéro "+escHtml(numeroManuel)+" existe déjà (refusé par la base) — choisissez-en un autre", 'error'); return; }
     if(resUp && resUp.error){ showToast("Le chantier n'a PAS été modifié : "+resUp.error.message+((window._chFilesNew||[]).length ? ' — vos documents restent dans la fenêtre' : ''), 'error'); return; }
     _chantiers = _chantiers.filter(c=>c.id!==id);   // la fiche sera relue à jour à sa prochaine ouverture
     const resultadoSync = await sincronizarChantierPointages(id, nom, statutAtual, cpModal?.value);
@@ -6918,7 +6956,13 @@ async function saveChantierCore(id){
       } else num = await numeroChantierLibre((await sb.rpc('generate_chantier_number')).data);   // centre SAV / interne : numéro à saisir, sinon CH-AAAA-NNN comme avant
     }
     const devisIdOrigine = window._chantierFromDevisId||null;
-    const resIns = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
+    let resIns = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
+    // 27/11 : numéro pris entre-temps (index unique de la base) : manuel → refus clair ; automatique → numéro suivant (3 essais)
+    for(let essai=0; resIns && resIns.error && estDoublonBase(resIns.error) && !numeroManuel && typeChoisi==='chantier' && essai<3; essai++){
+      try{ const a = await numeroAutoChantier(window._chantierFromDevisId||null, chefTexte); num = a.numero; motifSerie = libMotifSerie(a); }catch(e){ break; }
+      resIns = await ecrire(d=>sb.from('chantiers_lyneo').insert({...d,numero:num,devis_id:devisIdOrigine}).select().single());
+    }
+    if(resIns && resIns.error && estDoublonBase(resIns.error)){ showToast("Le numéro "+escHtml(num)+" existe déjà (refusé par la base) — le chantier n'a PAS été créé : choisissez un autre numéro", 'error'); return; }
     const newChantier = resIns && resIns.data;
     if(!newChantier){
       // Avant : « Chantier créé » s'affichait quand même et la fenêtre se fermait. Maintenant : l'erreur est dite, la fenêtre (et les fichiers choisis) restent.
@@ -7299,6 +7343,23 @@ function lfManque(r, m){
 // ── Bons de commande ──
 const filtresPOVides = () => ({search:'', statut:'', four:'', chantier:'', de:'', a:'', min:'', max:'', par:''});
 let _poF = filtresPOVides(), _poListe = [];
+// 27/11 : commandes terminées (facturées à 100 %, payées, annulées) = onglet « Commandes archivées » (rien n'est modifié dans la base)
+const PO_ARCHIVES = ['facturee','payee','annulee'];
+const poEstArchivee = r => !!r && PO_ARCHIVES.includes(r.statut);
+let _poVue = 'cours';
+const poDansVue = (r, vue) => vue === 'toutes' || (vue === 'archives') === poEstArchivee(r);
+function ongletsPO(){
+  const nA = _poListe.filter(poEstArchivee).length, nC = _poListe.length - nA;
+  const o = (id, lib, n) => `<div class="tab-btn" id="po-vue-${id}" onclick="poChangerVue('${id}')" style="cursor:pointer;border-bottom:2px solid ${_poVue===id?'var(--blue)':'transparent'};color:${_poVue===id?'var(--blue)':'var(--gray-5)'};display:flex;align-items:center;gap:6px;margin-bottom:-1px">${lib} <span class="badge badge-termine" style="font-size:10px">${n}</span></div>`;
+  return `<div style="display:flex;border-bottom:1px solid var(--gray-3);margin-bottom:16px">${o('cours', '<i class="ti ti-shopping-cart"></i> Commandes en cours', nC)}${o('archives', '<i class="ti ti-archive"></i> Commandes archivées', nA)}${o('toutes', '<i class="ti ti-list"></i> Toutes', _poListe.length)}</div>`
+    + (_poVue==='archives' ? '<div class="alert alert-info" id="po-info-archives" style="margin-bottom:16px"><i class="ti ti-archive"></i><span>Commandes <strong>facturées à 100 %</strong>, payées ou annulées : elles arrivent ici toutes seules. Rien n\'est supprimé ; une commande qui n\'est plus entièrement facturée (facture annulée, avoir) revient d\'elle-même dans « en cours ».</span></div>' : '');
+}
+function poChangerVue(v){
+  _poVue = ['archives','toutes'].includes(v) ? v : 'cours';
+  if(_poF.statut && _poVue !== 'toutes' && (PO_ARCHIVES.includes(_poF.statut) !== (_poVue === 'archives'))) _poF.statut = '';
+  const z = el('po-vue-zone'); if(z) z.innerHTML = ongletsPO() + barreFiltresPO();
+  selExpVider('pos'); afficherPOS();
+}
 function barreFiltresPO(){
   const F = _poF, fours = new Map(), chs = new Map(), pars = new Map();
   _poListe.forEach(i=>{
@@ -7308,7 +7369,7 @@ function barreFiltresPO(){
   });
   const tri = m => [...m.entries()].sort(_afCmpTexte);
   return `<div class="af-barre" id="po-filtres">
-    ${afChamp('Statut', `<select id="po-filter-statut" onchange="majFiltrePO('statut',this.value)">${afOptions(Object.entries(STATUT_PO), F.statut, 'Tous les statuts')}</select>`)}
+    ${afChamp('Statut', `<select id="po-filter-statut" onchange="majFiltrePO('statut',this.value)">${afOptions(Object.entries(STATUT_PO).filter(([k])=>_poVue==='toutes' || PO_ARCHIVES.includes(k) === (_poVue==='archives')), F.statut, 'Tous les statuts')}</select>`)}
     ${afChamp('Fournisseur', `<select id="po-f-four" onchange="majFiltrePO('four',this.value)">${afOptions(tri(fours), F.four, 'Tous')}</select>`)}
     ${afChamp('Chantier / centre de coûts', `<select id="po-f-chantier" onchange="majFiltrePO('chantier',this.value)">${afOptions([['sans','Sans chantier'], ...tri(chs)], F.chantier, 'Tous')}</select>`)}
     ${afChamp('Date du', `<input type="date" id="po-f-de" class="af-date" value="${escHtml(F.de)}" onchange="majFiltrePO('de',this.value)"/>`)}
@@ -7320,10 +7381,11 @@ function barreFiltresPO(){
     <span class="af-compte" id="po-compte"></span>
   </div>`;
 }
-function poFiltrees(){
-  const F = _poF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a);
+function poFiltrees(vue){
+  const F = _poF, q = _afNorm(F.search), [de, a] = _afBornes(F.de, F.a), v = vue || _poVue;
   let [mn, mx] = [_afNombre(F.min), _afNombre(F.max)]; if(mn!==null && mx!==null && mn>mx) [mn, mx] = [mx, mn];
   return _poListe.filter(i=>{
+    if(!poDansVue(i, v)) return false;
     if(F.statut && i.statut!==F.statut) return false;
     if(F.four && String(i.fournisseur_id)!==F.four) return false;
     if(F.chantier==='sans'){ if(i.chantier_id) return false; } else if(F.chantier && String(i.chantier_id)!==F.chantier) return false;
@@ -7375,9 +7437,16 @@ function afficherPOS(){
               : '<tr><td colspan="10"><div class="empty"><div class="empty-icon"><i class="ti ti-shopping-cart"></i></div><p>Aucune commande</p><button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Créer une commande</button></div></td></tr>')
     : items.map(lignePO).join('');
   const ht = items.filter(r=>r.statut!=='annulee').reduce((t,r)=>t+(parseFloat(r.total_ht)||0), 0);
-  const c = el('po-compte');
-  if(c) c.textContent = items.length + ' commande' + (items.length>1?'s':'') + (filtre ? ' sur ' + _poListe.length : '') + (items.length ? ' · Total HT (hors annulées) : ' + fmt(ht) : '');
+  const c = el('po-compte'), nVue = _poListe.filter(r=>poDansVue(r, _poVue)).length;
+  if(c) c.textContent = items.length + ' commande' + (items.length>1?'s':'') + (filtre ? ' sur ' + nVue : '') + (items.length ? ' · Total HT (hors annulées) : ' + fmt(ht) : '');
   const b = el('po-f-reset'); if(b) b.style.display = filtre ? '' : 'none';
+  // 27/11 : recherche → l'autre onglet a des résultats ? on le dit (rien ne se perd « dans les archives »)
+  let au = el('po-autre-vue');
+  if(!au && c){ au = document.createElement('span'); au.id = 'po-autre-vue'; au.style.cssText = 'margin-left:10px;font-size:12.5px'; c.after(au); }
+  if(au){
+    const autre = _poVue === 'archives' ? 'cours' : 'archives', n = (filtre && _poVue !== 'toutes') ? poFiltrees(autre).length : 0;
+    au.innerHTML = n ? '<i class="ti ti-'+(autre==='archives'?'archive':'shopping-cart')+'"></i> '+n+' commande'+(n>1?'s':'')+' '+(autre==='archives' ? 'archivée'+(n>1?'s':'') : 'en cours')+' correspond'+(n>1?'ent':'')+' aussi — <a href="#" id="po-voir-autre" onclick="poChangerVue(\''+autre+'\');return false" style="color:var(--blue);font-weight:600">Voir</a>' : '';
+  }
 }
 function majFiltrePO(k, v){ _poF[k] = v; selExpVider('pos'); afficherPOS(); }
 function reinitialiserFiltresPO(){ _poF = filtresPOVides(); afRemettreChamps(['po-f-search','po-filter-statut','po-f-four','po-f-chantier','po-f-de','po-f-a','po-f-min','po-f-max','po-f-par']); selExpVider('pos'); afficherPOS(); }
@@ -7461,6 +7530,7 @@ async function renderPOS(search='', filterStatut=''){
   _poRefs = await chargerRefsInterventions(_pos.map(p=>p.intervention_id));
   await tracChargerUtilisateurs();
   _poF = filtresPOVides(); _poF.search = String(search||''); _poF.statut = String(filterStatut||'');
+  _poVue = PO_ARCHIVES.includes(_poF.statut) ? 'archives' : 'cours';   // 27/11 : on arrive sur « en cours » (sauf lien vers un statut archivé)
   el('page-content').innerHTML = `
     <div class="page-header">
       <div class="page-header-left"><h1>Bons de commande</h1><p>Achats et commandes fournisseurs</p></div>
@@ -7470,7 +7540,7 @@ async function renderPOS(search='', filterStatut=''){
         <button class="btn btn-primary" onclick="openNewPO()"><i class="ti ti-plus"></i> Nouvelle commande</button>
       </div>
     </div>
-    ${barreFiltresPO()}
+    <div id="po-vue-zone">${ongletsPO()}${barreFiltresPO()}</div>
     <div class="card">
       <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table data-tri="oui" data-export="pos">
@@ -13061,18 +13131,45 @@ async function majNumeroAutoChantier(){
 }
 
 // ── Chantiers : même nom + même client, numéro déjà pris ──
+// Codes de l'application Pointages (lecture paginée) — lève une erreur si la base des pointages est illisible
+async function ptCodesChantiers(){
+  const out = [];
+  for(let d0=0; ; d0+=1000){
+    const {data,error} = await sbPT.from('chantiers').select('id,code,nom').order('id',{ascending:true}).range(d0, d0+999);
+    if(error) throw error;
+    const l = data||[]; out.push(...l);
+    if(l.length<1000) break;
+  }
+  return out;
+}
+const libPtChantier = p => String((p&&p.code)||'') + (nomSansCodePt(p) ? ' — '+nomSansCodePt(p) : '');
+// 27/11 : un même P… / CF… / SAV… ne peut exister deux fois (ERP et pointages) ; « CF0006 » = « cf 0006 » = « CF-0006 »
 async function controlerDoublonsChantier(v, id){
   let ancien = null;
   if(id){ const r = await sb.from('chantiers_lyneo').select('*').eq('id',id).single(); ancien = r.data||null; }
-  const {data, error} = await sb.from('chantiers_lyneo').select('*');
-  if(error) return 'ok';
+  let data;
+  try{ data = await lirePagine('chantiers_lyneo', '*'); }
+  catch(e){ if(v.numero || (v.codes||[]).some(x=>String(x).trim())){ showToast('Contrôle des numéros impossible (lecture des chantiers) : réessayez — '+escHtml((e&&e.message)||e), 'error'); return 'stop'; } return 'ok'; }
   const autres = (data||[]).filter(c=>!id || String(c.id)!==String(id));
-  if(v.numero && (!ancien || ancien.numero!==v.numero)){
-    const pris = autres.find(c=>_txt(c.numero).trim().toLowerCase()===v.numero.trim().toLowerCase());
-    if(pris){ showToast(`Le numéro ${v.numero} est déjà utilisé par « ${pris.nom} » — choisissez-en un autre`, 'error'); return 'stop'; }
-    const cle = v.numero.trim().toLowerCase();
-    const codePris = autres.find(c=>codesPointagesDe(c).some(x=>x.toLowerCase()===cle));
-    if(codePris){ showToast(`Le numéro ${v.numero} est déjà le code pointages de « ${codePris.nom} » — choisissez-en un autre`, 'error'); return 'stop'; }
+  const k = cleCodePt, codesAvant = new Set(ancien ? codesPointagesDe(ancien).map(k) : []), codesSaisis = (v.codes||[]).map(x=>String(x).trim()).filter(Boolean);
+  const nomDe = c => (c.numero ? c.numero+' — ' : '')+(c.nom||'');
+  if(v.numero && (!ancien || k(ancien.numero)!==k(v.numero))){
+    const pris = autres.find(c=>k(c.numero) && k(c.numero)===k(v.numero));
+    if(pris){ showToast(`Le numéro ${escHtml(v.numero)} est déjà utilisé par « ${escHtml(pris.nom||'')} » (${escHtml(pris.numero||'')}) — choisissez-en un autre`, 'error'); return 'stop'; }
+    const codePris = autres.find(c=>codesPointagesDe(c).some(x=>k(x)===k(v.numero)));
+    if(codePris){ showToast(`Le numéro ${escHtml(v.numero)} est déjà le code pointages de « ${escHtml(codePris.nom||'')} » (${escHtml(codePris.numero||'')}) — choisissez-en un autre`, 'error'); return 'stop'; }
+    // 27/11 : déjà dans l'application Pointages (créé là-bas) → refusé, sauf lien voulu (indiqué dans « Code pointages »)
+    if(!codesSaisis.some(x=>k(x)===k(v.numero)) && !codesAvant.has(k(v.numero))){
+      let pts = null; try{ pts = await ptCodesChantiers(); }catch(e){ pts = null; }
+      const p = (pts||[]).find(r=>k(r.code)===k(v.numero));
+      if(p){ showToast(`Le numéro ${escHtml(v.numero)} existe déjà dans les pointages : « ${escHtml(libPtChantier(p))} ». Choisissez un autre numéro — ou, si c'est bien ce chantier, écrivez ${escHtml(p.code)} dans « Code pointages » pour les relier.`, 'error'); return 'stop'; }
+    }
+  }
+  // un code pointages ajouté ne doit pas appartenir à un autre chantier de l'ERP
+  for(const c0 of codesSaisis){
+    if(codesAvant.has(k(c0))) continue;
+    const autre = autres.find(c=>k(c.numero)===k(c0) || codesPointagesDe(c).some(x=>k(x)===k(c0)));
+    if(autre){ showToast(`Le code pointages ${escHtml(c0)} appartient déjà à « ${escHtml(nomDe(autre))} » — un code ne peut servir qu'à un seul chantier`, 'error'); return 'stop'; }
   }
   const kNom = cleNom(v.nom);
   const change = !ancien || cleNom(ancien.nom)!==kNom || _txt(ancien.client_id)!==_txt(v.client_id);
@@ -17953,6 +18050,11 @@ async function saveEditFactureVente(facId){
     sgEfv = avant.type_facture === 'avoir' ? -1 : 1;
     const tot = totauxFacture(lignesEfv), n = v => sgEfv < 0 ? (v === 0 ? 0 : -v) : v;
     maj.total_ht = n(tot.ht); maj.total_tva = n(tot.tva); maj.total_ttc = n(tot.ttc);
+    // 26/11 : un écart d'arrondi régularisé en interne (ecart_arrondi_ct) n'est plus vrai si les montants changent → on l'efface (sinon la base refuse)
+    try{ const rx = await sb.from('factures_vente').select('ecart_arrondi_ct').eq('id', facId).single();
+      if(!rx.error && rx.data && rx.data.ecart_arrondi_ct != null){
+        const e = Math.round(maj.total_ttc*100) - Math.round(maj.total_ht*100) - Math.round(maj.total_tva*100);
+        if(Number(rx.data.ecart_arrondi_ct) !== e){ maj.ecart_arrondi_ct = null; maj.ecart_arrondi_regularise_le = null; maj.ecart_arrondi_regularise_par = null; } } }catch(e){}
     const sc = el('efv-client'); if(sc && sc.value) maj.client_id = sc.value;
     const w = await fvSauverLignes(facId, lignesEfv, window._efvLignesIds, sgEfv);
     if(w.erreur){ showToast('Lignes non enregistrées : ' + w.erreur, 'error'); if(b) b.disabled=false; return; }
@@ -25653,7 +25755,7 @@ function havCorrTotaux(){
 function havCorrDessiner(){
   const c = _havCorr; if(!c) return;
   const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
-  const optCh = sel => '<option value="">— Chantier / SAV —</option>' + c.codes.map(x=>'<option value="'+escHtml(x.id)+'"'+(x.id===String(sel)?' selected':'')+'>'+escHtml(x.code)+(x.nom && x.nom!==x.code ? ' — '+escHtml(x.nom) : '')+(x.inactif?' (fermé)':'')+'</option>').join('');
+  const optCh = sel => '<option value="">— Chantier / SAV —</option>' + c.codes.map(x=>'<option value="'+escHtml(x.id)+'"'+(x.id===String(sel)?' selected':'')+'>'+escHtml(x.code)+(nomSansCodePt(x) ? ' — '+escHtml(nomSansCodePt(x)) : '')+(x.inactif?' (fermé)':'')+'</option>').join('');
   const lignes = c.lignes.map((l,i)=>'<tr class="havc-ligne" data-i="'+i+'">'
     + '<td style="padding:4px 6px;min-width:230px"><select class="havc-ch" data-ordre="fixe" onchange="havCorrMaj('+i+',\'pt\',this.value)" style="width:100%">'+optCh(l.pt)+'</select></td>'
     + (c.avecType ? '<td style="padding:4px 6px"><select class="havc-type" data-ordre="fixe" onchange="havCorrMaj('+i+',\'t\',this.value)"><option value="jour"'+(l.t!=='nuit'?' selected':'')+'>Jour</option><option value="nuit"'+(l.t==='nuit'?' selected':'')+'>🌙 Nuit</option></select></td>' : '')
@@ -25717,8 +25819,11 @@ async function havCorrEnregistrer(){
   const code = id => (c.codes.find(x=>x.id===String(id))||{}).code || '?';
   const erpDe = id => { const cd = code(id); const e = c.erp.find(x=>(typeof codesPointagesDe==='function' ? codesPointagesDe(x) : [x.code_pointages]).some(k=>String(k||'').trim().toUpperCase()===cd.toUpperCase()) || String(x.numero||'').toUpperCase()===cd.toUpperCase()); return e ? e.id : null; };
   const faits = []; let erreur = null;
+  // 27/11 : ajouts d'abord, suppressions en dernier — une erreur en route ne fait jamais disparaître d'heures
+  const ORDRE_OPS = {ajout:0, modification:1, suppression:2};
+  const opsOrdonnees = r.ops.slice().sort((a,b)=>ORDRE_OPS[a.action]-ORDRE_OPS[b.action]);
   try{
-    for(const op of r.ops){
+    for(const op of opsOrdonnees){
       if(op.action === 'modification'){
         const u = await sbPT.from('picages').update({heures: op.apres}).eq('id', op.maj.id).eq('heures', op.maj.heures).select('id');
         if(u.error){ erreur = u.error; break; }
@@ -25731,7 +25836,7 @@ async function havCorrEnregistrer(){
       }
       if(op.action === 'ajout'){
         const ligne = {employe_id: Number.isFinite(Number(c.emp)) ? Number(c.emp) : c.emp, chantier_id: Number.isFinite(Number(op.pt)) ? Number(op.pt) : op.pt, date: op.jour, heures: op.apres, semaine_id: c.semId};
-        if(c.avecType) ligne.type_heures = op.t;
+        if(c.avecType) ligne.type_heures = op.t === 'nuit' ? 'nuit' : 'normal';   // 27/11 : la base des pointages n'accepte que 'normal' | 'nuit'
         const a = await sbPT.from('picages').insert(ligne).select('id');
         if(a.error){ erreur = a.error; break; }
         if(!(a.data||[]).length){ erreur = new Error('ajout non confirmé par la base'); break; }
